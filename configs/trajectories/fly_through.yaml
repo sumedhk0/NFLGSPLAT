@@ -1,0 +1,28 @@
+# Default novel-view trajectory: a gentle orbit + dolly around the snap point.
+# Poses are in the world frame (meters, +X home endzone, +Z up).
+
+trajectory:
+  fps: 30
+  mode: bezier
+  keyframes:
+    - t: 0.0
+      position_m: [-30.0, 25.0, 8.0]
+      look_at_m:  [0.0,  0.0,  1.0]
+      up: [0.0, 0.0, 1.0]
+    - t: 0.33
+      position_m: [0.0, 30.0, 12.0]
+      look_at_m:  [0.0, 0.0,  1.0]
+      up: [0.0, 0.0, 1.0]
+    - t: 0.66
+      position_m: [30.0, 25.0, 8.0]
+      look_at_m:  [0.0,  0.0,  1.0]
+      up: [0.0, 0.0, 1.0]
+    - t: 1.0
+      position_m: [0.0, 0.0, 25.0]
+      look_at_m:  [0.0, 0.0,  1.0]
+      up: [0.0, 1.0, 0.0]
+
+intrinsics:
+  fov_y_deg: 40.0
+  width: 1920
+  height: 1080

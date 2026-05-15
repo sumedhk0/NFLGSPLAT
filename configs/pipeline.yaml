@@ -1,0 +1,109 @@
+# Master pipeline configuration. Loaded via OmegaConf.
+# Stage configs (field_recon.yaml, smplx_fit.yaml, avatar.yaml) override slices.
+# CLI overrides: `... game_id=game_042 avatars.heroes=[12,81]`
+
+game_id: game_001
+play_id: play_001
+
+paths:
+  raw_video: data/raw
+  annotations: data/annotations
+  outputs: outputs
+  body_models: data/body_models
+  weights: weights
+
+cameras:
+  - sideline
+  - endzone
+
+# Field / world frame — frozen. Origin at center, +X home endzone, +Z up.
+# Values derived from the NFL rulebook:
+#   length 120 yd = 109.728 m   (playing field 100 yd + 2 x 10 yd endzones)
+#   width  53⅓ yd = 48.768 m
+#   hash marks 70'9" from each sideline → offset from centerline
+#     = 80 ft (half-width) − 70.75 ft = 9.25 ft = 2.8194 m
+#   yard-line spacing 5 yd = 4.572 m
+world:
+  field_length_m: 109.728
+  field_width_m: 48.768
+  hash_offset_m: 2.8194
+  yard_line_spacing_m: 4.572
+
+field:
+  pre_snap_frames_per_cam: 60
+  fps_sample: 2.0
+  splatfacto_iters: 30000
+  cull_alpha_thresh: 0.1
+  sh_degree: 3
+  background_color: [0.0, 0.0, 0.0]
+
+tracking:
+  yolo_weights: yolov8x.pt
+  tracker: botsort
+  jersey_ocr_enabled: true
+  field_buffer_m: 1.0
+  min_detection_conf: 0.35
+
+pose:
+  body_joints: 22
+  smplx_gender: neutral
+  reproj_reject_px: 20.0
+  smplestx_conf_reject: 0.3
+  min_valid_joints_per_frame: 10
+  max_missing_frame_fraction: 0.30
+  gap_interpolation_frames: 5
+  smoother:
+    min_cutoff: 1.0
+    beta: 0.007
+    d_cutoff: 1.0
+
+avatars:
+  default_method: lhm
+  heroes: []
+  lhm:
+    model: auto          # auto | lhm_1b | lhm_mini
+    vram_floor_gb: 8.0
+    vram_1b_gb: 16.0
+  gdgs_avatar:
+    iters: 20000
+    batch_size: 4
+
+ball:
+  yolo_weights: ball_yolov8.pt
+  min_detection_conf: 0.25
+  kalman:
+    gravity_mps2: 9.81
+    process_noise: 0.5
+    measurement_noise_px: 3.0
+
+calibration:
+  max_reproj_px: 5.0
+  bundle_adjustment: true
+  min_landmarks: 6
+
+compositing:
+  virtual_camera:
+    trajectory: configs/trajectories/fly_through.yaml
+    fps: 30
+  encode:
+    codec: libx264
+    crf: 18
+
+slurm:
+  account: gatech
+  partition: gpu-h100
+  gpu: h100:1
+  cpus_per_task: 8
+  mem: "64G"
+  time_field: "02:00:00"
+  time_play: "01:00:00"
+  time_avatar_hero: "04:00:00"
+
+logging:
+  level: INFO
+  json_file: logs/pipeline.jsonl
+  rich_console: true
+
+cache:
+  force: false
+  manifest_hash_algo: sha256

@@ -1,0 +1,25 @@
+# Avatar strategy: tiered LHM++ default, 3DGS-Avatar for hero players.
+
+avatars:
+  default_method: lhm
+  heroes: []
+
+  lhm:
+    model: auto
+    vram_floor_gb: 8.0
+    vram_1b_gb: 16.0
+    reference_selection:
+      metric: bbox_area_times_vitpose_conf
+      min_vitpose_conf: 0.4
+
+  gdgs_avatar:
+    iters: 20000
+    batch_size: 4
+    lr: 1e-3
+    sh_degree: 3
+    use_both_cameras: true
+    slurm_only: true
+
+  lbs_animate:
+    device: cuda
+    chunk_frames: 32

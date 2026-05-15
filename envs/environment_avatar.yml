@@ -1,0 +1,21 @@
+name: nfl_avatar
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pytorch=2.0.1
+  - torchvision=0.15.2
+  - pytorch-cuda=11.8
+  - numpy=1.24.4
+  - pip
+  - pip:
+    - omegaconf==2.3.0
+    - typer==0.12.3
+    - rich==13.7.1
+    - opencv-python==4.10.0.84
+    - smplx==0.1.28
+    - trimesh==4.3.2
+    - plyfile==1.0.3
+    - tqdm

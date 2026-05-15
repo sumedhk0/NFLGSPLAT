@@ -1,0 +1,30 @@
+# 2-view SMPL-X fusion settings.
+
+pose:
+  body_joints: 22
+  smplx_gender: neutral
+  reproj_reject_px: 20.0
+  smplestx_conf_reject: 0.3
+  min_valid_joints_per_frame: 10
+  max_missing_frame_fraction: 0.30
+  gap_interpolation_frames: 5
+
+  refit:
+    optimizer: trf               # scipy.optimize.least_squares method
+    max_nfev: 200
+    loss: soft_l1
+    f_scale: 0.05
+    warm_start_from_previous: true
+    freeze_betas: true
+    pose_prior: vposer           # vposer | gmm | none
+    pose_prior_weight: 0.05
+    shape_prior_weight: 0.01
+
+  smoother:
+    min_cutoff: 1.0
+    beta: 0.007
+    d_cutoff: 1.0
+    apply_to:
+      - body_pose
+      - global_orient
+      - transl

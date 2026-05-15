@@ -1,0 +1,25 @@
+name: nfl_lhm
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pytorch=2.1.2
+  - torchvision=0.16.2
+  - pytorch-cuda=12.1
+  - numpy=1.26.4
+  - pip
+  - pip:
+    - omegaconf==2.3.0
+    - typer==0.12.3
+    - rich==13.7.1
+    - opencv-python==4.10.0.84
+    - smplx==0.1.28
+    - trimesh==4.3.2
+    - plyfile==1.0.3
+    - einops==0.8.0
+    - diffusers==0.29.2
+    - transformers==4.42.4
+    - accelerate==0.32.1
+    - huggingface_hub==0.23.4

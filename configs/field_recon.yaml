@@ -1,0 +1,14 @@
+# Overrides for field reconstruction.
+# Merged on top of pipeline.yaml via OmegaConf.merge(base, this).
+
+field:
+  pre_snap_frames_per_cam: 60
+  fps_sample: 2.0
+  splatfacto_iters: 30000
+  cull_alpha_thresh: 0.1
+  densification_interval: 100
+  opacity_reset_interval: 3000
+  sh_degree: 3
+  random_init: false
+  auto_scale_poses: false   # poses are already metric from PnP
+  center_method: none

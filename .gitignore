@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+coverage.json
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env
+
+# IDE + editor backups
+.vscode/
+.idea/
+*.swp
+*~
+*.bak
+*.orig
+*.rej
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Project-specific: never commit real NFL video, weights, or outputs
+data/raw/**
+!data/raw/.gitkeep
+data/annotations/**
+!data/annotations/.gitkeep
+data/body_models/**
+!data/body_models/.gitkeep
+data/weights/**
+!data/weights/.gitkeep
+
+# Model weights (downloaded via scripts/01_download_models.sh)
+weights/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# External repos cloned by scripts/01_download_models.sh
+# (SMPLer-X, LHM, 3dgs-avatar-release, ViTPose — each has its own git history)
+third_party/
+
+# Partial downloads from aria2c / wget (resumable; not meant to be committed)
+*.aria2
+*.part
+
+# Pipeline outputs
+outputs/**
+!outputs/.gitkeep
+
+# nerfstudio / gsplat runtime artifacts
+wandb/
+logs/
+nerfstudio_models/
+
+# SLURM fallback log output (if a user forgets #SBATCH --output=logs/...)
+slurm-*.out
+
+# CI test report (uploaded as an artifact, not committed)
+pytest.xml
+
+# Test fixture renders (regenerated on demand)
+tests/fixtures/generated/
+
+# Conda / pip caches
+pip-log.txt
+pip-delete-this-directory.txt

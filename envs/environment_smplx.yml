@@ -1,0 +1,31 @@
+name: nfl_smplx
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pytorch=2.1.2
+  - torchvision=0.16.2
+  - pytorch-cuda=12.1
+  - numpy=1.26.4
+  - scipy=1.11.4
+  - pyyaml
+  - pip
+  - pip:
+    - omegaconf==2.3.0
+    - typer==0.12.3
+    - rich==13.7.1
+    - opencv-python==4.10.0.84
+    - smplx==0.1.28
+    - mmcv==2.1.0
+    - mmpose==1.3.1
+    - mmdet==3.3.0
+    - chumpy==0.70
+    - trimesh==4.3.2
+    - human-body-prior==2.2.2.0    # VPoser
+    - ultralytics==8.2.50
+    - paddleocr==2.7.3
+    - paddlepaddle-gpu==2.6.1
+    - pandas==2.2.2
+    - pyarrow==16.1.0
