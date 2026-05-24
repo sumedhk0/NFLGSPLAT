@@ -1,0 +1,33 @@
+# Season-scoped player identity + avatar/shape library settings.
+# Overrides the `identity:` and `avatars.library:` slices of pipeline.yaml.
+
+identity:
+  enabled: true
+  # roster: constrained classification against nflverse rosters/participation
+  #         (fetched by scripts/fetch_roster.py into roster_path).
+  # ocr_only: no external data; synthesize a uid from observed (team, jersey).
+  source: roster
+  season: 0
+  roster_path: data/rosters/${identity.season}
+
+  # Per-play home/away team abbreviations live alongside the video in
+  # data/raw/{game_id}/plays.yaml under `meta:`. Used to label the two color
+  # clusters and to scope the per-game candidate roster.
+  match:
+    jersey_weight: 1.0          # cost per jersey-digit mismatch
+    team_mismatch_cost: 1000.0  # hard gate: never match across teams
+    unknown_jersey_cost: 5.0    # cost when a track has no confident OCR
+    max_jersey_digit_cost: 10.0
+    max_match_cost: 8.0         # reject assignments above this cost
+
+  referee:
+    enabled: true               # route striped non-roster tracks to a generic avatar
+    min_stripe_transitions: 4
+    max_mean_saturation: 60.0
+    dark_bright_gap: 40.0
+
+avatars:
+  library:
+    enabled: true
+    path: library
+    rebuild: false

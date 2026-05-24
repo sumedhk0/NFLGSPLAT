@@ -67,6 +67,30 @@ avatars:
   gdgs_avatar:
     iters: 20000
     batch_size: 4
+  # Per-player avatar + shape library (cache tier above the per-play manifest).
+  # Built once per player, reused across every play/game of the season.
+  library:
+    enabled: true
+    path: library
+    rebuild: false       # true forces regeneration even on a cache hit
+
+# Season-scoped player identity. The roster prior turns recognition into
+# constrained classification; OcrOnlySource is the fallback when no roster
+# data is present. See nfl_gsplat.identity.
+identity:
+  enabled: true
+  source: roster         # roster | ocr_only
+  season: 0              # set per run, e.g. 2024
+  roster_path: data/rosters/${identity.season}
+  match:
+    jersey_weight: 1.0
+    team_mismatch_cost: 1000.0
+    unknown_jersey_cost: 5.0
+    max_match_cost: 8.0
+  referee:
+    enabled: true
+    min_stripe_transitions: 4
+    max_mean_saturation: 60.0
 
 ball:
   yolo_weights: ball_yolov8.pt
@@ -75,6 +99,11 @@ ball:
     gravity_mps2: 9.81
     process_noise: 0.5
     measurement_noise_px: 3.0
+  # Render the ball as the canonical football asset (library uid __football__)
+  # oriented along the Kalman velocity, rather than a placeholder blob.
+  asset:
+    use_canonical_asset: true
+    spin_rate: 6.0       # rad per (m/s · s) about the long axis
 
 calibration:
   max_reproj_px: 5.0

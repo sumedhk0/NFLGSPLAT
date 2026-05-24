@@ -23,3 +23,11 @@ avatars:
   lbs_animate:
     device: cuda
     chunk_frames: 32
+
+  # Per-player avatar + shape library. Build each player's canonical avatar +
+  # betas once (keyed by player_uid from nfl_gsplat.identity), reuse for every
+  # play/game of the season. Generic referee + football assets live here too.
+  library:
+    enabled: true
+    path: library
+    rebuild: false       # true forces regeneration even when a cache entry exists

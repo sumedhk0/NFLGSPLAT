@@ -24,13 +24,18 @@ import numpy as np
 import pytest
 
 from nfl_gsplat.avatars.lbs_animate import animate_gaussians
-from nfl_gsplat.avatars.lhm_wrapper import write_mock_avatar
+from nfl_gsplat.avatars.library import AvatarLibrary
+from nfl_gsplat.avatars.lhm_wrapper import resolve_avatars, write_mock_avatar
+from nfl_gsplat.ball.ball_asset import make_football_asset
 from nfl_gsplat.compositing.merge_ply import (
     batch_from_arrays,
     load_gaussian_ply,
     merge_batches,
     save_gaussian_ply,
 )
+from nfl_gsplat.compositing.scene import compose_frame, football_batch, posed_avatar_batch
+from nfl_gsplat.identity.registry import EntityType
+from nfl_gsplat.pose.fuse_smplx import resolve_betas
 from nfl_gsplat.field.train_field import read_ply_gaussian_count, write_mock_field_ply
 from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_annotations
 from nfl_gsplat.pose.fuse_smplx import (
@@ -283,3 +288,79 @@ def test_smoke_render_nonblack(tmp_path: Path):
     img = iio.imread(pngs[0]).astype(np.float32)
     lum = 0.2126 * img[..., 0] + 0.7152 * img[..., 1] + 0.0722 * img[..., 2]
     assert float(lum.mean()) > 5.0, f"rendered frame too dark: mean luminance {lum.mean():.2f}"
+
+
+# --- 7. Season-scale path: library reuse + players/referee/football ----------
+
+def test_smoke_composite_count_players_referee_football(tmp_path: Path):
+    """Updated contract: field_N + Σ player_N + ref_N + football_N.
+
+    Composes 2 posed players + 1 posed referee + 1 oriented football on top of
+    the field, exactly as ``scripts/05`` does per frame.
+    """
+    field_path = tmp_path / "field.ply"
+    write_mock_field_ply(field_path, num_gaussians=40_000, seed=1)
+    field = load_gaussian_ply(field_path)
+    field_n = field.num_gaussians
+
+    lib = AvatarLibrary(tmp_path / "library", season=2024)
+    from nfl_gsplat.utils.io import read_npz
+
+    # Two players + one generic referee, each a mock canonical avatar.
+    player_n, ref_n = 1500, 900
+    for i, uid in enumerate(("00-A", "00-B")):
+        ap = tmp_path / f"{uid}.npz"
+        write_mock_avatar(ap, num_gaussians=player_n, num_joints=22, seed=10 + i)
+        lib.put_avatar(uid, read_npz(ap))
+    rp = tmp_path / "ref.npz"
+    write_mock_avatar(rp, num_gaussians=ref_n, num_joints=22, seed=99)
+    lib.put_referee_avatar(read_npz(rp))
+
+    # Identity joint transforms → posed == canonical.
+    tfms = np.tile(np.eye(4)[None, :, :], (22, 1, 1))
+    posed = [posed_avatar_batch(lib.get_avatar(u), tfms) for u in ("00-A", "00-B")]
+    posed.append(posed_avatar_batch(lib.get_referee_avatar(), tfms))
+
+    asset = make_football_asset()
+    ball_n = asset["xyz"].shape[0]
+    ball = football_batch(asset, np.array([0.0, 0.0, 2.0]), np.array([8.0, 0.0, 1.0]), t=0.1)
+
+    merged = compose_frame(field, posed, ball)
+    assert merged.num_gaussians == field_n + 2 * player_n + ref_n + ball_n
+
+
+def test_smoke_library_reuse_skips_regeneration(tmp_path: Path):
+    """A player reconstructed in play 1 is served from the library in play 2 —
+    LHM++ (mocked) runs once per player, not once per player-per-play."""
+    lib = AvatarLibrary(tmp_path / "library", season=2024)
+    calls: list[str] = []
+
+    def gen(uid: str) -> dict:
+        calls.append(uid)
+        ap = tmp_path / f"gen_{uid}.npz"
+        write_mock_avatar(ap, num_gaussians=300, num_joints=22, seed=len(calls))
+        from nfl_gsplat.utils.io import read_npz
+        return read_npz(ap)
+
+    P = EntityType.PLAYER.value
+    resolve_avatars([("qb_12", P), ("wr_81", P)], lib, gen)
+    plan2 = resolve_avatars([("qb_12", P), ("rb_28", P)], lib, gen)
+
+    assert plan2.cache_hits == ["qb_12"]
+    assert plan2.generated == ["rb_28"]
+    assert calls == ["qb_12", "wr_81", "rb_28"], "qb_12 must not be regenerated"
+
+
+def test_smoke_frozen_betas_reused_across_plays(tmp_path: Path):
+    """Betas cached in play 1 are reused (not re-estimated) in play 2."""
+    lib = AvatarLibrary(tmp_path / "library", season=2024)
+    betas = np.linspace(-0.2, 0.2, 10).astype(np.float32)
+    lib.put_betas("qb_12", betas)
+
+    cfg = SMPLXFitConfig(use_library_betas=True)
+    # In a later play, the estimate would differ; the library value wins.
+    resolved, source = resolve_betas(
+        lib.get_betas("qb_12"), lambda: np.zeros(10), cfg
+    )
+    assert source == "library"
+    assert np.allclose(resolved, betas, atol=1e-6)

@@ -16,6 +16,11 @@ pose:
     f_scale: 0.05
     warm_start_from_previous: true
     freeze_betas: true
+    # Reuse the player's cached shape from the avatar/shape library so the
+    # cached avatar's rig and this play's pose skeleton share bone lengths.
+    # When false, betas are re-estimated per play (bit-identical to no library,
+    # but mismatches the cached avatar). See pose.fuse_smplx.resolve_betas.
+    use_library_betas: true
     pose_prior: vposer           # vposer | gmm | none
     pose_prior_weight: 0.05
     shape_prior_weight: 0.01

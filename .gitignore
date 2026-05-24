@@ -42,6 +42,14 @@ data/body_models/**
 !data/body_models/.gitkeep
 data/weights/**
 !data/weights/.gitkeep
+# Roster / participation prior (fetched by scripts/fetch_roster.py; nflverse
+# data is not ours to redistribute).
+data/rosters/**
+!data/rosters/.gitkeep
+
+# Per-player avatar + shape library (derived canonical avatars, betas, assets)
+library/**
+!library/.gitkeep
 
 # Model weights (downloaded via scripts/01_download_models.sh)
 weights/

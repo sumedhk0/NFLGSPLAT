@@ -41,6 +41,7 @@ class SMPLXFitConfig:
     min_frame_validity_frac: float = 0.7
     max_iter: int = 50
     loss: str = "soft_l1"             # scipy least_squares loss
+    use_library_betas: bool = True    # reuse the player's cached shape (see resolve_betas)
 
 
 @dataclass
@@ -165,6 +166,40 @@ def fuse_sequence(
         valid_frames=valid_frames,
         residual_rms_m=rms,
     )
+
+
+# --- Betas (shape) source policy --------------------------------------------
+
+def resolve_betas(
+    library_betas: np.ndarray | None,
+    estimate_fn: Callable[[], np.ndarray],
+    cfg: SMPLXFitConfig,
+) -> tuple[np.ndarray, str]:
+    """Decide which SMPL-X shape vector drives the per-play pose solve.
+
+    Policy (the cached-avatar library requires the avatar's rig and the
+    per-play pose skeleton to share betas, else the splats slide off the rig):
+
+    - ``use_library_betas`` and a cached value exists → reuse it (``"library"``).
+    - otherwise estimate fresh this play (``"estimated"``); callers should then
+      persist the estimate to the library so later plays reuse it.
+
+    ``betas`` is *not* part of the optimizer vector — it parameterizes the
+    forward (rest skeleton). This function only selects which betas to bake in.
+    """
+    if cfg.use_library_betas and library_betas is not None:
+        return np.asarray(library_betas, dtype=np.float64), "library"
+    return np.asarray(estimate_fn(), dtype=np.float64), "estimated"
+
+
+def betas_scaled_template(base_template: np.ndarray, betas: np.ndarray) -> np.ndarray:
+    """Apply a toy shape model: uniform skeleton scaling by ``1 + betas[0]``.
+
+    The real SMPL-X forward applies learned shape blendshapes; this stand-in
+    lets CPU tests verify that the *resolved* betas (frozen vs. estimated)
+    actually change the rest skeleton the optimizer fits against.
+    """
+    return np.asarray(base_template, dtype=np.float64) * (1.0 + float(np.asarray(betas).ravel()[0]))
 
 
 # --- Trivial rigid-body forward for tests ----------------------------------

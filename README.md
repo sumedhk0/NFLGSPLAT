@@ -2,7 +2,7 @@
 
 Reconstruct NFL plays from two synchronized broadcast feeds (sideline + endzone) as free-viewpoint 3D Gaussian Splatting scenes, renderable from any virtual camera.
 
-CPU test suite: **60 passing** (calibration, tracking, field I/O, triangulation, pose fusion, ball Kalman, avatars, PLY merge, end-to-end smoke). GitHub Actions runs `pytest -m "not gpu and not slow and not real_video"` + ruff on every push; see `.github/workflows/ci.yml`.
+CPU test suite: **101 passing** (calibration, tracking, field I/O, triangulation, pose fusion, ball Kalman + football asset, avatars, PLY merge, identity registry, avatar/shape library, scene compositing, end-to-end smoke). GitHub Actions runs `pytest -m "not gpu and not slow and not real_video"` + ruff on every push; see `.github/workflows/ci.yml`.
 
 ## What this pipeline does
 
@@ -54,6 +54,9 @@ The pipeline fails loudly with a precise pointer to SETUP.md if any of these are
 - **Crowds are blurry.** The field looks sharp at 30 000 splatfacto iters; the stands are blurry and this is acceptable.
 - **LHM++ weights from Alibaba OSS.** Slow download from US networks; `01_download_models.sh` supports resume.
 - **Env-gated adapters.** SMPLest-X, LHM++, and 3DGS-Avatar each pin incompatible CUDA / PyTorch versions, so their in-tree wrappers are thin *seams* that shell out to the external repo inside the right conda env. Calling them outside their env raises `NotImplementedError` pointing to SETUP.md §8. This is what keeps the four stages coexisting.
+- **Season-scale reuse changes outputs slightly (on purpose).** With the avatar/shape library (SETUP.md §9), each player is reconstructed once and reused across plays/games, and `betas` are frozen to the library value. This makes appearance consistent play-to-play and the pose solve more stable, but is *not* bit-identical to re-estimating per play. Set `pose.refit.use_library_betas: false` to re-estimate betas per play (only sensible without the library, since per-play betas mismatch a cached avatar's rig).
+- **Roster prior coverage + alignment.** Player recognition is far more robust with the nflverse roster/participation prior, but participation data isn't available for every season, and mapping play-by-play to our frame windows depends on `plays.yaml` `meta:`. Without a roster the pipeline still runs in `identity.source=ocr_only` mode (OCR + jersey color), with no cross-game identity guarantees.
+- **Referees and the ball are generic assets, not reconstructions.** Officials render as a single shared striped-shirt avatar posed by their solved motion; non-roster non-referees are dropped. The football is one authored canonical asset oriented along the Kalman velocity (with optional spin) — broadcast footage is too small/blurry for a true per-ball reconstruction.
 
 ## Environment matrix
 

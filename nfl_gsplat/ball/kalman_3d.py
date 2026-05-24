@@ -109,14 +109,19 @@ def run_kalman(
     detections_per_frame: Sequence[Mapping[str, np.ndarray]],
     cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
     cfg: BallKalmanConfig,
-) -> tuple[np.ndarray, np.ndarray]:
+    *,
+    return_velocity: bool = False,
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Run the 3D Kalman filter across ``T`` frames.
 
     ``detections_per_frame[t]`` is a dict ``{cam_name: uv [2]}``; missing
     cameras for a given frame indicate no ball detection. Cameras not in
     ``cameras`` are silently dropped.
 
-    Returns ``(xyz [T, 3], visible [T])``.
+    Returns ``(xyz [T, 3], visible [T])``, or ``(xyz, vel [T, 3], visible)`` when
+    ``return_velocity=True``. The velocity (filter state ``x[3:6]``) is what
+    orients the canonical football asset along its flight path; ``vel`` is NaN
+    on frames where the filter has not emitted a position.
     """
     T = len(detections_per_frame)
     dt = 1.0 / cfg.fps
@@ -130,6 +135,7 @@ def run_kalman(
     initialized = False
 
     xyz = np.full((T, 3), np.nan, dtype=np.float64)
+    vel = np.full((T, 3), np.nan, dtype=np.float64)
     visible = np.zeros(T, dtype=bool)
 
     for t in range(T):
@@ -178,6 +184,9 @@ def run_kalman(
             P = (np.eye(6) - K_kf @ H) @ P
 
         xyz[t] = x[:3]
+        vel[t] = x[3:]
         visible[t] = True
 
+    if return_velocity:
+        return xyz, vel, visible
     return xyz, visible

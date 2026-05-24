@@ -32,3 +32,12 @@ class LHMVRAMError(PipelineError):
 
 class CacheHashMismatch(PipelineError):
     """Upstream inputs changed and a stage's cache is stale (use --force)."""
+
+
+class IdentityError(PipelineError):
+    """Player identity could not be resolved (missing/misaligned roster data).
+
+    The message MUST name the missing resource (roster parquet, participation
+    alignment) and point to the relevant SETUP.md section. We never guess a
+    ``player_uid`` silently when the roster prior is requested but unavailable.
+    """

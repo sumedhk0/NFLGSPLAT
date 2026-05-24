@@ -26,15 +26,19 @@ satisfies the smoke-test schema without any GPU work.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Callable, Iterable, Literal
 
 import numpy as np
 
 from nfl_gsplat.errors import LHMVRAMError, SetupError
+from nfl_gsplat.identity.registry import REFEREE_UID, EntityType
 from nfl_gsplat.utils.io import write_npz
 from nfl_gsplat.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from nfl_gsplat.avatars.library import AvatarLibrary
 
 _LOG = get_logger(__name__)
 
@@ -175,3 +179,96 @@ def write_mock_avatar(
     )
     _LOG.info(f"wrote mock LHM avatar (N={num_gaussians}, J={num_joints}) → {out_path}")
     return out_path
+
+
+# --- Reference selection + library short-circuit ----------------------------
+
+def select_reference_index(
+    bbox_areas: np.ndarray,
+    confidences: np.ndarray,
+    *,
+    min_conf: float = 0.4,
+) -> int:
+    """Pick the best reference detection for the one-time avatar build.
+
+    Implements ``avatars.lhm.reference_selection`` = ``bbox_area_times_vitpose_conf``:
+    among detections with ``conf >= min_conf``, choose the one maximizing
+    ``bbox_area * conf``. Returns -1 if none clear the confidence gate.
+    """
+    areas = np.asarray(bbox_areas, dtype=np.float64)
+    confs = np.asarray(confidences, dtype=np.float64)
+    eligible = confs >= min_conf
+    if not eligible.any():
+        return -1
+    score = np.where(eligible, areas * confs, -np.inf)
+    return int(np.argmax(score))
+
+
+@dataclass
+class AvatarPlan:
+    """Outcome of resolving a play's entities against the library."""
+
+    avatars: dict[str, dict[str, np.ndarray]] = field(default_factory=dict)
+    cache_hits: list[str] = field(default_factory=list)
+    generated: list[str] = field(default_factory=list)
+    referees: list[str] = field(default_factory=list)
+    dropped: list[str] = field(default_factory=list)
+
+
+def resolve_avatars(
+    entities: Iterable[tuple[str, str]],
+    library: "AvatarLibrary",
+    generate_fn: Callable[[str], dict[str, np.ndarray]],
+    *,
+    provenance: dict | None = None,
+) -> AvatarPlan:
+    """Decide, per entity, whether to load a cached avatar or build one.
+
+    ``entities`` is an iterable of ``(player_uid, entity_type)`` for a play.
+    Policy:
+
+    - ``PLAYER`` with a library hit → load (skips LHM++); otherwise call
+      ``generate_fn(uid)`` (the env-gated LHM++ build) and cache the result.
+    - ``REFEREE`` → the single generic striped-shirt avatar (authored once).
+    - ``OTHER`` / empty uid → dropped.
+
+    Each unique uid is processed once, so a player appearing on many tracks
+    costs at most one generation. ``generate_fn`` is injected so the cache
+    logic is testable without a GPU.
+    """
+    plan = AvatarPlan()
+    seen: set[str] = set()
+    for uid, etype in entities:
+        if etype == EntityType.OTHER.value or not uid:
+            plan.dropped.append(uid)
+            continue
+        if uid in seen:
+            continue
+        seen.add(uid)
+
+        if etype == EntityType.REFEREE.value or uid == REFEREE_UID:
+            if not library.has_referee_avatar():
+                raise SetupError(
+                    "generic referee avatar missing from the library "
+                    "(library/{season}/_assets/referee/avatar.npz). Author it "
+                    "once via the referee asset step — see SETUP.md §8."
+                )
+            plan.avatars[REFEREE_UID] = library.get_referee_avatar()
+            plan.referees.append(REFEREE_UID)
+            continue
+
+        if library.has_avatar(uid):
+            plan.avatars[uid] = library.get_avatar(uid)
+            plan.cache_hits.append(uid)
+        else:
+            avatar = generate_fn(uid)
+            library.put_avatar(uid, avatar, provenance=provenance)
+            plan.avatars[uid] = avatar
+            plan.generated.append(uid)
+
+    _LOG.info(
+        f"avatar plan: {len(plan.cache_hits)} cache hits, "
+        f"{len(plan.generated)} generated, {len(plan.referees)} referee, "
+        f"{len(plan.dropped)} dropped"
+    )
+    return plan

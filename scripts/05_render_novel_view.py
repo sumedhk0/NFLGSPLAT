@@ -4,6 +4,12 @@ Reads the per-play artifacts, merges them into a single Gaussian batch,
 drives ``gsplat.rasterization`` over a virtual-camera trajectory, and
 encodes the resulting PNG sequence to MP4.
 
+Entities are resolved through the season avatar/shape library: players load
+their cached canonical avatar by ``player_uid``, referees share the generic
+striped-shirt asset, and the football is the canonical asset oriented along the
+Kalman velocity each frame. When ``play_dir/entities.json`` is absent we fall
+back to the legacy layout (one avatar NPZ per player under ``play_dir/avatars``).
+
 Usage::
 
     python scripts/05_render_novel_view.py --game game_001 --play play_001 \
@@ -16,16 +22,18 @@ from pathlib import Path
 import numpy as np
 import typer
 
-from nfl_gsplat.avatars.lbs_animate import animate_gaussians
-from nfl_gsplat.compositing.merge_ply import (
-    GaussianBatch,
-    load_gaussian_ply,
-    merge_batches,
-)
+from nfl_gsplat.avatars.library import AvatarLibrary
+from nfl_gsplat.compositing.merge_ply import GaussianBatch, load_gaussian_ply
 from nfl_gsplat.compositing.render_gsplat import RenderConfig, render_trajectory
+from nfl_gsplat.compositing.scene import (
+    compose_frame,
+    football_batch,
+    posed_avatar_batch,
+)
 from nfl_gsplat.compositing.trajectory import sample_trajectory
 from nfl_gsplat.errors import SetupError
-from nfl_gsplat.utils.io import read_npz
+from nfl_gsplat.identity.registry import REFEREE_UID, EntityType
+from nfl_gsplat.utils.io import read_json, read_npz
 from nfl_gsplat.utils.logging import get_logger
 from nfl_gsplat.utils.video import encode_mp4
 
@@ -33,22 +41,58 @@ _LOG = get_logger(__name__)
 app = typer.Typer(add_completion=False, help=__doc__)
 
 
-def _animate_player_batch(avatar_npz: Path, joint_tfms: np.ndarray) -> GaussianBatch:
-    """Apply LBS to a canonical avatar for one frame.
+def _load_entities(play_dir: Path, library: AvatarLibrary) -> list[tuple[dict, np.ndarray]]:
+    """Return ``[(avatar_dict, joint_tfms [T, J, 4, 4]), ...]`` for the play.
 
-    ``joint_tfms [J, 4, 4]`` is the per-joint canonical→world transform."""
-    d = read_npz(avatar_npz)
-    xyz_w, rot_w = animate_gaussians(
-        d["canonical_xyz"], d["canonical_rot"], d["lbs_weights"], joint_tfms
-    )
-    return GaussianBatch(
-        xyz=xyz_w.astype(np.float32),
-        rot=rot_w.astype(np.float32),
-        scale=d["canonical_scale"].astype(np.float32),
-        opacity=d["canonical_opacity"].astype(np.float32),
-        sh=d["canonical_sh"].astype(np.float32),
-        sh_degree=int(round(np.sqrt(d["canonical_sh"].shape[-1])) - 1),
-    )
+    Avatar source by entity type: player → library by ``player_uid``; referee →
+    the generic library asset. Poses live in ``play_dir/poses/{key}.npz`` keyed
+    by the entity's uid (or, in legacy mode, the global_player_id).
+    """
+    pose_dir = play_dir / "poses"
+    entities_json = play_dir / "entities.json"
+    out: list[tuple[dict, np.ndarray]] = []
+
+    if entities_json.exists():
+        ref_avatar = library.get_referee_avatar() if library.has_referee_avatar() else None
+        for ent in read_json(entities_json):
+            uid, etype = ent["player_uid"], ent["entity_type"]
+            pose_path = pose_dir / f"{uid}.npz"
+            if etype == EntityType.OTHER.value or not uid or not pose_path.exists():
+                continue
+            if etype == EntityType.REFEREE.value or uid == REFEREE_UID:
+                if ref_avatar is None:
+                    _LOG.warning("referee entity but no generic referee avatar; skipping")
+                    continue
+                avatar = ref_avatar
+            else:
+                if not library.has_avatar(uid):
+                    _LOG.warning(f"no cached avatar for player {uid}; skipping")
+                    continue
+                avatar = library.get_avatar(uid)
+            out.append((avatar, read_npz(pose_path)["joint_tfms"]))
+        return out
+
+    # Legacy fallback: avatar NPZ per player under play_dir/avatars/.
+    for avatar_npz in sorted((play_dir / "avatars").glob("*.npz")):
+        key = avatar_npz.stem
+        pose_path = pose_dir / f"{key}.npz"
+        if not pose_path.exists():
+            _LOG.warning(f"no poses for {key}; skipping avatar")
+            continue
+        out.append((read_npz(avatar_npz), read_npz(pose_path)["joint_tfms"]))
+    return out
+
+
+def _load_ball(play_dir: Path, library: AvatarLibrary) -> tuple[dict, np.ndarray, np.ndarray] | None:
+    """Return ``(football_asset, xyz [T, 3], vel [T, 3])`` if a ball track and a
+    canonical football asset are both available, else None."""
+    ball_npz = play_dir / "ball.npz"
+    if not ball_npz.exists() or not library.has_football_asset():
+        return None
+    d = read_npz(ball_npz)
+    if "xyz" not in d or "vel" not in d:
+        return None
+    return library.get_football_asset(), d["xyz"], d["vel"]
 
 
 @app.command()
@@ -57,6 +101,9 @@ def main(
     play: str = typer.Option(...),
     trajectory: Path = typer.Option(...),
     out_root: Path = typer.Option(Path("outputs")),
+    library_root: Path = typer.Option(Path("library")),
+    season: str = typer.Option("0"),
+    spin_rate: float = typer.Option(6.0),
     device: str = typer.Option("cuda:0"),
 ) -> None:
     play_dir = out_root / game / play
@@ -64,35 +111,27 @@ def main(
     if not field_ply.exists():
         raise SetupError(f"field.ply missing at {field_ply}; run 03_reconstruct_field.sh first.")
 
-    field_batch = load_gaussian_ply(field_ply)
+    field_batch: GaussianBatch = load_gaussian_ply(field_ply)
     intr, poses = sample_trajectory(trajectory)
     num_frames = len(poses)
 
-    avatar_dir = play_dir / "avatars"
-    avatars = sorted(avatar_dir.glob("*.npz"))
-    if not avatars:
-        _LOG.warning(f"no avatars under {avatar_dir}; rendering field only")
-
-    # Per-frame joint transforms from fused SMPL-X poses. Contract is one NPZ
-    # per global_player_id under play_dir/poses/, keys {joint_tfms [T, J, 4, 4]}.
-    pose_dir = play_dir / "poses"
-    pose_tfms: dict[str, np.ndarray] = {}
-    for avatar in avatars:
-        gpid = avatar.stem
-        p = pose_dir / f"{gpid}.npz"
-        if not p.exists():
-            _LOG.warning(f"no poses for player {gpid}; skipping avatar")
-            continue
-        pose_tfms[gpid] = read_npz(p)["joint_tfms"]
+    library = AvatarLibrary(library_root, season=season)
+    entities = _load_entities(play_dir, library)
+    if not entities:
+        _LOG.warning(f"no posed entities for {game}/{play}; rendering field only")
+    ball = _load_ball(play_dir, library)
 
     frames_dir = play_dir / "render" / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
 
     for t in range(num_frames):
-        animated = []
-        for gpid, tfms in pose_tfms.items():
-            animated.append(_animate_player_batch(avatar_dir / f"{gpid}.npz", tfms[t]))
-        merged = merge_batches([field_batch, *animated])
+        posed = [posed_avatar_batch(avatar, tfms[t]) for avatar, tfms in entities]
+        ball_batch = None
+        if ball is not None:
+            asset, xyz, vel = ball
+            if t < len(xyz) and np.isfinite(xyz[t]).all():
+                ball_batch = football_batch(asset, xyz[t], vel[t], t=t / 30.0, spin_rate=spin_rate)
+        merged = compose_frame(field_batch, posed, ball_batch)
         render_trajectory(
             merged, intr, poses=[poses[t]],
             out_dir=frames_dir / f"t{t:06d}",

@@ -170,3 +170,43 @@ Either you are running a production command outside the right conda env, or `scr
 3. The stage is being invoked through `scripts/04_process_play.sh`, not imported directly from the CI env.
 
 **Why this design.** The adapters pin incompatible PyTorch / CUDA versions; vendoring any one of them would force the entire pipeline onto its pins and break the others. Env-gating is what lets all four coexist.
+
+## §9 — Roster prior + per-player avatar/shape library (season-scale reuse)
+
+For multi-game runs (e.g. one team's 17-game season), the pipeline reconstructs
+each player **once** and reuses them across every play and game. Two pieces:
+
+### Roster / participation prior (optional, recommended)
+
+The roster turns player recognition from open-set re-ID into constrained
+classification against the ~22 players actually on the field per play. Fetch it
+once per season via nflverse:
+
+```bash
+conda activate nfl_smplx
+pip install nfl_data_py          # one-time
+python scripts/fetch_roster.py --season 2024
+# → data/rosters/2024/rosters.parquet  (+ participation.parquet if available)
+```
+
+Set `identity.season=2024` (and `identity.source=roster`) in your config. Per-game
+home/away abbreviations go in `data/raw/{game_id}/plays.yaml` under `meta:`. If
+participation data is missing for a play, the full per-game roster is used as the
+candidate set; with no roster at all, `identity.source=ocr_only` falls back to
+OCR + jersey-color identities (coarser, no cross-game guarantees).
+
+`data/rosters/` is gitignored — nflverse data is not ours to redistribute.
+
+### Avatar/shape library
+
+The library at `library/{season}/{player_uid}/` caches each player's canonical
+avatar (`avatar.npz`) + frozen shape (`betas.npz`) once. On later appearances the
+avatar stage loads instead of re-running LHM++, and the pose stage reuses the
+frozen `betas` (`pose.refit.use_library_betas: true`) so the cached avatar's rig
+and the per-play pose skeleton share bone lengths. Generic assets live under
+reserved uids: `__referee__` (a striped-shirt avatar for officials) and
+`__football__` (the canonical football, oriented along the Kalman velocity).
+
+Force a rebuild with `avatars.library.rebuild=true`. `library/` is gitignored
+(derived data). Author the one-time generic referee avatar before processing
+plays, or referee tracks raise a `SetupError`.
