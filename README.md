@@ -2,7 +2,7 @@
 
 Reconstruct NFL plays from two synchronized broadcast feeds (sideline + endzone) as free-viewpoint 3D Gaussian Splatting scenes, renderable from any virtual camera.
 
-CPU test suite: **101 passing** (calibration, tracking, field I/O, triangulation, pose fusion, ball Kalman + football asset, avatars, PLY merge, identity registry, avatar/shape library, scene compositing, end-to-end smoke). GitHub Actions runs `pytest -m "not gpu and not slow and not real_video"` + ruff on every push; see `.github/workflows/ci.yml`.
+CPU test suite: **140 passing** (calibration, tracking, field I/O, triangulation, pose fusion, ball Kalman + football asset, avatars, PLY merge, identity registry, avatar/shape library, scene compositing, end-to-end smoke). GitHub Actions runs `pytest -m "not gpu and not slow and not real_video"` + ruff on every push; see `.github/workflows/ci.yml`.
 
 ## What this pipeline does
 

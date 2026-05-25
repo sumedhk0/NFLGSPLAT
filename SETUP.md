@@ -210,3 +210,50 @@ reserved uids: `__referee__` (a striped-shirt avatar for officials) and
 Force a rebuild with `avatars.library.rebuild=true`. `library/` is gitignored
 (derived data). Author the one-time generic referee avatar before processing
 plays, or referee tracks raise a `SetupError`.
+
+## §10 — Running the full season on a GPU cluster (PACE)
+
+End-to-end season pipeline, staged so each player's avatar is built **once** and
+reused across every play/game (the library on shared scratch is the cache).
+
+### One-time setup
+```bash
+# Put data + library + conda envs on scratch (home quota is small); symlink in.
+ln -s ~/scratch/nflgsplat/data    data
+ln -s ~/scratch/nflgsplat/library library
+
+module load anaconda3
+bash scripts/00_setup_environments.sh        # 4 conda envs
+bash scripts/01_download_models.sh            # SMPLer-X, LHM, 3dgs-avatar, weights
+python scripts/fetch_roster.py --season 2024  # roster/participation prior (§9)
+python scripts/build_assets.py --season 2024  # generic referee + football into library
+```
+Set `slurm.account`, `slurm.partition`, and `slurm.gpu` in `configs/season.yaml`
+to your PACE allocation, and list the season's `games`.
+
+### Submit the staged DAG
+```bash
+python scripts/run_season.py --config configs/season.yaml --dry-run   # inspect
+python scripts/run_season.py --config configs/season.yaml --submit    # go
+```
+Stages: **S1** field recon (per game) → **S2** perception array (per play:
+tracking → identity → SMPLest-X → triangulate → fuse → smooth → forward-kinematics
+→ ball) → **tail** (`collect_uids` → submit S3) → **S3** avatar build (one task
+per unique `player_uid`; heroes via 3DGS-Avatar, others via LHM++) → **S4** render
+array (per play). The one-task-per-uid design in S3 makes concurrent library
+writes race-free.
+
+### Single play (debug)
+```bash
+bash scripts/04_process_play.sh game_001 play_001          # all the way to render.mp4
+bash scripts/04_process_play.sh game_001 play_001 --perception-only
+```
+
+### Bring-up note
+The per-stage `python -m nfl_gsplat.<stage>` CLIs that `04_process_play.sh`
+invokes load the calibrated cameras (`outputs/{game}/calib/cameras.json`) and
+slice the play's frame window (`plays.yaml`) before calling the (implemented)
+stage functions + GPU adapters. Those thin per-stage CLI wrappers are finalized
+during cluster bring-up against your data; the stage logic, the SMPLest-X / LHM++
+/ 3DGS-Avatar adapters, forward-kinematics, identity, and compositing they call
+are implemented and CPU-contract-tested.

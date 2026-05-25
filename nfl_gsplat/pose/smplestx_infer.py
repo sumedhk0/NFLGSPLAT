@@ -68,6 +68,78 @@ def check_prerequisites(cfg: SMPLestXConfig) -> None:
         )
 
 
+_MODEL_CACHE: dict = {}
+
+# Number of SMPL-X joints SMPLest-X-H32 regresses (body + hands + face).
+NUM_SMPLX_JOINTS = 127
+NUM_BODY_POSE_JOINTS = 21        # body_pose excludes the root (global_orient)
+
+
+def _load_smplestx_model(cfg: SMPLestXConfig):
+    """Load + cache the SMPLest-X model (env-gated; ``nfl_smplx``).
+
+    The exact import path is the one documented in the SMPLer-X repo README; we
+    add the checkout to ``sys.path`` and build its demo inferencer once. Raises
+    a precise :class:`SetupError` if the expected entrypoint isn't found.
+    """
+    key = str(cfg.repo_dir)
+    if key in _MODEL_CACHE:
+        return _MODEL_CACHE[key]
+    torch = _lazy_import()
+    import sys
+
+    sys.path.insert(0, str(cfg.repo_dir))
+    try:
+        # SMPLer-X exposes an Inferer/Demoer entrypoint; finalized per README.
+        from main.inference import Inferer  # type: ignore
+    except Exception as e:  # noqa: BLE001 — surface a setup-actionable message
+        raise SetupError(
+            f"could not import SMPLest-X inference from {cfg.repo_dir} ({e}). "
+            "Confirm the checkout + entrypoint — see SETUP.md §8."
+        ) from e
+    model = Inferer(str(cfg.weights_path), device=cfg.device)
+    if hasattr(model, "eval"):
+        model.eval()
+    _ = torch  # device/context already configured by the Inferer
+    _MODEL_CACHE[key] = model
+    return model
+
+
+def _smplestx_forward(model, crops: np.ndarray, bboxes: np.ndarray,
+                      cfg: SMPLestXConfig) -> list[dict[str, np.ndarray]]:
+    """Run the model on crops → one raw param dict per sample. Seam: monkeypatched
+    in tests so the schema assembly is exercised without torch/weights."""
+    out: list[dict[str, np.ndarray]] = []
+    for i in range(0, len(crops), cfg.batch_size):
+        batch = crops[i:i + cfg.batch_size]
+        boxes = bboxes[i:i + cfg.batch_size]
+        out.extend(model.infer_batch(batch, boxes))   # repo returns per-sample dicts
+    return out
+
+
+def _assemble_smplestx_outputs(raw: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+    """Stack per-sample raw dicts into the cache schema (leading ``N``). Pure."""
+    n = len(raw)
+    out = {
+        "betas": np.zeros((n, 10), dtype=np.float32),
+        "body_pose": np.zeros((n, NUM_BODY_POSE_JOINTS, 3), dtype=np.float32),
+        "global_orient": np.zeros((n, 3), dtype=np.float32),
+        "transl": np.zeros((n, 3), dtype=np.float32),
+        "joints3d_cam": np.zeros((n, NUM_SMPLX_JOINTS, 3), dtype=np.float32),
+        "joints2d": np.zeros((n, NUM_SMPLX_JOINTS, 2), dtype=np.float32),
+        "confidence": np.zeros((n, NUM_SMPLX_JOINTS), dtype=np.float32),
+    }
+    for i, r in enumerate(raw):
+        out["betas"][i] = np.asarray(r["betas"], dtype=np.float32).reshape(10)
+        out["body_pose"][i] = np.asarray(r["body_pose"], dtype=np.float32).reshape(NUM_BODY_POSE_JOINTS, 3)
+        out["global_orient"][i] = np.asarray(r["global_orient"], dtype=np.float32).reshape(3)
+        out["transl"][i] = np.asarray(r["transl"], dtype=np.float32).reshape(3)
+        out["joints3d_cam"][i] = np.asarray(r["joints3d_cam"], dtype=np.float32)
+        out["joints2d"][i] = np.asarray(r["joints2d"], dtype=np.float32)
+        out["confidence"][i] = np.asarray(r["confidence"], dtype=np.float32)
+    return out
+
+
 def infer_crops(
     crops: np.ndarray,       # [N, H, W, 3] uint8 RGB
     bboxes: np.ndarray,      # [N, 4] image-space (x1, y1, x2, y2)
@@ -75,20 +147,14 @@ def infer_crops(
 ) -> dict[str, np.ndarray]:
     """Run SMPLest-X-H32 on a batch of player crops.
 
-    Returns a dict of stacked per-sample outputs (shapes with leading ``N``).
-    This is a thin wrapper; all heavy lifting is inside SMPLest-X. Kept here
-    so the rest of the pose pipeline sees a stable dict schema.
+    Returns a dict of stacked per-sample outputs (shapes with leading ``N``),
+    matching the cache schema in this module's docstring. Heavy lifting is the
+    external SMPLer-X model loaded inside the ``nfl_smplx`` env.
     """
     check_prerequisites(cfg)
-    _lazy_import()
-    # Deliberately unimplemented beyond the stub; the real adapter lives inside
-    # the nfl_smplx conda env and is wired up via scripts/04_process_play.sh.
-    # Keeping the signature stable lets the orchestration script mock it during
-    # CI without importing torch.
-    raise NotImplementedError(
-        "SMPLest-X adapter is env-gated; run inside the nfl_smplx conda env via "
-        "scripts/04_process_play.sh. See SETUP.md §8 for the adapter wiring."
-    )
+    model = _load_smplestx_model(cfg)
+    raw = _smplestx_forward(model, crops, bboxes, cfg)
+    return _assemble_smplestx_outputs(raw)
 
 
 def write_inference_cache(

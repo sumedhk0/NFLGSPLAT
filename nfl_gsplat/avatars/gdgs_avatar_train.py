@@ -70,4 +70,26 @@ def train_hero(
     out_npz = out_dir / "avatar.npz"
     if not out_npz.exists():
         raise RuntimeError(f"3DGS-Avatar training produced no {out_npz}")
+    _validate_canonical_schema(out_npz)
     return out_npz
+
+
+# Canonical avatar keys the downstream animator requires (shared with LHM++).
+_REQUIRED_KEYS = (
+    "canonical_xyz", "canonical_rot", "canonical_scale",
+    "canonical_opacity", "canonical_sh", "lbs_weights",
+)
+
+
+def _validate_canonical_schema(npz_path: Path) -> None:
+    """Ensure the hero NPZ matches the canonical avatar schema (so it loads into
+    the library and animates like an LHM++ avatar)."""
+    import numpy as np
+
+    data = np.load(npz_path, allow_pickle=False)
+    missing = [k for k in _REQUIRED_KEYS if k not in data.files]
+    if missing:
+        raise RuntimeError(
+            f"3DGS-Avatar output {npz_path} missing canonical keys {missing}; "
+            "the repo's exporter must emit the shared avatar schema (SETUP.md §8)."
+        )

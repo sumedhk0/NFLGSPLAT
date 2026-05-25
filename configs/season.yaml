@@ -1,0 +1,26 @@
+# Season batch config: the games to process and the SLURM knobs for PACE.
+# Driven by scripts/run_season.py, which submits the staged DAG
+# (field → perception → consensus → avatar-build → render).
+
+season: 2024
+games:
+  - game_001
+  - game_002
+  # ... one entry per game of the 17-game season
+
+# SLURM / PACE. Set account + partition + GPU type to your allocation.
+slurm:
+  account: gatech            # sbatch -A
+  partition: gpu-h100        # confirm your PACE GPU partition
+  gpu: "h100:1"              # --gres=gpu:<this>
+  cpus_per_task: 8
+  mem: "64G"
+  time_field: "02:00:00"
+  time_perception: "01:00:00"
+  time_avatar: "04:00:00"    # heroes (3DGS-Avatar) need the headroom
+  time_render: "01:00:00"
+
+# Library + data should live on scratch (symlinked) so the season cache is
+# shared across array jobs; see SETUP.md §9 / PACE notes.
+paths:
+  library: library

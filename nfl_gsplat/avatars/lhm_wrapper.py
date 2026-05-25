@@ -51,6 +51,8 @@ class LHMConfig:
     vram_floor_gb: float = 8.0
     num_body_joints: int = 22        # matches our triangulation output
     sh_degree: int = 0
+    repo_dir: Path = Path("third_party/LHM")
+    weights_dir: Path = Path("data/body_models")
 
 
 def _free_vram_gb() -> float:
@@ -107,19 +109,60 @@ def generate_avatar(
     """
     tier = pick_tier(cfg)
     _LOG.info(f"LHM tier selected: {tier}")
+    model = _load_lhm_model(tier, cfg)
+    raw = _forward_lhm(model, reference_crop, cfg)
+    return _assemble_avatar(raw, tier, cfg)
+
+
+_LHM_MODEL_CACHE: dict = {}
+
+
+def _load_lhm_model(tier: LHMTier, cfg: LHMConfig):
+    """Load + cache the LHM++ model for ``tier`` (env-gated; ``nfl_lhm``)."""
+    if tier in _LHM_MODEL_CACHE:
+        return _LHM_MODEL_CACHE[tier]
     try:
         import torch  # type: ignore  # noqa: F401
     except ImportError as e:
         raise SetupError(
             "torch not installed — activate the `nfl_lhm` conda env. See SETUP.md §1."
         ) from e
-    # The actual LHM adapter lives in the external repo and is loaded by the
-    # orchestration script inside the nfl_lhm env. We keep this function as a
-    # stable seam so the rest of the pipeline's imports stay clean.
-    raise NotImplementedError(
-        "LHM adapter is env-gated; run inside nfl_lhm via scripts/04_process_play.sh. "
-        "See SETUP.md §8."
-    )
+    import sys
+
+    sys.path.insert(0, str(cfg.repo_dir))
+    try:
+        from LHM.runners.infer import build_model  # type: ignore
+    except Exception as e:  # noqa: BLE001 — setup-actionable
+        raise SetupError(
+            f"could not import LHM from {cfg.repo_dir} ({e}). Confirm the checkout + "
+            "entrypoint — see SETUP.md §8."
+        ) from e
+    model = build_model(tier, weights_dir=str(cfg.weights_dir))
+    _LHM_MODEL_CACHE[tier] = model
+    return model
+
+
+def _forward_lhm(model, reference_crop: np.ndarray, cfg: LHMConfig) -> dict[str, np.ndarray]:
+    """Run LHM++ on one reference crop → raw canonical-Gaussian dict. Seam:
+    monkeypatched in tests so the schema assembly runs without a GPU."""
+    return model.reconstruct(reference_crop, sh_degree=cfg.sh_degree,
+                             num_joints=cfg.num_body_joints)
+
+
+def _assemble_avatar(raw: dict[str, np.ndarray], tier: LHMTier,
+                     cfg: LHMConfig) -> dict[str, np.ndarray]:
+    """Map raw LHM output to the canonical avatar NPZ schema. Pure."""
+    n = np.asarray(raw["xyz"]).shape[0]
+    K_sh = (cfg.sh_degree + 1) ** 2
+    return {
+        "canonical_xyz": np.asarray(raw["xyz"], dtype=np.float32).reshape(n, 3),
+        "canonical_rot": np.asarray(raw["rot"], dtype=np.float32).reshape(n, 4),
+        "canonical_scale": np.asarray(raw["scale"], dtype=np.float32).reshape(n, 3),
+        "canonical_opacity": np.asarray(raw["opacity"], dtype=np.float32).reshape(n),
+        "canonical_sh": np.asarray(raw["sh"], dtype=np.float32).reshape(n, 3, K_sh),
+        "lbs_weights": np.asarray(raw["lbs_weights"], dtype=np.float32).reshape(n, cfg.num_body_joints),
+        "tier": np.array([tier]),
+    }
 
 
 # --- Mock avatar (CPU smoke test) ------------------------------------------

@@ -37,3 +37,42 @@ def collect_player_uids(entities_files: Iterable[Path | str]) -> set[str]:
 def uids_to_build(entities_files: Iterable[Path | str], library: AvatarLibrary) -> list[str]:
     """Sorted player uids that are not yet in the library (the S3 array work)."""
     return sorted(u for u in collect_player_uids(entities_files) if not library.has_avatar(u))
+
+
+def write_worklist(path: Path | str, uids: list[str]) -> Path:
+    """Write one uid per line (the avatar-build array reads line ``$SLURM_ARRAY_TASK_ID``)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(uids) + ("\n" if uids else ""))
+    return path
+
+
+# --- CLI: emit the avatar-build worklist for the season --------------------
+
+def _main() -> None:
+    import typer
+
+    from nfl_gsplat.config import load_config
+
+    app = typer.Typer(add_completion=False)
+
+    @app.command()
+    def main(
+        season: str = typer.Option(...),
+        games: list[str] = typer.Option(..., help="Game ids to scan."),
+        outputs_root: Path = typer.Option(Path("outputs")),
+        library_root: Path = typer.Option(Path("library")),
+        worklist: Path = typer.Option(Path("outputs/avatar_worklist.txt")),
+    ) -> None:
+        load_config()  # validate config is loadable
+        files = find_entities_files(outputs_root, games)
+        lib = AvatarLibrary(library_root, season=season)
+        uids = uids_to_build(files, lib)
+        write_worklist(worklist, uids)
+        print(f"{len(uids)} uids to build → {worklist}")
+
+    app()
+
+
+if __name__ == "__main__":
+    _main()
