@@ -67,12 +67,17 @@ class _TrackSummary:
     is_referee: bool
 
 
-def _summarize(tracks_df: pd.DataFrame) -> list[_TrackSummary]:
-    """Collapse per-frame/per-cam rows into one summary per ``track_id``."""
+def _summarize(tracks_df: pd.DataFrame, id_col: str = "track_id") -> list[_TrackSummary]:
+    """Collapse per-frame/per-cam rows into one summary per ``id_col``.
+
+    Use ``id_col="track_id"`` for per-camera tracks, or ``"global_player_id"``
+    after cross-camera re-ID (the real pipeline resolves identity per player,
+    not per per-camera track).
+    """
     has_team = "team" in tracks_df.columns
     has_ref = "is_referee" in tracks_df.columns
     out: list[_TrackSummary] = []
-    for tid, grp in tracks_df.groupby("track_id"):
+    for tid, grp in tracks_df.groupby(id_col):
         votes = grp["jersey_number_ocr"]
         votes = votes[votes >= 0]
         jersey = int(votes.value_counts().idxmax()) if len(votes) else -1
@@ -114,9 +119,14 @@ def assign_identities(
     tracks_df: pd.DataFrame,
     candidates: list[RosterEntry],
     cfg: IdentityMatchConfig,
+    id_col: str = "track_id",
 ) -> list[Assignment]:
-    """Resolve every track to an :class:`Assignment`. Pure / deterministic."""
-    summaries = _summarize(tracks_df)
+    """Resolve every track to an :class:`Assignment`. Pure / deterministic.
+
+    ``id_col`` selects the grouping key (``track_id`` pre-reID, or
+    ``global_player_id`` after cross-camera re-ID for real per-player identity).
+    """
+    summaries = _summarize(tracks_df, id_col=id_col)
     if not summaries:
         return []
 
@@ -181,15 +191,16 @@ def resolve_tracks(
     tracks_df: pd.DataFrame,
     candidates: list[RosterEntry],
     cfg: IdentityMatchConfig,
+    id_col: str = "track_id",
 ) -> pd.DataFrame:
     """Return a copy of ``tracks_df`` with ``player_uid`` + ``entity_type``
-    columns filled by mapping each row's ``track_id`` to its assignment."""
-    assignments = assign_identities(tracks_df, candidates, cfg)
-    uid_by_track = {a.track_id: a.player_uid for a in assignments}
-    type_by_track = {a.track_id: a.entity_type for a in assignments}
+    columns filled by mapping each row's ``id_col`` to its assignment."""
+    assignments = assign_identities(tracks_df, candidates, cfg, id_col=id_col)
+    uid_by_id = {a.track_id: a.player_uid for a in assignments}
+    type_by_id = {a.track_id: a.entity_type for a in assignments}
     out = tracks_df.copy()
-    out["player_uid"] = out["track_id"].map(uid_by_track).fillna(OTHER_UID)
-    out["entity_type"] = out["track_id"].map(type_by_track).fillna(EntityType.OTHER.value)
+    out["player_uid"] = out[id_col].map(uid_by_id).fillna(OTHER_UID)
+    out["entity_type"] = out[id_col].map(type_by_id).fillna(EntityType.OTHER.value)
     return out
 
 

@@ -56,7 +56,10 @@ def _load_entities(play_dir: Path, library: AvatarLibrary) -> list[tuple[dict, n
         ref_avatar = library.get_referee_avatar() if library.has_referee_avatar() else None
         for ent in read_json(entities_json):
             uid, etype = ent["player_uid"], ent["entity_type"]
-            pose_path = pose_dir / f"{uid}.npz"
+            # instance_id keys the per-instance pose; player_uid keys the avatar
+            # (multiple referees share __referee__ but pose independently).
+            instance_id = ent.get("instance_id", uid)
+            pose_path = pose_dir / f"{instance_id}.npz"
             if etype == EntityType.OTHER.value or not uid or not pose_path.exists():
                 continue
             if etype == EntityType.REFEREE.value or uid == REFEREE_UID:
