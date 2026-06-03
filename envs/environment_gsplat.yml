@@ -17,9 +17,12 @@ dependencies:
     # nerfstudio 1.1.3 hard-pins opencv-python==4.8.0.76; match it or pip's
     # resolver dead-ends (ResolutionImpossible). cv2 usage here is basic.
     - opencv-python==4.8.0.76
-    - gsplat==1.3.0
+    # nerfstudio 1.1.3 hard-pins all three of these exact versions; match them
+    # or pip dead-ends. Our render uses gsplat's unified rasterization() API,
+    # stable since 1.0.0, so 1.0.0 is fine.
+    - gsplat==1.0.0
     - nerfstudio==1.1.3
-    - viser==0.1.27        # nerfstudio 1.1.3 hard-pins this exact version too
+    - viser==0.1.27
     - trimesh==4.3.2
     - plyfile==1.0.3
     - imageio==2.34.1
