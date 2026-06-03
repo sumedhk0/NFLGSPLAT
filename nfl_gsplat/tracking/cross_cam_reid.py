@@ -167,3 +167,31 @@ def reid_pipeline(
     df = filter_to_field(df, cfg)
     df = assign_global_ids(df, cfg)
     return df
+
+
+def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
+    import typer
+
+    from nfl_gsplat.calibration.cameras_io import load_cameras
+    from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
+    from nfl_gsplat.paths import play_paths
+
+    app = typer.Typer(add_completion=False)
+
+    @app.command()
+    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+             config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
+        cfg = load_cli_config(config, config_override, set_)
+        pp = play_paths(cfg, game, play)
+        cameras = load_cameras(pp.game.calib_json)
+        df = pd.read_parquet(pp.tracks)
+        tracks_by_cam = {cam: g for cam, g in df.groupby("cam")}
+        ccfg = CrossCamConfig(field_buffer_m=float(cfg.tracking.field_buffer_m))
+        out = reid_pipeline(tracks_by_cam, cameras, ccfg)
+        out.to_parquet(pp.tracks, index=False)
+
+    app()
+
+
+if __name__ == "__main__":
+    _main()

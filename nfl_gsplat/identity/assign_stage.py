@@ -152,3 +152,102 @@ def write_entities_json(path: Path | str, assignments: list[Assignment]) -> Path
     n_ref = sum(1 for e in entities if e["player_uid"] == REFEREE_UID)
     _LOG.info(f"entities.json: {len(entities)} instances ({n_ref} referee) → {path}")
     return Path(path)
+
+
+def extract_representative_crops(
+    tracks_df: pd.DataFrame,
+    video_paths: Mapping[str, object],
+    *,
+    id_col: str = "global_player_id",
+    torso_frac: float = 0.55,
+) -> dict:
+    """One representative torso crop per identity (the largest-bbox detection).
+
+    Reads a single frame per identity (cheap) and crops the upper ``torso_frac``
+    of the bbox — the jersey region :mod:`team_color` clusters on. Env-side glue
+    (needs the video + ``cv2``); the classification core takes the crops it
+    returns, so identity logic stays CPU-testable.
+    """
+    import cv2
+
+    def _read(video, frame_idx):
+        cap = cv2.VideoCapture(str(video))
+        try:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+            ok, img = cap.read()
+            return cv2.cvtColor(img, cv2.COLOR_BGR2RGB) if ok else None
+        finally:
+            cap.release()
+
+    crops: dict = {}
+    df = tracks_df.copy()
+    df["_area"] = (df["bbox_x2"] - df["bbox_x1"]) * (df["bbox_y2"] - df["bbox_y1"])
+    for gid, grp in df.groupby(id_col):
+        r = grp.loc[grp["_area"].idxmax()]
+        video = video_paths.get(str(r["cam"]))
+        if video is None:
+            continue
+        frame = _read(video, int(r["frame"]))
+        if frame is None:
+            continue
+        x1, y1 = max(0, int(r["bbox_x1"])), max(0, int(r["bbox_y1"]))
+        x2, y2 = min(frame.shape[1], int(r["bbox_x2"])), min(frame.shape[0], int(r["bbox_y2"]))
+        if x2 - x1 < 4 or y2 - y1 < 4:
+            continue
+        y_torso = y1 + int(torso_frac * (y2 - y1))
+        crops[gid] = frame[y1:y_torso, x1:x2]
+    return crops
+
+
+def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
+    import pandas as pd_
+    import typer
+
+    from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
+    from nfl_gsplat.identity.roster import OcrOnlySource, RosterSource
+    from nfl_gsplat.paths import play_paths
+    from nfl_gsplat.utils.plays import load_plays
+
+    app = typer.Typer(add_completion=False)
+
+    @app.command()
+    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+             config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
+        cfg = load_cli_config(config, config_override, set_)
+        pp = play_paths(cfg, game, play)
+        manifest = load_plays(pp.game.plays_yaml)
+        home, away = manifest.game_teams
+        df = pd_.read_parquet(pp.tracks)
+        video_paths = {cam: pp.game.raw_video(cam) for cam in pp.game.cameras}
+
+        if str(cfg.identity.source) == "roster":
+            source = RosterSource.from_parquet(
+                str(cfg.identity.season), pp.game.rosters_dir,
+                game_teams={game: (home, away)})
+        else:
+            source = OcrOnlySource()
+        candidates = source.candidates_for_play(game, play)
+
+        match_cfg = IdentityMatchConfig(
+            season=str(cfg.identity.season),
+            jersey_weight=float(cfg.identity.match.jersey_weight),
+            team_mismatch_cost=float(cfg.identity.match.team_mismatch_cost),
+            unknown_jersey_cost=float(cfg.identity.match.unknown_jersey_cost),
+            max_match_cost=float(cfg.identity.match.max_match_cost),
+        )
+        ref_cfg = (RefereeConfig(
+            min_stripe_transitions=int(cfg.identity.referee.min_stripe_transitions),
+            max_mean_saturation=float(cfg.identity.referee.max_mean_saturation))
+            if bool(cfg.identity.referee.enabled) else None)
+
+        crops = extract_representative_crops(df, video_paths, id_col="global_player_id")
+        _, assignments = assign_play_identities(
+            df, crops, candidates, home, away, match_cfg,
+            id_col="global_player_id", ref_cfg=ref_cfg)
+        write_entities_json(pp.entities, assignments)
+
+    app()
+
+
+if __name__ == "__main__":
+    _main()

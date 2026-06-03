@@ -260,11 +260,26 @@ bash scripts/04_process_play.sh game_001 play_001          # all the way to rend
 bash scripts/04_process_play.sh game_001 play_001 --perception-only
 ```
 
-### Bring-up note
-The per-stage `python -m nfl_gsplat.<stage>` CLIs that `04_process_play.sh`
-invokes load the calibrated cameras (`outputs/{game}/calib/cameras.json`) and
-slice the play's frame window (`plays.yaml`) before calling the (implemented)
-stage functions + GPU adapters. Those thin per-stage CLI wrappers are finalized
-during cluster bring-up against your data; the stage logic, the SMPLest-X / LHM++
-/ 3DGS-Avatar adapters, forward-kinematics, identity, and compositing they call
-are implemented and CPU-contract-tested.
+### Stage CLIs
+Each step of `04_process_play.sh` is a real `python -m nfl_gsplat.<stage>
+--game --play --config` entry point that loads the calibrated cameras
+(`outputs/{game}/calib/cameras.json` via `calibration.cameras_io.load_cameras`)
+and slices the play's frame window (`plays.yaml`) before running the stage:
+
+| Step | Module | Reads → writes |
+|---|---|---|
+| detect + track | `tracking.detect_track` | video → `tracks.parquet` |
+| cross-cam re-ID | `tracking.cross_cam_reid` | enriches `tracks.parquet` (`global_player_id`) |
+| jersey OCR | `tracking.jersey_ocr` | enriches `tracks.parquet` (`jersey_number_ocr`) |
+| identity | `identity.assign_stage` | `tracks.parquet` + roster → `entities.json` |
+| pose | `pose.run_pose` | SMPLest-X → triangulate → fuse → FK → `poses/{id}.npz` |
+| ball | `ball.run_ball` | football YOLO → 3D Kalman → `ball.npz` |
+| avatars | `avatars.build_play` | `entities.json` → library avatars (single-play path) |
+
+The numerical cores (camera loading, FK fit-forward, triangulation/fuse/smooth,
+ball assembly, identity classification, avatar loop) are CPU-unit-tested
+(`tests/test_stage_clis.py`). The remaining seams are the three GPU model
+adapters (SMPLest-X / LHM++ / 3DGS-Avatar) and the per-frame video crop
+extraction, which run inside their conda envs and are verified on PACE — the
+first single-play run is where those are exercised end-to-end against real
+weights + data.

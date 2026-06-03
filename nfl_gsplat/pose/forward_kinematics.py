@@ -120,6 +120,56 @@ def joint_tfms_sequence(
     return out
 
 
+def posed_joint_positions(
+    rest_joints: np.ndarray,            # [J, 3]
+    parents: tuple[int, ...] | np.ndarray,
+    rot_mats: np.ndarray,               # [J, 3, 3]
+    transl: np.ndarray | None = None,
+) -> np.ndarray:
+    """World positions of the joints under a pose: ``A_i @ [rest_i, 1]``.
+
+    Equivalent to the global joint translations (the LBS transform applied to a
+    point sitting at its rest joint), so the *fit* (which compares against these)
+    and the *animation* (which applies the same ``A``) are kinematically
+    consistent.
+    """
+    rest = np.asarray(rest_joints, dtype=np.float64)
+    J = rest.shape[0]
+    A = global_joint_transforms(rest, parents, rot_mats, transl=transl)
+    homo = np.concatenate([rest, np.ones((J, 1))], axis=1)        # [J, 4]
+    return np.einsum("jik,jk->ji", A, homo)[:, :3]
+
+
+def fk_forward(
+    rest_joints: np.ndarray,
+    parents: tuple[int, ...] | np.ndarray = SMPLX_BODY_PARENTS,
+    *,
+    body_pose_dim: int = 63,
+    global_orient_dim: int = 3,
+    transl_dim: int = 3,
+):
+    """Build a ``ForwardFn`` for :func:`fuse_smplx.fuse_sequence`.
+
+    ``forward(params) -> joints3d[J, 3]`` runs SMPL-X forward kinematics on the
+    rest skeleton, so the pose solve fits the *same* kinematic model the renderer
+    animates with (no separate torch SMPL-X forward / shape blendshapes needed —
+    shape enters through ``rest_joints`` from :func:`load_smplx_skeleton`).
+    """
+    rest = np.asarray(rest_joints, dtype=np.float64)
+    bp_end = body_pose_dim
+    go_end = body_pose_dim + global_orient_dim
+    tr_end = go_end + transl_dim
+
+    def forward(p: np.ndarray) -> np.ndarray:
+        body_pose = p[0:bp_end]
+        global_orient = p[bp_end:go_end]
+        transl = p[go_end:tr_end]
+        R = pose_params_to_rotmats(global_orient, body_pose)
+        return posed_joint_positions(rest, parents, R, transl=transl)
+
+    return forward
+
+
 # --- Env-gated SMPL-X skeleton loader --------------------------------------
 
 def load_smplx_skeleton(
