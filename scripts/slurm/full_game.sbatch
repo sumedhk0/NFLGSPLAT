@@ -4,6 +4,8 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=8G
 #SBATCH --time=00:30:00
+#SBATCH --qos=embers
+#SBATCH --requeue
 #SBATCH --output=logs/%x-%j.out
 
 # Submit the full chain for one game: field reconstruction, then a play-array

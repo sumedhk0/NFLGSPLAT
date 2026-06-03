@@ -18,6 +18,24 @@ def num_plays_range(game: str, plays_dir: Path | str = "configs/plays") -> str:
     return "1-N"
 
 
+def qos_flags(cfg) -> list[str]:
+    """``--qos``/``--requeue`` shared by GPU and CPU jobs.
+
+    On PACE Phoenix ``embers`` is the free, preemptible backfill QOS; jobs there
+    can be killed when a paid (``inferno``) job needs the node, so ``--requeue``
+    lets SLURM restart them (our stages skip already-cached work, so a restart is
+    cheap and correct). Omitted entirely when ``slurm.qos`` is unset.
+    """
+    s = cfg.slurm
+    flags: list[str] = []
+    qos = s.get("qos")
+    if qos:
+        flags.append(f"--qos={qos}")
+    if s.get("requeue"):
+        flags.append("--requeue")
+    return flags
+
+
 def slurm_flags(cfg) -> list[str]:
     s = cfg.slurm
     return [
@@ -26,6 +44,7 @@ def slurm_flags(cfg) -> list[str]:
         f"--gres=gpu:{s.gpu}",
         f"--cpus-per-task={s.cpus_per_task}",
         f"--mem={s.mem}",
+        *qos_flags(cfg),
     ]
 
 
@@ -33,6 +52,8 @@ def build_submission_plan(cfg, plays_dir: Path | str = "configs/plays") -> list[
     """Ordered list of sbatch command strings for the staged season DAG."""
     season = str(cfg.season)
     flags = " ".join(slurm_flags(cfg))
+    qos = " ".join(qos_flags(cfg))            # CPU tail job: same QOS, no GPU alloc
+    qos = f"{qos} " if qos else ""
     plan: list[str] = []
     for game in cfg.games:
         plan.append(
@@ -46,7 +67,7 @@ def build_submission_plan(cfg, plays_dir: Path | str = "configs/plays") -> list[
         )
     games_flags = " ".join(f"--games {g}" for g in cfg.games)
     plan.append(
-        "sbatch --parsable --dependency=afterok:$ALL_PERCEPTION "
+        f"sbatch --parsable {qos}--dependency=afterok:$ALL_PERCEPTION "
         f'--wrap="python -m nfl_gsplat.season.collect_uids --season {season} {games_flags} && '
         f"sbatch {flags} --time={cfg.slurm.time_avatar} "
         "--array=1-$(wc -l < outputs/avatar_worklist.txt) "

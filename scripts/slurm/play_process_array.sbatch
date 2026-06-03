@@ -6,6 +6,8 @@
 #SBATCH --mem=64G
 #SBATCH --time=01:00:00
 #SBATCH --array=1-22
+#SBATCH --qos=embers
+#SBATCH --requeue
 #SBATCH --output=logs/%x-%A_%a.out
 
 # Array-job: process one play per array task. The play list for a game lives

@@ -119,12 +119,23 @@ slurm:
   account: your_account
   partition: your_gpu_partition
   gpu: h100:1
+  qos: embers              # PACE: free, preemptible backfill QOS (vs paid inferno)
+  requeue: true            # auto-restart jobs preempted off embers
   time_field: "02:00:00"
   time_play: "01:00:00"
   mem: "64G"
 ```
 
 The `scripts/slurm/*.sbatch` files template these values via `envsubst` on launch.
+
+**embers vs inferno (PACE Phoenix).** `embers` is the free, preemptible backfill
+QOS: jobs run on idle nodes at no charge but are killed/requeued when a paid
+`inferno` job needs the node. The season DAG sets `qos: embers` + `requeue: true`
+by default, so every job (`run_season.py` and direct `sbatch scripts/slurm/*.sbatch`)
+lands on embers and auto-restarts on preemption — safe because each stage skips
+already-cached work. Set `qos: inferno` to run against your paid allocation
+instead (faster start, no preemption). Note embers caps walltime at ~8h, which the
+4h avatar stage fits under.
 
 ---
 

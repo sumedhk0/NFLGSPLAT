@@ -13,6 +13,8 @@ slurm:
   account: gatech            # sbatch -A
   partition: gpu-h100        # confirm your PACE GPU partition
   gpu: "h100:1"              # --gres=gpu:<this>
+  qos: embers                # PACE free/preemptible backfill QOS (vs paid inferno)
+  requeue: true              # embers jobs can be preempted; auto-restart them
   cpus_per_task: 8
   mem: "64G"
   time_field: "02:00:00"

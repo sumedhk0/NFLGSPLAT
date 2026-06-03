@@ -3,6 +3,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=01:00:00
+#SBATCH --qos=embers
+#SBATCH --requeue
 #SBATCH --output=logs/%x-%A_%a.out
 
 # S2: per-play perception (tracking → identity → SMPLest-X → triangulate → fuse

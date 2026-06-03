@@ -15,6 +15,7 @@ def _cfg():
         "season": 2024,
         "games": ["game_001", "game_002"],
         "slurm": {"account": "gatech", "partition": "gpu-h100", "gpu": "h100:1",
+                  "qos": "embers", "requeue": True,
                   "cpus_per_task": 8, "mem": "64G", "time_field": "02:00:00",
                   "time_perception": "01:00:00", "time_avatar": "04:00:00",
                   "time_render": "01:00:00"},
@@ -30,8 +31,24 @@ def test_plan_has_all_stages_in_order():
     assert "render_array.sbatch" in text
     # SLURM allocation flags are threaded through.
     assert "-A gatech" in text and "--gres=gpu:h100:1" in text
+    # Everything runs on the (free, preemptible) embers QOS with auto-requeue;
+    # no job silently lands on the paid inferno QOS.
+    assert "--qos=embers" in text and "--requeue" in text
+    assert "inferno" not in text
+    # Each GPU stage's sbatch carries the embers QOS.
+    for stage in ("field_recon", "perception_array", "avatar_build_array", "render_array"):
+        line = next(s for s in plan if stage in s)
+        assert "--qos=embers" in line, f"{stage} not on embers"
     # Ordering: field/perception before the collect+avatar tail before render.
     assert text.index("perception_array") < text.index("collect_uids") < text.index("render_array")
+
+
+def test_plan_omits_qos_when_unset():
+    cfg = _cfg()
+    del cfg.slurm.qos
+    del cfg.slurm.requeue
+    text = "\n".join(build_submission_plan(cfg, plays_dir="/nonexistent"))
+    assert "--qos" not in text and "--requeue" not in text
 
 
 def test_plan_uses_play_count_when_list_present(tmp_path):
