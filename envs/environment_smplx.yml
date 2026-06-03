@@ -27,9 +27,10 @@ dependencies:
     - mmcv==2.1.0
     - mmpose==1.3.1
     - mmdet==3.3.0
-    # chumpy + human-body-prior are installed in a post-build step by
-    # 00_setup_environments.sh: chumpy 0.70's setup.py does `import pip`, which
-    # fails inside pip's isolated build env, so it needs --no-build-isolation.
+    # chumpy is installed in a post-build step by 00_setup_environments.sh:
+    # chumpy 0.70's setup.py does `import pip`, which fails inside pip's isolated
+    # build env, so it needs --no-build-isolation. (VPoser / human-body-prior is
+    # not installed: the pose fit uses an L2 prior surrogate — see fuse_smplx.)
     - trimesh==4.3.2
     - ultralytics==8.2.50
     - paddleocr==2.7.3

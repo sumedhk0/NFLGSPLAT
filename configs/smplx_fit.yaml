@@ -21,7 +21,7 @@ pose:
     # When false, betas are re-estimated per play (bit-identical to no library,
     # but mismatches the cached avatar). See pose.fuse_smplx.resolve_betas.
     use_library_betas: true
-    pose_prior: vposer           # vposer | gmm | none
+    pose_prior: l2               # implemented L2 surrogate; vposer/gmm not installed
     pose_prior_weight: 0.05
     shape_prior_weight: 0.01
 

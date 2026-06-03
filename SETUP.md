@@ -45,8 +45,10 @@ post-build step with `--no-build-isolation`; if you hit it manually:
 conda activate nfl_smplx
 pip install -U pip setuptools wheel
 pip install --no-build-isolation chumpy==0.70
-pip install human-body-prior==2.2.2.0
 ```
+
+(VPoser / `human-body-prior` is intentionally not installed — the pose fit uses
+an L2 prior surrogate, so it is not a dependency.)
 
 ---
 
