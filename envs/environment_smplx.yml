@@ -13,6 +13,12 @@ dependencies:
   - pyyaml
   - pip
   - pip:
+    # mmcv ships compiled CUDA ops; pulling it from PyPI tries to BUILD from
+    # source (needs nvcc, absent on login nodes). Point pip at OpenMMLab's
+    # prebuilt wheel index for torch 2.1 / cu121 so it installs a binary wheel.
+    # (If this index ever 404s for your exact torch, `mim install mmcv==2.1.0`
+    # inside the env auto-detects the right wheel — see SETUP.md §1.)
+    - --find-links https://download.openmmlab.com/mmcv/dist/cu121/torch2.1/index.html
     - omegaconf==2.3.0
     - typer==0.12.3
     - rich==13.7.1

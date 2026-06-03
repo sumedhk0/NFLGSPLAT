@@ -23,6 +23,19 @@ This creates:
 
 Version pins are exact in `envs/*.yml`. Do not upgrade blindly — `gsplat` and `nerfstudio` periodically break each other.
 
+**`ERROR: Failed to build 'mmcv'` (login nodes / no nvcc).** `mmcv` has compiled
+CUDA ops; from PyPI it builds from source and needs a CUDA toolchain the login
+node lacks. `environment_smplx.yml` already points pip at OpenMMLab's prebuilt
+wheel index (`--find-links …/cu121/torch2.1/…`). If it still tries to compile
+(e.g. a different torch), install it with `mim` inside the env, which auto-detects
+the right binary wheel:
+
+```bash
+conda activate nfl_smplx
+pip install -U openmim && mim install "mmcv==2.1.0"
+# then re-run: bash scripts/00_setup_environments.sh --only nfl_smplx
+```
+
 ---
 
 ## §2. Body models (SMPL-X and SMPL)
