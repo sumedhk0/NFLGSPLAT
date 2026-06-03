@@ -36,6 +36,18 @@ pip install -U openmim && mim install "mmcv==2.1.0"
 # then re-run: bash scripts/00_setup_environments.sh --only nfl_smplx
 ```
 
+**`ERROR: Failed to build 'chumpy'` → `ModuleNotFoundError: No module named 'pip'`.**
+`chumpy` 0.70's `setup.py` imports `pip`, which isn't available inside pip's
+isolated build env. `00_setup_environments.sh` installs it (and VPoser) in a
+post-build step with `--no-build-isolation`; if you hit it manually:
+
+```bash
+conda activate nfl_smplx
+pip install -U pip setuptools wheel
+pip install --no-build-isolation chumpy==0.70
+pip install human-body-prior==2.2.2.0
+```
+
 ---
 
 ## §2. Body models (SMPL-X and SMPL)

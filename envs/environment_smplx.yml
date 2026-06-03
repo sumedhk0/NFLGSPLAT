@@ -27,9 +27,10 @@ dependencies:
     - mmcv==2.1.0
     - mmpose==1.3.1
     - mmdet==3.3.0
-    - chumpy==0.70
+    # chumpy + human-body-prior are installed in a post-build step by
+    # 00_setup_environments.sh: chumpy 0.70's setup.py does `import pip`, which
+    # fails inside pip's isolated build env, so it needs --no-build-isolation.
     - trimesh==4.3.2
-    - human-body-prior==2.2.2.0    # VPoser
     - ultralytics==8.2.50
     - paddleocr==2.7.3
     - paddlepaddle-gpu==2.6.1

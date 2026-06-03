@@ -38,6 +38,17 @@ for env in "${ENVS[@]}"; do
     else
         conda env create -n "$env" -f "$yaml"
     fi
+
+    # chumpy 0.70's setup.py imports `pip`, which is absent in pip's isolated
+    # build env → "ModuleNotFoundError: No module named 'pip'". Install it (and
+    # VPoser, which depends on it) against the env's real pip, after the wheel
+    # for mmcv etc. is already in place.
+    if [[ "$env" == "nfl_smplx" ]]; then
+        echo "--- post-build: chumpy (no-build-isolation) + human-body-prior ---"
+        conda run -n nfl_smplx python -m pip install -U pip setuptools wheel
+        conda run -n nfl_smplx python -m pip install --no-build-isolation chumpy==0.70
+        conda run -n nfl_smplx python -m pip install human-body-prior==2.2.2.0
+    fi
 done
 
 echo
