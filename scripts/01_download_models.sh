@@ -68,10 +68,15 @@ echo "=== 3DGS-Avatar ==="
 _clone_or_pull https://github.com/mikeqzy/3dgs-avatar-release "$REPOS_DIR/3dgs-avatar-release"
 
 echo
-echo "=== ViTPose (for LHM reference-frame pose) ==="
+echo "=== ViTPose (optional — only if LHM's own reference-pose step needs it) ==="
 _clone_or_pull https://github.com/ViTAE-Transformer/ViTPose "$REPOS_DIR/ViTPose"
-_fetch https://1drv.ms/u/s!AimBgYV7JjTlgcYTZV6EjDlLBlkyZg?e=aBaJx7 \
-       "$MODELS_DIR/vitpose-h.pth" || echo "  (skip — ViTPose weights may require manual fetch)"
+echo "  NOTE: our pipeline does not call ViTPose directly (reference selection"
+echo "  uses SMPLest-X confidence). If LHM's avatar build asks for ViTPose"
+echo "  weights at runtime, fetch them per the ViTPose README into $MODELS_DIR/."
 
 echo
-echo "done. Gated SMPL-X weights: see SETUP.md §3."
+echo "done. Repos cloned + YOLOv8x fetched. The heavy model weights are manual:"
+echo "  - data/body_models/smplx/*  + smpl/*   (gated; SETUP.md §2)"
+echo "  - data/body_models/smplest_x_h32.pth   (SMPLest-X repo release; §4)"
+echo "  - LHM-1B / LHM-MINI weights             (LHM repo / Alibaba OSS; §4)"
+echo "  - data/body_models/ball_yolov8.pt       (engagement-specific; optional)"
