@@ -205,28 +205,27 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
 
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
     from nfl_gsplat.identity.roster import OcrOnlySource, RosterSource
-    from nfl_gsplat.paths import play_paths
-    from nfl_gsplat.utils.plays import load_plays
+    from nfl_gsplat.paths import PlayDir
+    from nfl_gsplat.utils.meta import load_meta
 
     app = typer.Typer(add_completion=False)
 
     @app.command()
-    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+    def main(play_dir: Path = typer.Option(..., "--play-dir"),
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
         cfg = load_cli_config(config, config_override, set_)
-        pp = play_paths(cfg, game, play)
-        manifest = load_plays(pp.game.plays_yaml)
-        home, away = manifest.game_teams
-        df = pd_.read_parquet(pp.tracks)
-        video_paths = {cam: pp.game.raw_video(cam) for cam in pp.game.cameras}
+        pdir = PlayDir.from_dir(play_dir)
+        home, away = load_meta(pdir.meta_yaml).game_teams
+        df = pd_.read_parquet(pdir.tracks)
+        video_paths = {cam: pdir.video(cam) for cam in pdir.cameras}
 
         if str(cfg.identity.source) == "roster":
             source = RosterSource.from_parquet(
-                str(cfg.identity.season), pp.game.rosters_dir,
-                game_teams={game: (home, away)})
+                str(cfg.identity.season), pdir.rosters_root,
+                game_teams={pdir.matchup: (home, away)})
         else:
             source = OcrOnlySource()
-        candidates = source.candidates_for_play(game, play)
+        candidates = source.candidates_for_play(pdir.matchup, pdir.play_id)
 
         match_cfg = IdentityMatchConfig(
             season=str(cfg.identity.season),
@@ -244,7 +243,7 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
         _, assignments = assign_play_identities(
             df, crops, candidates, home, away, match_cfg,
             id_col="global_player_id", ref_cfg=ref_cfg)
-        write_entities_json(pp.entities, assignments)
+        write_entities_json(pdir.entities, assignments)
 
     app()
 
