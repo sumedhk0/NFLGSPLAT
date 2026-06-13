@@ -55,7 +55,9 @@ echo "  Place a fine-tuned checkpoint at $MODELS_DIR/ball_yolov8.pt."
 echo
 echo "=== SMPLest-X-H32 ==="
 _clone_or_pull https://github.com/wqyin/SMPLest-X "$REPOS_DIR/SMPLest-X"
-echo "  NOTE: place smplest_x_h32.pth under $MODELS_DIR/ (see SETUP.md §3)."
+echo "  NOTE: place the pretrained model under"
+echo "  third_party/SMPLest-X/pretrained_models/smplest_x_h/ as"
+echo "  smplest_x_h.pth.tar + config_base.py (see SETUP.md §4)."
 
 echo
 echo "=== LHM++ ==="
@@ -77,6 +79,6 @@ echo "  weights at runtime, fetch them per the ViTPose README into $MODELS_DIR/.
 echo
 echo "done. Repos cloned + YOLOv8x fetched. The heavy model weights are manual:"
 echo "  - data/body_models/smplx/*  + smpl/*   (gated; SETUP.md §2)"
-echo "  - data/body_models/smplest_x_h32.pth   (SMPLest-X repo release; §4)"
+echo "  - third_party/SMPLest-X/pretrained_models/smplest_x_h/smplest_x_h.pth.tar  (§4)"
 echo "  - LHM-1B / LHM-MINI weights             (LHM repo / Alibaba OSS; §4)"
 echo "  - data/body_models/ball_yolov8.pt       (engagement-specific; optional)"
