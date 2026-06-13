@@ -9,7 +9,7 @@
 
 # S3: build one player's avatar per array task (one task per unique uid). This
 # is the dedup that makes the shared library cache correct under parallelism —
-# no two tasks ever write the same library/{season}/{uid}. Heroes route to
+# no two tasks ever write the same data/{season}/_library/{uid}. Heroes route to
 # 3DGS-Avatar (nfl_avatar env), everyone else to LHM++ (nfl_lhm).
 #
 # Submit:  sbatch --array=1-$(wc -l < outputs/avatar_worklist.txt) \
