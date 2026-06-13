@@ -9,7 +9,6 @@ from __future__ import annotations
 import numpy as np
 
 from nfl_gsplat.avatars import lhm_wrapper
-from nfl_gsplat.avatars.library import AVATAR_KEYS
 from nfl_gsplat.avatars.lhm_wrapper import LHMConfig
 from nfl_gsplat.pose import smplestx_infer
 from nfl_gsplat.pose.smplestx_infer import NUM_SMPLX_JOINTS, SMPLestXConfig
@@ -45,32 +44,68 @@ def test_smplestx_assembles_schema(monkeypatch):
     assert np.allclose(out["transl"][0], [1.0, 2.0, 3.0])
 
 
-# --- T1.5 LHM++ -------------------------------------------------------------
+# --- T1.5 LHM++ (Option A: LHM-native avatars) ------------------------------
 
-def _raw_lhm(n=200, sh_degree=0):
-    k = (sh_degree + 1) ** 2
+def _raw_lhm_native(n=200, n_query=120, k=4):
+    rng = np.random.default_rng(0)
     return {
-        "xyz": np.random.default_rng(0).normal(size=(n, 3)),
-        "rot": np.tile([1.0, 0, 0, 0], (n, 1)),
-        "scale": np.full((n, 3), -3.0),
-        "opacity": np.ones(n),
-        "sh": np.zeros((n, 3, k)),
-        "lbs_weights": np.eye(22)[np.random.default_rng(1).integers(0, 22, n)],
+        "app_xyz": rng.normal(size=(n, 3)),
+        "app_rot": np.tile([1.0, 0, 0, 0], (n, 1)),
+        "app_scale": np.full((n, 3), -3.0),
+        "app_opacity": np.ones(n),
+        "app_sh": np.zeros((n, k, 3)),
+        "query_points": rng.normal(size=(n_query, 3)),
+        "neutral_transform": np.eye(4),
     }
 
 
-def test_lhm_assembles_canonical_schema(monkeypatch):
+def test_lhm_assembles_native_schema(monkeypatch):
+    from nfl_gsplat.avatars.lhm_wrapper import LHM_NATIVE_KEYS, is_lhm_native
+
     monkeypatch.setattr(lhm_wrapper, "pick_tier", lambda cfg, free_gb=None: "lhm_mini")
     monkeypatch.setattr(lhm_wrapper, "_load_lhm_model", lambda tier, cfg: object())
-    monkeypatch.setattr(lhm_wrapper, "_forward_lhm", lambda model, crop, cfg: _raw_lhm())
+    monkeypatch.setattr(
+        lhm_wrapper, "_forward_lhm",
+        lambda model, crop, cfg, betas=None: _raw_lhm_native(),
+    )
     crop = np.zeros((128, 64, 3), dtype=np.uint8)
     av = lhm_wrapper.generate_avatar(crop, LHMConfig(model_choice="lhm_mini"))
-    for k in AVATAR_KEYS:
+    for k in LHM_NATIVE_KEYS:
         assert k in av
-    assert av["canonical_xyz"].shape == (200, 3)
-    assert av["canonical_rot"].shape == (200, 4)
-    assert av["lbs_weights"].shape == (200, 22)
+    assert is_lhm_native(av)
+    assert av["app_xyz"].shape == (200, 3)
+    assert av["query_points"].shape == (120, 3)
     assert av["tier"][0] == "lhm_mini"
+
+
+def test_library_stores_lhm_native_roundtrip(tmp_path):
+    from nfl_gsplat.avatars.library import AvatarLibrary
+
+    av = {k: np.asarray(v, dtype=np.float32) for k, v in _raw_lhm_native().items()}
+    av["tier"] = np.array(["lhm_mini"])
+    lib = AvatarLibrary(root=tmp_path, season=2024)
+    lib.put_avatar("p_42", av)
+    loaded = lib.get_avatar("p_42")
+    assert loaded["query_points"].shape == (120, 3)
+    assert "lbs_weights" not in loaded  # native blob, not canonical
+
+
+def test_avatar_batch_routes_lhm_native_to_animate_fn():
+    from nfl_gsplat.compositing.scene import avatar_batch
+
+    av = {k: np.asarray(v, dtype=np.float32) for k, v in _raw_lhm_native(n=50).items()}
+
+    def fake_animate(avatar, smplx_params):
+        m = avatar["app_xyz"].shape[0]
+        return {
+            "xyz": np.zeros((m, 3), np.float32), "rot": np.zeros((m, 4), np.float32),
+            "scale": np.zeros((m, 3), np.float32), "opacity": np.zeros(m, np.float32),
+            "sh": np.zeros((m, 1, 3), np.float32),
+        }
+
+    batch = avatar_batch(av, smplx_params={"betas": np.zeros((1, 10))},
+                         animate_fn=fake_animate)
+    assert batch.xyz.shape == (50, 3)
 
 
 # --- T2.4 3DGS-Avatar -------------------------------------------------------

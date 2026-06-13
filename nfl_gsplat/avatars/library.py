@@ -105,13 +105,29 @@ class AvatarLibrary:
         entity_type: str = "player",
         provenance: dict[str, Any] | None = None,
     ) -> Path:
-        """Write a canonical avatar (and optional betas) + provenance meta."""
-        missing = [k for k in AVATAR_KEYS if k not in avatar]
-        if missing:
-            raise ValueError(f"avatar dict missing keys {missing}")
+        """Write an avatar (and optional betas) + provenance meta.
+
+        Accepts either the *canonical* LBS schema (:data:`AVATAR_KEYS`, driven by
+        ``animate_gaussians``) or the *LHM-native* schema (:data:`LHM_NATIVE_KEYS`,
+        animated by LHM's own engine at render time). The stored keys are
+        whichever full schema the dict satisfies; the render scene re-detects the
+        format on load.
+        """
+        from nfl_gsplat.avatars.lhm_wrapper import LHM_NATIVE_KEYS
+
+        if all(k in avatar for k in AVATAR_KEYS):
+            schema = AVATAR_KEYS
+        elif all(k in avatar for k in LHM_NATIVE_KEYS):
+            schema = LHM_NATIVE_KEYS
+        else:
+            missing = [k for k in AVATAR_KEYS if k not in avatar]
+            raise ValueError(
+                f"avatar dict matches neither schema; missing canonical keys "
+                f"{missing} (and not LHM-native either)"
+            )
         path = self._avatar_path(uid)
         # ``tier`` is an optional string array; pass through if present.
-        arrays = {k: avatar[k] for k in AVATAR_KEYS}
+        arrays = {k: avatar[k] for k in schema}
         if "tier" in avatar:
             arrays["tier"] = avatar["tier"]
         write_npz(path, **arrays)

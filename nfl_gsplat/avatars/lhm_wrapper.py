@@ -11,15 +11,31 @@ Policy — strictly NO silent fallback:
 - free in [8, 16) → LHM-MINI
 - free < 8 GB  → :class:`LHMVRAMError`
 
-Output schema (NPZ per player):
+INTEGRATION — *LHM-native* avatars (Option A).
+LHM is an end-to-end animatable-avatar engine: its Gaussians carry no
+per-Gaussian LBS weights, and it poses avatars internally via
+``renderer.animate_gs_model(gs_attr, query_points, smplx_params)`` (SMPL-X
+skinning applied to ``query_points`` at runtime). So an LHM avatar is stored as
+its appearance Gaussians + the query points + the neutral-pose transform, and is
+animated at render time by feeding our per-frame SMPL-X params to LHM's own
+animator (see :mod:`nfl_gsplat.compositing.scene`). This is distinct from the
+*canonical* format below, which our LBS renderer drives directly.
 
-- canonical_xyz       [N, 3]
-- canonical_rot       [N, 4]  wxyz quaternion
-- canonical_scale     [N, 3]
-- canonical_opacity   [N]
-- canonical_sh        [N, 3, K]  SH coefficients (K depends on degree)
-- lbs_weights         [N, J]    J = SMPL-X body joints (22 for our body-only fit)
-- tier                str ("lhm_1b" | "lhm_mini" | "mock")
+LHM-native schema (NPZ per LHM player), keys in :data:`LHM_NATIVE_KEYS`:
+
+- app_xyz           [N, 3]      appearance Gaussian means (LHM/SMPL-X frame)
+- app_rot           [N, 4]      wxyz quaternion
+- app_scale         [N, 3]
+- app_opacity       [N]
+- app_sh            [N, K, 3]   SH coefficients (LHM layout)
+- query_points      [L, 3]      SMPL-X query points the Gaussians attach to
+- neutral_transform [*]         transform_mat_neutral_pose from infer_single_view
+- tier              str ("lhm_1b" | "lhm_mini")
+
+*Canonical* schema (mock / referee / 3DGS-hero), keys in
+:data:`~nfl_gsplat.avatars.library.AVATAR_KEYS`, driven by ``animate_gaussians``:
+
+- canonical_xyz/rot/scale/opacity/sh + lbs_weights [N, J] + tier
 
 For CI / CPU-only envs :func:`write_mock_avatar` emits a canonical blob that
 satisfies the smoke-test schema without any GPU work.
@@ -43,6 +59,23 @@ if TYPE_CHECKING:
 _LOG = get_logger(__name__)
 
 LHMTier = Literal["lhm_1b", "lhm_mini", "mock"]
+
+# LHM-native avatar NPZ keys (Option A): appearance Gaussians + the data LHM's
+# own animator needs to pose them from per-frame SMPL-X params at render time.
+LHM_NATIVE_KEYS = (
+    "app_xyz", "app_rot", "app_scale", "app_opacity", "app_sh",
+    "query_points", "neutral_transform",
+)
+
+
+def is_lhm_native(avatar: dict) -> bool:
+    """True if ``avatar`` is the LHM-native format (vs the canonical LBS blob).
+
+    Used by the library + render scene to route each avatar to the right
+    animation path. Discriminates on keys, not just ``tier``, so a hand-built
+    blob is classified correctly.
+    """
+    return all(k in avatar for k in LHM_NATIVE_KEYS)
 
 
 @dataclass(frozen=True)
@@ -102,23 +135,40 @@ def pick_tier(cfg: LHMConfig, free_gb: float | None = None) -> LHMTier:
 def generate_avatar(
     reference_crop: np.ndarray,    # [H, W, 3] uint8
     cfg: LHMConfig,
+    *,
+    betas: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Run LHM++ on a single reference crop. Requires the ``nfl_lhm`` conda
-    env + pretrained weights. This is the production path — raises
-    :class:`SetupError` if the model code isn't available.
+    """Run LHM++ on a single reference crop → an LHM-native avatar (Option A).
+
+    Requires the ``nfl_lhm`` conda env + pretrained weights. The result holds
+    LHM's appearance Gaussians + query points + neutral transform; it is posed
+    at render time by LHM's own animator (not our LBS renderer). ``betas`` is
+    the frozen SMPL-X shape for this uid; if ``None``, LHM's own shape estimate
+    is used. Raises :class:`SetupError` if the model code isn't available.
     """
     tier = pick_tier(cfg)
     _LOG.info(f"LHM tier selected: {tier}")
     model = _load_lhm_model(tier, cfg)
-    raw = _forward_lhm(model, reference_crop, cfg)
-    return _assemble_avatar(raw, tier, cfg)
+    raw = _forward_lhm(model, reference_crop, cfg, betas=betas)
+    return _assemble_avatar(raw, tier)
 
 
 _LHM_MODEL_CACHE: dict = {}
 
 
 def _load_lhm_model(tier: LHMTier, cfg: LHMConfig):
-    """Load + cache the LHM++ model for ``tier`` (env-gated; ``nfl_lhm``)."""
+    """Load + cache the LHM inferrer for ``tier`` (env-gated; ``nfl_lhm``).
+
+    Mirrors ``third_party/LHM``: the entrypoint is ``HumanLRMInferrer`` (from
+    ``LHM.runners.infer``), whose config/model selection is driven by the
+    ``APP_MODEL_NAME`` env var (``LHM-1B`` / ``LHM-500M`` etc.). We set it from
+    ``tier`` before constructing the inferrer, which loads the LHM model,
+    SMPL-X pose estimator, and segmenter.
+
+    NOTE (GPU bring-up): the exact env/cfg keys and the inferrer's preprocessing
+    surface are finalized against the live repo at single-play bring-up; this
+    wiring matches LHM.runners.infer.human_lrm as read from source.
+    """
     if tier in _LHM_MODEL_CACHE:
         return _LHM_MODEL_CACHE[tier]
     try:
@@ -127,42 +177,117 @@ def _load_lhm_model(tier: LHMTier, cfg: LHMConfig):
         raise SetupError(
             "torch not installed — activate the `nfl_lhm` conda env. See SETUP.md §1."
         ) from e
+    import os
     import sys
 
     sys.path.insert(0, str(cfg.repo_dir))
+    # LHM selects its weights by model name via APP_MODEL_NAME (see parse_configs).
+    os.environ.setdefault("APP_MODEL_NAME", _LHM_MODEL_NAME[tier])
     try:
-        from LHM.runners.infer import build_model  # type: ignore
+        from LHM.runners.infer import HumanLRMInferrer  # type: ignore
     except Exception as e:  # noqa: BLE001 — setup-actionable
         raise SetupError(
-            f"could not import LHM from {cfg.repo_dir} ({e}). Confirm the checkout + "
-            "entrypoint — see SETUP.md §8."
+            f"could not import LHM (LHM.runners.infer.HumanLRMInferrer) from "
+            f"{cfg.repo_dir} ({e}). Confirm the checkout — see SETUP.md §8."
         ) from e
-    model = build_model(tier, weights_dir=str(cfg.weights_dir))
+    model = HumanLRMInferrer()
     _LHM_MODEL_CACHE[tier] = model
     return model
 
 
-def _forward_lhm(model, reference_crop: np.ndarray, cfg: LHMConfig) -> dict[str, np.ndarray]:
-    """Run LHM++ on one reference crop → raw canonical-Gaussian dict. Seam:
-    monkeypatched in tests so the schema assembly runs without a GPU."""
-    return model.reconstruct(reference_crop, sh_degree=cfg.sh_degree,
-                             num_joints=cfg.num_body_joints)
+# Maps our VRAM tier to LHM's published model names (parse_configs/AutoModelQuery).
+_LHM_MODEL_NAME = {"lhm_1b": "LHM-1B", "lhm_mini": "LHM-500M"}
 
 
-def _assemble_avatar(raw: dict[str, np.ndarray], tier: LHMTier,
-                     cfg: LHMConfig) -> dict[str, np.ndarray]:
-    """Map raw LHM output to the canonical avatar NPZ schema. Pure."""
-    n = np.asarray(raw["xyz"]).shape[0]
-    K_sh = (cfg.sh_degree + 1) ** 2
+def _forward_lhm(model, reference_crop: np.ndarray, cfg: LHMConfig,
+                 *, betas: np.ndarray | None = None) -> dict[str, np.ndarray]:
+    """Run the LHM inferrer on one reference crop → raw LHM-native dict.
+
+    Mirrors ``HumanLRMInferrer.infer_mesh`` preprocessing, then calls
+    ``model.infer_single_view(...)`` to obtain the appearance Gaussians,
+    ``query_points`` and ``transform_mat_neutral_pose`` (the neutral build —
+    no motion sequence). The crop is written to a temp image because LHM's
+    preprocessing (segmentation, face crop, pose estimate) is path-driven.
+
+    Seam: monkeypatched in tests so the schema assembly + library/render
+    routing run without a GPU. GPU bring-up finalizes the exact attribute
+    accessors on the returned GaussianModel against the live model.
+    """
+    import os
+    import tempfile
+
+    import cv2  # type: ignore
+    import torch  # type: ignore
+
+    with tempfile.TemporaryDirectory(prefix="lhm_ref_") as td:
+        img_path = os.path.join(td, "ref.png")
+        cv2.imwrite(img_path, reference_crop[:, :, ::-1])  # RGB -> BGR for cv2
+
+        # Shape: frozen betas if given, else LHM's own pose-estimator beta.
+        if betas is None:
+            shape_param = model.pose_estimator(img_path).beta
+        else:
+            shape_param = np.asarray(betas, dtype=np.float32)
+
+        parsing_mask = model.parsing(img_path)
+        from LHM.runners.infer.human_lrm import infer_preprocess_image  # type: ignore
+
+        image, _, _ = infer_preprocess_image(
+            img_path, mask=parsing_mask, intr=None, pad_ratio=0, bg_color=1.0,
+            max_tgt_size=896, aspect_standard=5.0 / 3, enlarge_ratio=[1.0, 1.0],
+            render_tgt_size=model.cfg.source_size, multiply=14, need_mask=True,
+        )
+        try:
+            src_head = cv2.resize(model.crop_face_image(img_path),
+                                  (model.cfg.src_head_size, model.cfg.src_head_size))
+        except Exception:  # noqa: BLE001 — head crop is optional in LHM
+            src_head = np.zeros((model.cfg.src_head_size, model.cfg.src_head_size, 3),
+                                dtype=np.uint8)
+        src_head = torch.from_numpy(src_head / 255.0).float().permute(2, 0, 1).unsqueeze(0)
+
+        device, dtype = "cuda", torch.float32
+        smplx_params = _neutral_smplx_params(shape_param, device)
+        model.model.to(dtype)
+        gs_list, query_points, neutral_tf = model.model.infer_single_view(
+            image.unsqueeze(0).to(device, dtype),
+            src_head.unsqueeze(0).to(device, dtype),
+            None, None, None, None, None,
+            smplx_params={k: v.to(device) for k, v in smplx_params.items()},
+        )
+
+    gs = gs_list[0]
+    np_ = lambda t: t.detach().cpu().numpy()  # noqa: E731
     return {
-        "canonical_xyz": np.asarray(raw["xyz"], dtype=np.float32).reshape(n, 3),
-        "canonical_rot": np.asarray(raw["rot"], dtype=np.float32).reshape(n, 4),
-        "canonical_scale": np.asarray(raw["scale"], dtype=np.float32).reshape(n, 3),
-        "canonical_opacity": np.asarray(raw["opacity"], dtype=np.float32).reshape(n),
-        "canonical_sh": np.asarray(raw["sh"], dtype=np.float32).reshape(n, 3, K_sh),
-        "lbs_weights": np.asarray(raw["lbs_weights"], dtype=np.float32).reshape(n, cfg.num_body_joints),
-        "tier": np.array([tier]),
+        "app_xyz": np_(gs.xyz),
+        "app_rot": np_(gs.rotation),
+        "app_scale": np_(gs.scaling),
+        "app_opacity": np_(gs.opacity),
+        "app_sh": np_(gs.shs),
+        "query_points": np_(query_points[0]),
+        "neutral_transform": np_(neutral_tf),
     }
+
+
+def _neutral_smplx_params(shape_param: np.ndarray, device: str) -> dict:
+    """Neutral (rest-pose) SMPL-X params for the appearance build, matching the
+    shapes LHM's ``infer_mesh`` uses. Torch import is lazy (caller is GPU-only)."""
+    import torch  # type: ignore
+
+    z = lambda *s: torch.zeros(*s)  # noqa: E731
+    betas = torch.as_tensor(np.asarray(shape_param, dtype=np.float32)).reshape(1, -1)
+    return {
+        "betas": betas, "root_pose": z(1, 1, 3), "body_pose": z(1, 1, 21, 3),
+        "jaw_pose": z(1, 1, 3), "leye_pose": z(1, 1, 3), "reye_pose": z(1, 1, 3),
+        "lhand_pose": z(1, 1, 15, 3), "rhand_pose": z(1, 1, 15, 3),
+        "expr": z(1, 1, 100), "trans": z(1, 1, 3),
+    }
+
+
+def _assemble_avatar(raw: dict[str, np.ndarray], tier: LHMTier) -> dict[str, np.ndarray]:
+    """Map raw LHM output to the LHM-native avatar NPZ schema (Option A). Pure."""
+    out = {k: np.asarray(raw[k], dtype=np.float32) for k in LHM_NATIVE_KEYS}
+    out["tier"] = np.array([tier])
+    return out
 
 
 # --- Mock avatar (CPU smoke test) ------------------------------------------
