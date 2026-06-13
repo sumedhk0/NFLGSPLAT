@@ -5,6 +5,8 @@ Populates the reserved library slots the avatar stage depends on:
 - ``__football__`` — canonical football (oriented along the Kalman velocity).
 - ``__referee__`` — generic striped-shirt avatar for officials.
 
+Both assets land under ``data/{season}/_library/_assets/``.
+
 Idempotent: skips slots that already exist unless ``--force``. Run once per
 season root before processing plays, or referee tracks raise a SetupError.
 
@@ -13,6 +15,8 @@ Usage::
     python scripts/build_assets.py --season 2024
 """
 from __future__ import annotations
+
+from pathlib import Path
 
 import typer
 
@@ -28,14 +32,15 @@ app = typer.Typer(add_completion=False, help=__doc__)
 
 @app.command()
 def main(
-    season: str = typer.Option("0", help="Library season root."),
-    library_root: str = typer.Option("library"),
+    season: str = typer.Option("0", help="Season identifier (e.g. 2024)."),
+    data_root: str = typer.Option("data", "--data-root", help="Project data root."),
     force: bool = typer.Option(False, help="Rebuild even if the asset exists."),
     config=CONFIG_OPT,
     set_=SET_OPT,
 ) -> None:
     load_cli_config(config, None, set_)        # validate config loads; reserved for future knobs
-    lib = AvatarLibrary(library_root, season=season, rebuild=force)
+    library_root = Path(data_root) / str(season) / "_library"
+    lib = AvatarLibrary(library_root, season="", rebuild=force)
 
     if force or not lib.has_football_asset():
         lib.put_football_asset(make_football_asset(), provenance={"source": "make_football_asset"})

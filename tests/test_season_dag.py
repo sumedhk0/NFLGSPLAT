@@ -89,8 +89,8 @@ def _fake_avatar(crop, cfg):
 def test_build_one_generates_and_stores(tmp_path):
     root = tmp_path / "library"
     lib = AvatarLibrary(root, season=2024)
-    # Perception writes the reference crop + betas for the uid.
-    write_npz(reference_path(root, "2024", "qb_12"),
+    # Perception writes the reference at library_root/_refs/{uid}.npz (season="").
+    write_npz(reference_path(root, "", "qb_12"),
               crop=np.zeros((64, 64, 3), np.uint8), betas=np.arange(10, dtype=np.float32))
 
     build_one_avatar("2024", "qb_12", lib, generate_fn=_fake_avatar)
@@ -101,7 +101,7 @@ def test_build_one_generates_and_stores(tmp_path):
 def test_build_one_skips_when_cached(tmp_path):
     root = tmp_path / "library"
     lib = AvatarLibrary(root, season=2024)
-    write_npz(reference_path(root, "2024", "wr_81"),
+    write_npz(reference_path(root, "", "wr_81"),
               crop=np.zeros((64, 64, 3), np.uint8), betas=None if False else np.zeros(10, np.float32))
     calls = []
 

@@ -2,10 +2,10 @@
 
 Runs once per unique ``player_uid``. The perception stage saves each player's
 best season reference (crop + frozen betas) at
-``library/{season}/_refs/{uid}.npz``; this loads it, runs LHM++ (or 3DGS-Avatar
-for heroes), and stores the canonical avatar + betas under ``uid``. Because the
-season driver schedules exactly one task per uid, concurrent library writes
-never collide.
+``data/{season}/_library/_refs/{uid}.npz``; this loads it, runs LHM++ (or
+3DGS-Avatar for heroes), and stores the canonical avatar + betas under ``uid``.
+Because the season driver schedules exactly one task per uid, concurrent library
+writes never collide.
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def build_one_avatar(
         _LOG.info(f"{uid} already in library; skipping")
         return library._avatar_path(uid)
 
-    crop, betas = load_reference(library.root, season, uid)
+    crop, betas = load_reference(library.root, "", uid)
     if is_hero:
         if hero_fn is None:
             raise SetupError(f"{uid} is a hero but no 3DGS-Avatar builder provided.")
@@ -81,13 +81,14 @@ def _main() -> None:
     def main(
         season: str = typer.Option(...),
         uid: str = typer.Option(...),
-        library_root: Path = typer.Option(Path("library")),
+        data_root: Path = typer.Option(Path("data"), "--data-root"),
         config=CONFIG_OPT,
         set_=SET_OPT,
     ) -> None:
         cfg = load_cli_config(config, None, set_)
         heroes = set(str(h) for h in (cfg.avatars.heroes or []))
-        lib = AvatarLibrary(library_root, season=season,
+        library_root = Path(data_root) / str(season) / "_library"
+        lib = AvatarLibrary(root=library_root, season="",
                             rebuild=bool(cfg.avatars.library.rebuild))
         build_one_avatar(season, uid, lib, is_hero=uid in heroes)
 
