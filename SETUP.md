@@ -80,24 +80,24 @@ The pipeline checks for `data/body_models/smplx/SMPLX_NEUTRAL.npz` at startup. M
 
 ## §3. Camera calibration (human-in-the-loop)
 
-Every camera pair must be calibrated once per keyframe. NFL broadcast cameras pan and zoom during plays, so we re-calibrate at keyframes (default: once per play start) and linearly interpolate extrinsics between them.
+Every camera pair must be calibrated once per keyframe. NFL broadcast cameras pan and zoom during plays, so we re-calibrate at keyframes (default: once per play start) and linearly interpolate extrinsics between them. Calibration is a **manual per-play pre-step** — run it on a play folder before submitting that play to the pipeline.
 
 ### First-time run
 
 ```bash
-python scripts/02_calibrate_cameras.py --game game_001
+python scripts/02_calibrate_cameras.py --play-dir data/2024/week_01/NO_at_ATL/play_001
 ```
 
 For each camera, a clickable OpenCV window shows a reference frame overlaid with the list of expected NFL field landmarks (yard-line intersections with sidelines and hash marks, pylons, goalpost bases). Click each visible landmark. Press `s` to save, `q` to quit.
 
-Annotations are written to `data/annotations/{game_id}/{cam}_landmarks.json`. The PnP solver runs immediately and reports the reprojection RMS. If RMS > 5 px the script refuses to save — re-click or add more landmarks.
+Annotations are written to `<play-dir>/cameras.json`. The PnP solver runs immediately and reports the reprojection RMS. If RMS > 5 px the script refuses to save — re-click or add more landmarks.
 
 **Minimum annotations per camera: 6.** With 10+, bundle adjustment via `cv2.calibrateCamera` refines intrinsics too.
 
 ### Adding a keyframe for mid-play zoom changes
 
 ```bash
-python scripts/02_calibrate_cameras.py --game game_001 --camera sideline --keyframe-frame 4200
+python scripts/02_calibrate_cameras.py --play-dir data/2024/week_01/NO_at_ATL/play_001 --camera sideline --keyframe-frame 4200
 ```
 
 Extrinsics between keyframes are linearly interpolated. This is the documented limitation — for smoother tracking of aggressive pans, annotate more keyframes.
@@ -123,17 +123,42 @@ All downloads are resumable. Re-running the script is idempotent.
 
 ---
 
-## §5. Raw video
+## §5. Raw video / data layout
 
-You supply the broadcast feeds. They must be **already synchronized** (same start frame, same FPS).
+Each play lives in its own self-contained folder. Scaffold one with `scripts/new_play.py`, then drop the two pre-trimmed clips in.
+
+```bash
+python scripts/new_play.py --season 2024 --week 1 --away NO --home ATL --play play_001
+# creates data/2024/week_01/NO_at_ATL/play_001/ with a meta.yaml stub
+```
+
+### Per-play tree
 
 ```
-data/raw/{game_id}/
-├── sideline.mp4
-└── endzone.mp4
+data/2024/                          # season root
+  _library/  _rosters/  _registry.json   # season-shared (cross-play)
+  week_01/
+    NO_at_ATL/                      # AWAY_at_HOME
+      play_001/
+        sideline.mp4  endzone.mp4   # the two clips ARE the play (pre-trimmed)
+        cameras.json  field.ply     # per-play calibration + field
+        tracks.parquet  entities.json  smplestx/  poses/{uid}.npz  ball.npz
+        render.mp4
+        meta.yaml                   # season/week/home_team/away_team/fps[/gsis_play_id]
 ```
 
-The pipeline validates on startup that both files exist and have matching frame counts (±2 frames tolerance for broadcast jitter).
+### `meta.yaml` schema
+
+```yaml
+season: 2024
+week: 1
+home_team: "ATL"   # abbreviation, quoted
+away_team: "NO"
+fps: 29.97
+# gsis_play_id: "2024090800-1234"   # optional; links to nflverse play-by-play
+```
+
+After scaffolding, drop the two pre-trimmed broadcast clips (`sideline.mp4`, `endzone.mp4`) into the play folder and run calibration (§3). The pipeline validates that both clips exist and have matching frame counts (±2 frames tolerance for broadcast jitter).
 
 ---
 
@@ -224,20 +249,20 @@ once per season via nflverse:
 conda activate nfl_smplx
 pip install nfl_data_py          # one-time
 python scripts/fetch_roster.py --season 2024
-# → data/rosters/2024/rosters.parquet  (+ participation.parquet if available)
+# → data/2024/_rosters/rosters.parquet  (+ participation.parquet if available)
 ```
 
-Set `identity.season=2024` (and `identity.source=roster`) in your config. Per-game
-home/away abbreviations go in `data/raw/{game_id}/plays.yaml` under `meta:`. If
-participation data is missing for a play, the full per-game roster is used as the
-candidate set; with no roster at all, `identity.source=ocr_only` falls back to
-OCR + jersey-color identities (coarser, no cross-game guarantees).
+Set `identity.season=2024` (and `identity.source=roster`) in your config. Per-play
+home/away abbreviations and other metadata are read from each play's `meta.yaml`
+(see §5). If participation data is missing for a play, the full per-game roster is
+used as the candidate set; with no roster at all, `identity.source=ocr_only` falls
+back to OCR + jersey-color identities (coarser, no cross-game guarantees).
 
-`data/rosters/` is gitignored — nflverse data is not ours to redistribute.
+`data/{season}/_rosters/` is gitignored — nflverse data is not ours to redistribute.
 
 ### Avatar/shape library
 
-The library at `library/{season}/{player_uid}/` caches each player's canonical
+The library at `data/{season}/_library/{player_uid}/` caches each player's canonical
 avatar (`avatar.npz`) + frozen shape (`betas.npz`) once. On later appearances the
 avatar stage loads instead of re-running LHM++, and the pose stage reuses the
 frozen `betas` (`pose.refit.use_library_betas: true`) so the cached avatar's rig
@@ -245,9 +270,9 @@ and the per-play pose skeleton share bone lengths. Generic assets live under
 reserved uids: `__referee__` (a striped-shirt avatar for officials) and
 `__football__` (the canonical football, oriented along the Kalman velocity).
 
-Force a rebuild with `avatars.library.rebuild=true`. `library/` is gitignored
-(derived data). Author the one-time generic referee avatar before processing
-plays, or referee tracks raise a `SetupError`.
+Force a rebuild with `avatars.library.rebuild=true`. `data/{season}/_library/` is
+gitignored (derived data). Author the one-time generic referee avatar before
+processing plays, or referee tracks raise a `SetupError`.
 
 ## §10 — Running the full season on a GPU cluster (PACE)
 
@@ -267,31 +292,34 @@ python scripts/fetch_roster.py --season 2024  # roster/participation prior (§9)
 python scripts/build_assets.py --season 2024  # generic referee + football into library
 ```
 Set `slurm.account`, `slurm.partition`, and `slurm.gpu` in `configs/season.yaml`
-to your PACE allocation, and list the season's `games`.
+to your PACE allocation. Plays are discovered by walking the `data/{season}/` tree —
+no `games:` list is needed.
 
 ### Submit the staged DAG
 ```bash
 python scripts/run_season.py --config configs/season.yaml --dry-run   # inspect
 python scripts/run_season.py --config configs/season.yaml --submit    # go
 ```
-Stages: **S1** field recon (per game) → **S2** perception array (per play:
-tracking → identity → SMPLest-X → triangulate → fuse → smooth → forward-kinematics
-→ ball) → **tail** (`collect_uids` → submit S3) → **S3** avatar build (one task
-per unique `player_uid`; heroes via 3DGS-Avatar, others via LHM++) → **S4** render
-array (per play). The one-task-per-uid design in S3 makes concurrent library
-writes race-free.
+Stages: **S1** per-play perception (field recon folded in: tracks → identity →
+SMPLest-X → triangulate → fuse → smooth → FK → ball; plays discovered by walking
+the tree) → **tail** (`collect_uids` → submit S2) → **S2** avatar build (one task
+per unique `player_uid`; heroes via 3DGS-Avatar, others via LHM++) → **S3** render
+array (per play). The one-task-per-uid design in S2 makes concurrent library
+writes race-free. Calibration (`scripts/02_calibrate_cameras.py --play-dir <play folder>`)
+is a manual per-play pre-step done before submitting the DAG — it is not a SLURM stage.
 
 ### Single play (debug)
 ```bash
-bash scripts/04_process_play.sh game_001 play_001          # all the way to render.mp4
-bash scripts/04_process_play.sh game_001 play_001 --perception-only
+bash scripts/04_process_play.sh --play-dir data/2024/week_01/NO_at_ATL/play_001          # all the way to render.mp4
+bash scripts/04_process_play.sh --play-dir data/2024/week_01/NO_at_ATL/play_001 --perception-only
 ```
 
 ### Stage CLIs
 Each step of `04_process_play.sh` is a real `python -m nfl_gsplat.<stage>
---game --play --config` entry point that loads the calibrated cameras
-(`outputs/{game}/calib/cameras.json` via `calibration.cameras_io.load_cameras`)
-and slices the play's frame window (`plays.yaml`) before running the stage:
+--play-dir <path to play folder> [--config ...]` entry point that loads the
+calibrated cameras (`cameras.json` inside the play folder via
+`calibration.cameras_io.load_cameras`) and reads play metadata from `meta.yaml`
+before running the stage:
 
 | Step | Module | Reads → writes |
 |---|---|---|
