@@ -128,3 +128,44 @@ def extract_static_frames(
         per_cam[cam] = written
 
     return per_cam
+
+
+def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
+    import typer
+
+    from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
+    from nfl_gsplat.paths import PlayDir
+
+    app = typer.Typer(add_completion=False)
+
+    @app.command()
+    def main(
+        play_dir: Path = typer.Option(..., "--play-dir"),
+        config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT,
+    ) -> None:
+        cfg = load_cli_config(config, config_override, set_)
+        pdir = PlayDir.from_dir(play_dir)
+
+        # Determine clip duration from the first camera video; use the full clip
+        # as the single pre-snap sampling window (per-play clips are already
+        # trimmed to the pre-snap period at ingest).
+        first_video = pdir.video(pdir.cameras[0])
+        meta = ffprobe_meta(first_video)
+        clip_duration = meta.num_frames / meta.fps
+        ranges = [PreSnapRange(start_sec=0.0, duration_sec=clip_duration)]
+
+        videos = {cam: pdir.video(cam) for cam in pdir.cameras}
+        out_dir = pdir.dir / "field"
+        frame_cfg = StaticFrameConfig(
+            fps_sample=float(cfg.field.fps_sample),
+            max_frames_per_cam=int(cfg.field.pre_snap_frames_per_cam),
+        )
+        per_cam = extract_static_frames(videos, ranges, out_dir, frame_cfg)
+        total = sum(len(v) for v in per_cam.values())
+        _LOG.info(f"extract_static_frames: {total} frames total → {out_dir / 'frames'}")
+
+    app()
+
+
+if __name__ == "__main__":
+    _main()

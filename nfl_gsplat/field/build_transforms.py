@@ -114,3 +114,56 @@ def build_transforms_json(
 
     write_json(out_path, out)
     return out_path
+
+
+def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
+    import typer
+
+    from nfl_gsplat.calibration.cameras_io import load_cameras
+    from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
+    from nfl_gsplat.paths import PlayDir
+    from nfl_gsplat.utils.logging import get_logger
+
+    _log = get_logger(__name__)
+    app = typer.Typer(add_completion=False)
+
+    @app.command()
+    def main(
+        play_dir: Path = typer.Option(..., "--play-dir"),
+        config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT,
+    ) -> None:
+        cfg = load_cli_config(config, config_override, set_)  # noqa: F841 — kept for uniform CLI signature
+        pdir = PlayDir.from_dir(play_dir)
+
+        # Load calibrated camera poses from the per-play cameras.json.
+        raw_cams = load_cameras(pdir.cameras_json)
+        cameras = {
+            cam: {
+                "K": intr.K().tolist(),
+                "R": pose.R.tolist(),
+                "t": pose.t.tolist(),
+                "width": intr.width,
+                "height": intr.height,
+            }
+            for cam, (intr, pose) in raw_cams.items()
+        }
+
+        # Discover frames written by extract_static_frames under field/frames/{cam}/.
+        field_dir = pdir.dir / "field"
+        frames_root = field_dir / "frames"
+        frames: dict[str, list[Path]] = {
+            cam: sorted((frames_root / cam).glob("*.png"))
+            for cam in cameras
+            if (frames_root / cam).is_dir()
+        }
+
+        out_json = field_dir / "transforms.json"
+        build_transforms_json(cameras, frames, out_json, root_dir=field_dir)
+        total = sum(len(v) for v in frames.values())
+        _log.info(f"build_transforms: {total} frames → {out_json}")
+
+    app()
+
+
+if __name__ == "__main__":
+    _main()

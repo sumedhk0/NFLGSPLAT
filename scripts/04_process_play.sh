@@ -26,6 +26,16 @@ cd "$REPO_ROOT"
 
 CFG="--config configs/pipeline.yaml"
 
+echo "=== [0/6] static-field reconstruction → field.ply  (env: nfl_gsplat) ==="
+conda activate nfl_gsplat
+python -m nfl_gsplat.field.extract_static_frames \
+    --play-dir "$PLAY_DIR" $CFG --config-override configs/field_recon.yaml
+python -m nfl_gsplat.field.build_transforms \
+    --play-dir "$PLAY_DIR" $CFG
+python -m nfl_gsplat.field.train_field \
+    --play-dir "$PLAY_DIR" --config configs/field_recon.yaml
+conda deactivate
+
 echo "=== [1/6] tracking + cross-cam re-ID + jersey OCR  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.tracking.detect_track   --play-dir "$PLAY_DIR" $CFG

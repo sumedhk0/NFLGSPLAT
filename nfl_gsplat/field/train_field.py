@@ -184,6 +184,47 @@ def write_mock_field_ply(
     return out_path
 
 
+def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
+    import typer
+
+    from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
+    from nfl_gsplat.paths import PlayDir
+
+    app = typer.Typer(add_completion=False)
+
+    @app.command()
+    def main(
+        play_dir: Path = typer.Option(..., "--play-dir"),
+        config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT,
+    ) -> None:
+        cfg = load_cli_config(config, config_override, set_)
+        pdir = PlayDir.from_dir(play_dir)
+
+        field_dir = pdir.dir / "field"
+        transforms_json = field_dir / "transforms.json"
+
+        train_cfg = FieldTrainConfig(
+            splatfacto_iters=int(cfg.field.splatfacto_iters),
+            sh_degree=int(cfg.field.sh_degree),
+            cull_alpha_thresh=float(cfg.field.cull_alpha_thresh),
+        )
+        # Train into the field working dir; PLY lands at field_dir/field.ply.
+        ply = train_field(transforms_json, field_dir, train_cfg)
+        # Move the PLY to the canonical per-play location (pd.dir/field.ply).
+        pdir.field_ply.parent.mkdir(parents=True, exist_ok=True)
+        ply.replace(pdir.field_ply)
+        _LOG.info(f"train_field: field.ply → {pdir.field_ply}")
+
+    app()
+
+
+if __name__ == "__main__":
+    _main()
+
+
+# ---------------------------------------------------------------------------
+
+
 def read_ply_gaussian_count(path: Path | str) -> int:
     """Parse a PLY header and return the vertex/Gaussian count.
 
