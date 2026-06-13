@@ -12,7 +12,8 @@ back to the legacy layout (one avatar NPZ per player under ``play_dir/avatars``)
 
 Usage::
 
-    python scripts/05_render_novel_view.py --game game_001 --play play_001 \
+    python scripts/05_render_novel_view.py \
+        --play-dir data/2024/week_01/NO_at_ATL/play_001 \
         --trajectory configs/trajectories/fly_through.yaml
 """
 from __future__ import annotations
@@ -23,6 +24,7 @@ import numpy as np
 import typer
 
 from nfl_gsplat.avatars.library import AvatarLibrary
+from nfl_gsplat.paths import PlayDir
 from nfl_gsplat.compositing.merge_ply import GaussianBatch, load_gaussian_ply
 from nfl_gsplat.compositing.render_gsplat import RenderConfig, render_trajectory
 from nfl_gsplat.compositing.scene import (
@@ -100,17 +102,13 @@ def _load_ball(play_dir: Path, library: AvatarLibrary) -> tuple[dict, np.ndarray
 
 @app.command()
 def main(
-    game: str = typer.Option(...),
-    play: str = typer.Option(...),
+    play_dir: Path = typer.Option(..., "--play-dir"),
     trajectory: Path = typer.Option(...),
-    out_root: Path = typer.Option(Path("outputs")),
-    library_root: Path = typer.Option(Path("library")),
-    season: str = typer.Option("0"),
     spin_rate: float = typer.Option(6.0),
     device: str = typer.Option("cuda:0"),
 ) -> None:
-    play_dir = out_root / game / play
-    field_ply = out_root / game / "field" / "field.ply"
+    pd = PlayDir.from_dir(play_dir)
+    field_ply = pd.field_ply
     if not field_ply.exists():
         raise SetupError(f"field.ply missing at {field_ply}; run 03_reconstruct_field.sh first.")
 
@@ -118,13 +116,13 @@ def main(
     intr, poses = sample_trajectory(trajectory)
     num_frames = len(poses)
 
-    library = AvatarLibrary(library_root, season=season)
-    entities = _load_entities(play_dir, library)
+    library = AvatarLibrary(root=pd.library_root, season="")
+    entities = _load_entities(pd.dir, library)
     if not entities:
-        _LOG.warning(f"no posed entities for {game}/{play}; rendering field only")
-    ball = _load_ball(play_dir, library)
+        _LOG.warning(f"no posed entities for {pd.dir}; rendering field only")
+    ball = _load_ball(pd.dir, library)
 
-    frames_dir = play_dir / "render" / "frames"
+    frames_dir = pd.dir / "render" / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
 
     for t in range(num_frames):
@@ -141,9 +139,8 @@ def main(
             cfg=RenderConfig(), device=device,
         )
 
-    final_mp4 = play_dir / "render.mp4"
-    encode_mp4(frames_dir, final_mp4, fps=30.0)
-    _LOG.info(f"wrote {final_mp4}")
+    encode_mp4(frames_dir, pd.render_mp4, fps=30.0)
+    _LOG.info(f"wrote {pd.render_mp4}")
 
 
 if __name__ == "__main__":
