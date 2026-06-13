@@ -63,10 +63,11 @@ class AvatarLibrary:
 
     def _player_dir(self, uid: str) -> Path:
         if uid == REFEREE_UID:
-            return self.root / self.season / "_assets" / "referee"
+            base = self.root / self.season if self.season else self.root
+            return base / "_assets" / "referee"
         if uid == FOOTBALL_UID:
             return self.root / "_assets" / "football"
-        return self.root / self.season / uid
+        return (self.root / self.season / uid) if self.season else (self.root / uid)
 
     def _avatar_path(self, uid: str) -> Path:
         name = "asset.npz" if uid == FOOTBALL_UID else "avatar.npz"
