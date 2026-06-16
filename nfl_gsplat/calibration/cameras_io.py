@@ -1,6 +1,6 @@
-"""Load the per-game ``cameras.json`` into geometry objects.
+"""Load the per-play ``cameras.json`` into geometry objects.
 
-``scripts/02_calibrate_cameras.py`` writes ``outputs/{game}/calib/cameras.json``
+``scripts/02_calibrate_cameras.py`` writes ``<play folder>/cameras.json``
 as ``{cam: {K, R, t, width, height}, "reprojection_error_px": {...}}``. Every
 3D stage (cross-cam re-ID, triangulation, ball Kalman) needs the same
 ``{cam: (CameraIntrinsics, CameraPose)}`` mapping, so it lives here once instead
@@ -40,7 +40,7 @@ def load_cameras(path: Path | str) -> dict[str, tuple[CameraIntrinsics, CameraPo
     if not path.exists():
         raise SetupError(
             f"cameras.json not found at {path}. Calibrate first: "
-            "`python scripts/02_calibrate_cameras.py --game <ID>` — see SETUP.md §3."
+            "`python scripts/02_calibrate_cameras.py --play-dir <play folder>` — see SETUP.md §3."
         )
     raw = read_json(path)
     cams: dict[str, tuple[CameraIntrinsics, CameraPose]] = {}

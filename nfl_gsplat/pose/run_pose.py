@@ -12,7 +12,7 @@ For each renderable instance in ``entities.json`` this:
 
 Betas are frozen to the library when present (so the cached avatar's rig and the
 per-play skeleton share bone lengths); the player's best reference crop + betas
-are written to ``library/{season}/_refs/{uid}.npz`` for the avatar-build stage.
+are written to ``data/{season}/_library/_refs/{uid}.npz`` for the avatar-build stage.
 
 Steps 2-5 are pure numpy/scipy and unit-tested in ``tests/test_run_pose.py``;
 step 1 is the GPU seam, exercised on PACE.

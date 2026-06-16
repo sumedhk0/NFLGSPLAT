@@ -8,43 +8,15 @@
 #SBATCH --requeue
 #SBATCH --output=logs/%x-%j.out
 
-# Submit the full chain for one game: field reconstruction, then a play-array
-# job depending on it. This driver itself is a CPU-only meta-job — the actual
-# GPU work happens in the submitted children.
+# DEPRECATED: full_game.sbatch does not map to the per-play tree layout.
+# Use the season DAG runner instead — it discovers plays automatically and
+# submits the staged SLURM array via play_process_array.sbatch.
 #
-# Usage:  sbatch scripts/slurm/full_game.sbatch game_001
+# Supported path:
+#   python scripts/run_season.py --config configs/season.yaml --submit
 
 set -euo pipefail
-
-GAME="${1:-}"
-if [[ -z "$GAME" ]]; then
-    echo "usage: sbatch $0 <game_id>" >&2
-    exit 2
-fi
-
-cd "$SLURM_SUBMIT_DIR"
-mkdir -p logs
-
-PLAYS_FILE="configs/plays/${GAME}.txt"
-if [[ ! -f "$PLAYS_FILE" ]]; then
-    echo "missing plays list: $PLAYS_FILE (one play_id per line)" >&2
-    exit 2
-fi
-
-NUM_PLAYS="$(wc -l < "$PLAYS_FILE")"
-
-echo "=== submitting field_recon for $GAME ==="
-FIELD_JOB="$(sbatch --parsable scripts/slurm/field_recon.sbatch "$GAME")"
-echo "field_recon job id: $FIELD_JOB"
-
-echo "=== submitting play array (1-$NUM_PLAYS) depending on $FIELD_JOB ==="
-PLAY_JOB="$(sbatch --parsable \
-    --dependency=afterok:"$FIELD_JOB" \
-    --array=1-"$NUM_PLAYS" \
-    --export=ALL,NFL_GAME="$GAME" \
-    scripts/slurm/play_process_array.sbatch)"
-echo "play_array job id: $PLAY_JOB"
-
-echo
-echo "submitted. Watch with:"
-echo "  squeue -u \$USER"
+echo "full_game.sbatch is deprecated under the per-play layout." >&2
+echo "Use: python scripts/run_season.py --config configs/season.yaml --submit" >&2
+echo "(discovers plays from data/{season}/week_NN/{matchup}/play_NNN and submits the staged DAG)." >&2
+exit 1
