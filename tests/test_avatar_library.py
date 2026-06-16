@@ -111,3 +111,16 @@ def test_index_excludes_reserved_assets(tmp_path):
     assert "00-A" in idx
     assert REFEREE_UID not in idx and FOOTBALL_UID not in idx
     assert idx["00-A"]["entity_type"] == "player"
+
+
+def test_library_empty_season_flat_layout(tmp_path):
+    import numpy as np  # noqa: F401  (kept for parity if needed)
+    from nfl_gsplat.avatars.library import AvatarLibrary
+    from nfl_gsplat.avatars.lhm_wrapper import write_mock_avatar
+    from nfl_gsplat.utils.io import read_npz
+
+    lib = AvatarLibrary(root=tmp_path / "_library", season="")
+    out = write_mock_avatar(tmp_path / "mock.npz", num_gaussians=64, num_joints=22)
+    lib.put_avatar("p_7", read_npz(out))
+    assert (tmp_path / "_library" / "p_7" / "avatar.npz").exists()
+    assert lib.has_avatar("p_7")

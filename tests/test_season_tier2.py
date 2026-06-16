@@ -10,27 +10,26 @@ from nfl_gsplat.identity.consensus import apply_remap, build_consensus_remap
 from nfl_gsplat.season.collect_uids import collect_player_uids, uids_to_build
 from nfl_gsplat.season.refine_betas import BetasAppearance, select_best_betas
 from nfl_gsplat.utils.io import write_json
-from nfl_gsplat.utils.plays import PlaysManifest, PlayWindow
+from nfl_gsplat.season.scaffold import scaffold_play
 
 
 # --- T2.2 alignment ---------------------------------------------------------
 
-def _manifest(gsis_map: dict[str, str | None]) -> PlaysManifest:
-    plays = {
-        pid: PlayWindow(pid, 0, 10, gsis_play_id=g)
-        for pid, g in gsis_map.items()
-    }
-    return PlaysManifest("2024", "HOME", "AWAY", 30.0, plays)
-
-
-def test_align_participation_maps_to_our_keys():
+def test_align_participation_maps_to_our_keys(tmp_path):
     part = pd.DataFrame({
         "game_id": ["G1", "G1", "G1"],
         "play_id": ["100", "100", "200"],
         "player_uid": ["00-A", "00-B", "00-C"],
     })
-    man = _manifest({"play_001": "100", "play_002": "200", "play_003": None})
-    out = align_participation(part, man, "game_001", gsis_game_id="G1")
+    play_dirs = [
+        scaffold_play(tmp_path, season=2024, week=1, away="AWAY", home="HOME",
+                      play="play_001", gsis_play_id="100"),
+        scaffold_play(tmp_path, season=2024, week=1, away="AWAY", home="HOME",
+                      play="play_002", gsis_play_id="200"),
+        scaffold_play(tmp_path, season=2024, week=1, away="AWAY", home="HOME",
+                      play="play_003"),
+    ]
+    out = align_participation(part, play_dirs, "game_001", gsis_game_id="G1")
     assert out[("game_001", "play_001")] == ["00-A", "00-B"]
     assert out[("game_001", "play_002")] == ["00-C"]
     # play_003 has no gsis id → omitted (falls back to per-game roster).

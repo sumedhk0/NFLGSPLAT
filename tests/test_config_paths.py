@@ -4,7 +4,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from nfl_gsplat.config import load_config
-from nfl_gsplat.paths import game_paths, play_paths
 
 
 def test_load_config_reads_pipeline():
@@ -29,24 +28,35 @@ def test_overlay_stage_yaml(tmp_path: Path):
     assert cfg.identity.enabled is True
 
 
-def test_game_paths_layout():
-    cfg = load_config(overrides=["identity.season=2024"])
-    gp = game_paths(cfg, "game_001")
-    assert gp.raw_video("sideline") == Path("data/raw/game_001/sideline.mp4")
-    assert gp.plays_yaml == Path("data/raw/game_001/plays.yaml")
-    assert gp.field_ply == Path("outputs/game_001/field/field.ply")
-    assert gp.calib_json == Path("outputs/game_001/calib/cameras.json")
-    assert gp.annotations("endzone") == Path("data/annotations/game_001/endzone_landmarks.json")
-    assert gp.library_dir == Path("library/2024")
-    assert gp.rosters_dir == Path("data/rosters/2024")
+def test_play_dir_layout():
+    from nfl_gsplat.paths import PlayDir
+    pd = PlayDir(season="2024", week=1, matchup="NO_at_ATL", play_id="play_001")
+    assert pd.dir == Path("data/2024/week_01/NO_at_ATL/play_001")
+    assert pd.video("sideline") == Path("data/2024/week_01/NO_at_ATL/play_001/sideline.mp4")
+    assert pd.cameras_json == Path("data/2024/week_01/NO_at_ATL/play_001/cameras.json")
+    assert pd.field_ply == Path("data/2024/week_01/NO_at_ATL/play_001/field.ply")
+    assert pd.tracks == Path("data/2024/week_01/NO_at_ATL/play_001/tracks.parquet")
+    assert pd.entities == Path("data/2024/week_01/NO_at_ATL/play_001/entities.json")
+    assert pd.pose("00-1234") == Path("data/2024/week_01/NO_at_ATL/play_001/poses/00-1234.npz")
+    assert pd.ball == Path("data/2024/week_01/NO_at_ATL/play_001/ball.npz")
+    assert pd.render_mp4 == Path("data/2024/week_01/NO_at_ATL/play_001/render.mp4")
+    assert pd.meta_yaml == Path("data/2024/week_01/NO_at_ATL/play_001/meta.yaml")
 
 
-def test_play_paths_layout():
-    cfg = load_config(overrides=["identity.season=2024"])
-    pp = play_paths(cfg, "game_001", "play_007")
-    assert pp.dir == Path("outputs/game_001/play_007")
-    assert pp.tracks == Path("outputs/game_001/play_007/tracks.parquet")
-    assert pp.entities == Path("outputs/game_001/play_007/entities.json")
-    assert pp.pose("00-1234") == Path("outputs/game_001/play_007/poses/00-1234.npz")
-    assert pp.ball == Path("outputs/game_001/play_007/ball.npz")
-    assert pp.render_mp4 == Path("outputs/game_001/play_007/render.mp4")
+def test_play_dir_season_shared_roots():
+    from nfl_gsplat.paths import PlayDir
+    pd = PlayDir(season="2024", week=12, matchup="NO_at_ATL", play_id="play_003")
+    assert pd.library_root == Path("data/2024/_library")
+    assert pd.rosters_root == Path("data/2024/_rosters")
+    assert pd.registry_path == Path("data/2024/_registry.json")
+    assert pd.teams == ("ATL", "NO")          # (home, away)
+
+
+def test_play_dir_from_dir_roundtrip(tmp_path):
+    from nfl_gsplat.paths import PlayDir
+    p = tmp_path / "data" / "2024" / "week_05" / "NO_at_ATL" / "play_002"
+    p.mkdir(parents=True)
+    pd = PlayDir.from_dir(p)
+    assert (pd.season, pd.week, pd.matchup, pd.play_id) == ("2024", 5, "NO_at_ATL", "play_002")
+    assert pd.dir == p
+    assert pd.library_root == tmp_path / "data" / "2024" / "_library"

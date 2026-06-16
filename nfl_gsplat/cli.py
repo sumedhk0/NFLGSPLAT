@@ -1,22 +1,27 @@
 """Shared CLI plumbing for stage entry points.
 
-Each stage module exposes a ``typer`` app whose ``main`` takes the standard
-``--game / --play / --config / --config-override / --set`` flags and loads its
-effective config via :func:`load_cli_config`. The shell orchestration
+Each stage module exposes a ``typer`` app whose ``main`` takes a single
+``--play-dir`` (the play folder) plus the standard
+``--config / --config-override / --set`` flags, and loads its effective config
+via :func:`load_cli_config`. The shell orchestration
 (``scripts/04_process_play.sh``) and the SLURM arrays invoke them as
-``python -m nfl_gsplat.<stage> --game … --play …``.
+``python -m nfl_gsplat.<stage> --play-dir <play folder>``.
 
 Stage template::
 
+    from pathlib import Path
+
     import typer
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
+    from nfl_gsplat.paths import PlayDir
 
     app = typer.Typer(add_completion=False)
 
     @app.command()
-    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+    def main(play_dir: Path = typer.Option(..., "--play-dir"),
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT):
         cfg = load_cli_config(config, config_override, set_)
+        pd = PlayDir.from_dir(play_dir)
         ...
 
     if __name__ == "__main__":

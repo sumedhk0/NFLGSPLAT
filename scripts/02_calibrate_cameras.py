@@ -1,12 +1,12 @@
-"""Annotate landmarks + solve PnP for each camera of a game.
+"""Annotate landmarks + solve PnP for each camera of a play.
 
 Usage::
 
-    python scripts/02_calibrate_cameras.py --game game_001
-    python scripts/02_calibrate_cameras.py --game game_001 --camera sideline --annotate
+    python scripts/02_calibrate_cameras.py --play-dir data/2024/week_01/NO_at_ATL/play_001
+    python scripts/02_calibrate_cameras.py --play-dir data/2024/week_01/NO_at_ATL/play_001 --camera sideline --annotate
 
-- Without ``--annotate``: assumes ``data/annotations/{game}/{cam}_landmarks.json``
-  already exists; runs PnP and writes ``outputs/{game}/calib/cameras.json``.
+- Without ``--annotate``: assumes ``{play_dir}/{cam}_landmarks.json`` already
+  exists; runs PnP and writes ``{play_dir}/cameras.json``.
 - With ``--annotate``: opens the OpenCV annotation GUI first.
 
 Respects the pipeline's fail-loud error philosophy: missing annotations raise
@@ -21,6 +21,7 @@ import typer
 from nfl_gsplat.calibration.annotate_gui import annotate_frame
 from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_annotations
 from nfl_gsplat.errors import SetupError
+from nfl_gsplat.paths import PlayDir
 from nfl_gsplat.utils.io import write_json
 from nfl_gsplat.utils.logging import get_logger
 from nfl_gsplat.utils.video import iter_frames
@@ -37,24 +38,19 @@ def _first_frame(video_path: Path):
 
 @app.command()
 def main(
-    game: str = typer.Option(..., help="game_id, e.g. game_001"),
+    play_dir: Path = typer.Option(..., help="path to the play folder, e.g. data/2024/week_01/NO_at_ATL/play_001"),
     camera: list[str] = typer.Option(["sideline", "endzone"], "-c", "--camera"),
     annotate: bool = typer.Option(False, help="open GUI annotator before solving"),
-    data_root: Path = typer.Option(Path("data"), help="root of raw/annotations dirs"),
-    out_root: Path = typer.Option(Path("outputs"), help="root of outputs dir"),
     max_reproj_px: float = typer.Option(5.0, help="PnP reprojection tolerance"),
 ) -> None:
-    raw_dir = data_root / "raw" / game
-    ann_dir = data_root / "annotations" / game
-    out_dir = out_root / game / "calib"
-    ann_dir.mkdir(parents=True, exist_ok=True)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    pd = PlayDir.from_dir(play_dir)
+    pd.dir.mkdir(parents=True, exist_ok=True)
 
     cameras_out: dict = {"reprojection_error_px": {}}
 
     for cam in camera:
-        video = raw_dir / f"{cam}.mp4"
-        ann_path = ann_dir / f"{cam}_landmarks.json"
+        video = pd.video(cam)
+        ann_path = pd.dir / f"{cam}_landmarks.json"
 
         if not video.exists():
             raise SetupError(
@@ -70,7 +66,7 @@ def main(
         if not ann_path.exists():
             raise SetupError(
                 f"landmarks not annotated for {cam}. Rerun with "
-                f"  python scripts/02_calibrate_cameras.py --game {game} --camera {cam} --annotate"
+                f"  python scripts/02_calibrate_cameras.py --play-dir {play_dir} --camera {cam} --annotate"
             )
 
         # Use the first frame's resolution as the calibration reference.
@@ -86,9 +82,8 @@ def main(
         cameras_out["reprojection_error_px"][cam] = float(result.rms_px)
         _LOG.info(f"{cam}: rms {result.rms_px:.2f} px from {result.num_landmarks} landmarks")
 
-    out_path = out_dir / "cameras.json"
-    write_json(out_path, cameras_out)
-    _LOG.info(f"wrote {out_path}")
+    write_json(pd.cameras_json, cameras_out)
+    _LOG.info(f"wrote {pd.cameras_json}")
 
 
 if __name__ == "__main__":

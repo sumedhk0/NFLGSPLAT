@@ -418,7 +418,7 @@ def resolve_avatars(
             if not library.has_referee_avatar():
                 raise SetupError(
                     "generic referee avatar missing from the library "
-                    "(library/{season}/_assets/referee/avatar.npz). Author it "
+                    "(data/{season}/_library/_assets/referee/avatar.npz). Author it "
                     "once via the referee asset step — see SETUP.md §8."
                 )
             plan.avatars[REFEREE_UID] = library.get_referee_avatar()

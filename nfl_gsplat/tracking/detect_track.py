@@ -136,17 +136,15 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     import typer
 
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
-    from nfl_gsplat.paths import play_paths
-    from nfl_gsplat.utils.plays import load_plays
+    from nfl_gsplat.paths import PlayDir
 
     app = typer.Typer(add_completion=False)
 
     @app.command()
-    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+    def main(play_dir: Path = typer.Option(..., "--play-dir"),
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
         cfg = load_cli_config(config, config_override, set_)
-        pp = play_paths(cfg, game, play)
-        window = load_plays(pp.game.plays_yaml).window(play)
+        pdir = PlayDir.from_dir(play_dir)
         tracker = str(cfg.tracking.tracker)
         tcfg = TrackingConfig(
             yolo_weights=str(cfg.tracking.yolo_weights),
@@ -154,12 +152,11 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
             min_detection_conf=float(cfg.tracking.min_detection_conf),
             device=str(cfg.pose.get("device", "cuda:0")),
         )
-        dfs = [detect_and_track(pp.game.raw_video(cam), cam, tcfg) for cam in pp.game.cameras]
-        df = window_tracks(pd.concat(dfs, ignore_index=True) if dfs else empty_tracks(),
-                           window.start_frame, window.end_frame)
-        pp.dir.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(pp.tracks, index=False)
-        _LOG.info(f"detect_track: {len(df)} detections in window → {pp.tracks}")
+        dfs = [detect_and_track(pdir.video(cam), cam, tcfg) for cam in pdir.cameras]
+        df = pd.concat(dfs, ignore_index=True) if dfs else empty_tracks()
+        pdir.dir.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(pdir.tracks, index=False)
+        _LOG.info(f"detect_track: {len(df)} detections → {pdir.tracks}")
 
     app()
 

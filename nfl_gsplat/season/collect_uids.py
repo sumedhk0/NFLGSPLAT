@@ -2,7 +2,7 @@
 
 This is the dedup that makes caching correct under cluster parallelism: the
 avatar-build SLURM array runs **one task per unique uid** (never two jobs racing
-to write the same ``library/{season}/{uid}``). We scan every play's
+to write the same ``data/{season}/_library/{uid}``). We scan every play's
 ``entities.json``, take the distinct player uids, and drop those already cached.
 """
 from __future__ import annotations
@@ -15,13 +15,10 @@ from nfl_gsplat.identity.registry import EntityType
 from nfl_gsplat.utils.io import read_json
 
 
-def find_entities_files(outputs_root: Path | str, game_ids: Iterable[str]) -> list[Path]:
-    """All ``entities.json`` under ``outputs/{game}/*/`` for the given games."""
-    root = Path(outputs_root)
-    out: list[Path] = []
-    for game in game_ids:
-        out.extend(sorted((root / game).glob("*/entities.json")))
-    return out
+def find_entities_files(data_root, season) -> list[Path]:
+    """All entities.json under the per-play tree data/{season}/week_*/*_at_*/play_*/."""
+    root = Path(data_root) / str(season)
+    return sorted(root.glob("week_*/*_at_*/play_*/entities.json"))
 
 
 def collect_player_uids(entities_files: Iterable[Path | str]) -> set[str]:
@@ -52,21 +49,16 @@ def write_worklist(path: Path | str, uids: list[str]) -> Path:
 def _main() -> None:
     import typer
 
-    from nfl_gsplat.config import load_config
-
     app = typer.Typer(add_completion=False)
 
     @app.command()
     def main(
         season: str = typer.Option(...),
-        games: list[str] = typer.Option(..., help="Game ids to scan."),
-        outputs_root: Path = typer.Option(Path("outputs")),
-        library_root: Path = typer.Option(Path("library")),
+        data_root: Path = typer.Option(Path("data"), "--data-root"),
         worklist: Path = typer.Option(Path("outputs/avatar_worklist.txt")),
     ) -> None:
-        load_config()  # validate config is loadable
-        files = find_entities_files(outputs_root, games)
-        lib = AvatarLibrary(library_root, season=season)
+        files = find_entities_files(data_root, season)
+        lib = AvatarLibrary(root=Path(data_root) / str(season) / "_library", season="")
         uids = uids_to_build(files, lib)
         write_worklist(worklist, uids)
         print(f"{len(uids)} uids to build → {worklist}")

@@ -13,19 +13,23 @@ from nfl_gsplat.utils.io import write_npz
 def _cfg():
     return OmegaConf.create({
         "season": 2024,
-        "games": ["game_001", "game_002"],
         "slurm": {"account": "gatech", "partition": "gpu-h100", "gpu": "h100:1",
                   "qos": "embers", "requeue": True,
-                  "cpus_per_task": 8, "mem": "64G", "time_field": "02:00:00",
+                  "cpus_per_task": 8, "mem": "64G",
                   "time_perception": "01:00:00", "time_avatar": "04:00:00",
                   "time_render": "01:00:00"},
     })
 
 
+def _plays():
+    from nfl_gsplat.paths import PlayDir
+    return [PlayDir(season="2024", week=1, matchup="NO_at_ATL", play_id=f"play_00{i}")
+            for i in (1, 2, 3)]
+
+
 def test_plan_has_all_stages_in_order():
-    plan = build_submission_plan(_cfg(), plays_dir="/nonexistent")
+    plan = build_submission_plan(_cfg(), _plays())
     text = "\n".join(plan)
-    assert "field_recon.sbatch game_001" in text
     assert "perception_array.sbatch" in text
     assert "collect_uids" in text and "avatar_build_array.sbatch" in text
     assert "render_array.sbatch" in text
@@ -36,10 +40,10 @@ def test_plan_has_all_stages_in_order():
     assert "--qos=embers" in text and "--requeue" in text
     assert "inferno" not in text
     # Each GPU stage's sbatch carries the embers QOS.
-    for stage in ("field_recon", "perception_array", "avatar_build_array", "render_array"):
+    for stage in ("perception_array", "avatar_build_array", "render_array"):
         line = next(s for s in plan if stage in s)
         assert "--qos=embers" in line, f"{stage} not on embers"
-    # Ordering: field/perception before the collect+avatar tail before render.
+    # Ordering: perception before the collect+avatar tail before render.
     assert text.index("perception_array") < text.index("collect_uids") < text.index("render_array")
 
 
@@ -47,15 +51,25 @@ def test_plan_omits_qos_when_unset():
     cfg = _cfg()
     del cfg.slurm.qos
     del cfg.slurm.requeue
-    text = "\n".join(build_submission_plan(cfg, plays_dir="/nonexistent"))
+    text = "\n".join(build_submission_plan(cfg, _plays()))
     assert "--qos" not in text and "--requeue" not in text
 
 
-def test_plan_uses_play_count_when_list_present(tmp_path):
-    (tmp_path / "game_001.txt").write_text("play_001\nplay_002\nplay_003\n")
-    cfg = OmegaConf.create({**_cfg(), "games": ["game_001"]})
-    plan = build_submission_plan(cfg, plays_dir=tmp_path)
-    assert "--array=1-3" in "\n".join(plan)
+def test_plan_is_per_play_with_field_folded():
+    from nfl_gsplat.season.dag import build_submission_plan
+    from nfl_gsplat.paths import PlayDir
+    cfg = _cfg()  # use the existing fixture/helper
+    plays = [PlayDir(season="2024", week=1, matchup="NO_at_ATL", play_id=f"play_00{i}")
+             for i in (1, 2, 3)]
+    plan = build_submission_plan(cfg, plays)
+    text = "\n".join(plan)
+    assert "field_recon.sbatch" not in text          # no separate field stage
+    assert "perception_array.sbatch" in text
+    assert text.count("--qos=embers") >= 1
+    assert "collect_uids" in text
+    assert "avatar_build_array.sbatch" in text
+    assert "render_array.sbatch" in text
+    assert "--array=1-3" in text                      # 3 discovered plays
 
 
 # --- build_one (S3 per-uid task) -------------------------------------------
@@ -75,8 +89,8 @@ def _fake_avatar(crop, cfg):
 def test_build_one_generates_and_stores(tmp_path):
     root = tmp_path / "library"
     lib = AvatarLibrary(root, season=2024)
-    # Perception writes the reference crop + betas for the uid.
-    write_npz(reference_path(root, "2024", "qb_12"),
+    # Perception writes the reference at library_root/_refs/{uid}.npz (season="").
+    write_npz(reference_path(root, "", "qb_12"),
               crop=np.zeros((64, 64, 3), np.uint8), betas=np.arange(10, dtype=np.float32))
 
     build_one_avatar("2024", "qb_12", lib, generate_fn=_fake_avatar)
@@ -87,7 +101,7 @@ def test_build_one_generates_and_stores(tmp_path):
 def test_build_one_skips_when_cached(tmp_path):
     root = tmp_path / "library"
     lib = AvatarLibrary(root, season=2024)
-    write_npz(reference_path(root, "2024", "wr_81"),
+    write_npz(reference_path(root, "", "wr_81"),
               crop=np.zeros((64, 64, 3), np.uint8), betas=None if False else np.zeros(10, np.float32))
     calls = []
 

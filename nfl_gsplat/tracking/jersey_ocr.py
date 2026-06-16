@@ -125,22 +125,22 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     import typer
 
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
-    from nfl_gsplat.paths import play_paths
+    from nfl_gsplat.paths import PlayDir
 
     app = typer.Typer(add_completion=False)
 
     @app.command()
-    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+    def main(play_dir: Path = typer.Option(..., "--play-dir"),
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
         cfg = load_cli_config(config, config_override, set_)
         if not bool(cfg.tracking.jersey_ocr_enabled):
             _LOG.info("jersey OCR disabled (tracking.jersey_ocr_enabled=false); skipping")
             return
-        pp = play_paths(cfg, game, play)
-        df = pd.read_parquet(pp.tracks)
-        video_paths = {cam: pp.game.raw_video(cam) for cam in pp.game.cameras}
+        pdir = PlayDir.from_dir(play_dir)
+        df = pd.read_parquet(pdir.tracks)
+        video_paths = {cam: pdir.video(cam) for cam in pdir.cameras}
         out = vote_jersey_numbers(df, video_paths, JerseyOCRConfig(use_gpu=True))
-        out.to_parquet(pp.tracks, index=False)
+        out.to_parquet(pdir.tracks, index=False)
 
     app()
 

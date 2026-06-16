@@ -50,33 +50,35 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     from nfl_gsplat.ball.kalman_3d import BallKalmanConfig
     from nfl_gsplat.calibration.cameras_io import load_cameras
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
-    from nfl_gsplat.paths import play_paths
-    from nfl_gsplat.utils.plays import load_plays
+    from nfl_gsplat.paths import PlayDir
+    from nfl_gsplat.utils.meta import load_meta
+    from nfl_gsplat.utils.video import ffprobe_meta
 
     app = typer.Typer(add_completion=False)
 
     @app.command()
-    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+    def main(play_dir: Path = typer.Option(..., "--play-dir"),
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
         cfg = load_cli_config(config, config_override, set_)
-        pp = play_paths(cfg, game, play)
-        manifest = load_plays(pp.game.plays_yaml)
-        window = manifest.window(play)
-        cameras = load_cameras(pp.game.calib_json)
+        pdir = PlayDir.from_dir(play_dir)
+        meta = load_meta(pdir.meta_yaml)
+        cameras = load_cameras(pdir.cameras_json)
+        first_cam = next(iter(cameras))
+        n_frames = ffprobe_meta(pdir.video(first_cam)).num_frames
 
         weights = str(Path(str(cfg.paths.weights)) / str(cfg.ball.yolo_weights))
         det_cfg = BallDetectConfig(weights=weights,
                                    min_conf=float(cfg.ball.min_detection_conf),
                                    device=str(cfg.pose.get("device", "cuda:0")))
         detections: dict[str, pd.DataFrame] = {
-            cam: detect_ball(pp.game.raw_video(cam), cam, det_cfg) for cam in cameras
+            cam: detect_ball(pdir.video(cam), cam, det_cfg) for cam in cameras
         }
-        frames = detections_to_frames(detections, window.start_frame, window.end_frame)
-        kal_cfg = BallKalmanConfig(fps=manifest.fps)
-        build_and_write_ball_track(pp.ball, frames, cameras, kal_cfg)
+        frames = detections_to_frames(detections, 0, n_frames - 1)
+        kal_cfg = BallKalmanConfig(fps=meta.fps)
+        build_and_write_ball_track(pdir.ball, frames, cameras, kal_cfg)
         n_seen: Sequence[int] = [len(f) for f in frames]
         _LOG.info(f"ball: {sum(1 for n in n_seen if n)} of {len(frames)} frames had a "
-                  f"detection → {pp.ball}")
+                  f"detection → {pdir.ball}")
 
     app()
 

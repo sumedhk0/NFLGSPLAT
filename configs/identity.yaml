@@ -10,9 +10,9 @@ identity:
   season: 0
   roster_path: data/rosters/${identity.season}
 
-  # Per-play home/away team abbreviations live alongside the video in
-  # data/raw/{game_id}/plays.yaml under `meta:`. Used to label the two color
-  # clusters and to scope the per-game candidate roster.
+  # Per-play home/away team abbreviations live alongside the clips in each
+  # play's data/{season}/week_NN/{matchup}/play_NNN/meta.yaml. Used to label
+  # the two color clusters and to scope the per-play candidate roster.
   match:
     jersey_weight: 1.0          # cost per jersey-digit mismatch
     team_mismatch_cost: 1000.0  # hard gate: never match across teams

@@ -170,25 +170,27 @@ def reid_pipeline(
 
 
 def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
+    from pathlib import Path
+
     import typer
 
     from nfl_gsplat.calibration.cameras_io import load_cameras
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
-    from nfl_gsplat.paths import play_paths
+    from nfl_gsplat.paths import PlayDir
 
     app = typer.Typer(add_completion=False)
 
     @app.command()
-    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+    def main(play_dir: Path = typer.Option(..., "--play-dir"),
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
         cfg = load_cli_config(config, config_override, set_)
-        pp = play_paths(cfg, game, play)
-        cameras = load_cameras(pp.game.calib_json)
-        df = pd.read_parquet(pp.tracks)
+        pdir = PlayDir.from_dir(play_dir)
+        cameras = load_cameras(pdir.cameras_json)
+        df = pd.read_parquet(pdir.tracks)
         tracks_by_cam = {cam: g for cam, g in df.groupby("cam")}
         ccfg = CrossCamConfig(field_buffer_m=float(cfg.tracking.field_buffer_m))
         out = reid_pipeline(tracks_by_cam, cameras, ccfg)
-        out.to_parquet(pp.tracks, index=False)
+        out.to_parquet(pdir.tracks, index=False)
 
     app()
 

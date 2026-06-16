@@ -12,7 +12,7 @@ For each renderable instance in ``entities.json`` this:
 
 Betas are frozen to the library when present (so the cached avatar's rig and the
 per-play skeleton share bone lengths); the player's best reference crop + betas
-are written to ``library/{season}/_refs/{uid}.npz`` for the avatar-build stage.
+are written to ``data/{season}/_library/_refs/{uid}.npz`` for the avatar-build stage.
 
 Steps 2-5 are pure numpy/scipy and unit-tested in ``tests/test_run_pose.py``;
 step 1 is the GPU seam, exercised on PACE.
@@ -193,6 +193,8 @@ def extract_observations(
 
 
 def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
+    from pathlib import Path
+
     import pandas as pd
     import typer
 
@@ -201,27 +203,28 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     from nfl_gsplat.calibration.cameras_io import load_cameras
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
     from nfl_gsplat.identity.registry import REFEREE_UID
-    from nfl_gsplat.paths import play_paths
+    from nfl_gsplat.paths import PlayDir
     from nfl_gsplat.pose.forward_kinematics import load_smplx_skeleton
     from nfl_gsplat.pose.fuse_smplx import resolve_betas
     from nfl_gsplat.pose.smplestx_infer import SMPLestXConfig
     from nfl_gsplat.utils.io import read_json, write_npz
-    from nfl_gsplat.utils.plays import load_plays
+    from nfl_gsplat.utils.meta import load_meta
+    from nfl_gsplat.utils.video import ffprobe_meta
 
     app = typer.Typer(add_completion=False)
 
     @app.command()
-    def main(game: str = typer.Option(...), play: str = typer.Option(...),
+    def main(play_dir: Path = typer.Option(..., "--play-dir"),
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
         cfg = load_cli_config(config, config_override, set_)
-        pp = play_paths(cfg, game, play)
-        season = str(cfg.identity.season)
-        manifest = load_plays(pp.game.plays_yaml)
-        window = manifest.window(play)
-        cameras = load_cameras(pp.game.calib_json)
-        tracks = pd.read_parquet(pp.tracks)
-        entities = read_json(pp.entities)
-        video_paths = {cam: pp.game.raw_video(cam) for cam in cameras}
+        pdir = PlayDir.from_dir(play_dir)
+        meta = load_meta(pdir.meta_yaml)
+        cameras = load_cameras(pdir.cameras_json)
+        first_cam = next(iter(cameras))
+        n_frames = ffprobe_meta(pdir.video(first_cam)).num_frames
+        tracks = pd.read_parquet(pdir.tracks)
+        entities = read_json(pdir.entities)
+        video_paths = {cam: pdir.video(cam) for cam in cameras}
 
         body_dir = Path(str(cfg.paths.body_models))
         gender = str(cfg.pose.smplx_gender)
@@ -230,17 +233,17 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
         fit_cfg = SMPLXFitConfig(use_library_betas=bool(cfg.avatars.library.enabled))
         euro = OneEuroConfig(min_cutoff=float(cfg.pose.smoother.min_cutoff),
                              beta=float(cfg.pose.smoother.beta),
-                             d_cutoff=float(cfg.pose.smoother.d_cutoff), fps=manifest.fps)
+                             d_cutoff=float(cfg.pose.smoother.d_cutoff), fps=meta.fps)
         smplestx_cfg = SMPLestXConfig(device=str(cfg.pose.get("device", "cuda:0")))
-        library = AvatarLibrary(pp.game.library_root, season=season)
+        library = AvatarLibrary(root=pdir.library_root, season="")
 
-        pp.poses_dir.mkdir(parents=True, exist_ok=True)
+        pdir.poses_dir.mkdir(parents=True, exist_ok=True)
         for ent in entities:
             iid = int(ent["instance_id"])
             uid = ent["player_uid"]
             obs, crop, est_betas = extract_observations(
                 iid, tracks, cameras, video_paths,
-                window.start_frame, window.end_frame, smplestx_cfg, id_col="global_player_id",
+                0, n_frames - 1, smplestx_cfg, id_col="global_player_id",
             )
             betas, _ = resolve_betas(
                 library.get_betas(uid),
@@ -251,12 +254,12 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
             tfms = solve_joint_tfms(obs, cameras, rest_joints, parents,
                                     tri_cfg=tri_cfg, fit_cfg=fit_cfg, euro_cfg=euro,
                                     gap_frames=int(cfg.pose.gap_interpolation_frames))
-            write_npz(pp.pose(str(iid)), joint_tfms=tfms.astype(np.float32))
+            write_npz(pdir.pose(str(iid)), joint_tfms=tfms.astype(np.float32))
             # Stash the player's best reference for the avatar-build stage.
             if uid != REFEREE_UID and crop is not None:
-                write_npz(reference_path(pp.game.library_root, season, uid),
+                write_npz(reference_path(pdir.library_root, "", uid),
                           crop=crop.astype(np.uint8), betas=np.asarray(betas, np.float32))
-            _LOG.info(f"pose: instance {iid} ({uid}) → {pp.pose(str(iid))}")
+            _LOG.info(f"pose: instance {iid} ({uid}) → {pdir.pose(str(iid))}")
 
     app()
 

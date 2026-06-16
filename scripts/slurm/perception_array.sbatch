@@ -8,23 +8,22 @@
 #SBATCH --output=logs/%x-%A_%a.out
 
 # S2: per-play perception (tracking → identity → SMPLest-X → triangulate → fuse
-# → smooth → forward-kinematics → ball). NO avatar generation here — that is
-# deduplicated into the avatar-build array (S3) so each player is built once.
+# → smooth → forward-kinematics → ball), plus this play's own field. NO avatar
+# generation here — that is deduplicated into the avatar-build array (S3).
 #
-# Partition + GPU are injected by run_season.py via sbatch CLI flags
-# (--partition, --gres, -A), so they are not hard-coded here.
+# Reads the play folder for array task N from outputs/play_worklist.txt (written
+# by run_season.py). Partition + GPU are injected by run_season.py via sbatch CLI
+# flags (--partition, --gres, -A), so they are not hard-coded here.
 #
-# Submit:  sbatch --export=ALL,NFL_GAME=game_001 scripts/slurm/perception_array.sbatch
+# Submit:  sbatch --array=1-$(wc -l < outputs/play_worklist.txt) scripts/slurm/perception_array.sbatch
 
 set -euo pipefail
-GAME="${NFL_GAME:-}"
-[[ -z "$GAME" ]] && { echo "must pass NFL_GAME via --export" >&2; exit 2; }
+WORKLIST="${NFL_WORKLIST:-outputs/play_worklist.txt}"
 
 cd "$SLURM_SUBMIT_DIR"
-PLAYS_FILE="configs/plays/${GAME}.txt"
-[[ -f "$PLAYS_FILE" ]] || { echo "missing plays list: $PLAYS_FILE" >&2; exit 2; }
+[[ -f "$WORKLIST" ]] || { echo "missing worklist: $WORKLIST" >&2; exit 2; }
 
-PLAY="$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$PLAYS_FILE")"
-[[ -z "$PLAY" ]] && { echo "task ${SLURM_ARRAY_TASK_ID}: no play — skipping"; exit 0; }
+PLAY_DIR="$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$WORKLIST")"
+[[ -z "$PLAY_DIR" ]] && { echo "task ${SLURM_ARRAY_TASK_ID}: no play — skipping"; exit 0; }
 
-bash scripts/04_process_play.sh "$GAME" "$PLAY" --perception-only
+bash scripts/04_process_play.sh "$PLAY_DIR" --perception-only

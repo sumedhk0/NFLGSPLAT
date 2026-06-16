@@ -70,7 +70,7 @@ def _load_correspondences(
     if not path.exists():
         raise SetupError(
             f"calibration annotations not found at {path}. "
-            f"Run `python scripts/02_calibrate_cameras.py --game <ID>` — see SETUP.md §3."
+            f"Run `python scripts/02_calibrate_cameras.py --play-dir <play folder>` — see SETUP.md §3."
         )
     entries = read_json(path)
     if not isinstance(entries, list) or len(entries) == 0:

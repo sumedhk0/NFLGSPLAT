@@ -162,7 +162,7 @@ def test_build_play_avatars_builds_each_player(tmp_path):
         {"instance_id": "4", "player_uid": "wr_81", "entity_type": "player"},
     ]
     for uid in ("qb_12", "wr_81"):
-        write_npz(reference_path(root, "2024", uid),
+        write_npz(reference_path(root, "", uid),
                   crop=np.zeros((32, 32, 3), np.uint8), betas=np.zeros(10, np.float32))
 
     built = build_play_avatars(entities, "2024", lib, generate_fn=_fake_avatar)
