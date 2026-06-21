@@ -13,6 +13,9 @@ dependencies:
   - pip:
     - omegaconf==2.3.0
     - typer==0.12.3
+    # typer 0.12.3 emits secondary flags that click>=8.2 rejects ("Secondary
+    # flag is not valid for non-boolean flag"), breaking every typer CLI. Pin <8.2.
+    - click==8.1.7
     - rich==13.7.1
     - opencv-python==4.10.0.84
     - smplx==0.1.28
