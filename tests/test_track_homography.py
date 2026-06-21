@@ -44,3 +44,32 @@ def test_assemble_track_decomposes_each_frame():
     assert tr.num_frames == 3
     assert tr.K.shape == (3, 3, 3)
     assert 2000 < tr.K[0, 0, 0] < 3200
+
+
+def test_track_camera_sequence_recovers_known_pan(monkeypatch):
+    from nfl_gsplat.calibration.decompose_homography import krt_to_homography
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
+
+    W, H, T = 1920, 1080, 7
+    def truth(i):
+        intr = CameraIntrinsics(2500 + 20 * i, 2500 + 20 * i, W / 2, H / 2, W, H)
+        y = np.deg2rad(2.0 * i)
+        R = np.array([[np.cos(y), -np.sin(y), 0], [0, 0, -1], [np.sin(y), np.cos(y), 0]], float)
+        return intr, CameraPose(R=R, t=np.array([0.0, 5.0, 25.0]))
+    Htrue = [krt_to_homography(truth(i)[0].K(), truth(i)[1].R, truth(i)[1].t) for i in range(T)]
+    anchors = {0: Htrue[0], T - 1: Htrue[T - 1]}
+
+    def fake_est(video, a, b, masks, cfg):
+        step = 1 if b > a else -1
+        idxs = list(range(a + step, b + step, step))
+        rel = [Htrue[k] @ np.linalg.inv(Htrue[a]) for k in idxs]
+        return rel, np.ones(len(idxs))
+    monkeypatch.setattr(th, "_estimate_interframe_homographies", fake_est)
+
+    tr = th.track_camera_sequence("v.mp4", anchors, num_frames=T, width=W, height=H)
+    fld = np.array([[0, 0, 0], [25, 10, 0], [-20, -8, 0]], float)
+    for i in range(T):
+        it, pt = truth(i)
+        ie, pe = tr.at(i)
+        assert np.allclose(project_points(fld, it.K(), pt.R, pt.t),
+                           project_points(fld, ie.K(), pe.R, pe.t), atol=2.0)
