@@ -18,7 +18,7 @@ from pathlib import Path
 
 import typer
 
-from nfl_gsplat.calibration.annotate_gui import annotate_frame
+from nfl_gsplat.calibration.annotate_gui import annotate as run_annotator
 from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_annotations
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.paths import PlayDir
@@ -60,8 +60,7 @@ def main(
 
         if annotate or not ann_path.exists():
             _LOG.info(f"launching annotation GUI for {cam}")
-            frame = _first_frame(video)
-            annotate_frame(frame, ann_path)
+            run_annotator(video, ann_path)
 
         if not ann_path.exists():
             raise SetupError(
