@@ -122,7 +122,6 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     from nfl_gsplat.calibration.cameras_io import load_camera_track
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
     from nfl_gsplat.paths import PlayDir
-    from nfl_gsplat.utils.io import write_json
     from nfl_gsplat.utils.logging import get_logger
 
     _log = get_logger(__name__)
