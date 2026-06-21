@@ -26,7 +26,12 @@ cd "$REPO_ROOT"
 
 CFG="--config configs/pipeline.yaml"
 
-echo "=== [0/6] static-field reconstruction → field.ply  (env: nfl_gsplat) ==="
+echo "=== [0/7] per-frame camera calibration → cameras.npz  (env: nfl_smplx) ==="
+conda activate nfl_smplx
+python scripts/02b_track_calibration.py --play-dir "$PLAY_DIR" $CFG
+conda deactivate
+
+echo "=== [1/7] static-field reconstruction → field.ply  (env: nfl_gsplat) ==="
 conda activate nfl_gsplat
 python -m nfl_gsplat.field.extract_static_frames \
     --play-dir "$PLAY_DIR" $CFG --config-override configs/field_recon.yaml
@@ -36,24 +41,24 @@ python -m nfl_gsplat.field.train_field \
     --play-dir "$PLAY_DIR" --config configs/field_recon.yaml
 conda deactivate
 
-echo "=== [1/6] tracking + cross-cam re-ID + jersey OCR  (env: nfl_smplx) ==="
+echo "=== [2/7] tracking + cross-cam re-ID + jersey OCR  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.tracking.detect_track   --play-dir "$PLAY_DIR" $CFG
 python -m nfl_gsplat.tracking.cross_cam_reid --play-dir "$PLAY_DIR" $CFG
 python -m nfl_gsplat.tracking.jersey_ocr     --play-dir "$PLAY_DIR" $CFG || true
 conda deactivate
 
-echo "=== [2/6] identity assignment → entities.json  (env: nfl_smplx) ==="
+echo "=== [3/7] identity assignment → entities.json  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.identity.assign_stage   --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
-echo "=== [3/6] SMPLest-X → triangulate → fuse → smooth → FK (poses/{uid}.npz)  (env: nfl_smplx) ==="
+echo "=== [4/7] SMPLest-X → triangulate → fuse → smooth → FK (poses/{uid}.npz)  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.pose.run_pose           --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
-echo "=== [4/6] ball detect + 3D Kalman → ball.npz  (env: nfl_smplx) ==="
+echo "=== [5/7] ball detect + 3D Kalman → ball.npz  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.ball.run_ball           --play-dir "$PLAY_DIR" $CFG
 conda deactivate
@@ -63,12 +68,12 @@ if [[ "$MODE" == "--perception-only" ]]; then
     exit 0
 fi
 
-echo "=== [5/6] avatars for this play's players  (env: nfl_lhm) ==="
+echo "=== [6/7] avatars for this play's players  (env: nfl_lhm) ==="
 conda activate nfl_lhm
 python -m nfl_gsplat.avatars.build_play      --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
-echo "=== [6/6] composite + novel-view render  (env: nfl_gsplat) ==="
+echo "=== [7/7] composite + novel-view render  (env: nfl_gsplat) ==="
 conda activate nfl_gsplat
 python scripts/05_render_novel_view.py --play-dir "$PLAY_DIR" \
     --trajectory configs/trajectories/fly_through.yaml

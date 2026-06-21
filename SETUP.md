@@ -78,29 +78,41 @@ The pipeline checks for `data/body_models/smplx/SMPLX_NEUTRAL.npz` at startup. M
 
 ---
 
-## §3. Camera calibration (human-in-the-loop)
+## §3. Camera calibration (per-frame, two-step)
 
-Every camera pair must be calibrated once per keyframe. NFL broadcast cameras pan and zoom during plays, so we re-calibrate at keyframes (default: once per play start) and linearly interpolate extrinsics between them. Calibration is a **manual per-play pre-step** — run it on a play folder before submitting that play to the pipeline.
+Calibration is now **per-frame**: the pipeline tracks the field homography across every frame of the clip and writes a `cameras.npz` containing per-frame camera matrices. This handles All-22 cameras that pan, tilt, and zoom during the play — a single static calibration is no longer sufficient.
 
-### First-time run
+The workflow is split into two steps because **step 1 requires a display** (GUI window) while **step 2 is headless** and runs on any node.
 
-```bash
-python scripts/02_calibrate_cameras.py --play-dir data/2024/week_01/NO_at_ATL/play_001
-```
+### Step 1 — Annotate keyframe anchors (interactive; needs a display)
 
-For each camera, a clickable OpenCV window shows a reference frame overlaid with the list of expected NFL field landmarks (yard-line intersections with sidelines and hash marks, pylons, goalpost bases). Click each visible landmark. Press `s` to save, `q` to quit.
-
-Annotations are written to `<play-dir>/cameras.json`. The PnP solver runs immediately and reports the reprojection RMS. If RMS > 5 px the script refuses to save — re-click or add more landmarks.
-
-**Minimum annotations per camera: 6.** With 10+, bundle adjustment via `cv2.calibrateCamera` refines intrinsics too.
-
-### Adding a keyframe for mid-play zoom changes
+Run on a machine where you can open a window — PACE OnDemand Interactive Desktop, your laptop, or an X-forwarded session.
 
 ```bash
-python scripts/02_calibrate_cameras.py --play-dir data/2024/week_01/NO_at_ATL/play_001 --camera sideline --keyframe-frame 4200
+python scripts/02_calibrate_cameras.py \
+    --play-dir data/2024/week_01/NO_at_ATL/play_001 \
+    --keyframe 0 --keyframe <mid> --keyframe <last>
 ```
 
-Extrinsics between keyframes are linearly interpolated. This is the documented limitation — for smoother tracking of aggressive pans, annotate more keyframes.
+For each keyframe and each camera, a clickable OpenCV window shows the frame overlaid with the expected NFL field landmarks (yard-line intersections, sideline/hash marks, pylons, goalpost bases). Click each visible landmark; press `s` to save, `q` to quit.
+
+Annotations are written to `<play-dir>/{cam}_keyframes.json` (one file per camera). The PnP solver reports reprojection RMS immediately; it refuses to save if RMS > 5 px — re-click or add landmarks.
+
+**Minimum annotations per keyframe per camera: 6.** With 10+ landmarks, bundle adjustment via `cv2.calibrateCamera` refines intrinsics.
+
+**Where to place keyframes.** Add more keyframes where the camera pans, tilts, or zooms most aggressively. Frame 0 (snap) is always the first anchor; the last frame is always the last anchor; add intermediate keyframes wherever the camera moves sharply mid-play.
+
+### Step 2 — Track homography across all frames (headless batch)
+
+```bash
+python scripts/02b_track_calibration.py --play-dir data/2024/week_01/NO_at_ATL/play_001
+```
+
+Reads `{cam}_keyframes.json` (produced by step 1) and tracks the field homography frame-by-frame across the clip. Writes per-frame camera matrices to `<play-dir>/cameras.npz`. **Fails loudly if the keyframe JSON files are missing** — run step 1 first.
+
+If the script reports that it cannot stably cover a frame range, add a keyframe anchor in that range (step 1) and re-run step 2.
+
+`02b_track_calibration.py` runs **first** in `scripts/04_process_play.sh` (before field reconstruction), because every downstream stage — field homography (`build_transforms`), cross-cam re-ID, pose, and ball tracking — loads `cameras.npz`.
 
 ---
 
