@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from nfl_gsplat.calibration.cameras_io import CameraTrack, constant_track
 from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS, empty_tracks
 from nfl_gsplat.tracking.cross_cam_reid import (
     CrossCamConfig,
@@ -17,7 +18,7 @@ from nfl_gsplat.tracking.cross_cam_reid import (
     project_foot_points_to_field,
     reid_pipeline,
 )
-from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
+from nfl_gsplat.utils.geometry import project_points
 from tests.fixtures.generate import (
     PLAYER_ROOTS,
     _endzone_camera,
@@ -26,10 +27,13 @@ from tests.fixtures.generate import (
 )
 
 
-def _cam_map() -> dict[str, tuple[CameraIntrinsics, CameraPose]]:
+def _cam_map() -> dict[str, CameraTrack]:
     intr_s, pose_s = _sideline_camera()
     intr_e, pose_e = _endzone_camera()
-    return {"sideline": (intr_s, pose_s), "endzone": (intr_e, pose_e)}
+    return {
+        "sideline": constant_track(intr_s, pose_s, 1),
+        "endzone":  constant_track(intr_e, pose_e, 1),
+    }
 
 
 def _synthetic_tracks(num_frames: int = 10, rng_seed: int = 0) -> pd.DataFrame:
@@ -37,7 +41,8 @@ def _synthetic_tracks(num_frames: int = 10, rng_seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(rng_seed)
     cams = _cam_map()
     rows: list[dict] = []
-    for cam_name, (intr, pose) in cams.items():
+    for cam_name, track in cams.items():
+        intr, pose = track.at(0)
         K, R, t = intr.K(), pose.R, pose.t
         for player_idx, root in enumerate(PLAYER_ROOTS):
             for frame in range(num_frames):

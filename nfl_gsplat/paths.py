@@ -9,7 +9,6 @@ Layout::
 
     data/{season}/week_NN/{matchup}/play_NNN/sideline.mp4   video(cam)
     data/{season}/week_NN/{matchup}/play_NNN/endzone.mp4
-    data/{season}/week_NN/{matchup}/play_NNN/cameras.json   cameras_json (per-play calib)
     data/{season}/week_NN/{matchup}/play_NNN/field.ply      field_ply    (per-play field)
     data/{season}/week_NN/{matchup}/play_NNN/tracks.parquet tracks
     data/{season}/week_NN/{matchup}/play_NNN/entities.json  entities
@@ -71,8 +70,11 @@ class PlayDir:
         return self.dir / f"{cam}.mp4"
 
     @property
-    def cameras_json(self) -> Path:
-        return self.dir / "cameras.json"
+    def cameras_npz(self) -> Path:
+        return self.dir / "cameras.npz"
+
+    def keyframes_json(self, cam: str) -> Path:
+        return self.dir / f"{cam}_keyframes.json"
 
     @property
     def field_ply(self) -> Path:

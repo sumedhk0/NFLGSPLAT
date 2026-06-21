@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from nfl_gsplat.ball.kalman_3d import BallKalmanConfig, run_kalman
+from nfl_gsplat.calibration.cameras_io import constant_track
 from nfl_gsplat.utils.geometry import project_points
 from tests.fixtures.generate import _endzone_camera, _sideline_camera, _ball_trajectory
 
@@ -16,7 +17,11 @@ from tests.fixtures.generate import _endzone_camera, _sideline_camera, _ball_tra
 def _project_to_both_cams(xyz: np.ndarray):
     intr_s, pose_s = _sideline_camera()
     intr_e, pose_e = _endzone_camera()
-    cams = {"sideline": (intr_s, pose_s), "endzone": (intr_e, pose_e)}
+    T = xyz.shape[0]
+    cams = {
+        "sideline": constant_track(intr_s, pose_s, T),
+        "endzone":  constant_track(intr_e, pose_e, T),
+    }
     uv_s = project_points(xyz, intr_s.K(), pose_s.R, pose_s.t)
     uv_e = project_points(xyz, intr_e.K(), pose_e.R, pose_e.t)
     return cams, uv_s, uv_e

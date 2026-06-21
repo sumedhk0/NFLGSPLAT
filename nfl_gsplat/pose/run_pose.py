@@ -35,8 +35,8 @@ from nfl_gsplat.pose.temporal_smooth import (
     interpolate_short_gaps,
     smooth_param_sequence,
 )
+from nfl_gsplat.calibration.cameras_io import CameraTrack
 from nfl_gsplat.pose.triangulate import TriangulationConfig, triangulate_joints_two_view
-from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
 from nfl_gsplat.utils.logging import get_logger
 
 _LOG = get_logger(__name__)
@@ -71,7 +71,7 @@ def _fill_remaining(arr: np.ndarray) -> np.ndarray:
 
 def solve_joint_tfms(
     observations: Mapping[str, Mapping[str, np.ndarray]],
-    cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
+    cameras: Mapping[str, CameraTrack],
     rest_joints: np.ndarray,                # [J, 3] (encodes frozen betas)
     parents: tuple[int, ...] = SMPLX_BODY_PARENTS,
     *,
@@ -123,7 +123,7 @@ def solve_joint_tfms(
 def extract_observations(
     instance_id: int,
     tracks_df,
-    cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
+    cameras: Mapping[str, CameraTrack],
     video_paths: Mapping[str, Path | str],
     window_start: int,
     window_end: int,
@@ -200,7 +200,7 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
 
     from nfl_gsplat.avatars.build_one import reference_path
     from nfl_gsplat.avatars.library import AvatarLibrary
-    from nfl_gsplat.calibration.cameras_io import load_cameras
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
     from nfl_gsplat.identity.registry import REFEREE_UID
     from nfl_gsplat.paths import PlayDir
@@ -219,7 +219,7 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
         cfg = load_cli_config(config, config_override, set_)
         pdir = PlayDir.from_dir(play_dir)
         meta = load_meta(pdir.meta_yaml)
-        cameras = load_cameras(pdir.cameras_json)
+        cameras = load_camera_track(pdir.cameras_npz)
         first_cam = next(iter(cameras))
         n_frames = ffprobe_meta(pdir.video(first_cam)).num_frames
         tracks = pd.read_parquet(pdir.tracks)

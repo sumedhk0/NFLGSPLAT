@@ -11,7 +11,11 @@ from nfl_gsplat.avatars.build_one import reference_path
 from nfl_gsplat.avatars.build_play import build_play_avatars, player_uids
 from nfl_gsplat.avatars.library import AvatarLibrary
 from nfl_gsplat.ball.run_ball import detections_to_frames
-from nfl_gsplat.calibration.cameras_io import load_cameras
+from nfl_gsplat.calibration.cameras_io import (
+    constant_track,
+    load_camera_track,
+    write_camera_track,
+)
 from nfl_gsplat.pose.forward_kinematics import (
     SMPLX_BODY_PARENTS,
     fk_forward,
@@ -21,30 +25,32 @@ from nfl_gsplat.pose.forward_kinematics import (
 from nfl_gsplat.pose.run_pose import solve_joint_tfms
 from nfl_gsplat.tracking.detect_track import window_tracks
 from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
-from nfl_gsplat.utils.io import write_json, write_npz
+from nfl_gsplat.utils.io import write_npz
 
 
 # --- cameras_io -------------------------------------------------------------
 
-def test_load_cameras_parses_and_skips_bookkeeping(tmp_path):
-    K = [[500.0, 0, 320], [0, 500.0, 240], [0, 0, 1]]
-    path = tmp_path / "cameras.json"
-    write_json(path, {
-        "sideline": {"K": K, "R": np.eye(3).tolist(), "t": [0, 0, 0], "width": 640, "height": 480},
-        "endzone": {"K": K, "R": np.eye(3).tolist(), "t": [-1, 0, 0], "width": 640, "height": 480},
-        "reprojection_error_px": {"sideline": 0.4, "endzone": 0.5},
-    })
-    cams = load_cameras(path)
-    assert set(cams) == {"sideline", "endzone"}        # bookkeeping key dropped
-    intr, pose = cams["sideline"]
-    assert intr.fx == 500.0 and intr.width == 640
-    assert pose.R.shape == (3, 3)
+def test_load_camera_track_parses_and_returns_tracks(tmp_path):
+    intr = CameraIntrinsics(fx=500.0, fy=500.0, cx=320.0, cy=240.0, width=640, height=480)
+    pose_s = CameraPose(R=np.eye(3), t=np.zeros(3))
+    pose_e = CameraPose(R=np.eye(3), t=np.array([-1.0, 0.0, 0.0]))
+    tracks = {
+        "sideline": constant_track(intr, pose_s, 1),
+        "endzone":  constant_track(intr, pose_e, 1),
+    }
+    path = tmp_path / "cameras.npz"
+    write_camera_track(path, tracks, fps=30.0)
+    loaded = load_camera_track(path)
+    assert set(loaded) == {"sideline", "endzone"}
+    loaded_intr, loaded_pose = loaded["sideline"].at(0)
+    assert loaded_intr.fx == 500.0 and loaded_intr.width == 640
+    assert loaded_pose.R.shape == (3, 3)
 
 
-def test_load_cameras_missing_file_raises(tmp_path):
+def test_load_camera_track_missing_file_raises(tmp_path):
     from nfl_gsplat.errors import SetupError
     with pytest.raises(SetupError):
-        load_cameras(tmp_path / "nope.json")
+        load_camera_track(tmp_path / "nope.npz")
 
 
 # --- forward kinematics fit-forward ----------------------------------------
@@ -101,22 +107,25 @@ def test_detections_to_frames_places_by_slot():
 
 # --- pose numerical chain (triangulate → fuse → smooth → FK) ----------------
 
-def _two_cameras():
-    K = np.array([[500.0, 0, 320], [0, 500.0, 240], [0, 0, 1]])
+def _two_cameras(T: int = 4):
     intr = CameraIntrinsics(fx=500, fy=500, cx=320, cy=240, width=640, height=480)
-    a = (intr, CameraPose(R=np.eye(3), t=np.zeros(3)))
-    b = (intr, CameraPose(R=np.eye(3), t=np.array([-1.0, 0.0, 0.0])))  # 1 m baseline
-    return {"sideline": a, "endzone": b}, K
+    pose_a = CameraPose(R=np.eye(3), t=np.zeros(3))
+    pose_b = CameraPose(R=np.eye(3), t=np.array([-1.0, 0.0, 0.0]))  # 1 m baseline
+    return {
+        "sideline": constant_track(intr, pose_a, T),
+        "endzone":  constant_track(intr, pose_b, T),
+    }
 
 
 def test_solve_joint_tfms_recovers_rest_plus_translation():
     rest = _rest_skeleton(2)
-    cameras, _ = _two_cameras()
-    transl = np.array([0.0, 0.0, 5.0])           # put joints in front of both cams
     T = 4
+    cameras = _two_cameras(T)
+    transl = np.array([0.0, 0.0, 5.0])           # put joints in front of both cams
     world = np.broadcast_to(rest + transl, (T, 22, 3))   # static identity pose
     obs = {}
-    for cam, (intr, pose) in cameras.items():
+    for cam, track in cameras.items():
+        intr, pose = track.at(0)
         uv = project_points(world.reshape(-1, 3), intr.K(), pose.R, pose.t).reshape(T, 22, 2)
         obs[cam] = {"uv": uv, "conf": np.full((T, 22), 0.95)}
 

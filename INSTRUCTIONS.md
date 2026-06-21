@@ -87,17 +87,31 @@
   Expect 158 passing in ~10 s. If this fails, stop — nothing downstream will work.
 
   ---
-  Part 2 — Calibration (per play, requires a GUI)
+  Part 2 — Calibration (per-frame, two-step; per play)
 
-  Broadcast cameras pan/zoom every snap, so calibration is per play.
+  Calibration is now per-frame: the pipeline tracks the field homography across every frame and writes cameras.npz with per-frame camera matrices. This handles All-22 cameras that pan/tilt/zoom during the play.
 
-  # On a box where you can run X (laptop with X-forwarding, or a desktop session)
+  Step 1 — annotate keyframe anchors (needs a display: PACE OnDemand Interactive Desktop, laptop, or X-forwarding)
+
   conda activate nfl_gsplat
-  python scripts/02_calibrate_cameras.py --play-dir data/2024/week_01/NO_at_ATL/play_001
+  python scripts/02_calibrate_cameras.py \
+      --play-dir data/2024/week_01/NO_at_ATL/play_001 \
+      --keyframe 0 --keyframe <mid> --keyframe <last>
 
-  For each camera, click NFL field landmarks (yard lines × sidelines/hashes, pylons, goalpost bases). Press s to save, q to quit. Targets < 1 px reprojection RMS; rejects above 5 px.
+  For each keyframe and each camera, click NFL field landmarks (yard-line intersections, sideline/hash marks, pylons, goalpost bases). Press s to save, q to quit. Targets < 1 px reprojection RMS; rejects above 5 px.
 
-  Annotations + the calibration result land inside the play folder (cameras.json). After this step, the rest is non-interactive. On a headless cluster, calibrate on your laptop and scp the play folder's cameras.json up.
+  Add more keyframes wherever the camera pans, tilts, or zooms most during the play. Annotations land in {cam}_keyframes.json inside the play folder (one file per camera).
+
+  Step 2 — batch homography tracking (headless; any node)
+
+  conda activate nfl_smplx
+  python scripts/02b_track_calibration.py --play-dir data/2024/week_01/NO_at_ATL/play_001
+
+  Reads {cam}_keyframes.json and tracks the field homography across every frame, writing cameras.npz. Fails loudly if keyframe JSON files are missing — run step 1 first.
+
+  If 02b reports it cannot cover a frame range, add a keyframe anchor in that range (step 1) and re-run step 2.
+
+  After step 2 completes, the rest of the pipeline is fully non-interactive. On a headless cluster, run step 1 locally (or via OnDemand), then scp the play folder's {cam}_keyframes.json up and run step 2 on the cluster before submitting 04_process_play.sh.
 
   ---
   Part 3a — Run a single play on one GPU box

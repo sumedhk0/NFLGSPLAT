@@ -8,6 +8,14 @@
 # array (S3) and rendering runs in the render array (S4). Without it, the play
 # is taken all the way to render.mp4 (single-play / debug use).
 #
+# Stage ordering rationale:
+#   1. detect_track   → writes tracks.parquet (player masks needed by 02b)
+#   2. 02b calibration→ writes cameras.npz (needs masks from step 1;
+#                        read by field build and cross-cam re-ID in steps 3-4)
+#   3. field recon    → reads cameras.npz for per-frame transforms
+#   4. cross_cam_reid + jersey_ocr → read cameras.npz for 3D back-projection
+#   5-9. identity → pose → ball → avatars → render
+#
 # Usage:  bash scripts/04_process_play.sh <play-dir> [--perception-only]
 #   e.g.  bash scripts/04_process_play.sh data/2024/week_01/NO_at_ATL/play_001
 
@@ -26,7 +34,18 @@ cd "$REPO_ROOT"
 
 CFG="--config configs/pipeline.yaml"
 
-echo "=== [0/6] static-field reconstruction → field.ply  (env: nfl_gsplat) ==="
+echo "=== [1/9] player detect + track → tracks.parquet  (env: nfl_smplx) ==="
+conda activate nfl_smplx
+python -m nfl_gsplat.tracking.detect_track   --play-dir "$PLAY_DIR" $CFG
+conda deactivate
+
+# Runs after detect_track (player masks) but before field/re-ID (which read cameras.npz).
+echo "=== [2/9] per-frame camera calibration → cameras.npz  (env: nfl_smplx) ==="
+conda activate nfl_smplx
+python scripts/02b_track_calibration.py --play-dir "$PLAY_DIR" $CFG
+conda deactivate
+
+echo "=== [3/9] static-field reconstruction → field.ply  (env: nfl_gsplat) ==="
 conda activate nfl_gsplat
 python -m nfl_gsplat.field.extract_static_frames \
     --play-dir "$PLAY_DIR" $CFG --config-override configs/field_recon.yaml
@@ -36,24 +55,23 @@ python -m nfl_gsplat.field.train_field \
     --play-dir "$PLAY_DIR" --config configs/field_recon.yaml
 conda deactivate
 
-echo "=== [1/6] tracking + cross-cam re-ID + jersey OCR  (env: nfl_smplx) ==="
+echo "=== [4/9] cross-cam re-ID + jersey OCR  (env: nfl_smplx) ==="
 conda activate nfl_smplx
-python -m nfl_gsplat.tracking.detect_track   --play-dir "$PLAY_DIR" $CFG
 python -m nfl_gsplat.tracking.cross_cam_reid --play-dir "$PLAY_DIR" $CFG
 python -m nfl_gsplat.tracking.jersey_ocr     --play-dir "$PLAY_DIR" $CFG || true
 conda deactivate
 
-echo "=== [2/6] identity assignment → entities.json  (env: nfl_smplx) ==="
+echo "=== [5/9] identity assignment → entities.json  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.identity.assign_stage   --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
-echo "=== [3/6] SMPLest-X → triangulate → fuse → smooth → FK (poses/{uid}.npz)  (env: nfl_smplx) ==="
+echo "=== [6/9] SMPLest-X → triangulate → fuse → smooth → FK (poses/{uid}.npz)  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.pose.run_pose           --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
-echo "=== [4/6] ball detect + 3D Kalman → ball.npz  (env: nfl_smplx) ==="
+echo "=== [7/9] ball detect + 3D Kalman → ball.npz  (env: nfl_smplx) ==="
 conda activate nfl_smplx
 python -m nfl_gsplat.ball.run_ball           --play-dir "$PLAY_DIR" $CFG
 conda deactivate
@@ -63,12 +81,12 @@ if [[ "$MODE" == "--perception-only" ]]; then
     exit 0
 fi
 
-echo "=== [5/6] avatars for this play's players  (env: nfl_lhm) ==="
+echo "=== [8/9] avatars for this play's players  (env: nfl_lhm) ==="
 conda activate nfl_lhm
 python -m nfl_gsplat.avatars.build_play      --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
-echo "=== [6/6] composite + novel-view render  (env: nfl_gsplat) ==="
+echo "=== [9/9] composite + novel-view render  (env: nfl_gsplat) ==="
 conda activate nfl_gsplat
 python scripts/05_render_novel_view.py --play-dir "$PLAY_DIR" \
     --trajectory configs/trajectories/fly_through.yaml
