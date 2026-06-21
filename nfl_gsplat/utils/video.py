@@ -22,6 +22,12 @@ def ffprobe_meta(path: Path | str) -> VideoMeta:
     """Return width/height/fps/num_frames for a video file.
 
     Uses ``ffprobe`` from PATH. Raises FileNotFoundError if ffprobe is absent.
+
+    Parsed by KEY, not column position: ffprobe emits the requested ``stream``
+    entries in the stream's natural order, not the order they were asked for
+    (e.g. ``duration`` before ``nb_frames``), so positional parsing silently
+    swaps fields. ``num_frames`` prefers the container's ``nb_frames`` when it's
+    a positive integer and otherwise falls back to ``round(duration * fps)``.
     """
     if shutil.which("ffprobe") is None:
         raise FileNotFoundError(
@@ -31,18 +37,25 @@ def ffprobe_meta(path: Path | str) -> VideoMeta:
     cmd = [
         "ffprobe", "-v", "error", "-select_streams", "v:0",
         "-show_entries", "stream=width,height,r_frame_rate,nb_frames,duration",
-        "-of", "csv=p=0:s=,", str(path),
+        "-of", "default=noprint_wrappers=1", str(path),
     ]
-    out = subprocess.check_output(cmd, text=True).strip().split(",")
-    width = int(out[0])
-    height = int(out[1])
-    num, den = out[2].split("/")
+    out = subprocess.check_output(cmd, text=True)
+    fields: dict[str, str] = {}
+    for line in out.splitlines():
+        if "=" in line:
+            key, _, val = line.partition("=")
+            fields[key.strip()] = val.strip()
+
+    width = int(fields["width"])
+    height = int(fields["height"])
+    num, den = fields["r_frame_rate"].split("/")
     fps = float(num) / float(den)
-    try:
-        num_frames = int(out[3])
-    except (ValueError, IndexError):
-        duration = float(out[4])
-        num_frames = int(round(duration * fps))
+
+    nb_frames = fields.get("nb_frames", "")
+    if nb_frames.isdigit() and int(nb_frames) > 0:
+        num_frames = int(nb_frames)
+    else:  # nb_frames missing/"N/A" — derive from duration
+        num_frames = int(round(float(fields["duration"]) * fps))
     return VideoMeta(width=width, height=height, fps=fps, num_frames=num_frames)
 
 
