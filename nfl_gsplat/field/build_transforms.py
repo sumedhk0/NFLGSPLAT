@@ -46,19 +46,21 @@ def opencv_pose_to_opengl_c2w(R_w2c: np.ndarray, t_w2c: np.ndarray) -> np.ndarra
 
 
 def build_transforms_json(
-    cameras: Mapping[str, Mapping],
-    frames: Mapping[str, Sequence[Path | str]],
-    out_path: Path | str,
+    tracks: Mapping,
+    frames_by_cam: Mapping[str, Sequence[tuple[int, "str | Path"]]],
+    out_path: "Path | str",
     *,
-    root_dir: Path | str | None = None,
+    camera_model: str = "OPENCV",
+    root_dir: "Path | str | None" = None,
 ) -> Path:
     """Write a nerfstudio-style ``transforms.json``.
 
-    ``cameras[cam]`` must contain ``K (3×3)``, ``R (3×3)``, ``t (3,)``,
-    ``width``, ``height``. Per-frame pose is the single calibrated extrinsic
-    for now (pan/zoom keyframe interpolation is a Phase-post hardening item).
+    ``tracks[cam]`` is a :class:`~nfl_gsplat.calibration.cameras_io.CameraTrack`;
+    per-frame intrinsics and pose come from ``tracks[cam].at(frame_index)``.
+    ``frames_by_cam[cam]`` is an ordered sequence of ``(frame_index, image_path)``
+    pairs; ``frame_index`` is passed to ``.at()`` so pan/tilt/zoom is captured
+    per frame.
 
-    ``frames[cam]`` is the ordered list of image paths for that camera.
     Paths are stored **relative to ``root_dir``** (default: parent of
     ``out_path``) since nerfstudio resolves ``file_path`` relative to the
     transforms.json directory.
@@ -67,34 +69,32 @@ def build_transforms_json(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     root = Path(root_dir) if root_dir is not None else out_path.parent
 
-    first_cam = next(iter(cameras))
-    ref = cameras[first_cam]
-    width = int(ref["width"])
-    height = int(ref["height"])
-    # All cameras must share (width, height) for a single transforms file.
-    # Nerfstudio supports per-frame intrinsics, so we store fl_x etc. per frame.
+    first_cam = next(iter(tracks))
+    ref_track = tracks[first_cam]
+    ref_intr, _ = ref_track.at(0)
 
     out: dict = {
-        "camera_model": "OPENCV",
-        "w": width,
-        "h": height,
-        # Global ``fl_x`` etc. are required by some loaders; we set them from the
-        # first camera but also override per-frame below.
-        "fl_x": float(ref["K"][0][0]),
-        "fl_y": float(ref["K"][1][1]),
-        "cx":   float(ref["K"][0][2]),
-        "cy":   float(ref["K"][1][2]),
+        "camera_model": camera_model,
+        "w": ref_track.width,
+        "h": ref_track.height,
+        # Global fl_x etc. are required by some loaders; set from the first
+        # camera's frame-0 intrinsics, but also overridden per-frame below.
+        "fl_x": ref_intr.fx,
+        "fl_y": ref_intr.fy,
+        "cx": ref_intr.cx,
+        "cy": ref_intr.cy,
         "k1": 0.0, "k2": 0.0, "p1": 0.0, "p2": 0.0,
         "frames": [],
     }
 
-    for cam_name, cam in cameras.items():
-        K = np.asarray(cam["K"], dtype=np.float64)
-        R = np.asarray(cam["R"], dtype=np.float64)
-        t = np.asarray(cam["t"], dtype=np.float64).reshape(3)
-        c2w = opencv_pose_to_opengl_c2w(R, t)
-
-        for img in frames.get(cam_name, []):
+    for cam_name, frame_list in frames_by_cam.items():
+        if cam_name not in tracks:
+            continue
+        track = tracks[cam_name]
+        for frame_index, img in frame_list:
+            intr, pose = track.at(int(frame_index))
+            K = intr.K()
+            c2w = opencv_pose_to_opengl_c2w(pose.R, pose.t)
             img_path = Path(img)
             try:
                 rel = img_path.relative_to(root)
@@ -107,8 +107,8 @@ def build_transforms_json(
                 "fl_y": float(K[1, 1]),
                 "cx":   float(K[0, 2]),
                 "cy":   float(K[1, 2]),
-                "w": int(cam["width"]),
-                "h": int(cam["height"]),
+                "w": intr.width,
+                "h": intr.height,
                 "camera": cam_name,
             })
 
@@ -147,50 +147,17 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
             if (frames_root / cam).is_dir()
         }
 
-        # Build transforms.json with per-frame poses (cameras pan/tilt during a play).
-        first_cam = next(iter(tracks))
-        ref_intr, _ = tracks[first_cam].at(0)
-        out: dict = {
-            "camera_model": "OPENCV",
-            "w": ref_intr.width,
-            "h": ref_intr.height,
-            "fl_x": ref_intr.fx,
-            "fl_y": ref_intr.fy,
-            "cx": ref_intr.cx,
-            "cy": ref_intr.cy,
-            "k1": 0.0, "k2": 0.0, "p1": 0.0, "p2": 0.0,
-            "frames": [],
+        # Build per-frame (frame_index, path) pairs; index is extracted from the
+        # file stem written by extract_static_frames, e.g. "r00_000042" → 42.
+        frames_by_cam: dict[str, list[tuple[int, Path]]] = {
+            cam: [(int(img.stem.split("_")[-1]), img) for img in img_list]
+            for cam, img_list in cam_frames.items()
+            if cam in tracks
         }
-        root = field_dir
-        for cam_name, img_list in cam_frames.items():
-            if cam_name not in tracks:
-                continue
-            for img in img_list:
-                # Extract frame index from stem e.g. "r00_000042" → 42.
-                k = int(img.stem.split("_")[-1])
-                intr, pose = tracks[cam_name].at(k)
-                K = intr.K()
-                c2w = opencv_pose_to_opengl_c2w(pose.R, pose.t)
-                try:
-                    rel = img.relative_to(root)
-                except ValueError:
-                    rel = img
-                out["frames"].append({
-                    "file_path": str(rel).replace("\\", "/"),
-                    "transform_matrix": c2w.tolist(),
-                    "fl_x": float(K[0, 0]),
-                    "fl_y": float(K[1, 1]),
-                    "cx":   float(K[0, 2]),
-                    "cy":   float(K[1, 2]),
-                    "w": intr.width,
-                    "h": intr.height,
-                    "camera": cam_name,
-                })
 
         out_json = field_dir / "transforms.json"
-        out_json.parent.mkdir(parents=True, exist_ok=True)
-        write_json(out_json, out)
-        total = sum(len(v) for v in cam_frames.values())
+        build_transforms_json(tracks, frames_by_cam, out_json, root_dir=field_dir)
+        total = sum(len(v) for v in frames_by_cam.values())
         _log.info(f"build_transforms: {total} frames → {out_json}")
 
     app()

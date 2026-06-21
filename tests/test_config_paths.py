@@ -33,7 +33,6 @@ def test_play_dir_layout():
     pd = PlayDir(season="2024", week=1, matchup="NO_at_ATL", play_id="play_001")
     assert pd.dir == Path("data/2024/week_01/NO_at_ATL/play_001")
     assert pd.video("sideline") == Path("data/2024/week_01/NO_at_ATL/play_001/sideline.mp4")
-    assert pd.cameras_json == Path("data/2024/week_01/NO_at_ATL/play_001/cameras.json")
     assert pd.field_ply == Path("data/2024/week_01/NO_at_ATL/play_001/field.ply")
     assert pd.tracks == Path("data/2024/week_01/NO_at_ATL/play_001/tracks.parquet")
     assert pd.entities == Path("data/2024/week_01/NO_at_ATL/play_001/entities.json")

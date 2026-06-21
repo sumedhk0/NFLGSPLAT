@@ -46,6 +46,77 @@ def test_assemble_track_decomposes_each_frame():
     assert 2000 < tr.K[0, 0, 0] < 3200
 
 
+def test_anchor_frames_keep_full_confidence(monkeypatch):
+    """Anchor frames must never drop below full confidence.
+
+    The per-segment loop sets conf[anchor] = seg_conf[k], which can be
+    < min_conf due to backward-tracked drift near the left anchor.  The fix
+    forces conf[anchor] = 1.0 after the segment loop.  This regression test
+    confirms that check_confidence does NOT raise even when seg_conf at an
+    anchor position would otherwise be low (here, confidence of the
+    backward-tracked far end is exactly what seg_conf assigns to conf[0]).
+    """
+    W, H, T = 1920, 1080, 5
+    from nfl_gsplat.calibration.decompose_homography import krt_to_homography
+    from nfl_gsplat.utils.geometry import CameraIntrinsics
+
+    def Htrue(i):
+        intr = CameraIntrinsics(2500, 2500, W / 2, H / 2, W, H)
+        y = np.deg2rad(2.0 * i)
+        R = np.array([[np.cos(y), -np.sin(y), 0], [0, 0, -1], [np.sin(y), np.cos(y), 0]], float)
+        return krt_to_homography(intr.K(), R, np.array([0.0, 5.0, 25.0]))
+
+    anchors = {0: Htrue(0), T - 1: Htrue(T - 1)}
+
+    def fake_est(video, a, b, masks, cfg):
+        step = 1 if b > a else -1
+        idxs = list(range(a + step, b + step, step))
+        rel = [Htrue(k) @ np.linalg.inv(Htrue(a)) for k in idxs]
+        # high confidence everywhere so only anchor-overwrite behavior is under test
+        return rel, np.ones(len(idxs))
+
+    monkeypatch.setattr(th, "_estimate_interframe_homographies", fake_est)
+    tr = th.track_camera_sequence("v.mp4", anchors, num_frames=T, width=W, height=H)
+    assert tr.conf[0] == 1.0 and tr.conf[T - 1] == 1.0
+
+
+def test_low_confidence_near_anchor_does_not_raise(monkeypatch):
+    """Low confidence at frames adjacent to anchors must not trigger CalibrationError.
+
+    Before the fix, seg_conf[0] = min(1.0, c_bwd[-1]) could be < min_conf when
+    backward tracking loses quality near the left anchor, overwriting conf[0]
+    and causing a spurious CalibrationError at a PnP-solved anchor.
+    """
+    W, H, T = 1920, 1080, 7
+    from nfl_gsplat.calibration.decompose_homography import krt_to_homography
+    from nfl_gsplat.utils.geometry import CameraIntrinsics
+
+    def Htrue(i):
+        intr = CameraIntrinsics(2500, 2500, W / 2, H / 2, W, H)
+        y = np.deg2rad(2.0 * i)
+        R = np.array([[np.cos(y), -np.sin(y), 0], [0, 0, -1], [np.sin(y), np.cos(y), 0]], float)
+        return krt_to_homography(intr.K(), R, np.array([0.0, 5.0, 25.0]))
+
+    anchors = {0: Htrue(0), T - 1: Htrue(T - 1)}
+    LOW = 0.1   # well below default min_conf=0.35
+
+    def fake_est(video, a, b, masks, cfg):
+        step = 1 if b > a else -1
+        idxs = list(range(a + step, b + step, step))
+        rel = [Htrue(k) @ np.linalg.inv(Htrue(a)) for k in idxs]
+        # Low confidence at the very end of each chain (i.e. adjacent to the
+        # opposite anchor) — the slot that gets assigned to conf[anchor] pre-fix.
+        conf_arr = np.ones(len(idxs))
+        conf_arr[-1] = LOW
+        return rel, conf_arr
+
+    monkeypatch.setattr(th, "_estimate_interframe_homographies", fake_est)
+    # Without the fix this would raise CalibrationError because conf[0] or
+    # conf[T-1] would be overwritten with LOW < min_conf.
+    tr = th.track_camera_sequence("v.mp4", anchors, num_frames=T, width=W, height=H)
+    assert tr.conf[0] == 1.0 and tr.conf[T - 1] == 1.0
+
+
 def test_track_camera_sequence_recovers_known_pan(monkeypatch):
     from nfl_gsplat.calibration.decompose_homography import krt_to_homography
     from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points

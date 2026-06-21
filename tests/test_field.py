@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
+from nfl_gsplat.calibration.cameras_io import constant_track
 from nfl_gsplat.field.build_transforms import (
     build_transforms_json,
     opencv_pose_to_opengl_c2w,
@@ -71,32 +72,33 @@ def test_opengl_c2w_points_camera_toward_target():
 def test_build_transforms_json_structure(tmp_path: Path):
     intr_s, pose_s = _sideline_camera()
     intr_e, pose_e = _endzone_camera()
-    cameras = {
-        "sideline": {
-            "K": intr_s.K().tolist(), "R": pose_s.R.tolist(), "t": pose_s.t.tolist(),
-            "width": intr_s.width, "height": intr_s.height,
-        },
-        "endzone": {
-            "K": intr_e.K().tolist(), "R": pose_e.R.tolist(), "t": pose_e.t.tolist(),
-            "width": intr_e.width, "height": intr_e.height,
-        },
+    # Build CameraTrack objects so _main() and tests share the same code path.
+    T_s, T_e = 3, 2
+    tracks = {
+        "sideline": constant_track(intr_s, pose_s, T_s),
+        "endzone":  constant_track(intr_e, pose_e, T_e),
     }
     # Fake frame paths under a subdir of tmp_path.
     frames_dir = tmp_path / "frames"
     (frames_dir / "sideline").mkdir(parents=True)
     (frames_dir / "endzone").mkdir(parents=True)
-    s_paths = [frames_dir / "sideline" / f"r00_{i:06d}.png" for i in range(3)]
-    e_paths = [frames_dir / "endzone"  / f"r00_{i:06d}.png" for i in range(2)]
+    s_paths = [frames_dir / "sideline" / f"r00_{i:06d}.png" for i in range(T_s)]
+    e_paths = [frames_dir / "endzone"  / f"r00_{i:06d}.png" for i in range(T_e)]
     for p in s_paths + e_paths:
         p.write_bytes(b"")
 
+    # frames_by_cam: (frame_index, path) pairs — same format _main() produces.
+    frames_by_cam = {
+        "sideline": [(i, p) for i, p in enumerate(s_paths)],
+        "endzone":  [(i, p) for i, p in enumerate(e_paths)],
+    }
     out_json = tmp_path / "transforms.json"
-    build_transforms_json(cameras, {"sideline": s_paths, "endzone": e_paths}, out_json)
+    build_transforms_json(tracks, frames_by_cam, out_json)
 
     data = read_json(out_json)
     assert data["camera_model"] == "OPENCV"
     assert data["w"] == FIXTURE_WIDTH and data["h"] == FIXTURE_HEIGHT
-    assert len(data["frames"]) == 5
+    assert len(data["frames"]) == T_s + T_e
     # Per-frame intrinsics must be present.
     for fr in data["frames"]:
         assert {"fl_x", "fl_y", "cx", "cy", "w", "h", "transform_matrix", "file_path"} <= fr.keys()
@@ -110,17 +112,12 @@ def test_transform_matrix_consistent_with_projection(tmp_path: Path):
     invert the stored OpenGL c2w back to OpenCV w2c and project again,
     we should get the same pixel."""
     intr, pose = _sideline_camera()
-    cameras = {
-        "sideline": {
-            "K": intr.K().tolist(), "R": pose.R.tolist(), "t": pose.t.tolist(),
-            "width": intr.width, "height": intr.height,
-        },
-    }
+    tracks = {"sideline": constant_track(intr, pose, 1)}
     frame = tmp_path / "frames" / "sideline" / "r00_000000.png"
     frame.parent.mkdir(parents=True)
     frame.write_bytes(b"")
     out_json = tmp_path / "transforms.json"
-    build_transforms_json(cameras, {"sideline": [frame]}, out_json)
+    build_transforms_json(tracks, {"sideline": [(0, frame)]}, out_json)
 
     data = read_json(out_json)
     c2w_gl = np.array(data["frames"][0]["transform_matrix"])

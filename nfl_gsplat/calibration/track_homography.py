@@ -132,5 +132,11 @@ def track_camera_sequence(
         for k, f in enumerate(range(a, b + 1)):
             Hs[f] = seg[k]; conf[f] = seg_conf[k]
 
+    # Anchor frames are PnP-solved ground truth; their confidence is always 1.0.
+    # The per-segment loop can overwrite anchor slots with blended seg_conf
+    # (backward-tracked drift near the left anchor can produce seg_conf < min_conf),
+    # so force them back before the gap check.
+    for f in anchor_frames:
+        conf[f] = 1.0
     check_confidence(conf, min_conf=cfg.min_conf, max_gap=cfg.max_gap)
     return assemble_track([h for h in Hs], conf, width=width, height=height)
