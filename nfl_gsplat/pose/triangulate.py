@@ -7,7 +7,7 @@ Inputs (one per camera, same ordering of frames and joints):
 
 Shared:
 
-- ``cameras {cam: (CameraIntrinsics, CameraPose)}``
+- ``cameras {cam: CameraTrack}``
 
 Outputs:
 
@@ -29,9 +29,8 @@ from typing import Mapping
 
 import numpy as np
 
+from nfl_gsplat.calibration.cameras_io import CameraTrack
 from nfl_gsplat.utils.geometry import (
-    CameraIntrinsics,
-    CameraPose,
     project_points,
     triangulate_two_views,
 )
@@ -52,7 +51,7 @@ class TriangulationResult:
 
 def triangulate_joints_two_view(
     observations: Mapping[str, Mapping[str, np.ndarray]],
-    cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
+    cameras: Mapping[str, CameraTrack],
     cfg: TriangulationConfig,
 ) -> TriangulationResult:
     """Triangulate joints from exactly two synchronized cameras.
@@ -74,28 +73,24 @@ def triangulate_joints_two_view(
         raise ValueError(f"cam uv shapes disagree: {uv_a.shape} vs {uv_b.shape}")
     T, J = uv_a.shape[:2]
 
-    intr_a, pose_a = cameras[a]
-    intr_b, pose_b = cameras[b]
-    Ka, Ra, ta = intr_a.K(), pose_a.R, pose_a.t
-    Kb, Rb, tb = intr_b.K(), pose_b.R, pose_b.t
-    Pa = Ka @ pose_a.extrinsic_3x4()
-    Pb = Kb @ pose_b.extrinsic_3x4()
-
     joints3d = np.full((T, J, 3), np.nan, dtype=np.float64)
     valid = np.zeros((T, J), dtype=bool)
     reproj = np.full((T, J, 2), np.nan, dtype=np.float64)
 
-    # Triangulate everything in one pass, then mask out by conf + reprojection.
-    flat_a = uv_a.reshape(-1, 2)
-    flat_b = uv_b.reshape(-1, 2)
-    X = triangulate_two_views(flat_a, flat_b, Pa, Pb).reshape(T, J, 3)
-
-    # Reprojection error per camera.
-    flat_X = X.reshape(-1, 3)
-    uv_a_pred = project_points(flat_X, Ka, Ra, ta).reshape(T, J, 2)
-    uv_b_pred = project_points(flat_X, Kb, Rb, tb).reshape(T, J, 2)
-    err_a = np.linalg.norm(uv_a_pred - uv_a, axis=-1)
-    err_b = np.linalg.norm(uv_b_pred - uv_b, axis=-1)
+    X = np.full((T, J, 3), np.nan, dtype=np.float64)
+    err_a = np.full((T, J), np.nan, dtype=np.float64)
+    err_b = np.full((T, J), np.nan, dtype=np.float64)
+    for t in range(T):
+        ia, pa = cameras[a].at(t)
+        ib, pb = cameras[b].at(t)
+        Ka, Ra, ta = ia.K(), pa.R, pa.t
+        Kb, Rb, tb = ib.K(), pb.R, pb.t
+        Pa = Ka @ pa.extrinsic_3x4()
+        Pb = Kb @ pb.extrinsic_3x4()
+        Xt = triangulate_two_views(uv_a[t], uv_b[t], Pa, Pb)      # [J, 3]
+        X[t] = Xt
+        err_a[t] = np.linalg.norm(project_points(Xt, Ka, Ra, ta) - uv_a[t], axis=-1)
+        err_b[t] = np.linalg.norm(project_points(Xt, Kb, Rb, tb) - uv_b[t], axis=-1)
     reproj[..., 0] = err_a
     reproj[..., 1] = err_b
 

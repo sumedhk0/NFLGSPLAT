@@ -18,7 +18,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from nfl_gsplat.ball.kalman_3d import BallKalmanConfig, run_kalman
-from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+from nfl_gsplat.calibration.cameras_io import CameraTrack
 from nfl_gsplat.utils.io import read_npz, write_npz
 
 
@@ -40,7 +40,7 @@ def read_ball_npz(path: Path | str) -> dict[str, np.ndarray]:
 def build_and_write_ball_track(
     path: Path | str,
     detections_per_frame: Sequence[Mapping[str, np.ndarray]],
-    cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
+    cameras: Mapping[str, CameraTrack],
     cfg: BallKalmanConfig,
 ) -> Path:
     """Run the 3D Kalman filter (with velocity) and persist the track."""

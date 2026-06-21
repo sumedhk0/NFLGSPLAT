@@ -22,10 +22,9 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import linear_sum_assignment
 
+from nfl_gsplat.calibration.cameras_io import CameraTrack
 from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS
 from nfl_gsplat.utils.geometry import (
-    CameraIntrinsics,
-    CameraPose,
     point_in_field_rect,
     project_to_plane_z0,
 )
@@ -42,26 +41,31 @@ class CrossCamConfig:
 
 def project_foot_points_to_field(
     df: pd.DataFrame,
-    cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
+    cameras: Mapping[str, CameraTrack],
 ) -> pd.DataFrame:
     """Add ``foot_x_m, foot_y_m`` columns by projecting foot points to Z=0.
 
-    Any detection from a camera not in ``cameras`` gets NaN.
+    Any detection from a camera not in ``cameras`` gets NaN. Projection is
+    per-row using each row's ``frame`` column, since cameras pan/tilt per frame.
     """
     out = df.copy()
     out["foot_x_m"] = np.nan
     out["foot_y_m"] = np.nan
-    for cam_name, (intr, pose) in cameras.items():
-        mask = out["cam"].values == cam_name
-        if not mask.any():
+    frames = out["frame"].to_numpy()
+    fu = out["foot_u"].to_numpy()
+    fv = out["foot_v"].to_numpy()
+    cam_col = out["cam"].to_numpy()
+    xs = np.full(len(out), np.nan)
+    ys = np.full(len(out), np.nan)
+    for i in range(len(out)):
+        track = cameras.get(cam_col[i])
+        if track is None:
             continue
-        uv = out.loc[mask, ["foot_u", "foot_v"]].to_numpy()
-        K = intr.K()
-        xy = np.full((uv.shape[0], 2), np.nan, dtype=np.float64)
-        for i, puv in enumerate(uv):
-            xy[i] = project_to_plane_z0(puv, K, pose.R, pose.t)
-        out.loc[mask, "foot_x_m"] = xy[:, 0]
-        out.loc[mask, "foot_y_m"] = xy[:, 1]
+        intr, pose = track.at(int(frames[i]))
+        xy = project_to_plane_z0(np.array([fu[i], fv[i]]), intr.K(), pose.R, pose.t)
+        xs[i], ys[i] = xy[0], xy[1]
+    out["foot_x_m"] = xs
+    out["foot_y_m"] = ys
     return out
 
 
@@ -155,7 +159,7 @@ def assign_global_ids(df: pd.DataFrame, cfg: CrossCamConfig) -> pd.DataFrame:
 
 def reid_pipeline(
     tracks_by_cam: Mapping[str, pd.DataFrame],
-    cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
+    cameras: Mapping[str, CameraTrack],
     cfg: CrossCamConfig,
 ) -> pd.DataFrame:
     """Full cross-camera re-ID: concatenate per-cam tracks → project foot
@@ -174,7 +178,7 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
 
     import typer
 
-    from nfl_gsplat.calibration.cameras_io import load_cameras
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
     from nfl_gsplat.paths import PlayDir
 
@@ -185,7 +189,7 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
              config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
         cfg = load_cli_config(config, config_override, set_)
         pdir = PlayDir.from_dir(play_dir)
-        cameras = load_cameras(pdir.cameras_json)
+        cameras = load_camera_track(pdir.cameras_npz)
         df = pd.read_parquet(pdir.tracks)
         tracks_by_cam = {cam: g for cam, g in df.groupby("cam")}
         ccfg = CrossCamConfig(field_buffer_m=float(cfg.tracking.field_buffer_m))

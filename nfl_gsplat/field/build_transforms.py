@@ -119,9 +119,10 @@ def build_transforms_json(
 def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     import typer
 
-    from nfl_gsplat.calibration.cameras_io import load_cameras
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
     from nfl_gsplat.paths import PlayDir
+    from nfl_gsplat.utils.io import write_json
     from nfl_gsplat.utils.logging import get_logger
 
     _log = get_logger(__name__)
@@ -135,31 +136,62 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
         cfg = load_cli_config(config, config_override, set_)  # noqa: F841 — kept for uniform CLI signature
         pdir = PlayDir.from_dir(play_dir)
 
-        # Load calibrated camera poses from the per-play cameras.json.
-        raw_cams = load_cameras(pdir.cameras_json)
-        cameras = {
-            cam: {
-                "K": intr.K().tolist(),
-                "R": pose.R.tolist(),
-                "t": pose.t.tolist(),
-                "width": intr.width,
-                "height": intr.height,
-            }
-            for cam, (intr, pose) in raw_cams.items()
-        }
+        # Load per-frame calibrated camera tracks from cameras.npz.
+        tracks = load_camera_track(pdir.cameras_npz)
 
         # Discover frames written by extract_static_frames under field/frames/{cam}/.
         field_dir = pdir.dir / "field"
         frames_root = field_dir / "frames"
-        frames: dict[str, list[Path]] = {
+        cam_frames: dict[str, list[Path]] = {
             cam: sorted((frames_root / cam).glob("*.png"))
-            for cam in cameras
+            for cam in tracks
             if (frames_root / cam).is_dir()
         }
 
+        # Build transforms.json with per-frame poses (cameras pan/tilt during a play).
+        first_cam = next(iter(tracks))
+        ref_intr, _ = tracks[first_cam].at(0)
+        out: dict = {
+            "camera_model": "OPENCV",
+            "w": ref_intr.width,
+            "h": ref_intr.height,
+            "fl_x": ref_intr.fx,
+            "fl_y": ref_intr.fy,
+            "cx": ref_intr.cx,
+            "cy": ref_intr.cy,
+            "k1": 0.0, "k2": 0.0, "p1": 0.0, "p2": 0.0,
+            "frames": [],
+        }
+        root = field_dir
+        for cam_name, img_list in cam_frames.items():
+            if cam_name not in tracks:
+                continue
+            for img in img_list:
+                # Extract frame index from stem e.g. "r00_000042" → 42.
+                k = int(img.stem.split("_")[-1])
+                intr, pose = tracks[cam_name].at(k)
+                K = intr.K()
+                c2w = opencv_pose_to_opengl_c2w(pose.R, pose.t)
+                try:
+                    rel = img.relative_to(root)
+                except ValueError:
+                    rel = img
+                out["frames"].append({
+                    "file_path": str(rel).replace("\\", "/"),
+                    "transform_matrix": c2w.tolist(),
+                    "fl_x": float(K[0, 0]),
+                    "fl_y": float(K[1, 1]),
+                    "cx":   float(K[0, 2]),
+                    "cy":   float(K[1, 2]),
+                    "w": intr.width,
+                    "h": intr.height,
+                    "camera": cam_name,
+                })
+
         out_json = field_dir / "transforms.json"
-        build_transforms_json(cameras, frames, out_json, root_dir=field_dir)
-        total = sum(len(v) for v in frames.values())
+        out_json.parent.mkdir(parents=True, exist_ok=True)
+        write_json(out_json, out)
+        total = sum(len(v) for v in cam_frames.values())
         _log.info(f"build_transforms: {total} frames → {out_json}")
 
     app()

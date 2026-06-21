@@ -7,6 +7,7 @@ from nfl_gsplat.avatars.generic_assets import make_referee_avatar
 from nfl_gsplat.avatars.library import AVATAR_KEYS, AvatarLibrary
 from nfl_gsplat.ball.ball_io import build_and_write_ball_track, read_ball_npz, write_ball_npz
 from nfl_gsplat.ball.kalman_3d import BallKalmanConfig
+from nfl_gsplat.calibration.cameras_io import constant_track
 from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
 
 
@@ -49,13 +50,18 @@ def _cam(off: float):
 
 
 def test_build_and_write_ball_track(tmp_path):
-    cam_a, cam_b = _cam(-5.0), _cam(5.0)
-    cams = {"a": cam_a, "b": cam_b}
+    intr_a, pose_a = _cam(-5.0)
+    intr_b, pose_b = _cam(5.0)
+    T = 10
+    cams = {
+        "a": constant_track(intr_a, pose_a, T),
+        "b": constant_track(intr_b, pose_b, T),
+    }
     dets = []
-    for f in range(10):
+    for f in range(T):
         p = np.array([[-2.0 + 0.5 * f, 0.0, 3.0]])
-        ua = project_points(p, cam_a[0].K(), cam_a[1].R, cam_a[1].t)[0]
-        ub = project_points(p, cam_b[0].K(), cam_b[1].R, cam_b[1].t)[0]
+        ua = project_points(p, intr_a.K(), pose_a.R, pose_a.t)[0]
+        ub = project_points(p, intr_b.K(), pose_b.R, pose_b.t)[0]
         dets.append({"a": ua, "b": ub})
     out = build_and_write_ball_track(tmp_path / "ball.npz", dets, cams, BallKalmanConfig(fps=30.0))
     d = read_ball_npz(out)

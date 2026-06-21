@@ -44,6 +44,7 @@ from nfl_gsplat.pose.fuse_smplx import (
     fuse_sequence,
     rigid_translation_forward,
 )
+from nfl_gsplat.calibration.cameras_io import constant_track
 from nfl_gsplat.pose.triangulate import TriangulationConfig, triangulate_joints_two_view
 from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
 from nfl_gsplat.utils.io import read_json
@@ -129,9 +130,13 @@ def test_smoke_triangulation_recovers_joints(smoke_dir: Path):
             "endzone":  _synthesize_per_cam_observations(
                 joints_world[p], (intr_e, pose_e), seed=20 + p),
         }
+        T_p = joints_world[p].shape[0]
         tri = triangulate_joints_two_view(
             obs,
-            {"sideline": (intr_s, pose_s), "endzone": (intr_e, pose_e)},
+            {
+                "sideline": constant_track(intr_s, pose_s, T_p),
+                "endzone":  constant_track(intr_e, pose_e, T_p),
+            },
             TriangulationConfig(reproj_px_max=20.0, conf_min=0.3),
         )
         assert tri.valid.all(), f"player {p}: {int((~tri.valid).sum())} joints rejected"
@@ -165,7 +170,10 @@ def test_smoke_fuse_recovers_translation(smoke_dir: Path):
     }
     tri = triangulate_joints_two_view(
         obs,
-        {"sideline": (intr_s, pose_s), "endzone": (intr_e, pose_e)},
+        {
+            "sideline": constant_track(intr_s, pose_s, T),
+            "endzone":  constant_track(intr_e, pose_e, T),
+        },
         TriangulationConfig(reproj_px_max=20.0, conf_min=0.3),
     )
     assert tri.valid.sum() >= T * 20

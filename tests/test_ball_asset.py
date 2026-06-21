@@ -12,6 +12,7 @@ from nfl_gsplat.ball.ball_asset import (
     principal_axis,
 )
 from nfl_gsplat.ball.kalman_3d import BallKalmanConfig, run_kalman
+from nfl_gsplat.calibration.cameras_io import constant_track
 from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
 
 
@@ -71,16 +72,19 @@ def _cam(cx_off: float = 0.0) -> tuple[CameraIntrinsics, CameraPose]:
 
 def test_run_kalman_returns_velocity_when_requested():
     # Two cameras looking down -Z-ish; a ball moving along +X at constant speed.
-    cam_a = _cam(-5.0)
-    cam_b = _cam(5.0)
-    cams = {"a": cam_a, "b": cam_b}
+    intr_a, pose_a = _cam(-5.0)
+    intr_b, pose_b = _cam(5.0)
     T = 12
+    cams = {
+        "a": constant_track(intr_a, pose_a, T),
+        "b": constant_track(intr_b, pose_b, T),
+    }
     speed = 0.5
     dets = []
     for f in range(T):
         p = np.array([[-2.0 + speed * f, 0.0, 3.0]])
-        ua = project_points(p, cam_a[0].K(), cam_a[1].R, cam_a[1].t)[0]
-        ub = project_points(p, cam_b[0].K(), cam_b[1].R, cam_b[1].t)[0]
+        ua = project_points(p, intr_a.K(), pose_a.R, pose_a.t)[0]
+        ub = project_points(p, intr_b.K(), pose_b.R, pose_b.t)[0]
         dets.append({"a": ua, "b": ub})
     cfg = BallKalmanConfig(fps=30.0, triangulated_pos_std=0.02)
 

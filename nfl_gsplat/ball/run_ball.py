@@ -48,7 +48,7 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     from nfl_gsplat.ball.ball_io import build_and_write_ball_track
     from nfl_gsplat.ball.detect_ball import BallDetectConfig, detect_ball
     from nfl_gsplat.ball.kalman_3d import BallKalmanConfig
-    from nfl_gsplat.calibration.cameras_io import load_cameras
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
     from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
     from nfl_gsplat.paths import PlayDir
     from nfl_gsplat.utils.meta import load_meta
@@ -62,7 +62,7 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
         cfg = load_cli_config(config, config_override, set_)
         pdir = PlayDir.from_dir(play_dir)
         meta = load_meta(pdir.meta_yaml)
-        cameras = load_cameras(pdir.cameras_json)
+        cameras = load_camera_track(pdir.cameras_npz)
         first_cam = next(iter(cameras))
         n_frames = ffprobe_meta(pdir.video(first_cam)).num_frames
 

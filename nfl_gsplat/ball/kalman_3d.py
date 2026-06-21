@@ -30,6 +30,7 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
+from nfl_gsplat.calibration.cameras_io import CameraTrack
 from nfl_gsplat.utils.geometry import (
     CameraIntrinsics,
     CameraPose,
@@ -107,7 +108,7 @@ def _ray_residual_and_jacobian(
 
 def run_kalman(
     detections_per_frame: Sequence[Mapping[str, np.ndarray]],
-    cameras: Mapping[str, tuple[CameraIntrinsics, CameraPose]],
+    cameras: Mapping[str, CameraTrack],
     cfg: BallKalmanConfig,
     *,
     return_velocity: bool = False,
@@ -146,7 +147,7 @@ def run_kalman(
             if len(cams_with_det) >= 2:
                 a, b = cams_with_det[0], cams_with_det[1]
                 pos0 = _triangulate_ball_frame(
-                    det[a], det[b], cameras[a], cameras[b]
+                    det[a], det[b], cameras[a].at(t), cameras[b].at(t)
                 )
                 if np.all(np.isfinite(pos0)):
                     x[:3] = pos0
@@ -163,7 +164,7 @@ def run_kalman(
         # Update.
         if len(cams_with_det) >= 2:
             a, b = cams_with_det[0], cams_with_det[1]
-            z = _triangulate_ball_frame(det[a], det[b], cameras[a], cameras[b])
+            z = _triangulate_ball_frame(det[a], det[b], cameras[a].at(t), cameras[b].at(t))
             if np.all(np.isfinite(z)):
                 H = np.zeros((3, 6)); H[:, :3] = np.eye(3)
                 R_meas = np.eye(3) * (cfg.triangulated_pos_std ** 2)
@@ -174,7 +175,7 @@ def run_kalman(
                 P = (np.eye(6) - K_kf @ H) @ P
         elif len(cams_with_det) == 1:
             c = cams_with_det[0]
-            intr, pose = cameras[c]
+            intr, pose = cameras[c].at(t)
             r, H = _ray_residual_and_jacobian(det[c], intr, pose, x[:3])
             R_meas = np.eye(2) * (cfg.ray_residual_std ** 2)
             y = -r                          # residual form: z - h(x)

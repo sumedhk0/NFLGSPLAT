@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from nfl_gsplat.calibration.cameras_io import constant_track
 from nfl_gsplat.errors import PoseFusionError
 from nfl_gsplat.pose.fuse_smplx import (
     SMPLXFitConfig,
@@ -43,15 +44,16 @@ def _observations_for_player(root_xyz: np.ndarray, num_frames: int = 5):
     intr_s, pose_s = _sideline_camera()
     intr_e, pose_e = _endzone_camera()
     cameras = {
-        "sideline": (intr_s, pose_s),
-        "endzone":  (intr_e, pose_e),
+        "sideline": constant_track(intr_s, pose_s, num_frames),
+        "endzone":  constant_track(intr_e, pose_e, num_frames),
     }
 
     joints_world = root_xyz[None, None, :] + TEMPLATE_JOINTS_22[None, :, :]
     joints_world = np.broadcast_to(joints_world, (num_frames,) + TEMPLATE_JOINTS_22.shape)
 
     obs = {}
-    for cam, (intr, pose) in cameras.items():
+    for cam, track in cameras.items():
+        intr, pose = track.at(0)
         K, R, t = intr.K(), pose.R, pose.t
         flat = joints_world.reshape(-1, 3)
         uv = project_points(flat, K, R, t).reshape(num_frames, -1, 2)

@@ -52,6 +52,13 @@ def test_play_dir_season_shared_roots():
     assert pd.teams == ("ATL", "NO")          # (home, away)
 
 
+def test_play_dir_camera_paths():
+    from nfl_gsplat.paths import PlayDir
+    pd = PlayDir(season="2024", week=1, matchup="NO_at_ATL", play_id="play_001")
+    assert pd.cameras_npz.name == "cameras.npz"
+    assert pd.keyframes_json("sideline").name == "sideline_keyframes.json"
+
+
 def test_play_dir_from_dir_roundtrip(tmp_path):
     from nfl_gsplat.paths import PlayDir
     p = tmp_path / "data" / "2024" / "week_05" / "NO_at_ATL" / "play_002"

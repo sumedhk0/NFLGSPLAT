@@ -75,6 +75,13 @@ class PlayDir:
         return self.dir / "cameras.json"
 
     @property
+    def cameras_npz(self) -> Path:
+        return self.dir / "cameras.npz"
+
+    def keyframes_json(self, cam: str) -> Path:
+        return self.dir / f"{cam}_keyframes.json"
+
+    @property
     def field_ply(self) -> Path:
         return self.dir / "field.ply"
 
