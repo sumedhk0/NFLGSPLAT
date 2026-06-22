@@ -46,15 +46,18 @@ def main(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     cfg = FieldDetectConfig()
-    cv2.imwrite(str(out_dir / "diag_frame.png"), img)
-    cv2.imwrite(str(out_dir / "diag_whitemask.png"), _white_mask(img, cfg))
+    tag = f"{cam}_f{int(frame):05d}"
+    frame_png = out_dir / f"diag_{tag}.png"
+    mask_png = out_dir / f"diag_{tag}_mask.png"
+    cv2.imwrite(str(frame_png), img)
+    cv2.imwrite(str(mask_png), _white_mask(img, cfg))
 
     print(f"frame {frame} of {video.name}: shape {img.shape}")
     lines = detect_lines(img, cfg)
     xs = sorted(round(0.5 * (s.p0[0] + s.p1[0])) for s in lines)
     print(f"yard lines detected: {len(lines)}")
     print(f"line x-positions: {xs}")
-    print(f"saved: {out_dir/'diag_frame.png'} , {out_dir/'diag_whitemask.png'}")
+    print(f"saved: {frame_png} , {mask_png}")
 
     if not ocr:
         return
