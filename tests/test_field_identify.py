@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import numpy as np
-
 from nfl_gsplat.calibration.field_features import (
     DetectedFeatures, OCRNumber, YardLineSeg,
 )
