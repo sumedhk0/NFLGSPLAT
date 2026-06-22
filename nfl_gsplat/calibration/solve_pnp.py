@@ -151,40 +151,30 @@ def _residuals(
     return res.ravel()
 
 
-def solve_pnp_from_annotations(
-    annotations_json: Path | str,
+def _solve_from_arrays(
+    world_pts: np.ndarray,
+    uv_gt: np.ndarray,
+    names: list[str],
     *,
     image_size: tuple[int, int],
-    max_reproj_px: float = 5.0,
-    min_landmarks: int = 6,
-    bundle_adjustment: bool = True,
-    refine_intrinsics: bool = True,
-    initial_intrinsics: CameraIntrinsics | None = None,
+    max_reproj_px: float,
+    min_landmarks: int,
+    bundle_adjustment: bool,
+    refine_intrinsics: bool,
+    initial_intrinsics: CameraIntrinsics | None,
 ) -> CalibrationResult:
-    """Solve K, R, t from annotated landmarks. See module docstring.
+    """Core PnP solver operating on pre-built arrays.
 
-    Parameters
-    ----------
-    annotations_json
-        Path to ``[{"name", "uv", "frame"}]`` JSON produced by ``annotate_gui.py``.
-    image_size
-        ``(width, height)`` of the annotated frame.
-    max_reproj_px
-        Fail with :class:`CalibrationError` if final RMS exceeds this.
-    min_landmarks
-        Fail with :class:`CalibrationError` if fewer correspondences exist.
-    bundle_adjustment
-        Run scipy least-squares refinement after the OpenCV PnP seed.
-    initial_intrinsics
-        Optional prior. If ``None``, guess ``fx = fy = max(W, H)`` centered principal point.
+    Extracted so both :func:`solve_pnp_from_annotations` (JSON path) and
+    :func:`solve_pnp_from_correspondences` (in-memory path) share identical
+    solver logic without duplication.
     """
     width, height = image_size
-    world_pts, uv_gt, names = _load_correspondences(annotations_json)
     n = world_pts.shape[0]
     if n < min_landmarks:
         raise CalibrationError(
-            f"only {n} landmark(s) annotated in {annotations_json}; need ≥{min_landmarks}. "
-            f"Named landmarks used: {names}. Re-run annotate_gui.py and add more."
+            f"only {n} landmark(s) provided; need ≥{min_landmarks}. "
+            f"Named landmarks used: {names}."
         )
 
     intr = initial_intrinsics or _default_intrinsics_guess(width, height)
@@ -201,7 +191,7 @@ def solve_pnp_from_annotations(
     )
     if not ok:
         raise CalibrationError(
-            f"cv2.solvePnP failed on {n} correspondences from {annotations_json}."
+            f"cv2.solvePnP failed on {n} correspondences."
         )
 
     if n >= 10 and refine_intrinsics:
@@ -248,8 +238,7 @@ def solve_pnp_from_annotations(
     if rms > max_reproj_px:
         raise CalibrationError(
             f"reprojection RMS {rms:.2f} px exceeds threshold {max_reproj_px:.2f} px "
-            f"on {n} landmarks from {annotations_json}. Re-annotate or add more "
-            f"landmarks; see SETUP.md §3."
+            f"on {n} landmarks. Re-annotate or add more landmarks; see SETUP.md §3."
         )
 
     fx, fy = float(K[0, 0]), float(K[1, 1])
@@ -261,6 +250,80 @@ def solve_pnp_from_annotations(
         rms_px=float(rms),
         num_correspondences=n,
         refined_with_ba=refined,
+    )
+
+
+def solve_pnp_from_annotations(
+    annotations_json: Path | str,
+    *,
+    image_size: tuple[int, int],
+    max_reproj_px: float = 5.0,
+    min_landmarks: int = 6,
+    bundle_adjustment: bool = True,
+    refine_intrinsics: bool = True,
+    initial_intrinsics: CameraIntrinsics | None = None,
+) -> CalibrationResult:
+    """Solve K, R, t from annotated landmarks. See module docstring.
+
+    Parameters
+    ----------
+    annotations_json
+        Path to ``[{"name", "uv", "frame"}]`` JSON produced by ``annotate_gui.py``.
+    image_size
+        ``(width, height)`` of the annotated frame.
+    max_reproj_px
+        Fail with :class:`CalibrationError` if final RMS exceeds this.
+    min_landmarks
+        Fail with :class:`CalibrationError` if fewer correspondences exist.
+    bundle_adjustment
+        Run scipy least-squares refinement after the OpenCV PnP seed.
+    initial_intrinsics
+        Optional prior. If ``None``, guess ``fx = fy = max(W, H)`` centered principal point.
+    """
+    world_pts, uv_gt, names = _load_correspondences(annotations_json)
+    return _solve_from_arrays(
+        world_pts, uv_gt, names,
+        image_size=image_size,
+        max_reproj_px=max_reproj_px,
+        min_landmarks=min_landmarks,
+        bundle_adjustment=bundle_adjustment,
+        refine_intrinsics=refine_intrinsics,
+        initial_intrinsics=initial_intrinsics,
+    )
+
+
+def solve_pnp_from_correspondences(
+    correspondences,
+    *,
+    image_size: tuple[int, int],
+    max_reproj_px: float = 5.0,
+    min_landmarks: int = 6,
+    bundle_adjustment: bool = True,
+    refine_intrinsics: bool = True,
+    initial_intrinsics=None,
+) -> CalibrationResult:
+    """Solve K, R, t from in-memory ``[(landmark_name, (u, v)), ...]`` pairs.
+
+    Same solver as :func:`solve_pnp_from_annotations`, without the JSON file —
+    used by automatic per-frame registration. Maps names to world points via
+    ``NFL_LANDMARKS``; raises :class:`CalibrationError` on unknown names, too few
+    points, or RMS above ``max_reproj_px``.
+    """
+    world_pts: list[np.ndarray] = []
+    uv_pts: list[np.ndarray] = []
+    names: list[str] = []
+    for name, uv in correspondences:
+        if name not in NFL_LANDMARKS:
+            raise CalibrationError(f"unknown landmark {name!r} in correspondences.")
+        world_pts.append(NFL_LANDMARKS[name])
+        uv_pts.append(np.asarray(uv, dtype=np.float64))
+        names.append(name)
+    world = np.stack(world_pts, axis=0).astype(np.float64) if world_pts else np.zeros((0, 3))
+    uv = np.stack(uv_pts, axis=0).astype(np.float64) if uv_pts else np.zeros((0, 2))
+    return _solve_from_arrays(
+        world, uv, names, image_size=image_size, max_reproj_px=max_reproj_px,
+        min_landmarks=min_landmarks, bundle_adjustment=bundle_adjustment,
+        refine_intrinsics=refine_intrinsics, initial_intrinsics=initial_intrinsics,
     )
 
 
