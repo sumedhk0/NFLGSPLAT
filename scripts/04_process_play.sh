@@ -40,9 +40,9 @@ python -m nfl_gsplat.tracking.detect_track   --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
 # Runs after detect_track (player masks) but before field/re-ID (which read cameras.npz).
-echo "=== [2/9] per-frame camera calibration → cameras.npz  (env: nfl_smplx) ==="
+echo "=== [2/9] automatic per-frame field calibration → cameras.npz  (env: nfl_smplx) ==="
 conda activate nfl_smplx
-python scripts/02b_track_calibration.py --play-dir "$PLAY_DIR" $CFG
+python scripts/02_autocalibrate.py --play-dir "$PLAY_DIR" $CFG
 conda deactivate
 
 echo "=== [3/9] static-field reconstruction → field.ply  (env: nfl_gsplat) ==="
