@@ -68,7 +68,7 @@ def _assign_from_numbers(lines_sorted, numbers) -> dict[int, tuple[str, int]]:
         elif v > 50:
             folded = 100 - v
             if folded == 50 or folded in range(5, 50, 5):
-                out[i] = ("home", folded)
+                out[i] = ("away" if inc < 0 else "home", folded)
     return out
 
 
@@ -100,10 +100,14 @@ def identify_correspondences(
             pt = _seg_intersection(seg, sl)
             if pt is None:
                 continue
+            # Assumes the standard broadcast camera side (image-top = world +Y = 'left').
+            # For a camera on the opposite sideline this is mirrored; resolved/validated at bring-up.
             lr = "left" if pt[1] < feats.image_size[1] / 2 else "right"
             corrs.append((landmark_name(side, yd, lr, "sideline"), pt))
         for hx, hy in feats.hashes:
             if abs(hx - _line_x(seg)) < 25.0:
+                # Assumes the standard broadcast camera side (image-top = world +Y = 'left').
+                # For a camera on the opposite sideline this is mirrored; resolved/validated at bring-up.
                 lr = "left" if hy < feats.image_size[1] / 2 else "right"
                 corrs.append((landmark_name(side, yd, lr, "hash"), (float(hx), float(hy))))
 

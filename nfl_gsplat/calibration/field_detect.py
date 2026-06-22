@@ -67,7 +67,8 @@ def _merge_collinear(segs: list[YardLineSeg], x_tol: float = 18.0) -> list[YardL
 
 
 def _detect_sidelines(img_bgr, cfg):
-    """Near-horizontal long white lines = sidelines. Real-footage seam."""
+    """Detect sidelines via HoughLinesP: near-horizontal long white lines spanning
+    at least 40 % of the image width. Thresholds are tuned against real footage."""
     mask = _white_mask(img_bgr, cfg)
     segs = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=120,
                            minLineLength=int(0.4 * img_bgr.shape[1]),

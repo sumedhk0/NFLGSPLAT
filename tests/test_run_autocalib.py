@@ -30,3 +30,13 @@ def test_assemble_fails_loud_on_long_gap():
     results = [_res(2600, 20.0), None, None, None, _res(2604, 22.0)]
     with pytest.raises(CalibrationError, match="frames 1-3"):
         assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
+
+
+def test_assemble_smooths_jitter():
+    rng = np.random.default_rng(0)
+    res = [_res(2600 + rng.normal(0, 30), 20 + rng.normal(0, 0.5)) for _ in range(20)]
+    tr = assemble_track_from_results(res, width=1920, height=1080, max_gap=2)
+    fx = tr.K[:, 0, 0]
+    # Smoothed focal length should vary less frame-to-frame than the raw injected jitter (~30 std).
+    assert np.mean(np.abs(np.diff(fx))) < 30.0
+    assert np.isfinite(tr.K).all()

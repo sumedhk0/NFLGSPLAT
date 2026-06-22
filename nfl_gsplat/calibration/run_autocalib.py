@@ -33,8 +33,12 @@ def _longest_gap_range(valid: np.ndarray) -> tuple[int, int, int]:
 def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> CameraTrack:
     """Stack per-frame CalibrationResults (None = gap) into a CameraTrack.
 
-    Short gaps (<= max_gap consecutive) are linearly interpolated; a longer gap
-    raises CalibrationError naming the range (fail loud)."""
+    Interior short gaps (<= max_gap consecutive) are linearly interpolated.
+    Boundary gaps (leading/trailing None runs) are clamp-extrapolated from the
+    nearest valid frame via np.interp, flagged by ``conf=0``.
+    A longer interior gap raises CalibrationError naming the range (fail loud).
+    After interpolation, K/R/t are smoothed with a 1€ filter to reduce
+    frame-to-frame jitter; R is then re-orthonormalized via SVD."""
     T = len(results)
     valid = np.array([r is not None for r in results])
     if not valid.any():
@@ -58,6 +62,11 @@ def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> 
             flat[:, c] = np.interp(idx, vi, flat[vi, c])
         return flat.reshape(stack.shape)
     K, R, t = _interp(K), _interp(R), _interp(t)
+    from nfl_gsplat.pose.temporal_smooth import OneEuroConfig, smooth_param_sequence
+    sm = OneEuroConfig()
+    K = smooth_param_sequence(K.reshape(T, 9), sm).reshape(T, 3, 3)
+    R = smooth_param_sequence(R.reshape(T, 9), sm).reshape(T, 3, 3)
+    t = smooth_param_sequence(t, sm)
     for i in range(T):
         U, _, Vt = np.linalg.svd(R[i]); R[i] = U @ Vt
     return CameraTrack(K=K, R=R, t=t, conf=conf, width=width, height=height)

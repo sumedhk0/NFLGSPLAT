@@ -4,7 +4,7 @@ Calibration is per-frame (cameras pan/tilt/zoom during a play). A
 :class:`CameraTrack` holds per-frame K/R/t for one camera; ``cameras.npz`` packs
 all cameras of a play. ``.at(frame)`` returns the (CameraIntrinsics, CameraPose)
 for a given frame (clamped to range, since the two synced clips may differ by a
-frame). Produced by scripts/02b_track_calibration.py; consumed by every 3D stage.
+frame). Produced by scripts/02_autocalibrate.py (or the manual 02b fallback); consumed by every 3D stage.
 """
 from __future__ import annotations
 
