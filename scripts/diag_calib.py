@@ -61,18 +61,36 @@ def main(
 
     if not ocr:
         return
-    print("=== raw PaddleOCR (text, conf, center) ===")
+    H0, W0 = img.shape[:2]
+
+    def _unrotate(cx, cy, rot):
+        """Map a center in the rotated image back to original (x, y)."""
+        if rot == 0:
+            return cx, cy
+        if rot == 90:    # cv2.ROTATE_90_CLOCKWISE: orig(x,y)->rot(H-1-y, x)
+            return cy, (H0 - 1 - cx)
+        # rot == -90 (COUNTERCLOCKWISE): orig(x,y)->rot(y, W-1-x)
+        return (W0 - 1 - cy), cx
+
     try:
         from paddleocr import PaddleOCR
         engine = PaddleOCR(use_angle_cls=False, lang="en", show_log=False, use_gpu=False)
-        res = engine.ocr(img, cls=False)
-        rows = res[0] if res else None
-        if not rows:
-            print("  (no text detected)")
-        for box, (text, conf) in rows or []:
-            cx = int(np.mean([p[0] for p in box]))
-            cy = int(np.mean([p[1] for p in box]))
-            print(f"  '{text}'  conf={conf:.2f}  at ({cx},{cy})")
+        rotmap = {0: None, 90: cv2.ROTATE_90_CLOCKWISE, -90: cv2.ROTATE_90_COUNTERCLOCKWISE}
+        for rot, code in rotmap.items():
+            rimg = img if code is None else cv2.rotate(img, code)
+            res = engine.ocr(rimg, cls=False)
+            rows = res[0] if res else None
+            print(f"=== OCR rot={rot}deg (text, conf, orig-center) ===")
+            if not rows:
+                print("  (no text detected)")
+                continue
+            for box, (text, conf) in rows:
+                rcx = int(np.mean([p[0] for p in box]))
+                rcy = int(np.mean([p[1] for p in box]))
+                ox, oy = _unrotate(rcx, rcy, rot)
+                digits = "".join(ch for ch in text if ch.isdigit())
+                flag = "  <-- NUMERIC" if digits and len(digits) <= 2 else ""
+                print(f"  '{text}'  conf={conf:.2f}  orig=({ox},{oy}){flag}")
     except Exception as e:  # noqa: BLE001 - diagnostic; surface any OCR setup issue
         print(f"  OCR failed: {type(e).__name__}: {e}")
         print("  (run on the login node first so PaddleOCR caches its models, then retry)")
