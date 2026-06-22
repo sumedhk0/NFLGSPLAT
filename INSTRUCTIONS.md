@@ -87,9 +87,24 @@
   Expect 158 passing in ~10 s. If this fails, stop — nothing downstream will work.
 
   ---
-  Part 2 — Calibration (per-frame, two-step; per play)
+  Part 2 — Calibration (automatic, per-frame; per play)
 
-  Calibration is now per-frame: the pipeline tracks the field homography across every frame and writes cameras.npz with per-frame camera matrices. This handles All-22 cameras that pan/tilt/zoom during the play.
+  Calibration is automatic and per-frame: the pipeline detects and identifies field markings in each frame, solves the camera per frame, and writes cameras.npz with per-frame camera matrices. This handles All-22 cameras that pan/tilt/zoom during the play. No display, no annotation, no keyframes.
+
+  Automatic calibration (default; headless, any node)
+
+  conda activate nfl_smplx
+  python scripts/02_autocalibrate.py --play-dir data/2024/week_01/NO_at_ATL/play_001
+
+  Detects and identifies field markings (yard-line intersections, hash marks, painted numbers, sidelines, goalpost bases) each frame and solves the camera per frame, writing cameras.npz. Fails loudly if a long run of consecutive frames cannot be registered.
+
+  This step runs automatically as [2/9] inside scripts/04_process_play.sh (after player detect+track, before field reconstruction). On a cluster, no pre-step is required — just submit 04_process_play.sh.
+
+  Bring-up caveat: the painted-number OCR and hash-line detection seams are finalized against real footage. Until those seams are exercised on actual clips, automatic registration may not solve on every play — use the manual fallback below in that case.
+
+  Manual fallback (if automatic registration fails loud on a clip)
+
+  The original interactive two-step path is kept as a fallback:
 
   Step 1 — annotate keyframe anchors (needs a display: PACE OnDemand Interactive Desktop, laptop, or X-forwarding)
 
@@ -98,20 +113,14 @@
       --play-dir data/2024/week_01/NO_at_ATL/play_001 \
       --keyframe 0 --keyframe <mid> --keyframe <last>
 
-  For each keyframe and each camera, click NFL field landmarks (yard-line intersections, sideline/hash marks, pylons, goalpost bases). Press s to save, q to quit. Targets < 1 px reprojection RMS; rejects above 5 px.
-
-  Add more keyframes wherever the camera pans, tilts, or zooms most during the play. Annotations land in {cam}_keyframes.json inside the play folder (one file per camera).
+  For each keyframe and each camera, click NFL field landmarks (yard-line intersections, sideline/hash marks, pylons, goalpost bases). Press s to save, q to quit. Targets < 1 px reprojection RMS; rejects above 5 px. Annotations land in {cam}_keyframes.json inside the play folder.
 
   Step 2 — batch homography tracking (headless; any node)
 
   conda activate nfl_smplx
   python scripts/02b_track_calibration.py --play-dir data/2024/week_01/NO_at_ATL/play_001
 
-  Reads {cam}_keyframes.json and tracks the field homography across every frame, writing cameras.npz. Fails loudly if keyframe JSON files are missing — run step 1 first.
-
-  If 02b reports it cannot cover a frame range, add a keyframe anchor in that range (step 1) and re-run step 2.
-
-  After step 2 completes, the rest of the pipeline is fully non-interactive. On a headless cluster, run step 1 locally (or via OnDemand), then scp the play folder's {cam}_keyframes.json up and run step 2 on the cluster before submitting 04_process_play.sh.
+  Reads {cam}_keyframes.json and tracks the field homography across every frame, writing cameras.npz. Fails loudly if keyframe JSON files are missing — run step 1 first. If 02b reports it cannot cover a frame range, add a keyframe anchor in that range and re-run step 2.
 
   ---
   Part 3a — Run a single play on one GPU box
