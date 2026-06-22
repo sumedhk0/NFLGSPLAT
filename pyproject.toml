@@ -9,7 +9,10 @@ description = "NFL broadcast -> free-viewpoint Gaussian Splatting pipeline"
 requires-python = ">=3.10"
 readme = "README.md"
 dependencies = [
-    "numpy>=1.24",
+    # <2: paddleocr/paddle + the pinned torch/mmcv stack use np.sctypes etc.,
+    # removed in NumPy 2.0. The conda envs pin numpy=1.26.4; keep the editable
+    # install from upgrading past it.
+    "numpy>=1.24,<2",
     "scipy>=1.10",
     "omegaconf>=2.3",
     "typer>=0.12",
