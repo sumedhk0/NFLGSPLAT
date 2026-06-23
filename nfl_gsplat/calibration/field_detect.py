@@ -27,7 +27,6 @@ class FieldDetectConfig:
     hash_min_area: int = 8
     hash_max_area: int = 400
     hash_max_h_px: int = 22
-    hash_row_gap_px: int = 40
 
 
 def _white_mask(img_bgr: np.ndarray, cfg: FieldDetectConfig) -> np.ndarray:

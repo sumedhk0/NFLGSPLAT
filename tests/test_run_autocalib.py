@@ -42,6 +42,33 @@ def test_assemble_smooths_jitter():
     assert np.isfinite(tr.K).all()
 
 
+def test_sweep_tolerates_none_frames(monkeypatch):
+    from nfl_gsplat.calibration import run_autocalib as ra
+    from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
+    from nfl_gsplat.calibration.field_identify import identify_correspondences
+    from nfl_gsplat.utils.meta import CalibHint
+
+    def feats_for(i):
+        base = 400 + 5 * i
+        xs = [base, base + 400, base + 800]
+        return DetectedFeatures(
+            yard_lines=[YardLineSeg((float(x), 0.0), (float(x), 1080.0)) for x in xs],
+            sidelines=[YardLineSeg((0, 100), (1920, 110)), YardLineSeg((0, 980), (1920, 990))],
+            hashes=[(float(x), 540.0) for x in xs], numbers=[], image_size=(1920, 1080))
+
+    def fake_register(feats, prior, image_size, **kw):
+        corrs, state = identify_correspondences(feats, prior)
+        return (object() if corrs else None), state
+    monkeypatch.setattr(ra, "register_frame", fake_register)
+
+    frames = [feats_for(0), None, feats_for(2), feats_for(3), None]
+    hint = CalibHint(ref_frame=2, ref_x=410.0, yard=30, side="away", increasing="right")
+    results = ra._register_sequence(frames, hint, (1920, 1080))
+    assert len(results) == 5
+    assert results[1] is None and results[4] is None         # None frames -> gaps, no crash
+    assert results[2] is not None                            # ref frame registered
+
+
 def test_sweep_seeds_and_propagates(monkeypatch):
     from nfl_gsplat.calibration import run_autocalib as ra
     from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg

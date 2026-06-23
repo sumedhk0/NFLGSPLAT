@@ -1,6 +1,6 @@
 """Per-frame registration over a clip → smoothed CameraTrack → cameras.npz.
 
-Detect+register each frame (env-gated seam: video read + cv2/OCR), then smooth
+Detect+register each frame (env-gated seam: video read + cv2 line/hash detection), then smooth
 the per-frame (K,R,t) and interpolate short gaps; fail loud on a long gap.
 """
 from __future__ import annotations
@@ -86,6 +86,10 @@ def _register_sequence(feats_by_frame, hint, image_size):
     if T == 0:
         return results
     ref = max(0, min(int(hint.ref_frame), T - 1))
+    if feats_by_frame[ref] is None:
+        raise CalibrationError(
+            f"ref_frame {ref} has no detected features (frame unreadable or out of range)."
+        )
     seed = seed_state_from_hint(feats_by_frame[ref], hint)
 
     res, state_ref = register_frame(feats_by_frame[ref], seed, image_size)
@@ -94,12 +98,18 @@ def _register_sequence(feats_by_frame, hint, image_size):
 
     prior = base
     for f in range(ref + 1, T):                      # forward
+        if feats_by_frame[f] is None:
+            results[f] = None
+            continue
         res, st = register_frame(feats_by_frame[f], prior, image_size)
         results[f] = res
         if st.line_yardage:
             prior = st
     prior = base
     for f in range(ref - 1, -1, -1):                 # backward
+        if feats_by_frame[f] is None:
+            results[f] = None
+            continue
         res, st = register_frame(feats_by_frame[f], prior, image_size)
         results[f] = res
         if st.line_yardage:

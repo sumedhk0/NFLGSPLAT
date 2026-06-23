@@ -80,3 +80,16 @@ def test_calib_hint_bad_side_raises(tmp_path):
     )
     with pytest.raises(SetupError, match="side"):
         load_meta(p)
+
+
+def test_calib_hint_bad_increasing_raises(tmp_path):
+    import pytest
+    from nfl_gsplat.errors import SetupError
+    from nfl_gsplat.utils.meta import load_meta
+    p = tmp_path / "meta.yaml"
+    p.write_text(
+        'season: 2025\nweek: 4\nhome_team: AZ\naway_team: "SEA"\nfps: 30\n'
+        "calib_hints:\n  sideline: {ref_frame: 0, ref_x: 5, yard: 30, side: away, increasing: diagonal}\n"
+    )
+    with pytest.raises(SetupError, match="increasing"):
+        load_meta(p)
