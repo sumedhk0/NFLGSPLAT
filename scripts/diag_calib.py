@@ -61,36 +61,34 @@ def main(
 
     if not ocr:
         return
-    H0, W0 = img.shape[:2]
-
-    def _unrotate(cx, cy, rot):
-        """Map a center in the rotated image back to original (x, y)."""
-        if rot == 0:
-            return cx, cy
-        if rot == 90:    # cv2.ROTATE_90_CLOCKWISE: orig(x,y)->rot(H-1-y, x)
-            return cy, (H0 - 1 - cx)
-        # rot == -90 (COUNTERCLOCKWISE): orig(x,y)->rot(y, W-1-x)
-        return (W0 - 1 - cy), cx
+    H0 = img.shape[0]
 
     try:
         from paddleocr import PaddleOCR
         engine = PaddleOCR(use_angle_cls=False, lang="en", show_log=False, use_gpu=False)
         rotmap = {0: None, 90: cv2.ROTATE_90_CLOCKWISE, -90: cv2.ROTATE_90_COUNTERCLOCKWISE}
-        for rot, code in rotmap.items():
-            rimg = img if code is None else cv2.rotate(img, code)
-            res = engine.ocr(rimg, cls=False)
-            rows = res[0] if res else None
-            print(f"=== OCR rot={rot}deg (text, conf, orig-center) ===")
-            if not rows:
-                print("  (no text detected)")
-                continue
-            for box, (text, conf) in rows:
-                rcx = int(np.mean([p[0] for p in box]))
-                rcy = int(np.mean([p[1] for p in box]))
-                ox, oy = _unrotate(rcx, rcy, rot)
-                digits = "".join(ch for ch in text if ch.isdigit())
-                flag = "  <-- NUMERIC" if digits and len(digits) <= 2 else ""
-                print(f"  '{text}'  conf={conf:.2f}  orig=({ox},{oy}){flag}")
+        # OCR smaller regions so the numbers are large relative to the crop.
+        bands = {
+            "TOP": img[0:int(0.45 * H0), :],
+            "BOTTOM": img[int(0.55 * H0):H0, :],
+        }
+        any_numeric = False
+        for bname, band in bands.items():
+            for rot, code in rotmap.items():
+                rimg = band if code is None else cv2.rotate(band, code)
+                res = engine.ocr(rimg, cls=False)
+                rows = res[0] if res else None
+                for box, (text, conf) in (rows or []):
+                    digits = "".join(ch for ch in text if ch.isdigit())
+                    if digits and len(digits) <= 2 and conf > 0.4:
+                        any_numeric = True
+                        rcx = int(np.mean([p[0] for p in box]))
+                        rcy = int(np.mean([p[1] for p in box]))
+                        print(f"  NUMERIC '{text}' conf={conf:.2f}  band={bname} rot={rot} "
+                              f"at-crop=({rcx},{rcy})")
+        if not any_numeric:
+            print("  (no numeric reads from band crops either — try a frame with a "
+                  "bigger/clearer painted number, or numbers need a tighter crop)")
     except Exception as e:  # noqa: BLE001 - diagnostic; surface any OCR setup issue
         print(f"  OCR failed: {type(e).__name__}: {e}")
         print("  (run on the login node first so PaddleOCR caches its models, then retry)")
