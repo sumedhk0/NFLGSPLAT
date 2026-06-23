@@ -17,12 +17,21 @@ Schema::
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from omegaconf import OmegaConf
 
 from nfl_gsplat.errors import SetupError
+
+
+@dataclass(frozen=True)
+class CalibHint:
+    ref_frame: int
+    ref_x: float
+    yard: int
+    side: str          # home | away | mid
+    increasing: str    # left | right (image direction yards increase)
 
 
 @dataclass(frozen=True)
@@ -33,6 +42,7 @@ class PlayMeta:
     away_team: str
     fps: float
     gsis_play_id: str | None = None
+    calib_hints: dict[str, CalibHint] = field(default_factory=dict)
 
     @property
     def game_teams(self) -> tuple[str, str]:
@@ -62,6 +72,24 @@ def load_meta(path) -> PlayMeta:
                 f'(e.g. {key}: "NO") so YAML keeps it a string.'
             )
     gsis = raw.get("gsis_play_id")
+    hints: dict[str, CalibHint] = {}
+    raw_hints = raw.get("calib_hints") or {}
+    for cam, h in raw_hints.items():
+        side = str(h["side"])
+        inc = str(h["increasing"])
+        yard = int(h["yard"])
+        if side not in ("home", "away", "mid"):
+            raise SetupError(f"{path}: calib_hints.{cam}.side must be home/away/mid, got {side!r}.")
+        if inc not in ("left", "right"):
+            raise SetupError(f"{path}: calib_hints.{cam}.increasing must be left/right, got {inc!r}.")
+        if side == "mid":
+            yard = 50
+        elif yard < 5 or yard > 45 or yard % 5 != 0:
+            raise SetupError(f"{path}: calib_hints.{cam}.yard {yard} invalid (5..45 step 5, or mid=50).")
+        hints[str(cam)] = CalibHint(
+            ref_frame=int(h["ref_frame"]), ref_x=float(h["ref_x"]),
+            yard=yard, side=side, increasing=inc,
+        )
     return PlayMeta(
         season=str(raw["season"]),
         week=int(raw["week"]),
@@ -69,4 +97,5 @@ def load_meta(path) -> PlayMeta:
         away_team=str(raw["away_team"]),
         fps=float(raw.get("fps", 30.0)),
         gsis_play_id=str(gsis) if gsis is not None else None,
+        calib_hints=hints,
     )

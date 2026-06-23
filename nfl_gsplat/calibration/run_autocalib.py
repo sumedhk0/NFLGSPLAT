@@ -1,6 +1,6 @@
 """Per-frame registration over a clip → smoothed CameraTrack → cameras.npz.
 
-Detect+register each frame (env-gated seam: video read + cv2/OCR), then smooth
+Detect+register each frame (env-gated seam: video read + cv2 line/hash detection), then smooth
 the per-frame (K,R,t) and interpolate short gaps; fail loud on a long gap.
 """
 from __future__ import annotations
@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 
 from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
+from nfl_gsplat.calibration.field_identify import seed_state_from_hint
+from nfl_gsplat.calibration.register_frame import register_frame
 from nfl_gsplat.errors import CalibrationError
 
 
@@ -72,23 +74,70 @@ def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> 
     return CameraTrack(K=K, R=R, t=t, conf=conf, width=width, height=height)
 
 
-def build_autocalib_npz(*, play_dir, videos: dict, fps: float, cfg=None) -> Path:
-    """Detect+register every frame of each camera → cameras.npz (env-gated)."""
+def _register_sequence(feats_by_frame, hint, image_size):
+    """Seed identity at hint.ref_frame, propagate forward and backward, register
+    each frame. Returns [CalibrationResult|None] aligned to feats_by_frame.
+
+    register_frame returns (result, IdentityState); the returned state (labels for
+    this frame's lines) becomes the next prior, so labels ride along through pans —
+    even across frames whose PnP failed (result None but state still propagated)."""
+    T = len(feats_by_frame)
+    results = [None] * T
+    if T == 0:
+        return results
+    ref = max(0, min(int(hint.ref_frame), T - 1))
+    if feats_by_frame[ref] is None:
+        raise CalibrationError(
+            f"ref_frame {ref} has no detected features (frame unreadable or out of range)."
+        )
+    seed = seed_state_from_hint(feats_by_frame[ref], hint)
+
+    res, state_ref = register_frame(feats_by_frame[ref], seed, image_size)
+    results[ref] = res
+    base = state_ref if state_ref.line_yardage else seed
+
+    prior = base
+    for f in range(ref + 1, T):                      # forward
+        if feats_by_frame[f] is None:
+            results[f] = None
+            continue
+        res, st = register_frame(feats_by_frame[f], prior, image_size)
+        results[f] = res
+        if st.line_yardage:
+            prior = st
+    prior = base
+    for f in range(ref - 1, -1, -1):                 # backward
+        if feats_by_frame[f] is None:
+            results[f] = None
+            continue
+        res, st = register_frame(feats_by_frame[f], prior, image_size)
+        results[f] = res
+        if st.line_yardage:
+            prior = st
+    return results
+
+
+def build_autocalib_npz(*, play_dir, videos, fps, hints, cfg=None, masks_provider=None):
+    """Detect+register every frame of each camera using its CalibHint → cameras.npz."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig, detect_field_features
-    from nfl_gsplat.calibration.register_frame import register_frame
+    from nfl_gsplat.errors import SetupError
     from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
 
     cfg = cfg or FieldDetectConfig()
-    tracks: dict[str, CameraTrack] = {}
+    tracks = {}
     for cam, video in videos.items():
+        if cam not in hints:
+            raise SetupError(
+                f"no calib_hints for camera {cam!r} in meta.yaml — add a one-line "
+                "yardage hint (ref_frame/ref_x/yard/side/increasing). See SETUP.md §3."
+            )
         meta = ffprobe_meta(video)
-        prior = None
-        results: list = [None] * meta.num_frames
+        boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
+        feats_by_frame = [None] * meta.num_frames
         for fidx, frame in iter_frames(video, start_frame=0):
-            feats = detect_field_features(frame, cfg=cfg)
-            res, prior = register_frame(feats, prior, (meta.width, meta.height))
             if 0 <= fidx < meta.num_frames:
-                results[fidx] = res
-        tracks[cam] = assemble_track_from_results(
-            results, width=meta.width, height=meta.height)
+                feats_by_frame[fidx] = detect_field_features(
+                    frame, cfg=cfg, player_boxes=boxes_for(fidx))
+        results = _register_sequence(feats_by_frame, hints[cam], (meta.width, meta.height))
+        tracks[cam] = assemble_track_from_results(results, width=meta.width, height=meta.height)
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)

@@ -29,7 +29,10 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
     pd = PlayDir.from_dir(play_dir)
     meta = load_meta(pd.meta_yaml)
     videos = {cam: pd.video(cam) for cam in pd.cameras}
-    out = build_autocalib_npz(play_dir=pd.dir, videos=videos, fps=meta.fps)
+    # TODO(bring-up): wire tracks.parquet player boxes via masks_provider to de-clutter lines
+    out = build_autocalib_npz(
+        play_dir=pd.dir, videos=videos, fps=meta.fps, hints=meta.calib_hints,
+    )
     _LOG.info(f"wrote automatic per-frame calibration → {out}")
 
 

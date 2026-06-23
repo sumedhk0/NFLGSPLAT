@@ -1,10 +1,10 @@
-"""Detect field markings in a frame (cv2 lines/hashes + PaddleOCR numbers).
+"""Detect field markings in a frame (cv2 lines/hashes).
 
 `detect_lines` (white-line detection + orientation split) is validated on
-synthetic field images. `detect_field_features` adds hash + number detection,
-whose thresholds are tuned against real footage at bring-up; PaddleOCR is reused
-from the jersey-OCR path. The OCR/hash internals are the seam (monkeypatched in
-register/orchestration tests).
+synthetic field images. `detect_hashes` uses connected-component analysis to
+find hash ticks, masking out player bounding boxes first.
+`detect_field_features` is the top-level entry point for the calibration
+pipeline.
 """
 from __future__ import annotations
 
@@ -24,6 +24,9 @@ class FieldDetectConfig:
     min_line_len_frac: float = 0.25
     max_line_gap_px: int = 30
     vertical_deg: float = 35.0
+    hash_min_area: int = 8
+    hash_max_area: int = 400
+    hash_max_h_px: int = 22
 
 
 def _white_mask(img_bgr: np.ndarray, cfg: FieldDetectConfig) -> np.ndarray:
@@ -32,10 +35,23 @@ def _white_mask(img_bgr: np.ndarray, cfg: FieldDetectConfig) -> np.ndarray:
     return m
 
 
-def detect_lines(img_bgr: np.ndarray, cfg: FieldDetectConfig) -> list[YardLineSeg]:
+def _zero_boxes(mask: np.ndarray, player_boxes) -> np.ndarray:
+    if not player_boxes:
+        return mask
+    out = mask.copy()
+    for x1, y1, x2, y2 in player_boxes:
+        out[max(0, int(y1)):int(y2), max(0, int(x1)):int(x2)] = 0
+    return out
+
+
+def detect_lines(
+    img_bgr: np.ndarray,
+    cfg: FieldDetectConfig,
+    player_boxes=None,
+) -> list[YardLineSeg]:
     """Detect near-vertical painted yard-line segments via HoughLinesP."""
     H = img_bgr.shape[0]
-    mask = _white_mask(img_bgr, cfg)
+    mask = _zero_boxes(_white_mask(img_bgr, cfg), player_boxes)
     min_len = int(cfg.min_line_len_frac * H)
     segs = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=80,
                            minLineLength=min_len, maxLineGap=cfg.max_line_gap_px)
@@ -83,27 +99,28 @@ def _detect_sidelines(img_bgr, cfg):
     return out
 
 
-def _ocr_numbers(img_bgr, masks, cfg):
-    """OCR painted yard numbers. Real-footage seam — finalized at bring-up.
-    Returns []; replaced with rectify-region + PaddleOCR (reuse jersey_ocr engine)
-    against real frames."""
-    return []
+def detect_hashes(img_bgr, cfg, player_boxes=None):
+    """Hash ticks = small bright connected components (players masked out)."""
+    mask = _zero_boxes(_white_mask(img_bgr, cfg), player_boxes)
+    n, _lbl, stats, cents = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    pts = []
+    for i in range(1, n):
+        area = stats[i, cv2.CC_STAT_AREA]
+        h = stats[i, cv2.CC_STAT_HEIGHT]
+        w = stats[i, cv2.CC_STAT_WIDTH]
+        if (cfg.hash_min_area <= area <= cfg.hash_max_area and h <= cfg.hash_max_h_px
+                and w <= cfg.hash_max_h_px * 3):
+            pts.append((float(cents[i][0]), float(cents[i][1])))
+    return pts
 
 
-def _detect_hashes(img_bgr, cfg):
-    """Detect hash ticks. Real-footage seam — finalized at bring-up. Returns []."""
-    return []
-
-
-def detect_field_features(
-    img_bgr: np.ndarray, *, cfg: FieldDetectConfig = FieldDetectConfig(),
-    masks=None,
-) -> DetectedFeatures:
+def detect_field_features(img_bgr, *, cfg=None, player_boxes=None):
+    cfg = cfg or FieldDetectConfig()
     H, W = img_bgr.shape[:2]
     return DetectedFeatures(
-        yard_lines=detect_lines(img_bgr, cfg),
+        yard_lines=detect_lines(img_bgr, cfg, player_boxes),
         sidelines=_detect_sidelines(img_bgr, cfg),
-        hashes=_detect_hashes(img_bgr, cfg),
-        numbers=_ocr_numbers(img_bgr, masks, cfg),
+        hashes=detect_hashes(img_bgr, cfg, player_boxes),
+        numbers=[],
         image_size=(W, H),
     )

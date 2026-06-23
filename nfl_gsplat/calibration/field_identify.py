@@ -2,13 +2,10 @@
 
 Pure geometry. Strategy:
 1. Order detected yard lines left→right by their mean image x.
-2. If OCR numbers are present, snap each to the nearest yard line and seed that
-   line's yardage; propagate to neighbours using the constant index spacing
-   (adjacent detected lines are 5 yd apart). Direction (toward home vs away) is
-   resolved from the order of two seeded numbers; a single number defaults the
-   higher-x direction toward the 50 then home (documented; the bundle-adjusted
-   PnP + RMS gate reject a wrong guess, and two numbers remove the ambiguity).
-3. If no numbers this frame, reuse ``prior`` by matching current lines to the
+2. Seed identity from a ``CalibHint`` (ref_frame/ref_x/yard/side/increasing)
+   via ``seed_state_from_hint``; propagate to neighbours using the constant
+   index spacing (adjacent detected lines are 5 yd apart).
+3. In subsequent frames reuse ``prior`` by matching current lines to the
    previous lines by nearest image-x (lines move little frame-to-frame).
 4. For each yardage-identified line, intersect with detected sidelines/hash rows
    and emit ``(landmark_name, uv)`` correspondences.
@@ -16,8 +13,6 @@ Pure geometry. Strategy:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-import numpy as np
 
 from nfl_gsplat.calibration.field_features import DetectedFeatures, landmark_name
 
@@ -42,60 +37,69 @@ def _seg_intersection(a, b) -> tuple[float, float] | None:
     return (px, py)
 
 
-def _assign_from_numbers(lines_sorted, numbers) -> dict[int, tuple[str, int]]:
-    if not numbers:
-        return {}
-    line_xs = np.array([_line_x(s) for s in lines_sorted])
-    seeds: dict[int, int] = {}
-    for num in numbers:
-        idx = int(np.argmin(np.abs(line_xs - num.center[0])))
-        seeds[idx] = num.value
-    if len(seeds) >= 2:
-        items = sorted(seeds.items())
-        (i0, y0), (i1, y1) = items[0], items[-1]
-        inc = (y1 - y0) / max(i1 - i0, 1)
-    else:
-        inc = 5.0
-    i_seed, y_seed = next(iter(seeds.items()))
-    out: dict[int, tuple[str, int]] = {}
-    for i in range(len(lines_sorted)):
-        yd_signed = y_seed + inc * (i - i_seed)
-        v = int(round(yd_signed))
-        if v == 50:
-            out[i] = ("mid", 50)
-        elif 10 <= v <= 45:
-            out[i] = ("away", v) if inc > 0 else ("home", v)
-        elif v > 50:
-            folded = 100 - v
-            if folded == 50 or folded in range(5, 50, 5):
-                out[i] = ("away" if inc < 0 else "home", folded)
-    return out
+def _yard_step(side: str, yard: int, step: int) -> tuple[str, int]:
+    """Move ``step`` yard-LINES (x5 yd) from (side, yard) toward the home goal,
+    folding across midfield. ``step`` may be negative. Returns ("",0) if off-field.
+
+    Field position in yard-line units: away goal=0, away_5=1 .. away_45=9,
+    mid_50=10, home_45=11 .. home_5=19, home goal=20.
+    """
+    if side == "mid":
+        pos = 10
+    elif side == "away":
+        pos = yard // 5
+    else:  # home
+        pos = 20 - yard // 5
+    pos += step
+    if pos < 1 or pos > 19:
+        return ("", 0)
+    if pos == 10:
+        return ("mid", 50)
+    if pos < 10:
+        return ("away", pos * 5)
+    return ("home", (20 - pos) * 5)
+
+
+def seed_state_from_hint(feats, hint) -> IdentityState:
+    """Initial IdentityState for hint.ref_frame: snap ref_x to the nearest yard
+    line, label it (side, yard), label the rest by 5-yd index spacing. ``increasing``
+    = image direction yards grow: 'right' => +1 yard-line per +1 line index."""
+    lines = sorted(feats.yard_lines, key=_line_x)
+    if not lines:
+        return IdentityState()
+    xs = [_line_x(s) for s in lines]
+    seed_idx = min(range(len(xs)), key=lambda i: abs(xs[i] - hint.ref_x))
+    step_per_index = 1 if hint.increasing == "right" else -1
+    out: dict[float, tuple[str, int]] = {}
+    for i, s in enumerate(lines):
+        side, yard = _yard_step(hint.side, hint.yard, step_per_index * (i - seed_idx))
+        if side:
+            out[_line_x(s)] = (side, yard)
+    return IdentityState(line_yardage=out)
 
 
 def identify_correspondences(
     feats: DetectedFeatures, prior: IdentityState | None,
 ) -> tuple[list[tuple[str, tuple[float, float]]], IdentityState]:
+    """Propagate yard-line identity from ``prior`` to this frame's lines (nearest
+    image-x) and emit [(landmark_name, (u,v))] at hash/sideline intersections.
+    With no prior, returns ([], empty) — identity is seeded by a hint."""
+    import numpy as np
+
     lines = sorted(feats.yard_lines, key=_line_x)
-    if not lines:
+    if not lines or prior is None or not prior.line_yardage:
         return [], IdentityState()
-
-    idx_yardage = _assign_from_numbers(lines, feats.numbers)
-
-    if not idx_yardage and prior is not None and prior.line_yardage:
-        prior_xs = np.array(list(prior.line_yardage.keys()))
-        prior_vals = list(prior.line_yardage.values())
-        for i, seg in enumerate(lines):
-            j = int(np.argmin(np.abs(prior_xs - _line_x(seg))))
-            if abs(prior_xs[j] - _line_x(seg)) < 60.0:
-                idx_yardage[i] = prior_vals[j]
-
+    prior_xs = np.array(list(prior.line_yardage.keys()))
+    prior_vals = list(prior.line_yardage.values())
     corrs: list[tuple[str, tuple[float, float]]] = []
     state_map: dict[float, tuple[str, int]] = {}
-    for i, seg in enumerate(lines):
-        if i not in idx_yardage:
+    for seg in lines:
+        x = _line_x(seg)
+        j = int(np.argmin(np.abs(prior_xs - x)))
+        if abs(prior_xs[j] - x) > 60.0:
             continue
-        side, yd = idx_yardage[i]
-        state_map[_line_x(seg)] = (side, yd)
+        side, yd = prior_vals[j]
+        state_map[x] = (side, yd)
         for sl in feats.sidelines:
             pt = _seg_intersection(seg, sl)
             if pt is None:
@@ -105,14 +109,13 @@ def identify_correspondences(
             lr = "left" if pt[1] < feats.image_size[1] / 2 else "right"
             corrs.append((landmark_name(side, yd, lr, "sideline"), pt))
         for hx, hy in feats.hashes:
-            if abs(hx - _line_x(seg)) < 25.0:
+            if abs(hx - x) < 25.0:
                 # Assumes the standard broadcast camera side (image-top = world +Y = 'left').
                 # For a camera on the opposite sideline this is mirrored; resolved/validated at bring-up.
                 lr = "left" if hy < feats.image_size[1] / 2 else "right"
                 corrs.append((landmark_name(side, yd, lr, "hash"), (float(hx), float(hy))))
-
     seen: set[str] = set()
-    deduped: list[tuple[str, tuple[float, float]]] = []
+    deduped = []
     for name, uv in corrs:
         if name not in seen:
             seen.add(name)
