@@ -87,20 +87,48 @@
   Expect 158 passing in ~10 s. If this fails, stop — nothing downstream will work.
 
   ---
-  Part 2 — Calibration (automatic, per-frame; per play)
+  Part 2 — Calibration (automatic-with-hint, per-frame; per play)
 
-  Calibration is automatic and per-frame: the pipeline detects and identifies field markings in each frame, solves the camera per frame, and writes cameras.npz with per-frame camera matrices. This handles All-22 cameras that pan/tilt/zoom during the play. No display, no annotation, no keyframes.
+  Calibration is automatic and per-frame: the pipeline detects yard lines in each frame and solves the camera using a one-time hint from meta.yaml that identifies a single line. No display, no annotation, no keyframes.
 
-  Automatic calibration (default; headless, any node)
+  Step 1 — find a reference yard-line x-position (headless, any node)
 
-  conda activate nfl_smplx
+  conda activate nfl_gsplat
+  python scripts/diag_calib.py --play-dir data/2024/week_01/NO_at_ATL/play_001 \
+      --frame 0 --cam sideline --out-dir ~/scratch/diag
+
+  Open the saved PNG (diag_sideline_f00000.png) to see which line is which yard. The script prints detected line x-positions — pick the x of a yard line you can identify by eye.
+
+  Step 2 — add calib_hints to meta.yaml
+
+  Edit data/2024/week_01/NO_at_ATL/play_001/meta.yaml and add:
+
+  calib_hints:
+    sideline: {ref_frame: 0, ref_x: 866, yard: 30, side: away, increasing: right}
+    endzone:  {ref_frame: 0, ref_x: 540, yard: 35, side: home, increasing: left}
+
+  ref_x = the image-x of a yard line you can identify (from the diagnostic above).
+  yard / side = that line's absolute yard number and which end of the field (home/away).
+  increasing = which direction yard numbers grow in the image (left or right).
+  Repeat for each camera. A missing hint raises a SetupError naming the camera.
+
+  Note: number-OCR was replaced by the hint because painted numbers are not reliably
+  OCR-able on this footage. The YOLO player-mask wiring for line de-cluttering is
+  finalized at bring-up.
+
+  Step 3 — run automatic calibration (headless, any node)
+
+  conda activate nfl_gsplat
   python scripts/02_autocalibrate.py --play-dir data/2024/week_01/NO_at_ATL/play_001
 
-  Detects and identifies field markings (yard-line intersections, hash marks, painted numbers, sidelines, goalpost bases) each frame and solves the camera per frame, writing cameras.npz. Fails loudly if a long run of consecutive frames cannot be registered.
+  Detects yard lines each frame and solves the camera per frame, writing cameras.npz.
+  Fails loudly (naming a frame range) if a long run of consecutive frames cannot be
+  registered. If that happens: check that side / increasing match the actual camera view
+  and re-run.
 
-  This step runs automatically as [2/9] inside scripts/04_process_play.sh (after player detect+track, before field reconstruction). On a cluster, no pre-step is required — just submit 04_process_play.sh.
-
-  Bring-up caveat: the painted-number OCR and hash-line detection seams are finalized against real footage. Until those seams are exercised on actual clips, automatic registration may not solve on every play — use the manual fallback below in that case.
+  This step runs automatically as [2/9] inside scripts/04_process_play.sh (after player
+  detect+track, before field reconstruction). meta.yaml must have a valid calib_hints
+  block before you submit the DAG.
 
   Manual fallback (if automatic registration fails loud on a clip)
 
@@ -117,7 +145,7 @@
 
   Step 2 — batch homography tracking (headless; any node)
 
-  conda activate nfl_smplx
+  conda activate nfl_gsplat
   python scripts/02b_track_calibration.py --play-dir data/2024/week_01/NO_at_ATL/play_001
 
   Reads {cam}_keyframes.json and tracks the field homography across every frame, writing cameras.npz. Fails loudly if keyframe JSON files are missing — run step 1 first. If 02b reports it cannot cover a frame range, add a keyframe anchor in that range and re-run step 2.

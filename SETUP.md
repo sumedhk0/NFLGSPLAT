@@ -78,21 +78,44 @@ The pipeline checks for `data/body_models/smplx/SMPLX_NEUTRAL.npz` at startup. M
 
 ---
 
-## §3. Camera calibration (automatic, per-frame)
+## §3. Camera calibration (automatic-with-hint, per-frame)
 
-Calibration is **automatic and per-frame**: the pipeline detects and identifies field markings in each frame, solves the camera per frame, and writes `cameras.npz` containing per-frame camera matrices. This handles All-22 cameras that pan, tilt, and zoom during the play — no manual annotation, no keyframes, no display required.
+Calibration is **automatic and per-frame**: the pipeline detects yard lines in each frame and solves the camera using a one-time hint from `meta.yaml` that identifies a single line. No display, no annotation, no keyframes.
 
-### Automatic calibration (default; headless, runs on any node)
+### Step 1 — Find a reference yard-line x-position
+
+```bash
+python scripts/diag_calib.py --play-dir data/2024/week_01/NO_at_ATL/play_001 \
+    --frame 0 --cam sideline --out-dir ~/scratch/diag
+```
+
+Open the saved PNG (`diag_sideline_f00000.png`) to see which line is which yard. The script also prints the detected line x-positions — pick the x of a yard line you can identify by eye (e.g. a painted number or a distinctive gap between lines).
+
+### Step 2 — Add `calib_hints` to `meta.yaml`
+
+```yaml
+calib_hints:
+  sideline: {ref_frame: 0, ref_x: 866, yard: 30, side: away, increasing: right}
+  endzone:  {ref_frame: 0, ref_x: 540, yard: 35, side: home, increasing: left}
+```
+
+- `ref_x` — image-x of the yard line you identified (from the diagnostic above).
+- `yard` / `side` — the absolute yard number for that line and which side of the field (home/away end zone).
+- `increasing` — which direction yard numbers grow in the image (`left` or `right`).
+
+Repeat for each camera. A missing hint causes a `SetupError` naming the camera.
+
+### Step 3 — Run automatic calibration
 
 ```bash
 python scripts/02_autocalibrate.py --play-dir data/2024/week_01/NO_at_ATL/play_001
 ```
 
-Detects and identifies field markings (yard-line intersections, hash marks, painted numbers, sidelines, goalpost bases) each frame and solves the camera pose per frame. Writes `<play-dir>/cameras.npz`. **Fails loudly** if a long run of consecutive frames cannot be registered — this signals a scene condition (heavy occlusion, rapid camera motion) that needs investigation.
+Writes `<play-dir>/cameras.npz`. **Fails loudly** if a long run of consecutive frames cannot be registered — this usually means the hint is wrong. Flip `side` or `increasing` and re-run.
 
-`02_autocalibrate.py` runs automatically as **step [2/9]** in `scripts/04_process_play.sh` (after player detect+track, before field reconstruction), because every downstream stage — field homography (`build_transforms`), cross-cam re-ID, pose, and ball tracking — loads `cameras.npz`.
+`02_autocalibrate.py` runs automatically as **step [2/9]** in `scripts/04_process_play.sh` (after player detect+track, before field reconstruction), so `meta.yaml` must have a valid `calib_hints` block before you submit the DAG.
 
-**Bring-up caveat.** The painted-number OCR and hash-line detection seams are finalized against real footage. Until those seams are exercised on actual clips, automatic registration may not solve on every play. In that case, use the manual fallback below.
+> **Note:** number-OCR was replaced by the hint because painted numbers are not reliably OCR-able on this footage. The keyframe+tracking path (`02_calibrate_cameras.py` + `02b_track_calibration.py`) remains as a fallback. The YOLO player-mask wiring for line de-cluttering is finalized at bring-up.
 
 ### Manual fallback (if automatic registration fails loud on a clip)
 
