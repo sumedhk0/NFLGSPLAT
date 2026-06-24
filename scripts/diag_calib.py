@@ -47,6 +47,7 @@ def main(
     tag = f"{cam}_f{int(frame):05d}"
     frame_png = out_dir / f"diag_{tag}.png"
     mask_png = out_dir / f"diag_{tag}_mask.png"
+    annot_png = out_dir / f"diag_{tag}_lines.png"
     cv2.imwrite(str(frame_png), img)
     cv2.imwrite(str(mask_png), _white_mask(img, cfg))
 
@@ -56,7 +57,20 @@ def main(
     print(f"yard lines detected: {len(lines)}")
     print(f"line x-positions: {xs}")
     print("  (use one of these x-positions as ref_x in meta.yaml calib_hints)")
-    print(f"saved: {frame_png} , {mask_png}")
+
+    # Draw each detected line + its mean-x label onto the frame so you can read
+    # off which line sits under which painted yard number (→ ref_x).
+    annot = img.copy()
+    for seg in lines:
+        x0, y0 = int(seg.p0[0]), int(seg.p0[1])
+        x1, y1 = int(seg.p1[0]), int(seg.p1[1])
+        mx = round(0.5 * (seg.p0[0] + seg.p1[0]))
+        cv2.line(annot, (x0, y0), (x1, y1), (0, 0, 255), 2)
+        ty = max(20, min(y0, y1) + 24)
+        cv2.putText(annot, str(mx), (int(mx) - 18, ty),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
+    cv2.imwrite(str(annot_png), annot)
+    print(f"saved: {frame_png} , {mask_png} , {annot_png}")
 
 
 if __name__ == "__main__":
