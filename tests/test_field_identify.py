@@ -56,3 +56,20 @@ def test_identify_without_prior_returns_empty():
     feats = _feats([400])
     corrs, state = identify_correspondences(feats, None)
     assert corrs == [] and not state.line_yardage
+
+
+def test_line_x_at_vertical_is_constant():
+    from nfl_gsplat.calibration.field_identify import line_x_at
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    seg = YardLineSeg((500.0, 0.0), (500.0, 1080.0))
+    assert abs(line_x_at(seg, 0) - 500.0) < 1e-6
+    assert abs(line_x_at(seg, 540) - 500.0) < 1e-6
+
+
+def test_line_x_at_diagonal_interpolates():
+    from nfl_gsplat.calibration.field_identify import line_x_at
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    seg = YardLineSeg((400.0, 0.0), (600.0, 1000.0))
+    assert abs(line_x_at(seg, 0) - 400.0) < 1e-6
+    assert abs(line_x_at(seg, 500) - 500.0) < 1e-6
+    assert abs(line_x_at(seg, 1000) - 600.0) < 1e-6

@@ -26,6 +26,21 @@ def _line_x(seg) -> float:
     return 0.5 * (seg.p0[0] + seg.p1[0])
 
 
+def line_x_at(seg, y: float) -> float:
+    """Image-x of a (near-vertical) line segment at height ``y``.
+
+    Yard lines are near-vertical but slanted in broadcast views, so x varies
+    with y; their mean-x is unreliable for ordering/matching. Interpolates along
+    the segment's direction. Degenerates to the mean-x for a perfectly
+    horizontal segment (|dy| ~ 0), which shouldn't occur for yard lines."""
+    (x0, y0), (x1, y1) = seg.p0, seg.p1
+    dy = y1 - y0
+    if abs(dy) < 1e-6:
+        return 0.5 * (x0 + x1)
+    t = (float(y) - y0) / dy
+    return x0 + t * (x1 - x0)
+
+
 def _seg_intersection(a, b) -> tuple[float, float] | None:
     (x1, y1), (x2, y2) = a.p0, a.p1
     (x3, y3), (x4, y4) = b.p0, b.p1
