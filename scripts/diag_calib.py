@@ -76,6 +76,19 @@ def main(
     print(f"line x-positions: {xs}")
     print("  (use one of these x-positions as ref_x in meta.yaml calib_hints)")
 
+    # Draw each detected line + its mean-x label onto the frame so you can read
+    # off which line sits under which painted yard number (→ ref_x).
+    annot = img.copy()
+    for seg in lines:
+        x0, y0 = int(seg.p0[0]), int(seg.p0[1])
+        x1, y1 = int(seg.p1[0]), int(seg.p1[1])
+        mx = round(0.5 * (seg.p0[0] + seg.p1[0]))
+        cv2.line(annot, (x0, y0), (x1, y1), (0, 0, 255), 2)
+        ty = max(20, min(y0, y1) + 24)
+        cv2.putText(annot, str(mx), (int(mx) - 18, ty),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
+    cv2.imwrite(str(annot_png), annot)
+
     # Optional: single-frame hint -> PnP validation.
     if ref_x is not None and yard is not None:
         from nfl_gsplat.calibration.field_detect import detect_field_features
@@ -119,18 +132,6 @@ def main(
             except CalibrationError as e:
                 print(f"  PnP failed: {e}")
 
-    # Draw each detected line + its mean-x label onto the frame so you can read
-    # off which line sits under which painted yard number (→ ref_x).
-    annot = img.copy()
-    for seg in lines:
-        x0, y0 = int(seg.p0[0]), int(seg.p0[1])
-        x1, y1 = int(seg.p1[0]), int(seg.p1[1])
-        mx = round(0.5 * (seg.p0[0] + seg.p1[0]))
-        cv2.line(annot, (x0, y0), (x1, y1), (0, 0, 255), 2)
-        ty = max(20, min(y0, y1) + 24)
-        cv2.putText(annot, str(mx), (int(mx) - 18, ty),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2, cv2.LINE_AA)
-    cv2.imwrite(str(annot_png), annot)
     print(f"saved: {frame_png} , {mask_png} , {annot_png}")
 
 
