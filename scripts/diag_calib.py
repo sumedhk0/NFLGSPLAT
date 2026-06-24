@@ -94,6 +94,18 @@ def main(
         corrs, _ = identify_correspondences(feats, state)
         print(f"=== hint PnP (ref_x={ref_x} yard={yard} side={side} increasing={increasing}) ===")
         print(f"correspondences: {len(corrs)}  ", [c[0] for c in corrs])
+
+        # Visualize: all detected hashes (green) + matched correspondences (yellow + label).
+        corr_png = out_dir / f"diag_{tag}_corr.png"
+        vis = annot.copy()
+        for hx, hy in feats.hashes:
+            cv2.circle(vis, (int(hx), int(hy)), 3, (0, 255, 0), -1)
+        for name, (u, v) in corrs:
+            cv2.circle(vis, (int(u), int(v)), 7, (0, 255, 255), 2)
+            cv2.putText(vis, name.replace("away_", "a").replace("home_", "h").replace("_hash", "H"),
+                        (int(u) + 8, int(v)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+        cv2.imwrite(str(corr_png), vis)
+        print(f"  saved correspondence viz: {corr_png}")
         if len(corrs) < 6:
             print("  too few correspondences (<6) — need cleaner lines/hashes or a better hint")
         else:
