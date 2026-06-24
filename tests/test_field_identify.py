@@ -73,3 +73,16 @@ def test_line_x_at_diagonal_interpolates():
     assert abs(line_x_at(seg, 0) - 400.0) < 1e-6
     assert abs(line_x_at(seg, 500) - 500.0) < 1e-6
     assert abs(line_x_at(seg, 1000) - 600.0) < 1e-6
+
+
+def test_merge_lines_dedupes_same_diagonal_line():
+    from nfl_gsplat.calibration.field_identify import _merge_lines, line_x_at
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    a = YardLineSeg((500.0, 0.0), (520.0, 1080.0))      # x@540 ≈ 510
+    b = YardLineSeg((505.0, 200.0), (515.0, 760.0))     # x@540 ≈ 510
+    far = YardLineSeg((800.0, 0.0), (820.0, 1080.0))    # x@540 ≈ 810
+    merged = _merge_lines([a, b, far], tol=25.0, ref_y=540.0)
+    xs = sorted(round(line_x_at(s, 540.0)) for s in merged)
+    assert len(merged) == 2
+    assert any(abs(x - 510) < 6 for x in xs)
+    assert any(abs(x - 810) < 6 for x in xs)

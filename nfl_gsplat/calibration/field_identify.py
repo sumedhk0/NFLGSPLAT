@@ -41,6 +41,23 @@ def line_x_at(seg, y: float) -> float:
     return x0 + t * (x1 - x0)
 
 
+def _merge_lines(lines, tol: float, ref_y: float):
+    """Merge yard-line segments whose x at ``ref_y`` are within ``tol`` (the same
+    physical line detected as multiple segments). Returns lines sorted by x@ref_y,
+    one representative per cluster (the one spanning the largest y-range)."""
+    items = sorted(lines, key=lambda s: line_x_at(s, ref_y))
+    merged = []
+    for seg in items:
+        x = line_x_at(seg, ref_y)
+        if merged and abs(line_x_at(merged[-1], ref_y) - x) <= tol:
+            prev = merged[-1]
+            if abs(seg.p1[1] - seg.p0[1]) > abs(prev.p1[1] - prev.p0[1]):
+                merged[-1] = seg
+        else:
+            merged.append(seg)
+    return merged
+
+
 def _seg_intersection(a, b) -> tuple[float, float] | None:
     (x1, y1), (x2, y2) = a.p0, a.p1
     (x3, y3), (x4, y4) = b.p0, b.p1
@@ -76,20 +93,21 @@ def _yard_step(side: str, yard: int, step: int) -> tuple[str, int]:
 
 
 def seed_state_from_hint(feats, hint) -> IdentityState:
-    """Initial IdentityState for hint.ref_frame: snap ref_x to the nearest yard
-    line, label it (side, yard), label the rest by 5-yd index spacing. ``increasing``
-    = image direction yards grow: 'right' => +1 yard-line per +1 line index."""
-    lines = sorted(feats.yard_lines, key=_line_x)
+    """Initial IdentityState for hint.ref_frame: merge duplicate line detections,
+    snap ref_x (read at image mid-height) to the nearest yard line, and label the
+    rest by 5-yd index spacing. ``increasing`` = image direction yards grow."""
+    mid = feats.image_size[1] / 2.0
+    lines = _merge_lines(feats.yard_lines, tol=25.0, ref_y=mid)
     if not lines:
         return IdentityState()
-    xs = [_line_x(s) for s in lines]
+    xs = [line_x_at(s, mid) for s in lines]
     seed_idx = min(range(len(xs)), key=lambda i: abs(xs[i] - hint.ref_x))
     step_per_index = 1 if hint.increasing == "right" else -1
     out: dict[float, tuple[str, int]] = {}
     for i, s in enumerate(lines):
         side, yard = _yard_step(hint.side, hint.yard, step_per_index * (i - seed_idx))
         if side:
-            out[_line_x(s)] = (side, yard)
+            out[line_x_at(s, mid)] = (side, yard)
     return IdentityState(line_yardage=out)
 
 
