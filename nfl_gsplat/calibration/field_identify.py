@@ -111,6 +111,62 @@ def seed_state_from_hint(feats, hint) -> IdentityState:
     return IdentityState(line_yardage=out)
 
 
+def _ransac_line(pts, *, inlier_px: float, iters: int, rng):
+    """Best-fit line over 2D points by RANSAC. Returns (inlier_mask, (a, b)) for
+    y = a*x + b, or (None, None) if degenerate. Hash rows are near-horizontal so
+    y = a*x + b is well-conditioned."""
+    import numpy as np
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    best_mask, best_count = None, -1
+    for _ in range(iters):
+        i, j = rng.integers(0, n, size=2)
+        if i == j:
+            continue
+        x0, y0 = pts[i]; x1, y1 = pts[j]
+        if abs(x1 - x0) < 1e-6:
+            continue
+        a = (y1 - y0) / (x1 - x0)
+        b = y0 - a * x0
+        resid = np.abs(pts[:, 1] - (a * pts[:, 0] + b))
+        mask = resid <= inlier_px
+        if mask.sum() > best_count:
+            best_count, best_mask = int(mask.sum()), mask
+    if best_mask is None:
+        return None, None
+    xin, yin = pts[best_mask, 0], pts[best_mask, 1]
+    A = np.vstack([xin, np.ones_like(xin)]).T
+    a, b = np.linalg.lstsq(A, yin, rcond=None)[0]
+    return best_mask, (float(a), float(b))
+
+
+def fit_hash_rows(hashes, *, image_width: int, inlier_px: float = 6.0,
+                  min_inliers: int = 6, iters: int = 200):
+    """Fit up to two hash-ROW lines from raw tick points via RANSAC, returning
+    each as a width-spanning ``YardLineSeg``. Averages out the dense 1-yard ticks
+    and noise. Returns [] / [one] / [two] sorted by row height (upper first)."""
+    import numpy as np
+
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    pts = list(hashes)
+    if len(pts) < min_inliers:
+        return []
+    rng = np.random.default_rng(12345)
+    rows = []
+    remaining = np.asarray(pts, dtype=np.float64)
+    for _ in range(2):
+        if len(remaining) < min_inliers:
+            break
+        mask, line = _ransac_line(remaining, inlier_px=inlier_px, iters=iters, rng=rng)
+        if mask is None or int(mask.sum()) < min_inliers:
+            break
+        a, b = line
+        rows.append(YardLineSeg((0.0, b), (float(image_width), a * image_width + b)))
+        remaining = remaining[~mask]
+    rows.sort(key=lambda r: 0.5 * (r.p0[1] + r.p1[1]))
+    return rows
+
+
 def identify_correspondences(
     feats: DetectedFeatures, prior: IdentityState | None,
 ) -> tuple[list[tuple[str, tuple[float, float]]], IdentityState]:

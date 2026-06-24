@@ -86,3 +86,24 @@ def test_merge_lines_dedupes_same_diagonal_line():
     assert len(merged) == 2
     assert any(abs(x - 510) < 6 for x in xs)
     assert any(abs(x - 810) < 6 for x in xs)
+
+
+def test_fit_hash_rows_finds_two_rows():
+    import numpy as np
+    from nfl_gsplat.calibration.field_identify import fit_hash_rows
+    rng = np.random.default_rng(0)
+    pts = []
+    for x in range(200, 1400, 20):
+        pts.append((float(x), 360.0 + rng.normal(0, 1.0)))
+        pts.append((float(x), 620.0 + rng.normal(0, 1.0)))
+    pts += [(700.0, 150.0), (300.0, 900.0)]
+    rows = fit_hash_rows(pts, image_width=1920)
+    assert len(rows) == 2
+    ys = sorted(0.5 * (r.p0[1] + r.p1[1]) for r in rows)
+    assert abs(ys[0] - 360) < 10 and abs(ys[1] - 620) < 10
+    assert min(r.p0[0] for r in rows) <= 1 and max(r.p1[0] for r in rows) >= 1919
+
+
+def test_fit_hash_rows_too_few_returns_empty():
+    from nfl_gsplat.calibration.field_identify import fit_hash_rows
+    assert fit_hash_rows([(10.0, 20.0), (30.0, 40.0)], image_width=1920) == []
