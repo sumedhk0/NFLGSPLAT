@@ -1,7 +1,8 @@
 """Identify detected yard lines (assign absolute yardage) + emit correspondences.
 
 Pure geometry. Strategy:
-1. Order detected yard lines left→right by their mean image x.
+1. Order detected yard lines left→right by their x at image mid-height
+   (diagonal-safe; broadcast yard lines slant, so mean-x is unreliable).
 2. Seed identity from a ``CalibHint`` (ref_frame/ref_x/yard/side/increasing)
    via ``seed_state_from_hint``; propagate to neighbours using the constant
    index spacing (adjacent detected lines are 5 yd apart).
@@ -20,10 +21,6 @@ from nfl_gsplat.calibration.field_features import landmark_name
 @dataclass(frozen=True)
 class IdentityState:
     line_yardage: dict[float, tuple[str, int]] = field(default_factory=dict)
-
-
-def _line_x(seg) -> float:
-    return 0.5 * (seg.p0[0] + seg.p1[0])
 
 
 def line_x_at(seg, y: float) -> float:
@@ -180,7 +177,14 @@ def identify_correspondences(feats, prior):
     prior_xs = np.array(list(prior.line_yardage.keys()))
     prior_vals = list(prior.line_yardage.values())
 
+    # Only use hash rows when BOTH are fitted: a single row can't be disambiguated
+    # into left/right (world ±Y), so a lone row would be silently mislabeled. With
+    # < 2 rows we emit sideline correspondences only (the frame may then be a gap).
     rows = fit_hash_rows(feats.hashes, image_width=feats.image_size[0])
+    rows = rows if len(rows) == 2 else []
+    # Assumes the standard broadcast camera side (image-top = world +Y = 'left'):
+    # upper hash row → 'left', lower → 'right'. A camera on the opposite sideline
+    # is mirrored; resolved/validated by the reprojection-RMS gate at bring-up.
     row_lr = ["left", "right"]
 
     corrs: list[tuple[str, tuple[float, float]]] = []
@@ -193,7 +197,7 @@ def identify_correspondences(feats, prior):
             continue
         side, yd = prior_vals[j]
         state_map[x] = (side, yd)
-        for ri, row in enumerate(rows[:2]):
+        for ri, row in enumerate(rows):
             pt = _seg_intersection(seg, row)
             if pt is None or not (0 <= pt[0] <= W and 0 <= pt[1] <= H):
                 continue

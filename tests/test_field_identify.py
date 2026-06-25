@@ -122,6 +122,51 @@ def test_identify_emits_two_hash_correspondences_per_line():
     assert len([n for n in names if n.endswith("_hash")]) == 6
 
 
+def test_identify_propagates_identity_across_shifted_frame():
+    # Seed on frame 0, then run identify on a panned frame (lines shifted +10px);
+    # identity must carry over via the nearest-x(@mid) <60px match (the 30 line
+    # stays the 30 even though every line moved).
+    from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
+    from nfl_gsplat.calibration.field_identify import (
+        identify_correspondences, seed_state_from_hint,
+    )
+    from nfl_gsplat.utils.meta import CalibHint
+
+    def feats(shift):
+        xs = [400 + shift, 800 + shift, 1200 + shift]
+        hashes = []
+        for x in range(200, 1400, 20):
+            hashes += [(float(x + shift), 360.0), (float(x + shift), 620.0)]
+        return DetectedFeatures(
+            yard_lines=[YardLineSeg((float(x), 0.0), (float(x), 1080.0)) for x in xs],
+            sidelines=[], hashes=hashes, numbers=[], image_size=(1920, 1080))
+
+    hint = CalibHint(ref_frame=0, ref_x=800, yard=30, side="away", increasing="right")
+    state0 = seed_state_from_hint(feats(0), hint)
+    _, prior = identify_correspondences(feats(0), state0)
+    corrs, _ = identify_correspondences(feats(10), prior)        # panned +10px
+    names = {c[0] for c in corrs}
+    assert "away_30_left_hash" in names and "away_30_right_hash" in names
+
+
+def test_identify_skips_hashes_with_single_row():
+    # Only one hash band visible → can't disambiguate left/right → no hash corrs.
+    from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
+    from nfl_gsplat.calibration.field_identify import (
+        identify_correspondences, seed_state_from_hint,
+    )
+    from nfl_gsplat.utils.meta import CalibHint
+    xs = [400, 800, 1200]
+    hashes = [(float(x), 360.0) for x in range(200, 1400, 20)]   # one row only
+    feats = DetectedFeatures(
+        yard_lines=[YardLineSeg((float(x), 0.0), (float(x), 1080.0)) for x in xs],
+        sidelines=[], hashes=hashes, numbers=[], image_size=(1920, 1080))
+    hint = CalibHint(ref_frame=0, ref_x=800, yard=30, side="away", increasing="right")
+    state = seed_state_from_hint(feats, hint)
+    corrs, _ = identify_correspondences(feats, state)
+    assert not any(n.endswith("_hash") for n, _ in corrs)
+
+
 def test_identify_pnp_roundtrip_under_2px():
     import numpy as np
     from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
