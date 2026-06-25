@@ -111,6 +111,26 @@ def main(
         print(f"=== hint PnP (ref_x={ref_x} yard={yard} side={side} increasing={increasing}) ===")
         print(f"correspondences: {len(corrs)}  ", [c[0] for c in corrs])
 
+        # Planar-homography sanity check: separates "correspondences inconsistent
+        # (mislabeled)" from "PnP focal degenerate on near-affine view". A planar
+        # homography is well-posed regardless of perspective amount, so a LOW
+        # homography residual + exploding PnP focal ⇒ good points, focal problem;
+        # a HIGH homography residual ⇒ the correspondences themselves are wrong.
+        if len(corrs) >= 4:
+            import numpy as np
+
+            from nfl_gsplat.calibration.field_landmarks import NFL_LANDMARKS
+            world = np.array([NFL_LANDMARKS[n][:2] for n, _ in corrs], dtype=np.float64)
+            imgpts = np.array([uv for _, uv in corrs], dtype=np.float64)
+            Hm, inl = cv2.findHomography(world, imgpts, cv2.RANSAC, 5.0)
+            if Hm is not None:
+                proj = cv2.perspectiveTransform(world.reshape(-1, 1, 2), Hm).reshape(-1, 2)
+                resid = np.linalg.norm(proj - imgpts, axis=1)
+                print(f"  HOMOGRAPHY: inliers={int(inl.sum())}/{len(corrs)}  "
+                      f"median_resid={np.median(resid):.2f}px  max={resid.max():.1f}px")
+                print("  (low resid + huge PnP focal => points OK, focal degeneracy; "
+                      "high resid => mislabeled correspondences)")
+
         # Visualize: all detected hashes (green) + matched correspondences (yellow + label).
         corr_png = out_dir / f"diag_{tag}_corr.png"
         vis = annot.copy()
