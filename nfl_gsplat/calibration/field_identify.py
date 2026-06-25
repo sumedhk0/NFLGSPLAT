@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from nfl_gsplat.calibration.field_features import DetectedFeatures, landmark_name
+from nfl_gsplat.calibration.field_features import landmark_name
 
 
 @dataclass(frozen=True)
