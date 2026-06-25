@@ -79,3 +79,35 @@ def test_label_consensus_too_few_lines_empty():
                                    anchor_side="mid", anchor_yard=50, direction=+1,
                                    image_size=(1920, 1080))
     assert res.inlier_count == 0 and res.correspondences == []
+
+
+def test_label_consensus_direction_left_mirror():
+    # Mirror geometry: larger world-X maps to SMALLER image-x (yards increase
+    # leftward), so the camera-side mirror path is exercised with direction=-1.
+    import cv2
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    from nfl_gsplat.calibration.field_homography import label_lines_by_consensus
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M, _yardline_x_m
+
+    world = np.array([[-33.0, 3.0], [-4.0, 3.0], [-4.0, -3.0], [-33.0, -3.0]], np.float32)
+    image = np.array([[1700, 200], [220, 230], [260, 880], [1620, 850]], np.float32)  # x flipped
+    H = cv2.getPerspectiveTransform(world, image)
+
+    def proj(X, Y):
+        p = cv2.perspectiveTransform(np.array([[[X, Y]]], np.float64), H).reshape(2)
+        return (float(p[0]), float(p[1]))
+    yards = [15, 20, 25, 30, 35, 40, 45]
+    lines = [YardLineSeg(proj(_yardline_x_m(f"away_{y}"), +HASH_OFFSET_M),
+                         proj(_yardline_x_m(f"away_{y}"), -HASH_OFFSET_M)) for y in yards]
+    xL, xR = _yardline_x_m("away_15"), _yardline_x_m("away_45")
+    row_top = YardLineSeg(proj(xL, +HASH_OFFSET_M), proj(xR, +HASH_OFFSET_M))
+    row_bot = YardLineSeg(proj(xL, -HASH_OFFSET_M), proj(xR, -HASH_OFFSET_M))
+    anchor_idx = yards.index(30)
+    res = label_lines_by_consensus(
+        lines, [row_top, row_bot], anchor_idx=anchor_idx,
+        anchor_world_x=_yardline_x_m("away_30"), anchor_side="away", anchor_yard=30,
+        direction=-1, image_size=(1920, 1080))
+    assert res.inlier_count == 7                  # all real lines, correct yardage
+    names = {n for n, _ in res.correspondences}
+    for y in yards:
+        assert f"away_{y}_left_hash" in names and f"away_{y}_right_hash" in names
