@@ -42,26 +42,24 @@ def test_assemble_smooths_jitter():
     assert np.isfinite(tr.K).all()
 
 
+def _stub_state():
+    # Simulates register_frame's returned IdentityState carrying a homography
+    # (the propagation signal). These tests exercise _register_sequence's sweep
+    # orchestration, not identify_correspondences' geometry (tested elsewhere).
+    from nfl_gsplat.calibration.field_identify import IdentityState
+    return IdentityState(homography=np.eye(3), anchor_label=("away", 30),
+                         anchor_x=410.0, direction=1)
+
+
 def test_sweep_tolerates_none_frames(monkeypatch):
     from nfl_gsplat.calibration import run_autocalib as ra
-    from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
-    from nfl_gsplat.calibration.field_identify import identify_correspondences
     from nfl_gsplat.utils.meta import CalibHint
 
-    def feats_for(i):
-        base = 400 + 5 * i
-        xs = [base, base + 400, base + 800]
-        return DetectedFeatures(
-            yard_lines=[YardLineSeg((float(x), 0.0), (float(x), 1080.0)) for x in xs],
-            sidelines=[YardLineSeg((0, 100), (1920, 110)), YardLineSeg((0, 980), (1920, 990))],
-            hashes=[(float(x), 540.0) for x in xs], numbers=[], image_size=(1920, 1080))
-
     def fake_register(feats, prior, image_size, **kw):
-        corrs, state = identify_correspondences(feats, prior)
-        return (object() if corrs else None), state
+        return object(), _stub_state()
     monkeypatch.setattr(ra, "register_frame", fake_register)
 
-    frames = [feats_for(0), None, feats_for(2), feats_for(3), None]
+    frames = ["f0", None, "f2", "f3", None]                  # opaque; only None matters
     hint = CalibHint(ref_frame=2, ref_x=410.0, yard=30, side="away", increasing="right")
     results = ra._register_sequence(frames, hint, (1920, 1080))
     assert len(results) == 5
@@ -71,28 +69,18 @@ def test_sweep_tolerates_none_frames(monkeypatch):
 
 def test_sweep_seeds_and_propagates(monkeypatch):
     from nfl_gsplat.calibration import run_autocalib as ra
-    from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
-    from nfl_gsplat.calibration.field_identify import identify_correspondences
     from nfl_gsplat.utils.meta import CalibHint
 
-    def feats_for(i):
-        base = 400 + 5 * i                         # lines pan +5px/frame
-        xs = [base, base + 400, base + 800]
-        return DetectedFeatures(
-            yard_lines=[YardLineSeg((float(x), 0.0), (float(x), 1080.0)) for x in xs],
-            sidelines=[YardLineSeg((0, 100), (1920, 110)), YardLineSeg((0, 980), (1920, 990))],
-            hashes=[(float(x), 540.0) for x in xs],
-            numbers=[], image_size=(1920, 1080),
-        )
+    seen_priors = []
 
-    # Mock PnP: succeed iff identify produced correspondences; return the
-    # propagated identity state so the sweep can carry labels frame-to-frame.
     def fake_register(feats, prior, image_size, **kw):
-        corrs, state = identify_correspondences(feats, prior)
-        return (object() if corrs else None), state
-
+        seen_priors.append(prior)
+        return object(), _stub_state()
     monkeypatch.setattr(ra, "register_frame", fake_register)
+
     hint = CalibHint(ref_frame=2, ref_x=410.0, yard=30, side="away", increasing="right")
-    results = ra._register_sequence([feats_for(i) for i in range(5)], hint, (1920, 1080))
+    results = ra._register_sequence([f"f{i}" for i in range(5)], hint, (1920, 1080))
     assert len(results) == 5
     assert all(r is not None for r in results)   # seeded at ref, propagated both ways
+    # after the ref frame, propagation carries the stub state's homography forward
+    assert any(p.homography is not None for p in seen_priors[1:])

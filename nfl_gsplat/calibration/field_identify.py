@@ -14,13 +14,19 @@ Pure geometry. Strategy:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from nfl_gsplat.calibration.field_features import landmark_name
+if TYPE_CHECKING:
+    import numpy as np
 
 
 @dataclass(frozen=True)
 class IdentityState:
     line_yardage: dict[float, tuple[str, int]] = field(default_factory=dict)
+    homography: "np.ndarray | None" = None
+    anchor_label: "tuple[str, int] | None" = None
+    anchor_x: "float | None" = None
+    direction: int = 0
 
 
 def line_x_at(seg, y: float) -> float:
@@ -89,23 +95,18 @@ def _yard_step(side: str, yard: int, step: int) -> tuple[str, int]:
     return ("home", (20 - pos) * 5)
 
 
+def _yardline_name(side: str, yard: int) -> str:
+    return "mid_50" if side == "mid" else f"{side}_{yard}"
+
+
 def seed_state_from_hint(feats, hint) -> IdentityState:
-    """Initial IdentityState for hint.ref_frame: merge duplicate line detections,
-    snap ref_x (read at image mid-height) to the nearest yard line, and label the
-    rest by 5-yd index spacing. ``increasing`` = image direction yards grow."""
-    mid = feats.image_size[1] / 2.0
-    lines = _merge_lines(feats.yard_lines, tol=25.0, ref_y=mid)
-    if not lines:
-        return IdentityState()
-    xs = [line_x_at(s, mid) for s in lines]
-    seed_idx = min(range(len(xs)), key=lambda i: abs(xs[i] - hint.ref_x))
-    step_per_index = 1 if hint.increasing == "right" else -1
-    out: dict[float, tuple[str, int]] = {}
-    for i, s in enumerate(lines):
-        side, yard = _yard_step(hint.side, hint.yard, step_per_index * (i - seed_idx))
-        if side:
-            out[line_x_at(s, mid)] = (side, yard)
-    return IdentityState(line_yardage=out)
+    """Ref-frame seed: record the hint anchor (side/yard + image-x) and direction.
+    The actual labeling happens in identify_correspondences (consensus)."""
+    from nfl_gsplat.calibration.field_features import yardline_label
+    side, yard = yardline_label(hint.side, hint.yard)
+    direction = 1 if hint.increasing == "right" else -1
+    return IdentityState(anchor_label=(side, yard), anchor_x=float(hint.ref_x),
+                         direction=direction)
 
 
 def _ransac_line(pts, *, inlier_px: float, iters: int, rng):
@@ -165,53 +166,39 @@ def fit_hash_rows(hashes, *, image_width: int, inlier_px: float = 6.0,
 
 
 def identify_correspondences(feats, prior):
-    """Propagate yard-line identity from ``prior`` (nearest x@mid-height) and emit
-    [(landmark_name, (u,v))] at yard-line × hash-row and yard-line × sideline
-    intersections. With no prior, returns ([], empty)."""
+    """Label this frame's yard lines by homography consensus (anchored by the hint
+    at the ref frame, by prior.homography afterwards) and emit hash correspondences.
+    Returns (correspondences, IdentityState carrying the homography)."""
+    import cv2
     import numpy as np
+
+    from nfl_gsplat.calibration.field_homography import label_lines_by_consensus
+    from nfl_gsplat.calibration.field_landmarks import _yardline_x_m
 
     mid = feats.image_size[1] / 2.0
     lines = _merge_lines(feats.yard_lines, tol=25.0, ref_y=mid)
-    if not lines or prior is None or not prior.line_yardage:
-        return [], IdentityState()
-    prior_xs = np.array(list(prior.line_yardage.keys()))
-    prior_vals = list(prior.line_yardage.values())
-
-    # Only use hash rows when BOTH are fitted: a single row can't be disambiguated
-    # into left/right (world ±Y), so a lone row would be silently mislabeled. With
-    # < 2 rows we emit sideline correspondences only (the frame may then be a gap).
     rows = fit_hash_rows(feats.hashes, image_width=feats.image_size[0])
-    rows = rows if len(rows) == 2 else []
-    # Assumes the standard broadcast camera side (image-top = world +Y = 'left'):
-    # upper hash row → 'left', lower → 'right'. A camera on the opposite sideline
-    # is mirrored; resolved/validated by the reprojection-RMS gate at bring-up.
-    row_lr = ["left", "right"]
+    if (len(lines) < 2 or len(rows) < 2 or prior is None
+            or prior.anchor_label is None):
+        return [], IdentityState()
 
-    corrs: list[tuple[str, tuple[float, float]]] = []
-    state_map: dict[float, tuple[str, int]] = {}
-    W, H = feats.image_size
-    for seg in lines:
-        x = line_x_at(seg, mid)
-        j = int(np.argmin(np.abs(prior_xs - x)))
-        if abs(prior_xs[j] - x) > 60.0:
-            continue
-        side, yd = prior_vals[j]
-        state_map[x] = (side, yd)
-        for ri, row in enumerate(rows):
-            pt = _seg_intersection(seg, row)
-            if pt is None or not (0 <= pt[0] <= W and 0 <= pt[1] <= H):
-                continue
-            corrs.append((landmark_name(side, yd, row_lr[ri], "hash"), pt))
-        for sl in feats.sidelines:
-            pt = _seg_intersection(seg, sl)
-            if pt is None or not (0 <= pt[0] <= W and 0 <= pt[1] <= H):
-                continue
-            lr = "left" if pt[1] < mid else "right"
-            corrs.append((landmark_name(side, yd, lr, "sideline"), pt))
-    seen: set[str] = set()
-    deduped = []
-    for name, uv in corrs:
-        if name not in seen:
-            seen.add(name)
-            deduped.append((name, uv))
-    return deduped, IdentityState(line_yardage=state_map)
+    side, yard = prior.anchor_label
+    anchor_world_x = _yardline_x_m(_yardline_name(side, yard))
+    if prior.homography is not None:
+        p = cv2.perspectiveTransform(
+            np.array([[[anchor_world_x, 0.0]]], np.float64), prior.homography).reshape(2)
+        pred_x = float(p[0])
+    else:
+        pred_x = float(prior.anchor_x)
+    anchor_idx = min(range(len(lines)), key=lambda i: abs(line_x_at(lines[i], mid) - pred_x))
+
+    res = label_lines_by_consensus(
+        lines, rows, anchor_idx=anchor_idx, anchor_world_x=anchor_world_x,
+        anchor_side=side, anchor_yard=yard, direction=prior.direction or 1,
+        image_size=feats.image_size)
+    if res.homography is None or res.inlier_count < 2:
+        return [], IdentityState()
+    new_anchor_x = line_x_at(lines[anchor_idx], mid)
+    state = IdentityState(homography=res.homography, anchor_label=(side, yard),
+                          anchor_x=new_anchor_x, direction=prior.direction or 1)
+    return res.correspondences, state

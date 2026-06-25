@@ -94,7 +94,9 @@ def _register_sequence(feats_by_frame, hint, image_size):
 
     res, state_ref = register_frame(feats_by_frame[ref], seed, image_size)
     results[ref] = res
-    base = state_ref if state_ref.line_yardage else seed
+    # Propagation signal is the recovered homography (carried on IdentityState);
+    # it lets the next frame predict the anchor line's new position under a pan.
+    base = state_ref if state_ref.homography is not None else seed
 
     prior = base
     for f in range(ref + 1, T):                      # forward
@@ -103,7 +105,7 @@ def _register_sequence(feats_by_frame, hint, image_size):
             continue
         res, st = register_frame(feats_by_frame[f], prior, image_size)
         results[f] = res
-        if st.line_yardage:
+        if st.homography is not None:
             prior = st
     prior = base
     for f in range(ref - 1, -1, -1):                 # backward
@@ -112,7 +114,7 @@ def _register_sequence(feats_by_frame, hint, image_size):
             continue
         res, st = register_frame(feats_by_frame[f], prior, image_size)
         results[f] = res
-        if st.line_yardage:
+        if st.homography is not None:
             prior = st
     return results
 
