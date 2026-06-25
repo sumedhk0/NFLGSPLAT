@@ -99,8 +99,11 @@ def main(
         from nfl_gsplat.errors import CalibrationError
         from nfl_gsplat.utils.meta import CalibHint
 
+        from nfl_gsplat.calibration.field_identify import fit_hash_rows
         feats = detect_field_features(img, cfg=cfg, player_boxes=boxes)
-        print(f"hashes detected: {len(feats.hashes)}  sidelines: {len(feats.sidelines)}")
+        _rows = fit_hash_rows(feats.hashes, image_width=img.shape[1])
+        print(f"hashes detected: {len(feats.hashes)}  sidelines: {len(feats.sidelines)}  "
+              f"hash rows fitted: {len(_rows)}")
         hint = CalibHint(ref_frame=frame, ref_x=float(ref_x), yard=int(yard),
                          side=side, increasing=increasing)
         state = seed_state_from_hint(feats, hint)
