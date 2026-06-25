@@ -1,20 +1,21 @@
 """Identify detected yard lines (assign absolute yardage) + emit correspondences.
 
 Pure geometry. Strategy:
-1. Order detected yard lines left→right by their mean image x.
+1. Order detected yard lines left→right by their x at image mid-height
+   (diagonal-safe; broadcast yard lines slant, so mean-x is unreliable).
 2. Seed identity from a ``CalibHint`` (ref_frame/ref_x/yard/side/increasing)
    via ``seed_state_from_hint``; propagate to neighbours using the constant
    index spacing (adjacent detected lines are 5 yd apart).
 3. In subsequent frames reuse ``prior`` by matching current lines to the
    previous lines by nearest image-x (lines move little frame-to-frame).
-4. For each yardage-identified line, intersect with detected sidelines/hash rows
-   and emit ``(landmark_name, uv)`` correspondences.
+4. For each yardage-identified line, intersect with the two fitted hash-row lines
+   (and sidelines when present) and emit ``(landmark_name, uv)`` correspondences.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from nfl_gsplat.calibration.field_features import DetectedFeatures, landmark_name
+from nfl_gsplat.calibration.field_features import landmark_name
 
 
 @dataclass(frozen=True)
@@ -22,8 +23,36 @@ class IdentityState:
     line_yardage: dict[float, tuple[str, int]] = field(default_factory=dict)
 
 
-def _line_x(seg) -> float:
-    return 0.5 * (seg.p0[0] + seg.p1[0])
+def line_x_at(seg, y: float) -> float:
+    """Image-x of a (near-vertical) line segment at height ``y``.
+
+    Yard lines are near-vertical but slanted in broadcast views, so x varies
+    with y; their mean-x is unreliable for ordering/matching. Interpolates along
+    the segment's direction. Degenerates to the mean-x for a perfectly
+    horizontal segment (|dy| ~ 0), which shouldn't occur for yard lines."""
+    (x0, y0), (x1, y1) = seg.p0, seg.p1
+    dy = y1 - y0
+    if abs(dy) < 1e-6:
+        return 0.5 * (x0 + x1)
+    t = (float(y) - y0) / dy
+    return x0 + t * (x1 - x0)
+
+
+def _merge_lines(lines, tol: float, ref_y: float):
+    """Merge yard-line segments whose x at ``ref_y`` are within ``tol`` (the same
+    physical line detected as multiple segments). Returns lines sorted by x@ref_y,
+    one representative per cluster (the one spanning the largest y-range)."""
+    items = sorted(lines, key=lambda s: line_x_at(s, ref_y))
+    merged = []
+    for seg in items:
+        x = line_x_at(seg, ref_y)
+        if merged and abs(line_x_at(merged[-1], ref_y) - x) <= tol:
+            prev = merged[-1]
+            if abs(seg.p1[1] - seg.p0[1]) > abs(prev.p1[1] - prev.p0[1]):
+                merged[-1] = seg
+        else:
+            merged.append(seg)
+    return merged
 
 
 def _seg_intersection(a, b) -> tuple[float, float] | None:
@@ -61,59 +90,124 @@ def _yard_step(side: str, yard: int, step: int) -> tuple[str, int]:
 
 
 def seed_state_from_hint(feats, hint) -> IdentityState:
-    """Initial IdentityState for hint.ref_frame: snap ref_x to the nearest yard
-    line, label it (side, yard), label the rest by 5-yd index spacing. ``increasing``
-    = image direction yards grow: 'right' => +1 yard-line per +1 line index."""
-    lines = sorted(feats.yard_lines, key=_line_x)
+    """Initial IdentityState for hint.ref_frame: merge duplicate line detections,
+    snap ref_x (read at image mid-height) to the nearest yard line, and label the
+    rest by 5-yd index spacing. ``increasing`` = image direction yards grow."""
+    mid = feats.image_size[1] / 2.0
+    lines = _merge_lines(feats.yard_lines, tol=25.0, ref_y=mid)
     if not lines:
         return IdentityState()
-    xs = [_line_x(s) for s in lines]
+    xs = [line_x_at(s, mid) for s in lines]
     seed_idx = min(range(len(xs)), key=lambda i: abs(xs[i] - hint.ref_x))
     step_per_index = 1 if hint.increasing == "right" else -1
     out: dict[float, tuple[str, int]] = {}
     for i, s in enumerate(lines):
         side, yard = _yard_step(hint.side, hint.yard, step_per_index * (i - seed_idx))
         if side:
-            out[_line_x(s)] = (side, yard)
+            out[line_x_at(s, mid)] = (side, yard)
     return IdentityState(line_yardage=out)
 
 
-def identify_correspondences(
-    feats: DetectedFeatures, prior: IdentityState | None,
-) -> tuple[list[tuple[str, tuple[float, float]]], IdentityState]:
-    """Propagate yard-line identity from ``prior`` to this frame's lines (nearest
-    image-x) and emit [(landmark_name, (u,v))] at hash/sideline intersections.
-    With no prior, returns ([], empty) — identity is seeded by a hint."""
+def _ransac_line(pts, *, inlier_px: float, iters: int, rng):
+    """Best-fit line over 2D points by RANSAC. Returns (inlier_mask, (a, b)) for
+    y = a*x + b, or (None, None) if degenerate. Hash rows are near-horizontal so
+    y = a*x + b is well-conditioned."""
+    import numpy as np
+    pts = np.asarray(pts, dtype=np.float64)
+    n = len(pts)
+    best_mask, best_count = None, -1
+    for _ in range(iters):
+        i, j = rng.integers(0, n, size=2)
+        if i == j:
+            continue
+        x0, y0 = pts[i]; x1, y1 = pts[j]
+        if abs(x1 - x0) < 1e-6:
+            continue
+        a = (y1 - y0) / (x1 - x0)
+        b = y0 - a * x0
+        resid = np.abs(pts[:, 1] - (a * pts[:, 0] + b))
+        mask = resid <= inlier_px
+        if mask.sum() > best_count:
+            best_count, best_mask = int(mask.sum()), mask
+    if best_mask is None:
+        return None, None
+    xin, yin = pts[best_mask, 0], pts[best_mask, 1]
+    A = np.vstack([xin, np.ones_like(xin)]).T
+    a, b = np.linalg.lstsq(A, yin, rcond=None)[0]
+    return best_mask, (float(a), float(b))
+
+
+def fit_hash_rows(hashes, *, image_width: int, inlier_px: float = 6.0,
+                  min_inliers: int = 6, iters: int = 200):
+    """Fit up to two hash-ROW lines from raw tick points via RANSAC, returning
+    each as a width-spanning ``YardLineSeg``. Averages out the dense 1-yard ticks
+    and noise. Returns [] / [one] / [two] sorted by row height (upper first)."""
     import numpy as np
 
-    lines = sorted(feats.yard_lines, key=_line_x)
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    pts = list(hashes)
+    if len(pts) < min_inliers:
+        return []
+    rng = np.random.default_rng(12345)
+    rows = []
+    remaining = np.asarray(pts, dtype=np.float64)
+    for _ in range(2):
+        if len(remaining) < min_inliers:
+            break
+        mask, line = _ransac_line(remaining, inlier_px=inlier_px, iters=iters, rng=rng)
+        if mask is None or int(mask.sum()) < min_inliers:
+            break
+        a, b = line
+        rows.append(YardLineSeg((0.0, b), (float(image_width), a * image_width + b)))
+        remaining = remaining[~mask]
+    rows.sort(key=lambda r: 0.5 * (r.p0[1] + r.p1[1]))
+    return rows
+
+
+def identify_correspondences(feats, prior):
+    """Propagate yard-line identity from ``prior`` (nearest x@mid-height) and emit
+    [(landmark_name, (u,v))] at yard-line × hash-row and yard-line × sideline
+    intersections. With no prior, returns ([], empty)."""
+    import numpy as np
+
+    mid = feats.image_size[1] / 2.0
+    lines = _merge_lines(feats.yard_lines, tol=25.0, ref_y=mid)
     if not lines or prior is None or not prior.line_yardage:
         return [], IdentityState()
     prior_xs = np.array(list(prior.line_yardage.keys()))
     prior_vals = list(prior.line_yardage.values())
+
+    # Only use hash rows when BOTH are fitted: a single row can't be disambiguated
+    # into left/right (world ±Y), so a lone row would be silently mislabeled. With
+    # < 2 rows we emit sideline correspondences only (the frame may then be a gap).
+    rows = fit_hash_rows(feats.hashes, image_width=feats.image_size[0])
+    rows = rows if len(rows) == 2 else []
+    # Assumes the standard broadcast camera side (image-top = world +Y = 'left'):
+    # upper hash row → 'left', lower → 'right'. A camera on the opposite sideline
+    # is mirrored; resolved/validated by the reprojection-RMS gate at bring-up.
+    row_lr = ["left", "right"]
+
     corrs: list[tuple[str, tuple[float, float]]] = []
     state_map: dict[float, tuple[str, int]] = {}
+    W, H = feats.image_size
     for seg in lines:
-        x = _line_x(seg)
+        x = line_x_at(seg, mid)
         j = int(np.argmin(np.abs(prior_xs - x)))
         if abs(prior_xs[j] - x) > 60.0:
             continue
         side, yd = prior_vals[j]
         state_map[x] = (side, yd)
+        for ri, row in enumerate(rows):
+            pt = _seg_intersection(seg, row)
+            if pt is None or not (0 <= pt[0] <= W and 0 <= pt[1] <= H):
+                continue
+            corrs.append((landmark_name(side, yd, row_lr[ri], "hash"), pt))
         for sl in feats.sidelines:
             pt = _seg_intersection(seg, sl)
-            if pt is None:
+            if pt is None or not (0 <= pt[0] <= W and 0 <= pt[1] <= H):
                 continue
-            # Assumes the standard broadcast camera side (image-top = world +Y = 'left').
-            # For a camera on the opposite sideline this is mirrored; resolved/validated at bring-up.
-            lr = "left" if pt[1] < feats.image_size[1] / 2 else "right"
+            lr = "left" if pt[1] < mid else "right"
             corrs.append((landmark_name(side, yd, lr, "sideline"), pt))
-        for hx, hy in feats.hashes:
-            if abs(hx - x) < 25.0:
-                # Assumes the standard broadcast camera side (image-top = world +Y = 'left').
-                # For a camera on the opposite sideline this is mirrored; resolved/validated at bring-up.
-                lr = "left" if hy < feats.image_size[1] / 2 else "right"
-                corrs.append((landmark_name(side, yd, lr, "hash"), (float(hx), float(hy))))
     seen: set[str] = set()
     deduped = []
     for name, uv in corrs:
