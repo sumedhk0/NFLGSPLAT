@@ -7,8 +7,8 @@ Pure geometry. Strategy:
    index spacing (adjacent detected lines are 5 yd apart).
 3. In subsequent frames reuse ``prior`` by matching current lines to the
    previous lines by nearest image-x (lines move little frame-to-frame).
-4. For each yardage-identified line, intersect with detected sidelines/hash rows
-   and emit ``(landmark_name, uv)`` correspondences.
+4. For each yardage-identified line, intersect with the two fitted hash-row lines
+   (and sidelines when present) and emit ``(landmark_name, uv)`` correspondences.
 """
 from __future__ import annotations
 
@@ -167,42 +167,43 @@ def fit_hash_rows(hashes, *, image_width: int, inlier_px: float = 6.0,
     return rows
 
 
-def identify_correspondences(
-    feats: DetectedFeatures, prior: IdentityState | None,
-) -> tuple[list[tuple[str, tuple[float, float]]], IdentityState]:
-    """Propagate yard-line identity from ``prior`` to this frame's lines (nearest
-    image-x) and emit [(landmark_name, (u,v))] at hash/sideline intersections.
-    With no prior, returns ([], empty) — identity is seeded by a hint."""
+def identify_correspondences(feats, prior):
+    """Propagate yard-line identity from ``prior`` (nearest x@mid-height) and emit
+    [(landmark_name, (u,v))] at yard-line × hash-row and yard-line × sideline
+    intersections. With no prior, returns ([], empty)."""
     import numpy as np
 
-    lines = sorted(feats.yard_lines, key=_line_x)
+    mid = feats.image_size[1] / 2.0
+    lines = _merge_lines(feats.yard_lines, tol=25.0, ref_y=mid)
     if not lines or prior is None or not prior.line_yardage:
         return [], IdentityState()
     prior_xs = np.array(list(prior.line_yardage.keys()))
     prior_vals = list(prior.line_yardage.values())
+
+    rows = fit_hash_rows(feats.hashes, image_width=feats.image_size[0])
+    row_lr = ["left", "right"]
+
     corrs: list[tuple[str, tuple[float, float]]] = []
     state_map: dict[float, tuple[str, int]] = {}
+    W, H = feats.image_size
     for seg in lines:
-        x = _line_x(seg)
+        x = line_x_at(seg, mid)
         j = int(np.argmin(np.abs(prior_xs - x)))
         if abs(prior_xs[j] - x) > 60.0:
             continue
         side, yd = prior_vals[j]
         state_map[x] = (side, yd)
+        for ri, row in enumerate(rows[:2]):
+            pt = _seg_intersection(seg, row)
+            if pt is None or not (0 <= pt[0] <= W and 0 <= pt[1] <= H):
+                continue
+            corrs.append((landmark_name(side, yd, row_lr[ri], "hash"), pt))
         for sl in feats.sidelines:
             pt = _seg_intersection(seg, sl)
-            if pt is None:
+            if pt is None or not (0 <= pt[0] <= W and 0 <= pt[1] <= H):
                 continue
-            # Assumes the standard broadcast camera side (image-top = world +Y = 'left').
-            # For a camera on the opposite sideline this is mirrored; resolved/validated at bring-up.
-            lr = "left" if pt[1] < feats.image_size[1] / 2 else "right"
+            lr = "left" if pt[1] < mid else "right"
             corrs.append((landmark_name(side, yd, lr, "sideline"), pt))
-        for hx, hy in feats.hashes:
-            if abs(hx - x) < 25.0:
-                # Assumes the standard broadcast camera side (image-top = world +Y = 'left').
-                # For a camera on the opposite sideline this is mirrored; resolved/validated at bring-up.
-                lr = "left" if hy < feats.image_size[1] / 2 else "right"
-                corrs.append((landmark_name(side, yd, lr, "hash"), (float(hx), float(hy))))
     seen: set[str] = set()
     deduped = []
     for name, uv in corrs:
