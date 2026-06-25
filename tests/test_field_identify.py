@@ -22,22 +22,22 @@ def _feats(xs, hashes=None, sidelines=None):
     )
 
 
-def test_seed_from_hint_labels_by_spacing_and_direction():
+def test_seed_records_anchor_and_direction():
     feats = _feats([400, 800, 1200])
     hint = CalibHint(ref_frame=0, ref_x=800, yard=30, side="away", increasing="right")
     state = seed_state_from_hint(feats, hint)
-    labels = set(state.line_yardage.values())
-    assert ("away", 30) in labels
-    assert ("away", 25) in labels and ("away", 35) in labels
+    assert state.anchor_label == ("away", 30)
+    assert state.anchor_x == 800.0
+    assert state.direction == 1
+    assert state.homography is None
 
 
-def test_seed_crosses_50_to_home_when_increasing():
+def test_seed_direction_left_and_mid_normalization():
     feats = _feats([400, 800, 1200])
-    hint = CalibHint(ref_frame=0, ref_x=800, yard=45, side="away", increasing="right")
+    hint = CalibHint(ref_frame=0, ref_x=800, yard=50, side="home", increasing="left")
     state = seed_state_from_hint(feats, hint)
-    labels = set(state.line_yardage.values())
-    assert ("away", 45) in labels
-    assert ("mid", 50) in labels
+    assert state.anchor_label == ("mid", 50)        # yardline_label normalizes 50 → mid
+    assert state.direction == -1
 
 
 def test_identify_without_prior_returns_empty():
@@ -97,56 +97,125 @@ def test_fit_hash_rows_too_few_returns_empty():
     assert fit_hash_rows([(10.0, 20.0), (30.0, 40.0)], image_width=1920) == []
 
 
-def test_identify_emits_two_hash_correspondences_per_line():
+def test_identify_emits_hash_correspondences_via_consensus():
+    import cv2
+    import numpy as np
     from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
     from nfl_gsplat.calibration.field_identify import (
         identify_correspondences, seed_state_from_hint,
     )
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M, _yardline_x_m
     from nfl_gsplat.utils.meta import CalibHint
-    xs = [400, 800, 1200]
-    hashes = []
-    for x in range(200, 1400, 20):
-        hashes += [(float(x), 360.0), (float(x), 620.0)]
-    feats = DetectedFeatures(
-        yard_lines=[YardLineSeg((float(x), 0.0), (float(x), 1080.0)) for x in xs],
-        sidelines=[], hashes=hashes, numbers=[], image_size=(1920, 1080))
-    hint = CalibHint(ref_frame=0, ref_x=800, yard=30, side="away", increasing="right")
-    state = seed_state_from_hint(feats, hint)
-    corrs, _ = identify_correspondences(feats, state)
-    names = [c[0] for c in corrs]
-    pt_by_name = dict(corrs)
+    world = np.array([[-25.0, 3.0], [25.0, 3.0], [25.0, -3.0], [-25.0, -3.0]], np.float32)
+    image = np.array([[260, 180], [1660, 210], [1520, 900], [380, 930]], np.float32)
+    H = cv2.getPerspectiveTransform(world, image)
+
+    def proj(X, Y):
+        p = cv2.perspectiveTransform(np.array([[[X, Y]]], np.float64), H).reshape(2)
+        return (float(p[0]), float(p[1]))
+    yards = [20, 25, 30, 35, 40]
+    lines = [YardLineSeg(proj(_yardline_x_m(f"away_{y}"), +HASH_OFFSET_M),
+                         proj(_yardline_x_m(f"away_{y}"), -HASH_OFFSET_M)) for y in yards]
+    hashes = []                                  # dense 1-yard ticks (≥6/row)
+    for X in np.linspace(-28.0, -9.0, 24):
+        hashes += [proj(X, +HASH_OFFSET_M), proj(X, -HASH_OFFSET_M)]
+    feats = DetectedFeatures(yard_lines=lines, sidelines=[], hashes=hashes,
+                             numbers=[], image_size=(1920, 1080))
+    ref_x = 0.5 * (lines[2].p0[0] + lines[2].p1[0])
+    hint = CalibHint(ref_frame=0, ref_x=ref_x, yard=30, side="away", increasing="right")
+    state0 = seed_state_from_hint(feats, hint)
+    corrs, state = identify_correspondences(feats, state0)
+    names = {n for n, _ in corrs}
     assert "away_30_left_hash" in names and "away_30_right_hash" in names
-    lu = pt_by_name["away_30_left_hash"]; ld = pt_by_name["away_30_right_hash"]
-    assert abs(lu[0] - 800) < 2 and abs(ld[0] - 800) < 2
-    assert {round(lu[1]), round(ld[1])} == {360, 620}
-    assert len([n for n in names if n.endswith("_hash")]) == 6
+    assert state.homography is not None
 
 
-def test_identify_propagates_identity_across_shifted_frame():
-    # Seed on frame 0, then run identify on a panned frame (lines shifted +10px);
-    # identity must carry over via the nearest-x(@mid) <60px match (the 30 line
-    # stays the 30 even though every line moved).
+def test_identify_recovers_all_lines_rejects_noise_homography_under_2px():
+    # This cycle's deliverable: consistent correspondences + a verified field
+    # homography. (Per-frame focal/K,R,t from that homography is the NEXT cycle —
+    # the near-affine telephoto focal solve is out of scope here, so we validate
+    # via homography residual, not PnP.)
+    import cv2
+    import numpy as np
     from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
     from nfl_gsplat.calibration.field_identify import (
         identify_correspondences, seed_state_from_hint,
     )
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M, NFL_LANDMARKS, _yardline_x_m
     from nfl_gsplat.utils.meta import CalibHint
+    # World rect spans the away_15..away_45 X range so every line projects in-frame.
+    world = np.array([[-33.0, 3.0], [-4.0, 3.0], [-4.0, -3.0], [-33.0, -3.0]], np.float32)
+    image = np.array([[220, 200], [1700, 230], [1620, 880], [260, 850]], np.float32)
+    H = cv2.getPerspectiveTransform(world, image)
 
-    def feats(shift):
-        xs = [400 + shift, 800 + shift, 1200 + shift]
-        hashes = []
-        for x in range(200, 1400, 20):
-            hashes += [(float(x + shift), 360.0), (float(x + shift), 620.0)]
-        return DetectedFeatures(
-            yard_lines=[YardLineSeg((float(x), 0.0), (float(x), 1080.0)) for x in xs],
-            sidelines=[], hashes=hashes, numbers=[], image_size=(1920, 1080))
+    def proj(X, Y):
+        p = cv2.perspectiveTransform(np.array([[[X, Y]]], np.float64), H).reshape(2)
+        return (float(p[0]), float(p[1]))
+    yards = [15, 20, 25, 30, 35, 40, 45]
+    lines = [YardLineSeg(proj(_yardline_x_m(f"away_{y}"), +HASH_OFFSET_M),
+                         proj(_yardline_x_m(f"away_{y}"), -HASH_OFFSET_M)) for y in yards]
+    hashes = []                                  # dense 1-yard ticks (≥6/row)
+    for X in np.linspace(-32.0, -4.5, 32):
+        hashes += [proj(X, +HASH_OFFSET_M), proj(X, -HASH_OFFSET_M)]
+    # spurious lines placed BETWEEN real yard lines (x@mid ≈ 289/512/.../1634)
+    # so they test consensus rejection, not merge eviction of a nearby real line.
+    for sx in (400.0, 850.0, 1300.0):            # no hash support → must be rejected
+        lines.append(YardLineSeg((sx, 150.0), (sx + 2.0, 950.0)))
+    feats = DetectedFeatures(yard_lines=lines, sidelines=[], hashes=hashes,
+                             numbers=[], image_size=(1920, 1080))
+    ref_x = 0.5 * (lines[3].p0[0] + lines[3].p1[0])
+    hint = CalibHint(ref_frame=0, ref_x=ref_x, yard=30, side="away", increasing="right")
+    state0 = seed_state_from_hint(feats, hint)
+    corrs, state = identify_correspondences(feats, state0)
+    names = {n for n, _ in corrs}
+    # all 7 real yard lines recovered with correct yardage; no spurious labels
+    for y in yards:
+        assert f"away_{y}_left_hash" in names and f"away_{y}_right_hash" in names
+    assert len(corrs) == 14
+    # the recovered homography reprojects every labeled world point onto its image pt
+    assert state.homography is not None
+    resid = []
+    for name, (u, v) in corrs:
+        X, Y = NFL_LANDMARKS[name][:2]
+        p = cv2.perspectiveTransform(np.array([[[X, Y]]], np.float64), state.homography).reshape(2)
+        resid.append(float(np.hypot(p[0] - u, p[1] - v)))
+    assert max(resid) < 2.0
 
-    hint = CalibHint(ref_frame=0, ref_x=800, yard=30, side="away", increasing="right")
-    state0 = seed_state_from_hint(feats(0), hint)
-    _, prior = identify_correspondences(feats(0), state0)
-    corrs, _ = identify_correspondences(feats(10), prior)        # panned +10px
-    names = {c[0] for c in corrs}
-    assert "away_30_left_hash" in names and "away_30_right_hash" in names
+
+def test_identify_propagates_via_prior_homography():
+    import cv2
+    import numpy as np
+    from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
+    from nfl_gsplat.calibration.field_identify import (
+        identify_correspondences, seed_state_from_hint,
+    )
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M, _yardline_x_m
+    from nfl_gsplat.utils.meta import CalibHint
+    world = np.array([[-25.0, 3.0], [25.0, 3.0], [25.0, -3.0], [-25.0, -3.0]], np.float32)
+
+    def make(image):
+        H = cv2.getPerspectiveTransform(world, image.astype(np.float32))
+
+        def pr(X, Y):
+            p = cv2.perspectiveTransform(np.array([[[X, Y]]], np.float64), H).reshape(2)
+            return (float(p[0]), float(p[1]))
+        lines = [YardLineSeg(pr(_yardline_x_m(f"away_{y}"), +HASH_OFFSET_M),
+                             pr(_yardline_x_m(f"away_{y}"), -HASH_OFFSET_M))
+                 for y in [20, 25, 30, 35, 40]]
+        hashes = []                              # dense 1-yard ticks (≥6/row)
+        for X in np.linspace(-28.0, -9.0, 24):
+            hashes += [pr(X, +HASH_OFFSET_M), pr(X, -HASH_OFFSET_M)]
+        return DetectedFeatures(yard_lines=lines, sidelines=[], hashes=hashes,
+                                numbers=[], image_size=(1920, 1080))
+    f0 = make(np.array([[260, 180], [1660, 210], [1520, 900], [380, 930]]))
+    f1 = make(np.array([[280, 180], [1680, 210], [1540, 900], [400, 930]]))
+    ref_x = 0.5 * (f0.yard_lines[2].p0[0] + f0.yard_lines[2].p1[0])
+    hint = CalibHint(ref_frame=0, ref_x=ref_x, yard=30, side="away", increasing="right")
+    _, prior = identify_correspondences(f0, seed_state_from_hint(f0, hint))
+    assert prior.homography is not None
+    corrs, _ = identify_correspondences(f1, prior)
+    names = {n for n, _ in corrs}
+    assert "away_30_left_hash" in names
 
 
 def test_identify_skips_hashes_with_single_row():
@@ -165,43 +234,3 @@ def test_identify_skips_hashes_with_single_row():
     state = seed_state_from_hint(feats, hint)
     corrs, _ = identify_correspondences(feats, state)
     assert not any(n.endswith("_hash") for n, _ in corrs)
-
-
-def test_identify_pnp_roundtrip_under_2px():
-    import numpy as np
-    from nfl_gsplat.calibration.field_features import DetectedFeatures, YardLineSeg
-    from nfl_gsplat.calibration.field_identify import (
-        identify_correspondences, line_x_at, seed_state_from_hint,
-    )
-    from nfl_gsplat.calibration.field_landmarks import NFL_LANDMARKS
-    from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_correspondences
-    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
-    from nfl_gsplat.utils.meta import CalibHint
-
-    # Top-down camera: looks in -Z (down onto field), camera X = world X, camera Y = -world Y.
-    # Yard lines (constant world X) appear as exactly vertical image lines.
-    # Hash rows (constant world Y) appear as exactly horizontal image rows.
-    intr = CameraIntrinsics(1100.0, 1100.0, 960, 540, 1920, 1080)
-    R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], float)
-    pose = CameraPose(R=R, t=np.array([0.0, 0.0, 100.0]))
-
-    def proj(name):
-        return project_points(NFL_LANDMARKS[name][None], intr.K(), pose.R, pose.t)[0]
-
-    # 7 yards gives 7 hash points per row, exceeding fit_hash_rows min_inliers=6.
-    yards = [15, 20, 25, 30, 35, 40, 45]
-    lines, hashes = [], []
-    for y in yards:
-        lh = proj(f"away_{y}_left_hash"); rh = proj(f"away_{y}_right_hash")
-        lines.append(YardLineSeg((float(lh[0]), float(lh[1])), (float(rh[0]), float(rh[1]))))
-        hashes += [(float(lh[0]), float(lh[1])), (float(rh[0]), float(rh[1]))]
-    feats = DetectedFeatures(yard_lines=lines, sidelines=[], hashes=hashes,
-                             numbers=[], image_size=(1920, 1080))
-    # lines[3] is away_30 (centre of the 7-yard span)
-    ref_x = line_x_at(lines[3], 540.0)
-    hint = CalibHint(ref_frame=0, ref_x=ref_x, yard=30, side="away", increasing="right")
-    state = seed_state_from_hint(feats, hint)
-    corrs, _ = identify_correspondences(feats, state)
-    assert len(corrs) >= 6
-    res = solve_pnp_from_correspondences(corrs, image_size=(1920, 1080), max_reproj_px=1e9)
-    assert res.rms_px < 2.0
