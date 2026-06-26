@@ -86,6 +86,15 @@ def test_sweep_seeds_and_propagates(monkeypatch):
     assert any(p.homography is not None for p in seen_priors[1:])
 
 
+def test_check_ckpt_classes_mismatch_raises():
+    import pytest
+    from nfl_gsplat.calibration.run_autocalib import _check_ckpt_classes
+    from nfl_gsplat.errors import SetupError
+    _check_ckpt_classes(["a", "b"], ["a", "b"])          # match → no raise
+    with pytest.raises(SetupError, match="do not match"):
+        _check_ckpt_classes(["a", "b"], ["a", "c"])
+
+
 def test_learned_register_sequence_with_stub_detector():
     import numpy as np
     from nfl_gsplat.calibration import run_autocalib as ra
