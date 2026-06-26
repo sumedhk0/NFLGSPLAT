@@ -79,31 +79,33 @@ def _draw_hud(
     return out
 
 
-def annotate(
-    video_path: Path | str,
-    out_json: Path | str,
-    *,
-    frame_index: int = 0,
-    preset_names: Sequence[str] | None = None,
+def annotate_frame(
+    img: np.ndarray,
+    names: list[str],
+    prefill: dict[str, tuple[float, float]] | None = None,
     window_title: str = "NFL landmark annotator",
-) -> Path:
-    """Open the GUI and write ``out_json`` on save. Returns the output path.
+) -> list[tuple[str, tuple[float, float]]]:
+    """Run the single-frame click loop and return the placed points.
 
-    The list of candidate landmark names defaults to :data:`DEFAULT_PRESET`.
-    Users can cycle through ``list_landmark_names()`` with ``n`` / ``p`` if
-    a particular landmark isn't in the preset.
+    Parameters
+    ----------
+    img:
+        BGR image to annotate (not modified).
+    names:
+        Ordered list of landmark names the user can place.
+    prefill:
+        Optional ``name → (u, v)`` dict to pre-seed placed points.
+    window_title:
+        OpenCV window title.
+
+    Returns
+    -------
+    list of ``(name, (u, v))`` tuples in placement order.
     """
-    img = _grab_frame(video_path, frame_index=frame_index)
-    all_names = list_landmark_names()
-    name_list: list[str] = list(preset_names) if preset_names else list(DEFAULT_PRESET)
-    # Ensure every preset name is valid.
-    for n in name_list:
-        if n not in all_names:
-            raise ValueError(f"preset contains unknown landmark {n!r}")
-
+    name_list = list(names)
     idx = 0
-    placed: dict[str, tuple[float, float]] = {}
-    history: list[str] = []
+    placed: dict[str, tuple[float, float]] = dict(prefill) if prefill else {}
+    history: list[str] = list(placed.keys())
 
     def _on_mouse(event, x, y, flags, _):
         nonlocal idx
@@ -141,9 +143,35 @@ def annotate(
             break
 
     cv2.destroyAllWindows()
+    return [(n, placed[n]) for n in name_list if n in placed]
+
+
+def annotate(
+    video_path: Path | str,
+    out_json: Path | str,
+    *,
+    frame_index: int = 0,
+    preset_names: Sequence[str] | None = None,
+    window_title: str = "NFL landmark annotator",
+) -> Path:
+    """Open the GUI and write ``out_json`` on save. Returns the output path.
+
+    The list of candidate landmark names defaults to :data:`DEFAULT_PRESET`.
+    Users can cycle through ``list_landmark_names()`` with ``n`` / ``p`` if
+    a particular landmark isn't in the preset.
+    """
+    img = _grab_frame(video_path, frame_index=frame_index)
+    all_names = list_landmark_names()
+    name_list: list[str] = list(preset_names) if preset_names else list(DEFAULT_PRESET)
+    # Ensure every preset name is valid.
+    for n in name_list:
+        if n not in all_names:
+            raise ValueError(f"preset contains unknown landmark {n!r}")
+
+    result = annotate_frame(img, name_list, window_title=window_title)
     entries = [
         {"name": name, "uv": [u, v], "frame": int(frame_index)}
-        for name, (u, v) in placed.items()
+        for name, (u, v) in result
     ]
     write_json(out_json, entries)
     return Path(out_json)
