@@ -107,7 +107,7 @@ def main(
         hint = CalibHint(ref_frame=frame, ref_x=float(ref_x), yard=int(yard),
                          side=side, increasing=increasing)
         state = seed_state_from_hint(feats, hint)
-        corrs, _ = identify_correspondences(feats, state)
+        corrs, out_state = identify_correspondences(feats, state)
         print(f"=== hint PnP (ref_x={ref_x} yard={yard} side={side} increasing={increasing}) ===")
         print(f"correspondences: {len(corrs)}  ", [c[0] for c in corrs])
 
@@ -142,6 +142,36 @@ def main(
                         (int(u) + 8, int(v)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
         cv2.imwrite(str(corr_png), vis)
         print(f"  saved correspondence viz: {corr_png}")
+
+        # Definitive check: project the WHOLE canonical field (every yard line +
+        # both hash rows) through the recovered homography back onto the frame.
+        # If the cyan grid lands on the real painted lines/hashes, calibration is
+        # correct; drift = wrong. Far stronger than the few labeled points.
+        if out_state.homography is not None:
+            import numpy as np
+
+            from nfl_gsplat.calibration.field_landmarks import (
+                HALF_WIDTH_M, HASH_OFFSET_M, YARD_LINE_SPACING_M,
+            )
+            Hm = out_state.homography
+            grid = annot.copy()
+
+            def to_img(X, Y):
+                p = cv2.perspectiveTransform(np.array([[[X, Y]]], np.float64), Hm).reshape(2)
+                return (int(round(p[0])), int(round(p[1])))
+            # yard lines every 5 yd from −50 to +50, drawn sideline-to-sideline
+            for k in range(-10, 11):
+                X = k * YARD_LINE_SPACING_M
+                cv2.line(grid, to_img(X, +HALF_WIDTH_M), to_img(X, -HALF_WIDTH_M),
+                         (255, 200, 0), 1, cv2.LINE_AA)
+            # two hash rows spanning the drawn X range
+            xspan = 10 * YARD_LINE_SPACING_M
+            for Y in (+HASH_OFFSET_M, -HASH_OFFSET_M):
+                cv2.line(grid, to_img(-xspan, Y), to_img(+xspan, Y), (255, 120, 0), 1, cv2.LINE_AA)
+            grid_png = out_dir / f"diag_{tag}_field.png"
+            cv2.imwrite(str(grid_png), grid)
+            print(f"  saved field-overlay (cyan = predicted field): {grid_png}")
+
         if len(corrs) < 6:
             print("  too few correspondences (<6) — need cleaner lines/hashes or a better hint")
         else:
