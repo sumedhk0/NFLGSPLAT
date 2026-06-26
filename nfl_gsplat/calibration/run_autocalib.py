@@ -32,6 +32,19 @@ def _longest_gap_range(valid: np.ndarray) -> tuple[int, int, int]:
     return best
 
 
+def _check_ckpt_classes(ckpt_classes, schema_names):
+    """Fail loud if a checkpoint's landmark class list doesn't match the schema —
+    otherwise model channels map to the wrong landmark names (silent wrong calib)."""
+    from nfl_gsplat.errors import SetupError
+    if list(ckpt_classes) != list(schema_names):
+        raise SetupError(
+            "model checkpoint landmark classes do not match the schema "
+            f"(yard window). Checkpoint has {len(ckpt_classes)} classes, schema has "
+            f"{len(schema_names)}. Re-run with the SAME --yard-min/--yard-max used at "
+            "training time (see SETUP.md §3)."
+        )
+
+
 def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> CameraTrack:
     """Stack per-frame CalibrationResults (None = gap) into a CameraTrack.
 
@@ -117,6 +130,80 @@ def _register_sequence(feats_by_frame, hint, image_size):
         if st.homography is not None:
             prior = st
     return results
+
+
+def _register_corrs(corrs, image_size, *, max_reproj_px=6.0, min_landmarks=6):
+    """One frame's correspondences → CalibrationResult|None (gap)."""
+    from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_correspondences
+    from nfl_gsplat.errors import CalibrationError
+    if len(corrs) < min_landmarks:
+        return None
+    try:
+        return solve_pnp_from_correspondences(
+            corrs, image_size=image_size, max_reproj_px=max_reproj_px,
+            min_landmarks=min_landmarks)
+    except CalibrationError:
+        return None
+
+
+def _register_sequence_learned(frames, *, detector, image_size,
+                               max_reproj_px=6.0, min_landmarks=6):
+    """Per-frame: detector(frame)->[(name,(u,v))] → PnP. No hint/consensus needed
+    (the learned detector outputs labeled, well-spread correspondences)."""
+    results = []
+    for fr in frames:
+        if fr is None:
+            results.append(None); continue
+        results.append(_register_corrs(detector(fr), image_size,
+                                       max_reproj_px=max_reproj_px,
+                                       min_landmarks=min_landmarks))
+    return results
+
+
+def build_autocalib_npz_learned(*, play_dir, videos, fps, model_ckpt, yard_min,
+                                yard_max, conf_thresh=0.5, in_hw=(540, 960), heat_stride=4):
+    """Learned-mode calibration: a trained LandmarkNet drives per-frame PnP."""
+    import torch
+
+    from nfl_gsplat.landmarks.infer import detect_landmarks, landmarks_to_correspondences, run_model
+    from nfl_gsplat.landmarks.model import LandmarkNet
+    from nfl_gsplat.landmarks.schema import LandmarkSchema
+    from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
+
+    # FIX 3: fail loud on missing checkpoint before trying torch.load
+    from pathlib import Path as _P
+    if not _P(model_ckpt).exists():
+        from nfl_gsplat.errors import SetupError
+        raise SetupError(
+            f"model checkpoint not found: {model_ckpt} — train one first "
+            "(sbatch scripts/train_landmarks.sbatch ...). See SETUP.md §3."
+        )
+
+    schema = LandmarkSchema(yard_min=yard_min, yard_max=yard_max)
+    st = torch.load(model_ckpt, map_location="cpu")
+
+    # FIX 1: validate checkpoint classes against schema before loading weights
+    _check_ckpt_classes(st["classes"], schema.class_names())
+
+    net = LandmarkNet(schema.num_classes)
+    net.load_state_dict(st["net"])
+    tracks = {}
+    for cam, video in videos.items():
+        meta = ffprobe_meta(video)
+
+        def detector(bgr, _net=net, _meta=meta):
+            hm = run_model(_net, bgr, in_hw=in_hw)
+            dets = detect_landmarks(hm, schema, src_hw=(_meta.height, _meta.width),
+                                    in_hw=in_hw, heat_stride=heat_stride, conf_thresh=conf_thresh)
+            return landmarks_to_correspondences(dets, schema)
+
+        # FIX 2: detect and discard each frame inline — no full-res frame buffer
+        results = [None] * meta.num_frames
+        for fidx, fr in iter_frames(video, start_frame=0):
+            if 0 <= fidx < meta.num_frames:
+                results[fidx] = _register_corrs(detector(fr), (meta.width, meta.height))
+        tracks[cam] = assemble_track_from_results(results, width=meta.width, height=meta.height)
+    return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
 
 
 def build_autocalib_npz(*, play_dir, videos, fps, hints, cfg=None, masks_provider=None):

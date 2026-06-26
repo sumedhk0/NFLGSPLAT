@@ -84,3 +84,39 @@ def test_sweep_seeds_and_propagates(monkeypatch):
     assert all(r is not None for r in results)   # seeded at ref, propagated both ways
     # after the ref frame, propagation carries the stub state's homography forward
     assert any(p.homography is not None for p in seen_priors[1:])
+
+
+def test_check_ckpt_classes_mismatch_raises():
+    import pytest
+    from nfl_gsplat.calibration.run_autocalib import _check_ckpt_classes
+    from nfl_gsplat.errors import SetupError
+    _check_ckpt_classes(["a", "b"], ["a", "b"])          # match → no raise
+    with pytest.raises(SetupError, match="do not match"):
+        _check_ckpt_classes(["a", "b"], ["a", "c"])
+
+
+def test_learned_register_sequence_with_stub_detector():
+    import numpy as np
+    from nfl_gsplat.calibration import run_autocalib as ra
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M, NUMBER_BOTTOM_Y_M, _yardline_x_m
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
+
+    intr = CameraIntrinsics(1400.0, 1400.0, 960, 540, 1920, 1080)
+    R = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], float)
+    pose = CameraPose(R=R, t=np.array([0.0, 6.0, 55.0]))
+    pts = {}
+    for y in [20, 30, 40]:
+        for lr, sgn in (("left", +1), ("right", -1)):
+            for tag, Y in (("hash", sgn * HASH_OFFSET_M),
+                           ("number_bottom", sgn * NUMBER_BOTTOM_Y_M)):
+                name = f"away_{y}_{lr}_{tag}"
+                X = _yardline_x_m(f"away_{y}")
+                uv = project_points(np.array([[X, Y, 0.0]]), intr.K(), pose.R, pose.t)[0]
+                pts[name] = (float(uv[0]), float(uv[1]))
+
+    def stub_detector(frame_bgr):
+        return list(pts.items())
+
+    results = ra._register_sequence_learned(
+        ["f0", "f1", "f2"], detector=stub_detector, image_size=(1920, 1080))
+    assert len(results) == 3 and all(r is not None for r in results)

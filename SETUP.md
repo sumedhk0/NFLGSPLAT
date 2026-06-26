@@ -117,6 +117,43 @@ Writes `<play-dir>/cameras.npz`. **Fails loudly** if a long run of consecutive f
 
 > **Note:** number-OCR was replaced by the hint because painted numbers are not reliably OCR-able on this footage. The keyframe+tracking path (`02_calibrate_cameras.py` + `02b_track_calibration.py`) remains as a fallback. The YOLO player-mask wiring for line de-cluttering is finalized at bring-up.
 
+### Learned calibration (field-landmark detector)
+
+If you have labelled training data and a trained `LandmarkNet`, the learned path
+bypasses the hint/consensus flow entirely — the network outputs named, spread
+correspondences directly, so no `calib_hints` block is required in `meta.yaml`.
+
+1. **Label ~100–150 frames/clip** (one pass per distinct camera angle):
+
+   ```bash
+   python scripts/label_landmarks.py \
+       --video sideline.mp4 --out labels/sideline.json
+   ```
+
+2. **Train on embers** (preemptible; resumes from `ckpt_last.pt` on requeue):
+
+   ```bash
+   sbatch scripts/train_landmarks.sbatch \
+       labels/sideline.json frames_dir/ out/landmarks/ <yard_min> <yard_max>
+   ```
+
+3. **Run learned autocalibration:**
+
+   ```bash
+   python scripts/02_autocalibrate.py \
+       --play-dir data/2024/week_01/NO_at_ATL/play_001 \
+       --mode learned \
+       --model-ckpt out/landmarks/ckpt_best.pt
+   ```
+
+4. **Validate** with the field-overlay diagnostic:
+
+   ```bash
+   python scripts/diag_calib.py \
+       --play-dir data/2024/week_01/NO_at_ATL/play_001 \
+       --frame 0 --cam sideline --out-dir ~/scratch/diag
+   ```
+
 ### Manual fallback (if automatic registration fails loud on a clip)
 
 The original two-step interactive path is kept as a fallback:

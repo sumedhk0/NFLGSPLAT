@@ -57,6 +57,9 @@ HASH_OFFSET_M: float = 2.8194        # 9.25 ft from centerline
 YARD_TO_M: float = 0.9144
 YARD_LINE_SPACING_M: float = 5.0 * YARD_TO_M                 # 4.572
 
+NUMBER_BOTTOM_Y_M: float = HALF_WIDTH_M - 12.0 * YARD_TO_M   # 13.4112 (12 yd from sideline)
+NUMBER_TOP_Y_M: float = NUMBER_BOTTOM_Y_M + 6.0 * 0.3048     # 15.24  (numbers are 6 ft tall)
+
 # Goal lines are at the far edges of the playing field, i.e.
 #   X = ± (HALF_LENGTH_M − ENDZONE_DEPTH_M) = ± 45.72
 GOAL_LINE_X_M: float = HALF_LENGTH_M - ENDZONE_DEPTH_M       # 45.720
@@ -105,6 +108,16 @@ def _build_landmarks() -> dict[str, np.ndarray]:
         lm[f"{yl}_right_sideline"] = np.array([x, -HALF_WIDTH_M, 0.0])
         lm[f"{yl}_left_hash"]      = np.array([x, +HASH_OFFSET_M, 0.0])
         lm[f"{yl}_right_hash"]     = np.array([x, -HASH_OFFSET_M, 0.0])
+
+    # Painted field numbers (only at 10/20/30/40 and mid-50), centered on the yard
+    # line. Top/bottom anchors give Y far from the hashes → vertical conditioning.
+    number_yls = ["away_10", "away_20", "away_30", "away_40", "mid_50",
+                  "home_40", "home_30", "home_20", "home_10"]
+    for yl in number_yls:
+        x = _yardline_x_m(yl)
+        for sgn, lr in [(+1.0, "left"), (-1.0, "right")]:
+            lm[f"{yl}_{lr}_number_bottom"] = np.array([x, sgn * NUMBER_BOTTOM_Y_M, 0.0])
+            lm[f"{yl}_{lr}_number_top"]    = np.array([x, sgn * NUMBER_TOP_Y_M, 0.0])
 
     # End line × sideline corners (back of each endzone).
     for sx, sx_name in [(+HALF_LENGTH_M, "home"), (-HALF_LENGTH_M, "away")]:
