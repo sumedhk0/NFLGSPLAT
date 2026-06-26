@@ -119,6 +119,62 @@ def _register_sequence(feats_by_frame, hint, image_size):
     return results
 
 
+def _register_sequence_learned(frames, *, detector, image_size,
+                               max_reproj_px=6.0, min_landmarks=6):
+    """Per-frame: detector(frame)->[(name,(u,v))] → PnP. No hint/consensus needed
+    (the learned detector outputs labeled, well-spread correspondences)."""
+    from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_correspondences
+    from nfl_gsplat.errors import CalibrationError
+
+    results = []
+    for fr in frames:
+        if fr is None:
+            results.append(None); continue
+        corrs = detector(fr)
+        if len(corrs) < min_landmarks:
+            results.append(None); continue
+        try:
+            results.append(solve_pnp_from_correspondences(
+                corrs, image_size=image_size, max_reproj_px=max_reproj_px,
+                min_landmarks=min_landmarks))
+        except CalibrationError:
+            results.append(None)
+    return results
+
+
+def build_autocalib_npz_learned(*, play_dir, videos, fps, model_ckpt, yard_min,
+                                yard_max, conf_thresh=0.5, in_hw=(540, 960), heat_stride=4):
+    """Learned-mode calibration: a trained LandmarkNet drives per-frame PnP."""
+    import torch
+
+    from nfl_gsplat.landmarks.infer import detect_landmarks, landmarks_to_correspondences, run_model
+    from nfl_gsplat.landmarks.model import LandmarkNet
+    from nfl_gsplat.landmarks.schema import LandmarkSchema
+    from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
+
+    schema = LandmarkSchema(yard_min=yard_min, yard_max=yard_max)
+    st = torch.load(model_ckpt, map_location="cpu")
+    net = LandmarkNet(schema.num_classes)
+    net.load_state_dict(st["net"])
+    tracks = {}
+    for cam, video in videos.items():
+        meta = ffprobe_meta(video)
+
+        def detector(bgr, _net=net, _meta=meta):
+            hm = run_model(_net, bgr, in_hw=in_hw)
+            dets = detect_landmarks(hm, schema, src_hw=(_meta.height, _meta.width),
+                                    in_hw=in_hw, heat_stride=heat_stride, conf_thresh=conf_thresh)
+            return landmarks_to_correspondences(dets, schema)
+        frames = [None] * meta.num_frames
+        for fidx, fr in iter_frames(video, start_frame=0):
+            if 0 <= fidx < meta.num_frames:
+                frames[fidx] = fr
+        results = _register_sequence_learned(frames, detector=detector,
+                                             image_size=(meta.width, meta.height))
+        tracks[cam] = assemble_track_from_results(results, width=meta.width, height=meta.height)
+    return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
+
+
 def build_autocalib_npz(*, play_dir, videos, fps, hints, cfg=None, masks_provider=None):
     """Detect+register every frame of each camera using its CalibHint → cameras.npz."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig, detect_field_features
