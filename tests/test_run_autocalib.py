@@ -98,7 +98,7 @@ def test_check_ckpt_classes_mismatch_raises():
 def test_learned_register_sequence_with_stub_detector():
     import numpy as np
     from nfl_gsplat.calibration import run_autocalib as ra
-    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M, NUMBER_BOTTOM_Y_M, _yardline_x_m
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M, NUMBER_CENTER_Y_M, _yardline_x_m
     from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
 
     intr = CameraIntrinsics(1400.0, 1400.0, 960, 540, 1920, 1080)
@@ -108,7 +108,7 @@ def test_learned_register_sequence_with_stub_detector():
     for y in [20, 30, 40]:
         for lr, sgn in (("left", +1), ("right", -1)):
             for tag, Y in (("hash", sgn * HASH_OFFSET_M),
-                           ("number_bottom", sgn * NUMBER_BOTTOM_Y_M)):
+                           ("number", sgn * NUMBER_CENTER_Y_M)):
                 name = f"away_{y}_{lr}_{tag}"
                 X = _yardline_x_m(f"away_{y}")
                 uv = project_points(np.array([[X, Y, 0.0]]), intr.K(), pose.R, pose.t)[0]

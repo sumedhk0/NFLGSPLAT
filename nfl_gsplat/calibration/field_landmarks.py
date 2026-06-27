@@ -59,6 +59,11 @@ YARD_LINE_SPACING_M: float = 5.0 * YARD_TO_M                 # 4.572
 
 NUMBER_BOTTOM_Y_M: float = HALF_WIDTH_M - 12.0 * YARD_TO_M   # 13.4112 (12 yd from sideline)
 NUMBER_TOP_Y_M: float = NUMBER_BOTTOM_Y_M + 6.0 * 0.3048     # 15.24  (numbers are 6 ft tall)
+# Single number anchor = the painted number's CENTER. Avoids the top/bottom
+# labeling ambiguity (the two sidelines' numbers face opposite directions, so
+# "visual top" flips between sides); the center is unambiguous and Y≈14.3 m still
+# gives the vertical spread that conditions the homography.
+NUMBER_CENTER_Y_M: float = 0.5 * (NUMBER_BOTTOM_Y_M + NUMBER_TOP_Y_M)   # 14.3256
 
 # Goal lines are at the far edges of the playing field, i.e.
 #   X = ± (HALF_LENGTH_M − ENDZONE_DEPTH_M) = ± 45.72
@@ -116,8 +121,7 @@ def _build_landmarks() -> dict[str, np.ndarray]:
     for yl in number_yls:
         x = _yardline_x_m(yl)
         for sgn, lr in [(+1.0, "left"), (-1.0, "right")]:
-            lm[f"{yl}_{lr}_number_bottom"] = np.array([x, sgn * NUMBER_BOTTOM_Y_M, 0.0])
-            lm[f"{yl}_{lr}_number_top"]    = np.array([x, sgn * NUMBER_TOP_Y_M, 0.0])
+            lm[f"{yl}_{lr}_number"] = np.array([x, sgn * NUMBER_CENTER_Y_M, 0.0])
 
     # End line × sideline corners (back of each endzone).
     for sx, sx_name in [(+HALF_LENGTH_M, "home"), (-HALF_LENGTH_M, "away")]:
