@@ -6,12 +6,15 @@ and draws them so we can judge (a) does it detect well on our All-22 footage and
 (b) do its keypoints carry yard-line identity that maps to NFL field coordinates.
 
 Setup (run locally on Windows, where the frames + internet are):
-    pip install inference opencv-python
+    pip install inference-sdk opencv-python          # lightweight HTTP client, no torch
     # free API key from roboflow.com  → Settings → API Keys
     set ROBOFLOW_API_KEY=your_key
     # find the exact model id+version on the project's "Deploy" tab, e.g.:
-    #   football-field-key-points-mvmjf/1
-    python scripts/eval_pretrained_keypoints.py <frame_or_dir> --model-id football-field-key-points-mvmjf/1
+    #   football-field-key-points-mvmjf/2
+    python scripts/eval_pretrained_keypoints.py <frame_or_dir> --model-id football-field-key-points-mvmjf/2
+
+Uses Roboflow's hosted inference (runs on their servers); images are sent to the
+API. This is a one-off evaluation, not the production path.
 """
 from __future__ import annotations
 
@@ -50,16 +53,17 @@ def _extract_keypoints(pred):
 def main():
     ap = argparse.ArgumentParser(description="Eval a pretrained Roboflow keypoint model on our frames")
     ap.add_argument("images", help="a frame image or a directory of frames")
-    ap.add_argument("--model-id", required=True, help="e.g. football-field-key-points-mvmjf/1")
+    ap.add_argument("--model-id", required=True, help="e.g. football-field-key-points-mvmjf/2")
     ap.add_argument("--api-key", default=os.environ.get("ROBOFLOW_API_KEY"))
+    ap.add_argument("--api-url", default="https://detect.roboflow.com")
     ap.add_argument("--out-dir", default="kp_eval")
     ap.add_argument("--conf", type=float, default=0.3)
     args = ap.parse_args()
     if not args.api_key:
         raise SystemExit("Set ROBOFLOW_API_KEY (free at roboflow.com → Settings → API Keys) or pass --api-key")
 
-    from inference import get_model
-    model = get_model(model_id=args.model_id, api_key=args.api_key)
+    from inference_sdk import InferenceHTTPClient
+    client = InferenceHTTPClient(api_url=args.api_url, api_key=args.api_key)
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -69,7 +73,7 @@ def main():
         img = cv2.imread(str(img_path))
         if img is None:
             continue
-        res = model.infer(str(img_path), confidence=args.conf)
+        res = client.infer(str(img_path), model_id=args.model_id)
         r = res[0] if isinstance(res, list) else res
         if not dumped:                         # one-time structure dump to adapt parsing if needed
             print(f"[debug] response type: {type(r).__name__}; repr: {repr(r)[:400]}\n")
