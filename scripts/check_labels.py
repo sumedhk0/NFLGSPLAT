@@ -17,7 +17,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from nfl_gsplat.calibration.field_homography import fit_plane_homography
 from nfl_gsplat.calibration.field_landmarks import (
     HALF_WIDTH_M, HASH_OFFSET_M, NFL_LANDMARKS, YARD_LINE_SPACING_M,
 )
@@ -63,15 +62,20 @@ def main():
         if len(pts) < 4:
             print(f"{rec['file']}: only {len(pts)} pts (need >=4) — skipped")
             continue
-        H = fit_plane_homography(world, image)
+        # RANSAC: robust to a few bad clicks, and the inlier mask names the bad ones.
+        H, mask = cv2.findHomography(world, image, cv2.RANSAC, 5.0)
         if H is None:
             print(f"{rec['file']}: homography failed")
             continue
+        inl = mask.ravel().astype(bool)
         proj = cv2.perspectiveTransform(world.reshape(-1, 1, 2), H).reshape(-1, 2)
         res = np.linalg.norm(proj - image, axis=1)
-        residuals.append(float(np.median(res)))
-        print(f"{rec['file']}: {len(pts)} pts ({n_num} number) | "
-              f"median {np.median(res):.2f}px  max {res.max():.1f}px")
+        residuals.append(float(np.median(res[inl])))
+        outliers = [f"{names[i]}({res[i]:.0f}px)" for i in range(len(names)) if not inl[i]]
+        print(f"{rec['file']}: {len(pts)} pts ({n_num} number) | inliers {inl.sum()}/{len(pts)} | "
+              f"median(inliers) {np.median(res[inl]):.2f}px")
+        if outliers:
+            print(f"    OUTLIERS (likely mislabeled): {', '.join(outliers)}")
         img = cv2.imread(str(frames_dir / rec["file"]))
         if img is not None:
             vis = _overlay(img, H)
