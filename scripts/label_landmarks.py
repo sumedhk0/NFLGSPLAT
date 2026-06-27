@@ -74,15 +74,31 @@ def main():
     frame_indices = sample_frame_indices(total_frames, args.count)
     print(f"Sampling {len(frame_indices)} frames from {total_frames} total.")
 
+    label_path = out / "labels.json"
+    # Resume: load any frames already labeled in a prior run and skip them.
     frame_records = []
     img_w = img_h = None
+    if label_path.exists():
+        prev = json.loads(label_path.read_text())
+        frame_records = list(prev.get("frames", []))
+        if prev.get("image_size"):
+            img_w, img_h = prev["image_size"]
+        print(f"Resuming: {len(frame_records)} frame(s) already labeled — skipping those.")
+    done_files = {rec["file"] for rec in frame_records}
+
+    def _save():
+        label_path.write_text(
+            json.dumps({"image_size": [img_w, img_h], "frames": frame_records}, indent=2)
+        )
 
     for fi in frame_indices:
+        fname = f"f{fi:05d}.png"
+        if fname in done_files:
+            continue                                     # already labeled (resume)
         w, h, bgr = _extract_frame(cap, fi)
         if img_w is None:
             img_w, img_h = w, h
 
-        fname = f"f{fi:05d}.png"
         fpath = frames_dir / fname
         cv2.imwrite(str(fpath), bgr)
 
@@ -104,19 +120,17 @@ def main():
 
         if points:
             frame_records.append(build_label_record(fname, points))
-            print(f"  saved {len(points)} point(s) for frame {fi}")
+            done_files.add(fname)
+            _save()                                      # incremental: persist after each frame
+            print(f"  saved {len(points)} point(s) for frame {fi}  (labels.json updated)")
         else:
             print(f"  no points placed for frame {fi}, skipping record")
 
     cap.release()
 
-    if img_w is None:
+    if img_w is None and not frame_records:
         raise RuntimeError("No frames were processed.")
-
-    label_path = out / "labels.json"
-    label_path.write_text(
-        json.dumps({"image_size": [img_w, img_h], "frames": frame_records}, indent=2)
-    )
+    _save()
     print(f"\nWrote {len(frame_records)} frame record(s) → {label_path}")
 
 

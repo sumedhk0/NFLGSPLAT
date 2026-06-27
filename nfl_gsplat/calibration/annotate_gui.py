@@ -132,6 +132,13 @@ def annotate_frame(
         remaining = [n for n in name_list if n not in placed]
         view = _draw_hud(img, name_list[idx], placed, remaining)
         cv2.imshow(window_title, view)
+        # If the window was closed (WM X button / stray key), don't hang or lose
+        # the current frame — treat it as save & continue (return placed points).
+        try:
+            if cv2.getWindowProperty(window_title, cv2.WND_PROP_VISIBLE) < 1:
+                break
+        except cv2.error:
+            break
         key = cv2.waitKey(20) & 0xFF
         if key in (ord("q"), 27):
             cv2.destroyAllWindows()
