@@ -40,7 +40,12 @@ def main():
     ap.add_argument("--count", type=int, default=20,
                     help="Number of frames to sample (default: 20)")
     ap.add_argument("--names", nargs="+", default=None,
-                    help="Landmark names to annotate (default: DEFAULT_PRESET)")
+                    help="Explicit landmark names to annotate (overrides --yard-min/max)")
+    ap.add_argument("--yard-min", type=float, default=None,
+                    help="World-X min (m); auto-selects all landmarks in the window "
+                         "(hashes + number anchors + sidelines) — use the SAME window at train time")
+    ap.add_argument("--yard-max", type=float, default=None,
+                    help="World-X max (m); pair with --yard-min")
     args = ap.parse_args()
 
     clip = Path(args.clip)
@@ -49,10 +54,17 @@ def main():
     frames_dir.mkdir(parents=True, exist_ok=True)
 
     all_names = list_landmark_names()
-    name_list: list[str] = args.names if args.names else list(DEFAULT_PRESET)
+    if args.names:
+        name_list = list(args.names)
+    elif args.yard_min is not None and args.yard_max is not None:
+        from nfl_gsplat.landmarks.schema import LandmarkSchema
+        name_list = LandmarkSchema(yard_min=args.yard_min, yard_max=args.yard_max).class_names()
+    else:
+        name_list = list(DEFAULT_PRESET)
     for n in name_list:
         if n not in all_names:
             raise ValueError(f"unknown landmark name: {n!r}")
+    print(f"Annotating {len(name_list)} landmark classes.")
 
     cap = cv2.VideoCapture(str(clip))
     if not cap.isOpened():
