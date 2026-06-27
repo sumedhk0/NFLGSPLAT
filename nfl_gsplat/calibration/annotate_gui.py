@@ -120,6 +120,12 @@ def annotate_frame(
                     break
 
     cv2.namedWindow(window_title, cv2.WINDOW_NORMAL)
+    # Realize the window before attaching the mouse callback. Some OpenCV Qt builds
+    # (notably over VNC / X-forwarding) don't create the underlying window until the
+    # first imshow, so setMouseCallback right after namedWindow fails with a
+    # "NULL window handler". A throwaway imshow+waitKey forces the window to exist.
+    cv2.imshow(window_title, img)
+    cv2.waitKey(1)
     cv2.setMouseCallback(window_title, _on_mouse)
 
     while True:
