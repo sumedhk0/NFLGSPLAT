@@ -57,7 +57,8 @@ def main():
     ap.add_argument("--api-key", default=os.environ.get("ROBOFLOW_API_KEY"))
     ap.add_argument("--api-url", default="https://detect.roboflow.com")
     ap.add_argument("--out-dir", default="kp_eval")
-    ap.add_argument("--conf", type=float, default=0.3)
+    ap.add_argument("--conf", type=float, default=0.3, help="detection confidence")
+    ap.add_argument("--kp-conf", type=float, default=0.5, help="per-keypoint confidence to keep")
     args = ap.parse_args()
     if not args.api_key:
         raise SystemExit("Set ROBOFLOW_API_KEY (free at roboflow.com → Settings → API Keys) or pass --api-key")
@@ -78,19 +79,26 @@ def main():
         if not dumped:                         # one-time structure dump to adapt parsing if needed
             print(f"[debug] response type: {type(r).__name__}; repr: {repr(r)[:400]}\n")
             dumped = True
+        H, W = img.shape[:2]
         preds = _get(r, "predictions") or []
-        n_kp = 0
+        kept = []
         for pred in preds:
             for (name, x, y, conf) in _extract_keypoints(pred):
-                if x is None or y is None:
+                if x is None or y is None or conf is None:
                     continue
-                n_kp += 1
+                # keep only confident, in-image keypoints (drop the skeleton's
+                # "not visible" garbage points YOLO-pose emits off-frame at ~0 conf)
+                if conf < args.kp_conf or not (0 <= x <= W and 0 <= y <= H):
+                    continue
+                kept.append((name, float(x), float(y), float(conf)))
                 all_names[name] = all_names.get(name, 0) + 1
                 cv2.circle(img, (int(x), int(y)), 5, (0, 255, 255), 2)
                 cv2.putText(img, str(name), (int(x) + 6, int(y)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1, cv2.LINE_AA)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
         cv2.imwrite(str(out / f"kp_{img_path.name}"), img)
-        print(f"{img_path.name}: {n_kp} keypoints")
+        print(f"\n{img_path.name}: {len(kept)} confident keypoints (>= {args.kp_conf}):")
+        for (name, x, y, conf) in sorted(kept):
+            print(f"    {name:18s} ({x:7.1f}, {y:7.1f})  conf {conf:.2f}")
 
     print("\nKeypoint classes seen (name: count across frames):")
     for name, c in sorted(all_names.items()):
