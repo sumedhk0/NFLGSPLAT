@@ -38,6 +38,51 @@ def _get(obj, key, default=None):
     return getattr(obj, key, default)
 
 
+def _to_nfl_name(model_name, territory):
+    """Map a model keypoint class (e.g. '30-top-hash', '20', '50-bottom-sl') to an
+    NFL_LANDMARKS name, or None if unmappable (goalline/FG-POST/endzone)."""
+    parts = model_name.split("-")
+    yard = parts[0]
+    if not yard.isdigit():
+        return None
+    yard = int(yard)
+    base = "mid_50" if yard == 50 else f"{territory}_{yard}"
+    rest = parts[1:]
+    table = {
+        (): ("left", "number"),                 # "30"        → top number
+        ("bottom",): ("right", "number"),       # "30-bottom" → bottom number
+        ("top", "hash"): ("left", "hash"),
+        ("bottom", "hash"): ("right", "hash"),
+        ("top", "sl"): ("left", "sideline"),
+        ("bottom", "sl"): ("right", "sideline"),
+    }
+    key = tuple(rest)
+    if key not in table:
+        return None
+    lr, typ = table[key]
+    return f"{base}_{lr}_{typ}"
+
+
+def _draw_field_grid(img, H):
+    from nfl_gsplat.calibration.field_landmarks import (
+        HALF_WIDTH_M, HASH_OFFSET_M, YARD_LINE_SPACING_M,
+    )
+    import numpy as np
+    out = img.copy()
+
+    def to_img(X, Y):
+        p = cv2.perspectiveTransform(np.array([[[X, Y]]], np.float64), H).reshape(2)
+        return (int(round(p[0])), int(round(p[1])))
+
+    for k in range(-10, 11):
+        X = k * YARD_LINE_SPACING_M
+        cv2.line(out, to_img(X, +HALF_WIDTH_M), to_img(X, -HALF_WIDTH_M), (255, 200, 0), 1, cv2.LINE_AA)
+    xs = 10 * YARD_LINE_SPACING_M
+    for Y in (+HASH_OFFSET_M, -HASH_OFFSET_M):
+        cv2.line(out, to_img(-xs, Y), to_img(xs, Y), (255, 120, 0), 1, cv2.LINE_AA)
+    return out
+
+
 def _extract_keypoints(pred):
     """(name, x, y, conf) list from one prediction, tolerant of dict/obj formats."""
     kps = _get(pred, "keypoints") or []
@@ -59,6 +104,8 @@ def main():
     ap.add_argument("--out-dir", default="kp_eval")
     ap.add_argument("--conf", type=float, default=0.3, help="detection confidence")
     ap.add_argument("--kp-conf", type=float, default=0.5, help="per-keypoint confidence to keep")
+    ap.add_argument("--territory", default="home", choices=["home", "away"],
+                    help="which side of the 50 the visible numbers are (global; mirror-resolved later)")
     args = ap.parse_args()
     if not args.api_key:
         raise SystemExit("Set ROBOFLOW_API_KEY (free at roboflow.com → Settings → API Keys) or pass --api-key")
@@ -99,6 +146,32 @@ def main():
         print(f"\n{img_path.name}: {len(kept)} confident keypoints (>= {args.kp_conf}):")
         for (name, x, y, conf) in sorted(kept):
             print(f"    {name:18s} ({x:7.1f}, {y:7.1f})  conf {conf:.2f}")
+
+        # Decisive test: map keypoints → NFL coords, fit a homography, overlay the
+        # predicted field. If the cyan grid tracks the painted field, the pretrained
+        # model is good enough to skip labeling/training.
+        import numpy as np
+        from nfl_gsplat.calibration.field_landmarks import NFL_LANDMARKS
+        world, image_uv = [], []
+        for (name, x, y, _conf) in kept:
+            nfl = _to_nfl_name(name, args.territory)
+            if nfl is None or nfl not in NFL_LANDMARKS:
+                continue
+            world.append(NFL_LANDMARKS[nfl][:2])
+            image_uv.append([x, y])
+        if len(world) >= 4:
+            Hm, mask = cv2.findHomography(np.array(world, np.float64),
+                                          np.array(image_uv, np.float64), cv2.RANSAC, 8.0)
+            if Hm is not None:
+                inl = mask.ravel().astype(bool)
+                proj = cv2.perspectiveTransform(np.array(world, np.float64).reshape(-1, 1, 2),
+                                                Hm).reshape(-1, 2)
+                res = np.linalg.norm(proj - np.array(image_uv), axis=1)
+                print(f"   HOMOGRAPHY from {len(world)} mapped kps: inliers {int(inl.sum())}/{len(world)}"
+                      f"  median(inliers) {np.median(res[inl]):.1f}px")
+                cv2.imwrite(str(out / f"field_{img_path.name}"), _draw_field_grid(img, Hm))
+        else:
+            print(f"   only {len(world)} mappable keypoints (<4) — can't fit homography")
 
     print("\nKeypoint classes seen (name: count across frames):")
     for name, c in sorted(all_names.items()):
