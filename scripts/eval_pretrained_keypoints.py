@@ -121,6 +121,7 @@ def main():
         img = cv2.imread(str(img_path))
         if img is None:
             continue
+        clean = img.copy()                     # keep an unannotated copy for the grid overlay
         res = client.infer(str(img_path), model_id=args.model_id)
         r = res[0] if isinstance(res, list) else res
         if not dumped:                         # one-time structure dump to adapt parsing if needed
@@ -169,7 +170,10 @@ def main():
                 res = np.linalg.norm(proj - np.array(image_uv), axis=1)
                 print(f"   HOMOGRAPHY from {len(world)} mapped kps: inliers {int(inl.sum())}/{len(world)}"
                       f"  median(inliers) {np.median(res[inl]):.1f}px")
-                cv2.imwrite(str(out / f"field_{img_path.name}"), _draw_field_grid(img, Hm))
+                grid = _draw_field_grid(clean, Hm)     # cyan grid on the CLEAN frame
+                for (gx, gy) in image_uv:              # + the model's mapped points (green)
+                    cv2.circle(grid, (int(gx), int(gy)), 6, (0, 200, 0), 2)
+                cv2.imwrite(str(out / f"field_{img_path.name}"), grid)
         else:
             print(f"   only {len(world)} mappable keypoints (<4) — can't fit homography")
 
