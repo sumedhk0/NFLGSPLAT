@@ -25,8 +25,29 @@ from pathlib import Path
 import cv2
 
 
-def _iter_images(path):
+def _collect_frames(path, count, out):
+    """Frame paths to evaluate. Handles: a video (samples `count` fresh frames), a
+    directory of images, or a single image."""
     p = Path(path)
+    if p.suffix.lower() in (".mp4", ".mov", ".avi", ".mkv"):
+        from nfl_gsplat.landmarks.labeling import sample_frame_indices
+        cap = cv2.VideoCapture(str(p))
+        if not cap.isOpened():
+            raise SystemExit(f"cannot open video: {p}")
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fdir = out / "frames"
+        fdir.mkdir(parents=True, exist_ok=True)
+        paths = []
+        for i in sample_frame_indices(total, count):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            ok, frame = cap.read()
+            if ok:
+                fp = fdir / f"f{i:05d}.png"
+                cv2.imwrite(str(fp), frame)
+                paths.append(fp)
+        cap.release()
+        print(f"Sampled {len(paths)} fresh frames from {total} in {p.name}.")
+        return paths
     if p.is_dir():
         return sorted([*p.glob("*.png"), *p.glob("*.jpg")])
     return [p]
@@ -106,6 +127,7 @@ def main():
     ap.add_argument("--kp-conf", type=float, default=0.5, help="per-keypoint confidence to keep")
     ap.add_argument("--territory", default="home", choices=["home", "away"],
                     help="which side of the 50 the visible numbers are (global; mirror-resolved later)")
+    ap.add_argument("--count", type=int, default=20, help="frames to sample if input is a video")
     args = ap.parse_args()
     if not args.api_key:
         raise SystemExit("Set ROBOFLOW_API_KEY (free at roboflow.com → Settings → API Keys) or pass --api-key")
@@ -116,8 +138,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     all_names: dict[str, int] = {}
+    stats = []                                 # (n_confident, n_numbers, n_mapped, inliers)
     dumped = False
-    for img_path in _iter_images(args.images):
+    for img_path in _collect_frames(args.images, args.count, out):
         img = cv2.imread(str(img_path))
         if img is None:
             continue
@@ -160,15 +183,19 @@ def main():
                 continue
             world.append(NFL_LANDMARKS[nfl][:2])
             image_uv.append([x, y])
+        n_numbers = sum(1 for (nm, *_r) in kept if _to_nfl_name(nm, args.territory)
+                        and "number" in _to_nfl_name(nm, args.territory))
+        inliers = 0
         if len(world) >= 4:
             Hm, mask = cv2.findHomography(np.array(world, np.float64),
                                           np.array(image_uv, np.float64), cv2.RANSAC, 8.0)
             if Hm is not None:
                 inl = mask.ravel().astype(bool)
+                inliers = int(inl.sum())
                 proj = cv2.perspectiveTransform(np.array(world, np.float64).reshape(-1, 1, 2),
                                                 Hm).reshape(-1, 2)
                 res = np.linalg.norm(proj - np.array(image_uv), axis=1)
-                print(f"   HOMOGRAPHY from {len(world)} mapped kps: inliers {int(inl.sum())}/{len(world)}"
+                print(f"   HOMOGRAPHY from {len(world)} mapped kps: inliers {inliers}/{len(world)}"
                       f"  median(inliers) {np.median(res[inl]):.1f}px")
                 grid = _draw_field_grid(clean, Hm)     # cyan grid on the CLEAN frame
                 for (gx, gy) in image_uv:              # + the model's mapped points (green)
@@ -176,14 +203,25 @@ def main():
                 cv2.imwrite(str(out / f"field_{img_path.name}"), grid)
         else:
             print(f"   only {len(world)} mappable keypoints (<4) — can't fit homography")
+        stats.append((len(kept), n_numbers, len(world), inliers))
 
     print("\nKeypoint classes seen (name: count across frames):")
     for name, c in sorted(all_names.items()):
         print(f"  {name}: {c}")
-    print(f"\noverlays (yellow = detected keypoints) → {out}")
-    print("JUDGE: (1) do the dots land on real lines/hashes/numbers on OUR footage? "
-          "(2) do the class names carry yard identity (e.g. a specific yard line / hash) "
-          "that we can map to NFL field coordinates? If both yes → we skip labeling/training.")
+
+    if stats:
+        n = len(stats)
+        avg_kp = sum(s[0] for s in stats) / n
+        avg_num = sum(s[1] for s in stats) / n
+        with_num = sum(1 for s in stats if s[1] >= 1)
+        usable = sum(1 for s in stats if s[3] >= 6)        # >=6 inliers → redundant homography
+        print(f"\n=== SUMMARY over {n} frames ===")
+        print(f"  avg confident keypoints/frame: {avg_kp:.1f}")
+        print(f"  avg NUMBER detections/frame:   {avg_num:.1f}  ({with_num}/{n} frames had >=1 number)")
+        print(f"  frames with >=6 homography inliers (a redundant, trustworthy fit): {usable}/{n}")
+        print("  → many frames with numbers = HYBRID viable (model numbers anchor identity,")
+        print("    our classical hashes add density). Few numbers / <6 inliers = fine-tuning needed.")
+    print(f"\noverlays → {out}")
 
 
 if __name__ == "__main__":
