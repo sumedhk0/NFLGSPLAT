@@ -128,6 +128,8 @@ def main():
     ap.add_argument("--territory", default="home", choices=["home", "away"],
                     help="which side of the 50 the visible numbers are (global; mirror-resolved later)")
     ap.add_argument("--count", type=int, default=20, help="frames to sample if input is a video")
+    ap.add_argument("--use-sidelines", action="store_true",
+                    help="include the model's (unreliable) sideline keypoints in the fit")
     args = ap.parse_args()
     if not args.api_key:
         raise SystemExit("Set ROBOFLOW_API_KEY (free at roboflow.com → Settings → API Keys) or pass --api-key")
@@ -181,6 +183,8 @@ def main():
             nfl = _to_nfl_name(name, args.territory)
             if nfl is None or nfl not in NFL_LANDMARKS:
                 continue
+            if "sideline" in nfl and not args.use_sidelines:
+                continue                       # model's sideline kps are hallucinated off-screen
             world.append(NFL_LANDMARKS[nfl][:2])
             image_uv.append([x, y])
         n_numbers = sum(1 for (nm, *_r) in kept if _to_nfl_name(nm, args.territory)
