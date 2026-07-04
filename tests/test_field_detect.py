@@ -50,3 +50,30 @@ def test_detect_lines_masks_player_box():
     xs = [round(0.5 * (s.p0[0] + s.p1[0])) for s in masked]
     assert any(abs(x - 600) < 25 for x in xs)            # real line kept
     assert not any(abs(x - 330) < 25 for x in xs)        # jersey blob removed
+
+
+def test_merge_collinear_preserves_slope():
+    # Two pieces of the SAME slanted line (slope: x increases 100px over 400px of y).
+    from nfl_gsplat.calibration.field_detect import _merge_collinear
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    from nfl_gsplat.calibration.field_identify import line_x_at
+    a = YardLineSeg((400.0, 0.0), (450.0, 200.0))
+    b = YardLineSeg((450.0, 200.0), (500.0, 400.0))
+    merged = _merge_collinear([a, b])
+    assert len(merged) == 1
+    m = merged[0]
+    # slope preserved: x at top ~400, x at bottom ~500 (old code collapsed both to ~450)
+    assert abs(line_x_at(m, 0.0) - 400.0) < 2.0
+    assert abs(line_x_at(m, 400.0) - 500.0) < 2.0
+    # spans the union of member y-ranges
+    ys = sorted([m.p0[1], m.p1[1]])
+    assert ys[0] <= 1.0 and ys[1] >= 399.0
+
+
+def test_merge_collinear_keeps_distinct_slanted_lines_apart():
+    # Two parallel slanted lines ~60px apart must NOT merge.
+    from nfl_gsplat.calibration.field_detect import _merge_collinear
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+    a = YardLineSeg((400.0, 0.0), (500.0, 400.0))
+    b = YardLineSeg((460.0, 0.0), (560.0, 400.0))
+    assert len(_merge_collinear([a, b])) == 2

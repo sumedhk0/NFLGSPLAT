@@ -66,19 +66,41 @@ def detect_lines(
 
 
 def _merge_collinear(segs: list[YardLineSeg], x_tol: float = 18.0) -> list[YardLineSeg]:
-    """Merge near-vertical segments with similar mean-x into one spanning segment."""
-    segs = sorted(segs, key=lambda s: 0.5 * (s.p0[0] + s.p1[0]))
-    merged: list[YardLineSeg] = []
+    """Merge near-vertical segments belonging to the same painted line,
+    PRESERVING slant (real broadcast yard lines lean well off vertical; the
+    old vertical-collapse merge displaced them by tens of px mid-frame).
+
+    Grouping: segments sorted/compared by their x at the global mean-y of all
+    endpoints (a common reference row — per-segment mean-x mis-groups slanted
+    lines detected at different heights). Each group is refit by least squares
+    as x = a*y + b through all member endpoints, spanning the members' y-range.
+    """
+    if not segs:
+        return []
+    all_y = [p[1] for s in segs for p in (s.p0, s.p1)]
+    ref_y = float(np.mean(all_y))
+
+    def x_at(s: YardLineSeg, y: float) -> float:
+        (x0, y0), (x1, y1) = s.p0, s.p1
+        if abs(y1 - y0) < 1e-6:
+            return 0.5 * (x0 + x1)
+        return x0 + (y - y0) / (y1 - y0) * (x1 - x0)
+
+    segs = sorted(segs, key=lambda s: x_at(s, ref_y))
+    groups: list[list[YardLineSeg]] = []
     for s in segs:
-        x = 0.5 * (s.p0[0] + s.p1[0])
-        if merged and abs(0.5 * (merged[-1].p0[0] + merged[-1].p1[0]) - x) < x_tol:
-            prev = merged[-1]
-            ys = [prev.p0[1], prev.p1[1], s.p0[1], s.p1[1]]
-            xs = [prev.p0[0], prev.p1[0], s.p0[0], s.p1[0]]
-            mx = float(np.mean(xs))
-            merged[-1] = YardLineSeg((mx, float(min(ys))), (mx, float(max(ys))))
+        if groups and abs(x_at(groups[-1][-1], ref_y) - x_at(s, ref_y)) < x_tol:
+            groups[-1].append(s)
         else:
-            merged.append(s)
+            groups.append([s])
+
+    merged: list[YardLineSeg] = []
+    for g in groups:
+        pts = np.array([p for s in g for p in (s.p0, s.p1)], dtype=np.float64)
+        A = np.stack([pts[:, 1], np.ones(len(pts))], axis=1)
+        a, b = np.linalg.lstsq(A, pts[:, 0], rcond=None)[0]
+        y0, y1 = float(pts[:, 1].min()), float(pts[:, 1].max())
+        merged.append(YardLineSeg((float(a * y0 + b), y0), (float(a * y1 + b), y1)))
     return merged
 
 
