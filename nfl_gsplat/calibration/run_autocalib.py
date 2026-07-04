@@ -10,7 +10,9 @@ from pathlib import Path
 import numpy as np
 
 from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
+from nfl_gsplat.calibration.field_detect import detect_field_features
 from nfl_gsplat.calibration.field_identify import seed_state_from_hint
+from nfl_gsplat.calibration.fuse_pretrained import fuse_frame
 from nfl_gsplat.calibration.register_frame import register_frame
 from nfl_gsplat.errors import CalibrationError
 
@@ -206,9 +208,60 @@ def build_autocalib_npz_learned(*, play_dir, videos, fps, model_ckpt, yard_min,
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
 
 
+def _register_sequence_pretrained(frames, *, kps_by_frame, territory, image_size,
+                                  cfg=None, boxes_for=None):
+    """Per frame: classical detect + cached model kps -> fuse -> PnP.
+    Frames without cached keypoints (or unreadable) are gaps (None)."""
+    from nfl_gsplat.calibration.field_detect import FieldDetectConfig
+    cfg = cfg or FieldDetectConfig()
+    boxes_for = boxes_for or (lambda f: [])
+    results = []
+    for fidx, fr in enumerate(frames):
+        kps = kps_by_frame.get(fidx, [])
+        if fr is None or not kps:
+            results.append(None)
+            continue
+        feats = detect_field_features(fr, cfg=cfg, player_boxes=boxes_for(fidx))
+        corrs = fuse_frame(feats.yard_lines, feats.hashes, kps,
+                           territory=territory, image_size=image_size)
+        results.append(_register_corrs(corrs, image_size))
+    return results
+
+
+def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory,
+                                   cfg=None, masks_provider=None):
+    """Pretrained-hybrid calibration: cached Roboflow identity + repaired
+    classical geometry -> per-frame PnP -> cameras.npz. No GPU, no training."""
+    from nfl_gsplat.calibration.roboflow_kps import load_kps_json
+    from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
+
+    tracks = {}
+    for cam, video in videos.items():
+        meta = ffprobe_meta(video)
+        kps_by_frame = load_kps_json(kps_json, expect_num_frames=meta.num_frames)
+        boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
+        results = [None] * meta.num_frames
+        from nfl_gsplat.calibration.field_detect import FieldDetectConfig
+        _cfg = cfg or FieldDetectConfig()
+        for fidx, fr in iter_frames(video, start_frame=0):
+            if not (0 <= fidx < meta.num_frames):
+                continue
+            kps = kps_by_frame.get(fidx, [])
+            if not kps:
+                continue
+            feats = detect_field_features(fr, cfg=_cfg, player_boxes=boxes_for(fidx))
+            corrs = fuse_frame(feats.yard_lines, feats.hashes, kps,
+                               territory=territory,
+                               image_size=(meta.width, meta.height))
+            results[fidx] = _register_corrs(corrs, (meta.width, meta.height))
+        tracks[cam] = assemble_track_from_results(results, width=meta.width,
+                                                  height=meta.height)
+    return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
+
+
 def build_autocalib_npz(*, play_dir, videos, fps, hints, cfg=None, masks_provider=None):
     """Detect+register every frame of each camera using its CalibHint → cameras.npz."""
-    from nfl_gsplat.calibration.field_detect import FieldDetectConfig, detect_field_features
+    from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     from nfl_gsplat.errors import SetupError
     from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
 

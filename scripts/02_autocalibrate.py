@@ -14,7 +14,9 @@ from typing import Optional
 
 import typer
 
-from nfl_gsplat.calibration.run_autocalib import build_autocalib_npz, build_autocalib_npz_learned
+from nfl_gsplat.calibration.run_autocalib import (
+    build_autocalib_npz, build_autocalib_npz_learned, build_autocalib_npz_pretrained,
+)
 from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
 from nfl_gsplat.paths import PlayDir
 from nfl_gsplat.utils.logging import get_logger
@@ -27,25 +29,38 @@ app = typer.Typer(add_completion=False, help=__doc__)
 class CalibMode(str, Enum):
     hint = "hint"
     learned = "learned"
+    pretrained = "pretrained"
 
 
 @app.command()
 def main(play_dir: Path = typer.Option(..., "--play-dir"),
          mode: CalibMode = typer.Option(CalibMode.hint, "--mode",
-                                        help="'hint' (default) or 'learned' (requires --model-ckpt)."),
+                                        help="'hint' (default), 'learned' (requires --model-ckpt), "
+                                             "or 'pretrained' (requires --roboflow-kps)."),
          model_ckpt: Optional[Path] = typer.Option(None, "--model-ckpt",
                                                     help="Path to LandmarkNet checkpoint (learned mode only)."),
          yard_min: float = typer.Option(-25.0, "--yard-min",
                                         help="World-X lower bound for landmark schema (learned mode)."),
          yard_max: float = typer.Option(25.0, "--yard-max",
                                         help="World-X upper bound for landmark schema (learned mode)."),
+         roboflow_kps: Optional[Path] = typer.Option(None, "--roboflow-kps",
+             help="Path to roboflow_kps.json (pretrained mode; from scripts/03_roboflow_precompute.py)."),
+         territory: str = typer.Option("away", "--territory",
+             help="Which side of the 50 the visible yard numbers belong to (pretrained mode)."),
          config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
     load_cli_config(config, config_override, set_)
     pd = PlayDir.from_dir(play_dir)
     meta = load_meta(pd.meta_yaml)
     videos = {cam: pd.video(cam) for cam in pd.cameras}
 
-    if mode is CalibMode.learned:
+    if mode is CalibMode.pretrained:
+        if roboflow_kps is None:
+            raise typer.BadParameter("--roboflow-kps is required in pretrained mode.")
+        out = build_autocalib_npz_pretrained(
+            play_dir=pd.dir, videos=videos, fps=meta.fps,
+            kps_json=roboflow_kps, territory=territory,
+        )
+    elif mode is CalibMode.learned:
         if model_ckpt is None:
             raise typer.BadParameter("--model-ckpt is required in learned mode.")
         # TODO(bring-up): per-game model_ckpt + yard window in meta.yaml
