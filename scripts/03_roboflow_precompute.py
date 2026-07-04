@@ -1,0 +1,88 @@
+"""Cache pretrained Roboflow field keypoints for a play video (run on Windows).
+
+The ONLY step needing internet + ROBOFLOW_API_KEY. Everything downstream
+(PACE or local) reads the JSON. One run per play, ever.
+
+    set ROBOFLOW_API_KEY=...
+    python scripts/03_roboflow_precompute.py "C:\\...\\sideline.mp4" ^
+        --out "C:\\...\\play_dir\\roboflow_kps.json" ^
+        --model-id football-field-key-points-mvmjf/2 [--stride 1] [--kp-conf 0.5]
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import tempfile
+from pathlib import Path
+
+import cv2
+
+from nfl_gsplat.calibration.roboflow_precompute import run_precompute
+from nfl_gsplat.utils.video import ffprobe_meta
+
+
+def _video_frames(path, stride):
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise SystemExit(f"cannot open video: {path}")
+    idx = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if idx % stride == 0:
+            yield idx, frame
+        idx += 1
+    cap.release()
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("video")
+    ap.add_argument("--out", required=True, help="<play_dir>/roboflow_kps.json")
+    ap.add_argument("--model-id", default="football-field-key-points-mvmjf/2")
+    ap.add_argument("--api-key", default=os.environ.get("ROBOFLOW_API_KEY"))
+    ap.add_argument("--api-url", default="https://detect.roboflow.com")
+    ap.add_argument("--stride", type=int, default=1)
+    ap.add_argument("--kp-conf", type=float, default=0.5)
+    args = ap.parse_args()
+    if not args.api_key:
+        raise SystemExit("Set ROBOFLOW_API_KEY or pass --api-key")
+
+    from inference_sdk import InferenceHTTPClient
+    client = InferenceHTTPClient(api_url=args.api_url, api_key=args.api_key)
+
+    def infer_fn(bgr):
+        # hosted API takes a file path; write frame to a temp png
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp = f.name
+        try:
+            cv2.imwrite(tmp, bgr)
+            res = client.infer(tmp, model_id=args.model_id)
+        finally:
+            os.unlink(tmp)
+        if isinstance(res, list):
+            r = res[0] if res else {}
+        else:
+            r = res
+        out = []
+        for pred in (r.get("predictions") or []):
+            for kp in (pred.get("keypoints") or []):
+                name = kp.get("class_name") or kp.get("class")
+                if name is None or kp.get("x") is None:
+                    continue
+                out.append((str(name), float(kp["x"]), float(kp["y"]),
+                            float(kp.get("confidence", 0.0))))
+        return out
+
+    num_frames = ffprobe_meta(args.video).num_frames
+
+    n_hit = run_precompute(
+        _video_frames(args.video, args.stride), infer_fn=infer_fn,
+        model_id=args.model_id, video_name=Path(args.video).name,
+        num_frames=num_frames, out_json=args.out, kp_conf=args.kp_conf)
+    print(f"cached keypoints for {n_hit} frames -> {args.out}")
+
+
+if __name__ == "__main__":
+    main()

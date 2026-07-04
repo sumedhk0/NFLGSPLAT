@@ -120,3 +120,38 @@ def test_learned_register_sequence_with_stub_detector():
     results = ra._register_sequence_learned(
         ["f0", "f1", "f2"], detector=stub_detector, image_size=(1920, 1080))
     assert len(results) == 3 and all(r is not None for r in results)
+
+
+def test_pretrained_register_sequence_with_stub_fusion(monkeypatch):
+    # Frames with cached model kps register; frames without -> None (gap).
+    import numpy as np
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    def fake_detect(frame, *, cfg=None, player_boxes=None):
+        from nfl_gsplat.calibration.field_features import DetectedFeatures
+        return DetectedFeatures(yard_lines=["L"], sidelines=[], hashes=[(1.0, 2.0)],
+                                numbers=[], image_size=(1920, 1080))
+    monkeypatch.setattr(ra, "detect_field_features", fake_detect, raising=False)
+
+    def fake_fuse(yard_lines, hashes, model_kps, *, territory, image_size, **kw):
+        return [(f"c{i}", (10.0 * i, 5.0)) for i in range(8)] if model_kps else []
+    monkeypatch.setattr(ra, "fuse_frame", fake_fuse, raising=False)
+
+    def fake_register_corrs(corrs, image_size, **kw):
+        return object() if len(corrs) >= 6 else None
+    monkeypatch.setattr(ra, "_register_corrs", fake_register_corrs)
+
+    kps = {0: [("30", 1.0, 2.0, 0.9)], 2: [("30", 1.0, 2.0, 0.9)]}   # frame 1 absent
+    results = ra._register_sequence_pretrained(
+        ["f0", "f1", "f2"], kps_by_frame=kps, territory="away",
+        image_size=(1920, 1080))
+    assert results[0] is not None and results[2] is not None
+    assert results[1] is None                       # no cached kps -> gap
+
+
+def test_pretrained_none_frame_is_gap(monkeypatch):
+    from nfl_gsplat.calibration import run_autocalib as ra
+    results = ra._register_sequence_pretrained(
+        [None], kps_by_frame={0: [("30", 1.0, 2.0, 0.9)]}, territory="away",
+        image_size=(1920, 1080))
+    assert results == [None]
