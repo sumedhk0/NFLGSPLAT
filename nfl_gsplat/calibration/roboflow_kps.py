@@ -56,6 +56,11 @@ def to_nfl_name(model_class: str, territory: str) -> str | None:
     if variant not in _VARIANT_TABLE:
         return None
     lr, kind = _VARIANT_TABLE[variant]
+    # Gate number landmarks to yards where they're painted: 10/20/30/40 + mid_50
+    if kind == "number" and base != "mid_50":
+        yard = int(model_class.split("-")[0])
+        if yard not in {10, 20, 30, 40}:
+            return None
     return f"{base}_{lr}_{kind}"
 
 

@@ -68,3 +68,15 @@ def test_load_frame_count_mismatch_fails_loud(tmp_path):
                    kp_conf=0.5, frames={})
     with pytest.raises(SetupError, match="stale"):
         load_kps_json(p, expect_num_frames=999)
+
+
+@pytest.mark.parametrize("cls", ["35", "35-bottom", "5", "45-bottom", "15", "25"])
+def test_number_classes_at_non10_yards_unmappable(cls):
+    # NFL fields paint numbers only at 10/20/30/40 (+50): NFL_LANDMARKS has no
+    # *_number entry for other lines, so these must map to None, not a bad name
+    assert to_nfl_name(cls, "away") is None
+
+
+def test_hash_classes_valid_at_every_5yd_line():
+    assert to_nfl_name("35-top-hash", "away") == "away_35_left_hash"
+    assert to_nfl_name("45-bottom-hash", "home") == "home_45_right_hash"
