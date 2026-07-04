@@ -105,6 +105,26 @@ def _yardline_names() -> list[str]:
     return names
 
 
+def yardline_name_from_x_m(x_m: float, *, tol_m: float = 0.5) -> str:
+    """Inverse of :func:`_yardline_x_m`: nearest painted yard line's name.
+
+    Snaps ``x_m`` to the closest painted line (away_goal..home_goal) if within
+    ``tol_m`` meters; raises ValueError otherwise. Round-trip with
+    ``_yardline_x_m`` is exact for every painted line (tested).
+    """
+    best_name, best_d = None, float("inf")
+    for name in _yardline_names():
+        d = abs(_yardline_x_m(name) - x_m)
+        if d < best_d:
+            best_name, best_d = name, d
+    if best_d > tol_m:
+        raise ValueError(
+            f"no painted yard line within {tol_m} m of X={x_m:.3f} m "
+            f"(nearest: {best_name} at {best_d:.3f} m)"
+        )
+    return best_name
+
+
 def _build_landmarks() -> dict[str, np.ndarray]:
     lm: dict[str, np.ndarray] = {}
     for yl in _yardline_names():
