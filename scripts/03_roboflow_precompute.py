@@ -18,6 +18,7 @@ from pathlib import Path
 import cv2
 
 from nfl_gsplat.calibration.roboflow_precompute import run_precompute
+from nfl_gsplat.utils.video import ffprobe_meta
 
 
 def _video_frames(path, stride):
@@ -60,7 +61,10 @@ def main():
             res = client.infer(tmp, model_id=args.model_id)
         finally:
             os.unlink(tmp)
-        r = res[0] if isinstance(res, list) else res
+        if isinstance(res, list):
+            r = res[0] if res else {}
+        else:
+            r = res
         out = []
         for pred in (r.get("predictions") or []):
             for kp in (pred.get("keypoints") or []):
@@ -71,9 +75,7 @@ def main():
                             float(kp.get("confidence", 0.0))))
         return out
 
-    cap = cv2.VideoCapture(args.video)
-    num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
+    num_frames = ffprobe_meta(args.video).num_frames
 
     n_hit = run_precompute(
         _video_frames(args.video, args.stride), infer_fn=infer_fn,
