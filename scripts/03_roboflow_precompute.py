@@ -77,8 +77,20 @@ def main():
 
     num_frames = ffprobe_meta(args.video).num_frames
 
+    def _with_progress(frames_iter, total):
+        import time
+        t0 = time.time()
+        for n, (idx, frame) in enumerate(frames_iter, 1):
+            yield idx, frame
+            if n % 50 == 0:
+                rate = n / (time.time() - t0)
+                left = (total // args.stride - n) / rate if rate > 0 else 0
+                print(f"  frame {idx}/{total}  ({rate:.1f} f/s, ~{left / 60:.0f} min left)",
+                      flush=True)
+
     n_hit = run_precompute(
-        _video_frames(args.video, args.stride), infer_fn=infer_fn,
+        _with_progress(_video_frames(args.video, args.stride), num_frames),
+        infer_fn=infer_fn,
         model_id=args.model_id, video_name=Path(args.video).name,
         num_frames=num_frames, out_json=args.out, kp_conf=args.kp_conf)
     print(f"cached keypoints for {n_hit} frames -> {args.out}")
