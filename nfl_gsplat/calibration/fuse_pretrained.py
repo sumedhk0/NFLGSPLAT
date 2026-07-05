@@ -8,6 +8,8 @@ correspondences. Ambiguity -> drop (frame gap), never guess.
 """
 from __future__ import annotations
 
+from collections import Counter
+
 from nfl_gsplat.calibration.field_identify import fit_hash_rows, line_x_at
 from nfl_gsplat.calibration.field_landmarks import (
     _yardline_x_m, yardline_name_from_x_m, YARD_LINE_SPACING_M,
@@ -24,15 +26,20 @@ def identify_lines(yard_lines, model_kps, *, territory,
     Gates (fail toward fewer, correct lines):
       - a keypoint only votes if its nearest line is within ``max_assign_px``
         AND ``min_margin``x closer than the runner-up;
-      - conflicting votes on one line -> that line (and, being unresolvable,
-        the whole frame's identity) is dropped;
+      - conflicting votes on one line -> per-line majority; a tie for the top
+        vote count drops that line only (the frame survives on its other
+        lines);
       - identified world-X must be strictly monotone in image x, else {}.
-    Unvoted lines between/adjacent to voted ones get identity by world-X
-    interpolation snapped via ``yardline_name_from_x_m`` (round-trip-safe).
+    Unvoted lines strictly between the leftmost and rightmost voted image-x
+    get identity by world-X interpolation snapped via
+    ``yardline_name_from_x_m`` (round-trip-safe); lines outside that range
+    are left unidentified rather than clamped-extrapolated. Any base name
+    that ends up assigned to more than one line is ambiguous and every line
+    carrying it is dropped.
     """
     if not yard_lines or not model_kps:
         return {}
-    votes: dict[int, set[str]] = {}
+    votes: dict[int, list[str]] = {}
     for (cls, u, v, _conf) in model_kps:
         base = yard_base(cls, territory)
         if base is None:
@@ -44,13 +51,16 @@ def identify_lines(yard_lines, model_kps, *, territory,
             continue
         if len(dists) > 1 and dists[1][0] < min_margin * d0:
             continue                                  # ambiguous between two lines
-        votes.setdefault(i0, set()).add(base)
+        votes.setdefault(i0, []).append(base)
 
     ident: dict[int, str] = {}
     for i, bases in votes.items():
-        if len(bases) != 1:
-            return {}                                 # conflicting identity: drop frame
-        ident[i] = next(iter(bases))
+        counts = Counter(bases)
+        top_count = max(counts.values())
+        top_bases = [b for b, c in counts.items() if c == top_count]
+        if len(top_bases) != 1:
+            continue                                  # tie: drop this line only
+        ident[i] = top_bases[0]
     if not ident:
         return {}
 
@@ -66,24 +76,38 @@ def identify_lines(yard_lines, model_kps, *, territory,
         if not (inc or dec):
             return {}                                 # inconsistent left-right ordering
 
-    # fill unvoted lines by piecewise-linear world-X interpolation + snap
+    # fill unvoted lines by piecewise-linear world-X interpolation + snap,
+    # but only strictly between the voted image-x extremes -- np.interp
+    # clamps outside that range, which would assign an out-of-range line
+    # the same identity as the nearest endpoint (a duplicate base).
     if len(voted) >= 2:
         import numpy as np
         vk = [k for (k, _b) in voted]
         vX = np.array(Xw, float)
         vx = np.array([xs_img[k] for k in vk], float)
+        x_lo, x_hi = float(min(vx)), float(max(vx))
         if vx[0] > vx[-1]:
             vx, vX = vx[::-1], vX[::-1]
         for k in range(len(order)):
             if order[k] in ident:
                 continue
-            X_est = float(np.interp(xs_img[k], vx, vX))
+            xk = xs_img[k]
+            if xk < x_lo or xk > x_hi:
+                continue                              # outside voted range: no fill
+            X_est = float(np.interp(xk, vx, vX))
             try:
                 name = yardline_name_from_x_m(X_est, tol_m=_SNAP_TOL_M)
             except ValueError:
                 continue                              # off-grid: leave unidentified
             if abs(_yardline_x_m(name) - X_est) <= _SNAP_TOL_M:
                 ident[order[k]] = name
+
+    # a base assigned to more than one line is ambiguous: never guess which
+    # is correct -> drop every line carrying that base.
+    base_counts = Counter(ident.values())
+    dupes = {b for b, c in base_counts.items() if c > 1}
+    if dupes:
+        ident = {i: b for i, b in ident.items() if b not in dupes}
     return ident
 
 
