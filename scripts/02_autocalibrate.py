@@ -47,9 +47,11 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
              help="Path to roboflow_kps.json (pretrained mode; from scripts/03_roboflow_precompute.py)."),
          territory: str = typer.Option("away", "--territory",
              help="Which side of the 50 the visible yard numbers belong to (pretrained mode)."),
+         cameras: str = typer.Option("sideline,endzone", "--cameras",
+             help="Comma-separated camera names present in the play dir (e.g. 'sideline')."),
          config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
     load_cli_config(config, config_override, set_)
-    pd = PlayDir.from_dir(play_dir)
+    pd = PlayDir.from_dir(play_dir, cameras=tuple(c.strip() for c in cameras.split(",") if c.strip()))
     meta = load_meta(pd.meta_yaml)
     videos = {cam: pd.video(cam) for cam in pd.cameras}
 
