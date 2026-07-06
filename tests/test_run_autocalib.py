@@ -177,3 +177,32 @@ def test_pretrained_none_frame_is_gap(monkeypatch):
         [None], kps_by_frame={0: [("30", 1.0, 2.0, 0.9)]}, territory="away",
         image_size=(1920, 1080))
     assert results == [None]
+
+
+def test_solve_sweep_rescues_frames_with_prior(monkeypatch):
+    # A frame that fails blind-init but succeeds given an intrinsics prior is
+    # rescued by the forward sweep; an early failing frame (no earlier success
+    # to seed it) is rescued by the backward fill.
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    calls = []
+
+    class _Res:
+        def __init__(self, tag):
+            self.intrinsics = tag
+
+    def fake_register_corrs(corrs, image_size, *, initial_intrinsics=None, **kw):
+        calls.append((corrs, initial_intrinsics))
+        if corrs == "blind_ok":
+            return _Res("K1")
+        if corrs == "needs_prior":
+            return _Res("K2") if initial_intrinsics is not None else None
+        return None
+
+    monkeypatch.setattr(ra, "_register_corrs", fake_register_corrs)
+
+    corrs_by_frame = {0: "needs_prior", 1: "blind_ok", 2: "needs_prior"}
+    results = ra._solve_sweep(corrs_by_frame, 3, (1920, 1080))
+    assert results[1] is not None          # blind success
+    assert results[2] is not None          # forward prior rescue
+    assert results[0] is not None          # backward prior rescue

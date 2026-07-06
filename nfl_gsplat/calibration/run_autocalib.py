@@ -138,7 +138,8 @@ def _register_sequence(feats_by_frame, hint, image_size):
     return results
 
 
-def _register_corrs(corrs, image_size, *, max_reproj_px=6.0, min_landmarks=6):
+def _register_corrs(corrs, image_size, *, max_reproj_px=6.0, min_landmarks=6,
+                     initial_intrinsics=None):
     """One frame's correspondences → CalibrationResult|None (gap)."""
     from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_correspondences
     from nfl_gsplat.errors import CalibrationError
@@ -147,9 +148,44 @@ def _register_corrs(corrs, image_size, *, max_reproj_px=6.0, min_landmarks=6):
     try:
         return solve_pnp_from_correspondences(
             corrs, image_size=image_size, max_reproj_px=max_reproj_px,
-            min_landmarks=min_landmarks)
+            min_landmarks=min_landmarks, initial_intrinsics=initial_intrinsics)
     except CalibrationError:
         return None
+
+
+def _solve_sweep(corrs_by_frame, num_frames, image_size, *,
+                  max_reproj_px=6.0, min_landmarks=6):
+    """Cached per-frame correspondences -> [CalibrationResult|None], solved in two
+    sweeps that carry an intrinsics prior instead of solving each frame blind.
+
+    Blind-init PnP (``initial_intrinsics=None``) falls into bad local minima on
+    many real frames while neighboring frames — same physically-fixed camera —
+    solve fine. Forward sweep: seed each frame's solve with the last successful
+    frame's intrinsics. Backward sweep: fill frames that precede the first
+    forward success, using the nearest later success as the prior."""
+    results = [None] * num_frames
+    prior = None
+    for fidx in range(num_frames):                    # forward
+        corrs = corrs_by_frame.get(fidx)
+        if not corrs:
+            continue
+        res = _register_corrs(corrs, image_size, max_reproj_px=max_reproj_px,
+                              min_landmarks=min_landmarks, initial_intrinsics=prior)
+        if res is not None:
+            results[fidx] = res
+            prior = getattr(res, "intrinsics", prior)
+    prior = None
+    for fidx in range(num_frames - 1, -1, -1):         # backward fill
+        if results[fidx] is not None:
+            prior = getattr(results[fidx], "intrinsics", prior)
+            continue
+        corrs = corrs_by_frame.get(fidx)
+        if corrs and prior is not None:
+            res = _register_corrs(corrs, image_size, max_reproj_px=max_reproj_px,
+                                  min_landmarks=min_landmarks, initial_intrinsics=prior)
+            if res is not None:
+                results[fidx] = res
+    return results
 
 
 def _register_sequence_learned(frames, *, detector, image_size,
@@ -214,28 +250,44 @@ def build_autocalib_npz_learned(*, play_dir, videos, fps, model_ckpt, yard_min,
 
 def _register_sequence_pretrained(frames, *, kps_by_frame, territory, image_size,
                                   cfg=None, boxes_for=None):
-    """Per frame: classical detect + cached model kps -> fuse -> PnP.
+    """Per frame: classical detect + cached model kps -> fuse -> correspondences,
+    then solve with a two-sweep intrinsics prior (see :func:`_solve_sweep`).
     Frames without cached keypoints (or unreadable) are gaps (None)."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     cfg = cfg or FieldDetectConfig()
     boxes_for = boxes_for or (lambda f: [])
-    results = []
+    corrs_by_frame: dict[int, list] = {}
     for fidx, fr in enumerate(frames):
         kps = kps_by_frame.get(fidx, [])
         if fr is None or not kps:
-            results.append(None)
             continue
         feats = detect_field_features(fr, cfg=cfg, player_boxes=boxes_for(fidx))
-        corrs = fuse_frame(feats.yard_lines, feats.hashes, kps,
-                           territory=territory, image_size=image_size)
-        results.append(_register_corrs(corrs, image_size))
-    return results
+        corrs_by_frame[fidx] = fuse_frame(feats.yard_lines, feats.hashes, kps,
+                                          territory=territory, image_size=image_size)
+    return _solve_sweep(corrs_by_frame, len(frames), image_size)
 
 
 def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory,
                                    cfg=None, masks_provider=None):
     """Pretrained-hybrid calibration: cached Roboflow identity + repaired
-    classical geometry -> per-frame PnP -> cameras.npz. No GPU, no training."""
+    classical geometry -> per-frame PnP -> cameras.npz. No GPU, no training.
+
+    Two phases, kept separate so decoding stays a single streaming pass while
+    solving gets to see the whole clip:
+
+    Phase 1 (streaming): decode each frame once via ``iter_frames``; per frame
+    with cached model keypoints, run detect_field_features + fuse_frame and
+    stash the resulting correspondences in ``corrs_by_frame`` (a few tuples per
+    frame — cheap to hold in memory). No PnP solving happens here.
+
+    Phase 2 (in-memory, two sweeps): solve every frame's correspondences with
+    :func:`_solve_sweep`, which seeds each solve with the last successful
+    frame's intrinsics as a prior. This rescues frames whose blind-init PnP
+    lands in a bad local minimum — common on real footage where geometry is
+    noisy/sparse but the camera is physically fixed, so neighboring frames'
+    intrinsics are a strong prior.
+    """
+    from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     from nfl_gsplat.calibration.roboflow_kps import load_kps_json
     from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
 
@@ -244,9 +296,9 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
         meta = ffprobe_meta(video)
         kps_by_frame = load_kps_json(kps_json, expect_num_frames=meta.num_frames)
         boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
-        results = [None] * meta.num_frames
-        from nfl_gsplat.calibration.field_detect import FieldDetectConfig
         _cfg = cfg or FieldDetectConfig()
+
+        corrs_by_frame: dict[int, list] = {}
         for fidx, fr in iter_frames(video, start_frame=0):
             if not (0 <= fidx < meta.num_frames):
                 continue
@@ -254,10 +306,11 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
             if not kps:
                 continue
             feats = detect_field_features(fr, cfg=_cfg, player_boxes=boxes_for(fidx))
-            corrs = fuse_frame(feats.yard_lines, feats.hashes, kps,
-                               territory=territory,
-                               image_size=(meta.width, meta.height))
-            results[fidx] = _register_corrs(corrs, (meta.width, meta.height))
+            corrs_by_frame[fidx] = fuse_frame(feats.yard_lines, feats.hashes, kps,
+                                              territory=territory,
+                                              image_size=(meta.width, meta.height))
+
+        results = _solve_sweep(corrs_by_frame, meta.num_frames, (meta.width, meta.height))
         tracks[cam] = assemble_track_from_results(results, width=meta.width,
                                                   height=meta.height)
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
