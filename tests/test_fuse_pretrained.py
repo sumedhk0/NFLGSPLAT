@@ -40,13 +40,14 @@ def test_identify_lines_votes_nearest_with_noise():
     assert ident == {2: "away_30"}
 
 
-def test_identify_lines_fills_unvoted_neighbors_consistently():
-    # votes on away_40 and away_30; the middle line must become away_35 —
-    # via world-X interpolation + snap + yardline_name_from_x_m round-trip.
+def test_identify_lines_does_not_fill_unvoted_neighbors():
+    # votes on away_40 and away_30 only; identify_lines no longer fills the
+    # unvoted middle line (away_35) -- that completion now happens in
+    # fuse_frame via the homography, not here.
     kps = [("40", _u_at(_yardline_x_m("away_40"), 100.0) + 10.0, 100.0, 0.8),
            ("30", _u_at(_yardline_x_m("away_30"), 500.0) - 15.0, 500.0, 0.8)]
     ident = identify_lines(LINES, kps, territory="away")
-    assert ident == {0: "away_40", 1: "away_35", 2: "away_30"}
+    assert ident == {0: "away_40", 2: "away_30"}
 
 
 def test_identify_lines_drops_frame_on_conflict():
@@ -90,14 +91,11 @@ def test_identify_lines_tie_drops_line_not_frame():
     assert ident == {0: "away_40"}
 
 
-def test_identify_lines_no_duplicate_from_extrapolation():
-    # votes only on away_35 (middle) and away_30 (one end); away_40 lies one
-    # step outside the voted image-x range. This used to encode a blanket
-    # ban on any extrapolation (a guard against np.interp's clamping, which
-    # duplicates the nearest endpoint's identity); now that fill is a
-    # non-clamping local-linear one-step extrapolation, away_40 is correctly
-    # identified. What this test actually guards -- no duplicate base names
-    # in the result -- still holds and is what we assert here.
+def test_identify_lines_no_duplicate_among_voted_lines():
+    # votes only on away_35 (middle) and away_30 (one end); away_40 (index 0)
+    # is unvoted and identify_lines no longer fills it -- it simply stays
+    # out of the result. What this test guards -- no duplicate base names
+    # among the lines that DO get identified -- still holds.
     v35 = 300.0
     u35 = _u_at(_yardline_x_m("away_35"), v35)
     v30 = 500.0
@@ -107,43 +105,17 @@ def test_identify_lines_no_duplicate_from_extrapolation():
         ("30", u30 - 2.0, v30, 0.8),
     ]
     ident = identify_lines(LINES, kps, territory="away")
-    assert ident.get(1) == "away_35"
-    assert ident.get(2) == "away_30"
+    assert ident == {1: "away_35", 2: "away_30"}
     vals = list(ident.values())
     assert len(vals) == len(set(vals))
 
 
-def test_identify_lines_one_step_extrapolation():
-    # votes on away_35 and away_30 only; away_40 lies one 5-yd step OUTSIDE
-    # the voted range and must be filled by local linear extrapolation (the
-    # old blanket ban left early-play frames under the solver's 6-point
-    # minimum).
-    kps = [("35-top-hash", _u_at(_yardline_x_m("away_35"), 300.0) + 5.0, 300.0, 0.9),
-           ("30", _u_at(_yardline_x_m("away_30"), 200.0) - 5.0, 200.0, 0.8)]
-    ident = identify_lines(LINES, kps, territory="away")
-    assert ident.get(0) == "away_40"
-    assert ident.get(1) == "away_35" and ident.get(2) == "away_30"
-
-
-def test_identify_lines_extrapolation_capped_at_one_step():
-    # a line two 5-yd steps beyond the voted range (away_35, away_30) stays
-    # unidentified: away_35's X=-13.716, away_30's X=-18.288; two steps
-    # beyond away_35 (away_40's position, then one more) lands at away_45's
-    # X=-4.572, which is 9.144 m from the outermost vote (away_35) --
-    # farther than the 1.5-yard-line-spacing cap (6.858 m) -- so it is
-    # rejected even though it lands exactly on a valid painted line.
-    far = _seg_for(_yardline_x_m("away_45"))
-    lines = [far] + LINES[1:]          # [away_45-position, away_35, away_30]
-    kps = [("35-top-hash", _u_at(_yardline_x_m("away_35"), 300.0), 300.0, 0.9),
-           ("30", _u_at(_yardline_x_m("away_30"), 200.0), 200.0, 0.8)]
-    ident = identify_lines(lines, kps, territory="away")
-    assert 0 not in ident              # too far to trust linear extrapolation
-
-
-def test_identify_lines_duplicate_base_dropped():
+def test_identify_lines_leaves_unvoted_lines_unidentified():
     # A ghost classical line ~50px from the real away_25 line: both are
-    # unvoted and both interpolate/snap to "away_25" -> ambiguous -> both
-    # lines carrying that base are dropped, voted lines survive untouched.
+    # unvoted, and identify_lines no longer fills/snaps unvoted lines to a
+    # nearby name -- they simply stay out of the result. Only the voted
+    # lines (away_30, away_20) get an identity, so no duplicate/ambiguous
+    # base name can arise here.
     x30 = _yardline_x_m("away_30")
     x25 = _yardline_x_m("away_25")
     x20 = _yardline_x_m("away_20")
@@ -158,10 +130,7 @@ def test_identify_lines_duplicate_base_dropped():
         ("20", _u_at(x20, 100.0) - 3.0, 100.0, 0.8),
     ]
     ident = identify_lines(ghost_lines, kps, territory="away")
-    vals = list(ident.values())
-    assert len(vals) == len(set(vals))
-    assert ident.get(0) == "away_30"
-    assert ident.get(3) == "away_20"
+    assert ident == {0: "away_30", 3: "away_20"}
 
 
 def test_identify_lines_rejects_far_assignment():
@@ -173,7 +142,8 @@ def test_identify_lines_rejects_far_assignment():
 
 
 def test_fuse_frame_emits_intersections_and_numbers():
-    # two voted lines (40 and 30) so the unvoted away_35 gets neighbor-filled
+    # two voted lines (40 and 30) so the unvoted away_35 gets completed via
+    # the homography implied by the voted lines' hash intersections
     u30 = _u_at(_yardline_x_m("away_30"), 200.0) + 20.0
     u40 = _u_at(_yardline_x_m("away_40"), 100.0) - 10.0
     corrs = fuse_frame(LINES, _hashes(),
@@ -227,6 +197,41 @@ def test_fuse_frame_keeps_consistent_points():
         assert f"{base}_left_hash" in names
         assert f"{base}_right_hash" in names
     assert len(corrs) >= 6
+
+
+def test_fuse_frame_completes_identities_via_homography():
+    # votes only on away_35 and away_30; the unvoted away_40 must be
+    # identified by mapping its hash-row intersections through the
+    # homography implied by the two voted lines -- not by linear world-X
+    # interpolation (real footage: that misassigned the 40 as away_35).
+    # u = X*40 + 800 + 0.15*y IS a valid (affine, hence also projective)
+    # homography, so completion is exact on this synthetic geometry.
+    kps = [("35-top-hash", _u_at(_yardline_x_m("away_35"), 300.0) + 5.0, 300.0, 0.9),
+           ("30", _u_at(_yardline_x_m("away_30"), 200.0) - 5.0, 200.0, 0.8)]
+    corrs = fuse_frame(LINES, _hashes(), kps, territory="away", image_size=(W, H))
+    names = {n for (n, _uv) in corrs}
+    assert "away_40_left_hash" in names and "away_40_right_hash" in names
+
+
+def test_fuse_frame_completion_rejects_offgrid_line():
+    # a spurious classical line 2m off the away_35 line (i.e. not on any
+    # painted yard line) is unvoted; when completion maps its hash-row
+    # intersections through the homography, the resulting world-X is >1.6m
+    # (the snap tolerance) from every painted line, so it is correctly left
+    # unidentified and contributes no correspondences.
+    ghost = _seg_for(_yardline_x_m("away_35") + 2.0)
+    lines = LINES + [ghost]
+    kps = [("35-top-hash", _u_at(_yardline_x_m("away_35"), 300.0), 300.0, 0.9),
+           ("30", _u_at(_yardline_x_m("away_30"), 200.0), 200.0, 0.8)]
+    corrs = fuse_frame(lines, _hashes(), kps, territory="away", image_size=(W, H))
+    names = [n for (n, _uv) in corrs]
+    # no duplicate names -- the ghost contributes nothing
+    assert len(names) == len(set(names))
+    # exactly the three real lines' hash correspondences are present
+    for base in ("away_40", "away_35", "away_30"):
+        assert f"{base}_left_hash" in names
+        assert f"{base}_right_hash" in names
+    assert len(names) == 6
 
 
 def test_fuse_frame_no_model_kps_returns_empty():
