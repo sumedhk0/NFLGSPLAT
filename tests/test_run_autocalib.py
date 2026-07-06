@@ -32,6 +32,28 @@ def test_assemble_fails_loud_on_long_gap():
         assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
 
 
+def test_assemble_tolerates_long_trailing_gap():
+    # post-play frames (camera on crowd) are a trailing None run; docstring
+    # promises clamp-extrapolation with conf=0, not a hard failure
+    results = [_res(2600, 20.0), _res(2602, 21.0)] + [None] * 10
+    tr = assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
+    assert tr.num_frames == 12
+    assert (tr.conf[2:] == 0).all() and (tr.conf[:2] == 1).all()
+    assert np.isfinite(tr.K).all() and np.isfinite(tr.t).all()
+
+
+def test_assemble_tolerates_long_leading_gap():
+    results = [None] * 8 + [_res(2600, 20.0), _res(2602, 21.0)]
+    tr = assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
+    assert (tr.conf[:8] == 0).all()
+
+
+def test_assemble_still_fails_loud_on_long_interior_gap():
+    results = [_res(2600, 20.0)] + [None] * 4 + [_res(2604, 22.0)] + [None] * 3
+    with pytest.raises(CalibrationError, match="frames 1-4"):
+        assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
+
+
 def test_assemble_smooths_jitter():
     rng = np.random.default_rng(0)
     res = [_res(2600 + rng.normal(0, 30), 20 + rng.normal(0, 0.5)) for _ in range(20)]

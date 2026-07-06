@@ -17,8 +17,11 @@ from nfl_gsplat.calibration.register_frame import register_frame
 from nfl_gsplat.errors import CalibrationError
 
 
-def _longest_gap_range(valid: np.ndarray) -> tuple[int, int, int]:
-    """Return (longest_gap_len, start, end) over False runs in ``valid``."""
+def _longest_gap_range(valid: np.ndarray, *, interior_only: bool = False) -> tuple[int, int, int]:
+    """Return (longest_gap_len, start, end) over False runs in ``valid``.
+
+    With ``interior_only=True``, runs touching index 0 or len(valid)-1 (leading/
+    trailing gaps) are skipped — those are clamp-extrapolated, not fail-loud."""
     best = (0, -1, -1)
     i, n = 0, len(valid)
     while i < n:
@@ -26,7 +29,8 @@ def _longest_gap_range(valid: np.ndarray) -> tuple[int, int, int]:
             j = i
             while j < n and not valid[j]:
                 j += 1
-            if (j - i) > best[0]:
+            is_boundary = i == 0 or j == n
+            if not (interior_only and is_boundary) and (j - i) > best[0]:
                 best = (j - i, i, j - 1)
             i = j
         else:
@@ -60,7 +64,7 @@ def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> 
     valid = np.array([r is not None for r in results])
     if not valid.any():
         raise CalibrationError("no frame could be registered for this camera.")
-    gap_len, gs, ge = _longest_gap_range(valid)
+    gap_len, gs, ge = _longest_gap_range(valid, interior_only=True)
     if gap_len > max_gap:
         raise CalibrationError(
             f"field registration failed on frames {gs}-{ge} "
