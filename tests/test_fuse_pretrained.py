@@ -9,7 +9,9 @@ import pytest
 
 from nfl_gsplat.calibration.field_features import YardLineSeg
 from nfl_gsplat.calibration.field_landmarks import _yardline_x_m
-from nfl_gsplat.calibration.fuse_pretrained import fuse_frame, identify_lines
+from nfl_gsplat.calibration.fuse_pretrained import (
+    fuse_frame, identify_lines, predict_identities,
+)
 
 W, H = 1920, 1080
 
@@ -237,3 +239,70 @@ def test_fuse_frame_completion_rejects_offgrid_line():
 def test_fuse_frame_no_model_kps_returns_empty():
     assert fuse_frame(LINES, _hashes(), [], territory="away",
                       image_size=(W, H)) == []
+
+
+# --- predict_identities: identification from a KNOWN neighbor plane homography ----
+#
+# Geometry: a real perspective camera (not the affine synthetic rig above), reusing
+# the exact K/R/t pattern from test_learned_register_sequence_with_stub_detector in
+# test_run_autocalib.py. yard lines and both hash rows are rendered by projecting
+# world points through H = K @ [R[:,0], R[:,1], t] -- the same plane homography a
+# solved neighboring frame would hand to predict_identities.
+
+def _plane_H_for_rig():
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M  # noqa: F401 (re-export check)
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+    intr = CameraIntrinsics(1400.0, 1400.0, 960, 540, 1920, 1080)
+    R = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], float)
+    t = np.array([0.0, 6.0, 55.0])
+    pose = CameraPose(R=R, t=t)
+    K = intr.K()
+    Rt = np.column_stack([pose.R[:, 0], pose.R[:, 1], pose.t])
+    return K @ Rt
+
+
+def _proj(H, X, Y):
+    w = H @ np.array([X, Y, 1.0])
+    return (float(w[0] / w[2]), float(w[1] / w[2]))
+
+
+def _rig_line(H, X0):
+    return YardLineSeg(_proj(H, X0, -25.0), _proj(H, X0, 25.0))
+
+
+def _rig_row(H, Y0):
+    return YardLineSeg(_proj(H, -55.0, Y0), _proj(H, 55.0, Y0))
+
+
+def test_predict_identities_from_plane_homography():
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
+
+    H = _plane_H_for_rig()
+    names = ["away_30", "away_35", "away_40"]
+    yard_lines = [_rig_line(H, _yardline_x_m(n)) for n in names]
+    # upper row = +Y = *_left_hash convention (validated in fuse_pretrained.py)
+    rows = [_rig_row(H, HASH_OFFSET_M), _rig_row(H, -HASH_OFFSET_M)]
+
+    ident = predict_identities(yard_lines, rows, H)
+    assert set(ident.values()) == set(names)
+    assert len(ident) == 3
+
+
+def test_predict_identities_rejects_offgrid():
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
+
+    H = _plane_H_for_rig()
+    names = ["away_30", "away_35", "away_40"]
+    yard_lines = [_rig_line(H, _yardline_x_m(n)) for n in names]
+    # ghost line 2m off the away_35 line -- well outside predict_identities'
+    # default 1m snap tolerance -> must get no identity, and must not corrupt
+    # the real lines' identities (no duplicates).
+    ghost = _rig_line(H, _yardline_x_m("away_35") + 2.0)
+    yard_lines_with_ghost = yard_lines + [ghost]
+    rows = [_rig_row(H, HASH_OFFSET_M), _rig_row(H, -HASH_OFFSET_M)]
+
+    ident = predict_identities(yard_lines_with_ghost, rows, H)
+    assert 3 not in ident                      # ghost (index 3) gets no identity
+    assert set(ident.values()) == set(names)   # the three real lines still resolve
+    vals = list(ident.values())
+    assert len(vals) == len(set(vals))         # no duplicate base names

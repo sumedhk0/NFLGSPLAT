@@ -136,6 +136,65 @@ def _complete_identities_via_homography(ident, yard_lines, rows):
     return out
 
 
+def correspondences_from_identities(ident, yard_lines, rows):
+    """Identified line x hash-row intersections -> plane-consistent correspondences.
+
+    Requires both hash rows (upper row = +Y = ``*_left_hash``, the convention
+    validated on real footage 2026-06); with fewer than two rows we cannot
+    tell upper from lower, so returns []. Filters the raw intersections
+    through :func:`_ransac_consistent` so only points on a single plane
+    homography survive. Factored out of :func:`fuse_frame` so both the
+    model-vote path and the identity-propagation path (:func:`predict_identities`)
+    apply the identical gate.
+    """
+    if len(rows) != 2:
+        return []
+    corrs: list[tuple[str, tuple[float, float]]] = []
+    for lr, row in (("left", rows[0]), ("right", rows[1])):
+        for i, base in ident.items():
+            seg = yard_lines[i]
+            uv = _intersect(seg, row)
+            if uv is not None:
+                corrs.append((f"{base}_{lr}_hash", uv))
+    return _ransac_consistent(corrs)
+
+
+def predict_identities(yard_lines, rows, H_plane, *, tol_m: float = 1.0):
+    """Identify classical lines by mapping their hash-row intersections through
+    a KNOWN plane homography (from a solved neighboring frame).
+
+    ``H_plane`` maps world plane points ``(X, Y, 1)`` (Z=0) to image points
+    ``(u, v, w)`` up to scale — exactly ``K @ [R[:,0], R[:,1], t]`` for a
+    solved frame's intrinsics/pose. Chain-propagated frame to frame in the
+    calling sweep, so ``H_plane`` is at most a few frames stale (slow pan
+    footage: adjacent-frame homographies differ by only a few px). Returns
+    ``{line_idx: base_name}``; duplicate base names are dropped (never guess
+    which line is correct).
+    """
+    import numpy as np
+
+    if len(rows) != 2 or H_plane is None:
+        return {}
+    Hinv = np.linalg.inv(H_plane)
+    ident: dict[int, str] = {}
+    for i, seg in enumerate(yard_lines):
+        Xs = []
+        for row in rows:
+            uv = _intersect(seg, row)
+            if uv is None:
+                continue
+            w = Hinv @ np.array([uv[0], uv[1], 1.0])
+            if abs(w[2]) > 1e-9:
+                Xs.append(w[0] / w[2])
+        if not Xs:
+            continue
+        try:
+            ident[i] = yardline_name_from_x_m(float(np.mean(Xs)), tol_m=tol_m)
+        except ValueError:
+            continue
+    return _drop_duplicate_bases(ident)
+
+
 def fuse_frame(yard_lines, hashes, model_kps, *, territory, image_size,
                max_assign_px: float = 60.0, min_margin: float = 2.0):
     """One frame -> labeled correspondences [(landmark_name, (u, v))]."""
@@ -152,12 +211,7 @@ def fuse_frame(yard_lines, hashes, model_kps, *, territory, image_size,
     if len(rows) == 2:
         ident = _complete_identities_via_homography(ident, yard_lines, rows)
         ident = _drop_duplicate_bases(ident)
-        for lr, row in (("left", rows[0]), ("right", rows[1])):
-            for i, base in ident.items():
-                seg = yard_lines[i]
-                uv = _intersect(seg, row)
-                if uv is not None:
-                    corrs.append((f"{base}_{lr}_hash", uv))
+        corrs.extend(correspondences_from_identities(ident, yard_lines, rows))
 
     for (cls, u, v, _conf) in model_kps:
         name = to_nfl_name(cls, territory)
