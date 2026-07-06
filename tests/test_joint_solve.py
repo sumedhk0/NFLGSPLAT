@@ -209,3 +209,24 @@ def test_self_audit_drops_identity_shifted_frame():
     assert len(solved) >= 35
     C_rec = solved[0].pose.center_world()
     assert np.linalg.norm(C_rec - C_TRUE) < 0.5          # unpoisoned
+
+
+def test_self_audit_all_frames_bad_fails_loud(monkeypatch):
+    from nfl_gsplat.calibration import joint_solve as js
+    from nfl_gsplat.errors import CalibrationError
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=25, noise_px=0.3)
+    call_count = [0]
+
+    def fake_solve_once(frame_ids, frame_data, image_size, C0, r0, f0):
+        # First call: 0.08m shift drops 20 frames in round 0, leaves 5 frames
+        # Second call (re-solve round 0): 1.0m shift makes remaining 5 frames fail final audit
+        # (all med[i] > 6.0 px, so all results stay None, triggering our fix)
+        call_count[0] += 1
+        shift = 0.08 if call_count[0] == 1 else 1.0
+        return C0 + np.array([shift, 0.0, 0.0]), r0, f0, 100.0, 50.0
+    monkeypatch.setattr(js, "_solve_once", fake_solve_once)
+    with pytest.raises(CalibrationError, match="rejected every frame"):
+        js.solve_fixed_center(
+            corrs_by_frame=None, image_size=(W, H),
+            init_results=_init_results_from_truth(ids, f_true, R_true, 25),
+            _frame_data_override=fd)

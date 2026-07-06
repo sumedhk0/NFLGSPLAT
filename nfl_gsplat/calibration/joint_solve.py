@@ -224,4 +224,8 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     for i in kept:
         if med[i] <= AUDIT_DROP_PX:
             results[i] = _frame_result(i, frame_data, C, r_by, f_by, image_size)
+    if all(r is None for r in results):
+        raise CalibrationError(
+            f"self-audit rejected every frame (all median residuals > {AUDIT_DROP_PX} px) — "
+            "fusion output inconsistent with a fixed-center camera.")
     return results
