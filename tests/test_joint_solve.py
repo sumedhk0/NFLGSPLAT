@@ -1,0 +1,107 @@
+"""Fixed-center joint solve. Synthetic camera: fixed center, panning/zooming,
+looking at the field plane — all geometry self-checked via project_points."""
+import numpy as np
+import pytest
+
+from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
+
+W, H = 1920, 1080
+C_TRUE = np.array([-19.0, 1.0, 95.0])          # measured real-camera ballpark
+
+
+def _look_at_R(C, target):
+    """World->camera rotation for a camera at C looking at target, +Z world up.
+    Camera axes: z forward, x right, y down (standard CV)."""
+    fwd = target - C
+    fwd = fwd / np.linalg.norm(fwd)
+    right = np.cross(fwd, np.array([0.0, 0.0, 1.0]))
+    right = right / np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    return np.stack([right, down, fwd], axis=0)
+
+
+def _synthetic_frames(n_frames=50, noise_px=0.5, seed=0):
+    """Fixed center, pan target sweeping x in [-15, 15], focal ramp 7000->8500.
+    World points: 4 yard lines x hash rows + number rows (well-spread, on Z=0).
+    Returns (frame_ids, frame_data {fidx: (world, uv)}, f_true, R_true)."""
+    from nfl_gsplat.calibration.field_landmarks import (
+        HASH_OFFSET_M, NUMBER_CENTER_Y_M, YARD_LINE_SPACING_M,
+    )
+    rng = np.random.default_rng(seed)
+    Xs = np.array([-2, -1, 0, 1, 2]) * YARD_LINE_SPACING_M * 2   # 5 lines, 10yd apart
+    Ys = np.array([+NUMBER_CENTER_Y_M, +HASH_OFFSET_M, -HASH_OFFSET_M, -NUMBER_CENTER_Y_M])
+    world = np.array([[x, y, 0.0] for x in Xs for y in Ys])      # 20 points
+    frame_data, f_true, R_true = {}, {}, {}
+    for i in range(n_frames):
+        f = 7000.0 + 1500.0 * i / max(1, n_frames - 1)
+        tx = -15.0 + 30.0 * i / max(1, n_frames - 1)
+        R = _look_at_R(C_TRUE, np.array([tx, 0.0, 0.0]))
+        t = -R @ C_TRUE
+        K = CameraIntrinsics(f, f, W / 2, H / 2, W, H).K()
+        uv = project_points(world, K, R, t)
+        ok = np.isfinite(uv).all(axis=1)
+        assert ok.sum() >= 8, "synthetic geometry broken — points behind camera"
+        uv_n = uv[ok] + rng.normal(0, noise_px, uv[ok].shape)
+        frame_data[i] = (world[ok].copy(), uv_n)
+        f_true[i], R_true[i] = f, R
+    return sorted(frame_data), frame_data, f_true, R_true
+
+
+def test_pack_unpack_round_trip():
+    from nfl_gsplat.calibration.joint_solve import pack_params, unpack_params
+    ids = [0, 3, 7]
+    C = np.array([1.0, 2.0, 3.0])
+    r = {0: np.array([0.1, 0.0, 0.0]), 3: np.array([0.0, 0.2, 0.0]),
+         7: np.array([0.0, 0.0, 0.3])}
+    f = {0: 7000.0, 3: 7100.0, 7: 7200.0}
+    x = pack_params(C, r, f, ids)
+    assert x.shape == (3 + 4 * 3,)
+    C2, r2, f2 = unpack_params(x, ids)
+    assert np.allclose(C2, C)
+    for i in ids:
+        assert np.allclose(r2[i], r[i]) and f2[i] == pytest.approx(f[i])
+
+
+def test_residuals_zero_at_ground_truth_no_noise():
+    import cv2
+    from nfl_gsplat.calibration.joint_solve import pack_params, residuals
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=5, noise_px=0.0)
+    r = {i: cv2.Rodrigues(R_true[i])[0].ravel() for i in ids}
+    x = pack_params(C_TRUE, r, f_true, ids)
+    res = residuals(x, ids, fd, (W, H))
+    n_pts = sum(len(fd[i][1]) for i in ids)
+    assert res.shape[0] >= 2 * n_pts            # reprojection + smoothness rows
+    assert np.abs(res[:2 * n_pts]).max() < 1e-6  # exact at ground truth
+    # smoothness rows small but the focal ramp is nonzero
+    assert np.abs(res[2 * n_pts:]).max() < 25.0
+
+
+def test_jac_sparsity_shape_and_locality():
+    import cv2
+    from nfl_gsplat.calibration.joint_solve import (
+        jac_sparsity, pack_params, residuals,
+    )
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=4, noise_px=0.0)
+    r = {i: cv2.Rodrigues(R_true[i])[0].ravel() for i in ids}
+    x = pack_params(C_TRUE, r, f_true, ids)
+    S = jac_sparsity(ids, fd)
+    assert S.shape == (residuals(x, ids, fd, (W, H)).shape[0], x.shape[0])
+    S = S.toarray()
+    # first frame's first residual touches C (cols 0-2) + frame 0's block (3-6) only
+    row = S[0]
+    assert row[:7].all() and not row[7:].any()
+
+
+def test_build_frame_data_resolves_names_and_filters():
+    from nfl_gsplat.calibration.field_landmarks import NFL_LANDMARKS
+    from nfl_gsplat.calibration.joint_solve import build_frame_data
+    corrs = {
+        0: [("away_30_left_hash", (100.0, 200.0)), ("away_30_right_hash", (110.0, 500.0)),
+            ("away_20_left_hash", (700.0, 210.0)), ("away_20_right_hash", (720.0, 520.0))],
+        1: [("away_30_left_hash", (1.0, 2.0))],          # <4 -> dropped
+    }
+    fd = build_frame_data(corrs)
+    assert set(fd) == {0}
+    world, uv = fd[0]
+    assert world.shape == (4, 3) and uv.shape == (4, 2)
+    assert np.allclose(world[0], NFL_LANDMARKS["away_30_left_hash"])
