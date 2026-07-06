@@ -140,3 +140,44 @@ clamp-extrapolation with conf = 0, long interior gaps still fail loud).
   robust loss + smoothness keep the solve anchored by neighboring frames.
 - **Runtime** on 1302 frames: sparse trf should be minutes; if not, decimate
   smoothness terms, not data.
+
+## Addendum (2026-07-06, after real-footage bring-up)
+
+Real-footage iteration (scratchpad rounds 1-10, SEA_at_AZ play_001) invalidated
+two design assumptions and validated replacements:
+
+1. **The per-frame sweep cannot initialize the joint solve.** On the real play
+   it produced 21 "successes", ALL physically implausible (focals to 5e13 px,
+   centers scattered 1e8 m). Replacement: **initializer-free multi-start** —
+   grid of plausible camera centers (elevated, either sideline), per-frame
+   look-at rotation + span-derived focal (f ≈ pixel_span · distance /
+   world_span), candidates scored by robust cost on a frame subsample, winner
+   refined. Plausibility-gated sweep anchors may seed extra candidates but are
+   never trusted alone.
+2. **The hash-row left/right convention is camera-side dependent.** This
+   footage's camera is on the +Y sideline; image-top hash row = −Y =
+   right_hash — opposite the fused labels. A single-axis label mirror keeps
+   every per-frame homography perfect but is a REFLECTION, unfittable by any
+   rigid camera (measured: 114 px stall vs 23 px after flip). Replacement:
+   **reflection auto-resolution** — solve a subsample under both labelings
+   (as-is vs left/right swapped), keep the winner, relabel correspondences
+   accordingly. Output stays in the true world frame.
+3. **Broadcast graphics poison hash rows.** The NFL PRO watermark/score bug
+   yields hash candidates that fit_hash_rows sometimes fits as a "row"
+   (611/986 frames on the real play; per-frame homographies stay perfect so
+   fusion cannot see it). Replacement: **static-cell filter** — quantize hash
+   candidates to 16 px cells across the play; cells occupied in >25 % of
+   frames are static graphics (field points move under pan/zoom) and are
+   dropped before row fitting. Measured effect: good frames 375 → 816/986,
+   median 0.93 px.
+4. **Audit must re-test, not just drop.** The cascade audit dropped 308
+   frames against a half-converged intermediate. Replacement: final phase =
+   **fixed-C per-frame refit** (4-param LM per frame, C frozen at the joint
+   solution) for EVERY usable frame including previously dropped ones; keep
+   frames with median ≤ 6 px. Well-posed once C is known, trivially fast.
+5. `x_scale` (C≈10, r≈0.01, f≈1000) and a staged solve (subsample deep →
+   full warm-start) are required for trf convergence at this scale.
+
+Validated on the real play: camera at (−1.7, 92.7, 41.2) m (+Y upper deck,
+~midfield), focals 6.9-8.9k px through the zoom, 0.65 px median on clean
+frames.
