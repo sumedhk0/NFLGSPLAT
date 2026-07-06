@@ -154,11 +154,49 @@ def test_fuse_frame_emits_intersections_and_numbers():
     for base in ("away_40", "away_35", "away_30"):
         assert f"{base}_left_hash" in names       # upper row v=300
         assert f"{base}_right_hash" in names      # lower row v=700
-    assert "away_30_left_number" in names          # the model number kp rides along
+    # the model number kp rides along at its raw (coarse) pixel position,
+    # which is not consistent with the single-plane homography fit from the
+    # hash intersections -> the RANSAC gate at the end of fuse_frame drops it.
+    assert "away_30_left_number" not in names
     # intersection precision: away_30 x upper row lands on the true line at v=300
     uv = dict(corrs)["away_30_left_hash"]
     assert abs(uv[0] - _u_at(_yardline_x_m("away_30"), 300.0)) < 1.0
     assert abs(uv[1] - 300.0) < 1.0
+
+
+def test_fuse_frame_drops_coarse_outlier_numbers():
+    # Same setup as above, but the model number keypoints are coarsened to
+    # ~30px off the true line position -- representative of real-footage
+    # model error. All 6 hash intersections must survive the RANSAC gate;
+    # the coarse, plane-inconsistent numbers must not.
+    u30 = _u_at(_yardline_x_m("away_30"), 200.0) + 30.0
+    u40 = _u_at(_yardline_x_m("away_40"), 100.0) - 30.0
+    corrs = fuse_frame(LINES, _hashes(),
+                       [("30", u30, 200.0, 0.8), ("40", u40, 100.0, 0.8)],
+                       territory="away", image_size=(W, H))
+    names = {n for (n, _uv) in corrs}
+    for base in ("away_40", "away_35", "away_30"):
+        assert f"{base}_left_hash" in names
+        assert f"{base}_right_hash" in names
+    assert "away_30_left_number" not in names
+    assert "away_40_left_number" not in names
+
+
+def test_fuse_frame_keeps_consistent_points():
+    # Small, realistic voting-only offsets (well within max_assign_px) so
+    # line identification succeeds cleanly. The 6 hash intersections are
+    # exactly plane-consistent by construction (same synthetic homography)
+    # and must always survive the RANSAC gate.
+    u30 = _u_at(_yardline_x_m("away_30"), 200.0) + 5.0
+    u40 = _u_at(_yardline_x_m("away_40"), 100.0) - 5.0
+    corrs = fuse_frame(LINES, _hashes(),
+                       [("30", u30, 200.0, 0.8), ("40", u40, 100.0, 0.8)],
+                       territory="away", image_size=(W, H))
+    names = {n for (n, _uv) in corrs}
+    for base in ("away_40", "away_35", "away_30"):
+        assert f"{base}_left_hash" in names
+        assert f"{base}_right_hash" in names
+    assert len(corrs) >= 6
 
 
 def test_fuse_frame_no_model_kps_returns_empty():

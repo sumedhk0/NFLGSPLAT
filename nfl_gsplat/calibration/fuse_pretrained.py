@@ -136,7 +136,28 @@ def fuse_frame(yard_lines, hashes, model_kps, *, territory, image_size,
         name = to_nfl_name(cls, territory)
         if name is not None and name.endswith("_number"):
             corrs.append((name, (float(u), float(v))))
-    return corrs
+    return _ransac_consistent(corrs)
+
+
+def _ransac_consistent(corrs, reproj_px: float = 8.0):
+    """Keep only correspondences consistent with a single plane homography.
+
+    Coarse model numbers and occasional misidentified intersections get
+    dropped here so the downstream PnP (which has no outlier rejection and
+    gates on all-point RMS) sees only clean points.
+    """
+    if len(corrs) < 4:
+        return []
+    import cv2
+    import numpy as np
+    from nfl_gsplat.calibration.field_landmarks import NFL_LANDMARKS
+    world = np.array([NFL_LANDMARKS[n][:2] for (n, _uv) in corrs], np.float64)
+    uv = np.array([p for (_n, p) in corrs], np.float64)
+    Hm, mask = cv2.findHomography(world, uv, cv2.RANSAC, reproj_px)
+    if Hm is None:
+        return []
+    keep = mask.ravel().astype(bool)
+    return [c for c, k in zip(corrs, keep) if k]
 
 
 def _intersect(seg_a, seg_b):
