@@ -136,16 +136,17 @@ def _complete_identities_via_homography(ident, yard_lines, rows):
     return out
 
 
-def correspondences_from_identities(ident, yard_lines, rows):
+def correspondences_from_identities(ident, yard_lines, rows, *, gate: bool = True):
     """Identified line x hash-row intersections -> plane-consistent correspondences.
 
     Requires both hash rows (upper row = +Y = ``*_left_hash``, the convention
     validated on real footage 2026-06); with fewer than two rows we cannot
-    tell upper from lower, so returns []. Filters the raw intersections
-    through :func:`_ransac_consistent` so only points on a single plane
-    homography survive. Factored out of :func:`fuse_frame` so both the
-    model-vote path and the identity-propagation path (:func:`predict_identities`)
-    apply the identical gate.
+    tell upper from lower, so returns []. With ``gate`` (default), filters the
+    raw intersections through :func:`_ransac_consistent` so only points on a
+    single plane homography survive. :func:`fuse_frame` passes ``gate=False``
+    and gates ONCE over intersections + number keypoints together — gating
+    twice rejected valid points on real footage (a 6-corr frame shrank to 5,
+    below the solver minimum).
     """
     if len(rows) != 2:
         return []
@@ -156,7 +157,7 @@ def correspondences_from_identities(ident, yard_lines, rows):
             uv = _intersect(seg, row)
             if uv is not None:
                 corrs.append((f"{base}_{lr}_hash", uv))
-    return _ransac_consistent(corrs)
+    return _ransac_consistent(corrs) if gate else corrs
 
 
 def predict_identities(yard_lines, rows, H_plane, *, tol_m: float = 1.0):
@@ -211,7 +212,9 @@ def fuse_frame(yard_lines, hashes, model_kps, *, territory, image_size,
     if len(rows) == 2:
         ident = _complete_identities_via_homography(ident, yard_lines, rows)
         ident = _drop_duplicate_bases(ident)
-        corrs.extend(correspondences_from_identities(ident, yard_lines, rows))
+        # gate=False: the single RANSAC gate below covers intersections AND
+        # number keypoints together (double-gating starved real frames)
+        corrs.extend(correspondences_from_identities(ident, yard_lines, rows, gate=False))
 
     for (cls, u, v, _conf) in model_kps:
         name = to_nfl_name(cls, territory)
