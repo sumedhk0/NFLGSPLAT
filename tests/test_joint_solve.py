@@ -3,7 +3,7 @@ looking at the field plane — all geometry self-checked via project_points."""
 import numpy as np
 import pytest
 
-from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
+from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
 
 W, H = 1920, 1080
 C_TRUE = np.array([-19.0, 1.0, 95.0])          # measured real-camera ballpark
@@ -105,3 +105,11 @@ def test_build_frame_data_resolves_names_and_filters():
     world, uv = fd[0]
     assert world.shape == (4, 3) and uv.shape == (4, 2)
     assert np.allclose(world[0], NFL_LANDMARKS["away_30_left_hash"])
+
+
+def test_build_frame_data_unknown_name_fails_loud():
+    from nfl_gsplat.calibration.joint_solve import build_frame_data
+    from nfl_gsplat.errors import CalibrationError
+    corrs = {0: [("not_a_landmark", (1.0, 2.0))] * 4}
+    with pytest.raises(CalibrationError, match="unknown landmark"):
+        build_frame_data(corrs)

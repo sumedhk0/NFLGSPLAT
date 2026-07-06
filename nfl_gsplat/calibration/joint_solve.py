@@ -35,7 +35,12 @@ def build_frame_data(corrs_by_frame, min_corrs: int = 4) -> dict[int, FrameData]
     for fidx, corrs in corrs_by_frame.items():
         if not corrs or len(corrs) < min_corrs:
             continue
-        world = np.stack([NFL_LANDMARKS[n] for (n, _uv) in corrs]).astype(np.float64)
+        world_pts = []
+        for n, _uv in corrs:
+            if n not in NFL_LANDMARKS:
+                raise CalibrationError(f"unknown landmark {n!r} in correspondences.")
+            world_pts.append(NFL_LANDMARKS[n])
+        world = np.stack(world_pts).astype(np.float64)
         uv = np.array([p for (_n, p) in corrs], dtype=np.float64)
         out[int(fidx)] = (world, uv)
     return out
