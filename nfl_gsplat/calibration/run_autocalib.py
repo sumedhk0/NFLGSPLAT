@@ -15,6 +15,7 @@ from nfl_gsplat.calibration.field_identify import fit_hash_rows, seed_state_from
 from nfl_gsplat.calibration.fuse_pretrained import (
     correspondences_from_identities, fuse_frame, predict_identities,
 )
+from nfl_gsplat.calibration.joint_solve import solve_fixed_center
 from nfl_gsplat.calibration.register_frame import register_frame
 from nfl_gsplat.errors import CalibrationError
 
@@ -350,6 +351,12 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
     identity propagation: the classical lines are named by mapping them
     through the plane homography of the nearest already-solved frame,
     chained frame-by-frame across gaps (see :func:`_sweep_direction`).
+
+    Phase 3 (in-memory, one joint solve): the sweep's per-frame results only
+    initialize the fixed-center joint solve (:func:`solve_fixed_center`) --
+    per-frame PnP is multimodal on planar telephoto views (see spec
+    2026-07-06), so the assembled track comes from the joint solve, not the
+    sweep.
     """
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     from nfl_gsplat.calibration.roboflow_kps import load_kps_json
@@ -379,7 +386,13 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
 
         results = _solve_sweep(corrs_by_frame, meta.num_frames, (meta.width, meta.height),
                               feats_by_frame=feats_by_frame)
-        tracks[cam] = assemble_track_from_results(results, width=meta.width,
+
+        # Phase 3: fixed-center joint solve — per-frame PnP is multimodal on
+        # planar telephoto views (see spec 2026-07-06); the sweep output only
+        # initializes the joint problem.
+        joint = solve_fixed_center(corrs_by_frame, (meta.width, meta.height),
+                                   init_results=results)
+        tracks[cam] = assemble_track_from_results(joint, width=meta.width,
                                                   height=meta.height)
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
 

@@ -256,3 +256,37 @@ def test_solve_sweep_propagates_identity_across_multiframe_gap(monkeypatch):
     assert results[1] is None and results[0] is None
     # the propagation path was actually exercised on all three rescued frames
     assert len(predict_calls) >= 3
+
+
+def test_build_pretrained_uses_joint_solve(monkeypatch):
+    # phase 3 gate: build_autocalib_npz_pretrained must pass the sweep output
+    # into solve_fixed_center and assemble ITS results, not the sweep's
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    captured = {}
+
+    def fake_joint(corrs_by_frame, image_size, *, init_results, **kw):
+        captured["init"] = init_results
+        return ["JOINT0", "JOINT1"]
+    monkeypatch.setattr(ra, "solve_fixed_center", fake_joint)
+
+    assembled = {}
+    def fake_assemble(results, *, width, height, **kw):
+        assembled["results"] = results
+        return "TRACK"
+    monkeypatch.setattr(ra, "assemble_track_from_results", fake_assemble)
+    monkeypatch.setattr(ra, "write_camera_track", lambda p, tr, fps: p)
+
+    class _Meta:
+        num_frames, width, height = 2, 1920, 1080
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+    monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames",
+                        lambda v, start_frame=0: iter([]))
+    monkeypatch.setattr("nfl_gsplat.calibration.roboflow_kps.load_kps_json",
+                        lambda p, expect_num_frames=None: {})
+
+    ra.build_autocalib_npz_pretrained(
+        play_dir=".", videos={"sideline": "v.mp4"}, fps=30.0,
+        kps_json="kps.json", territory="away")
+    assert assembled["results"] == ["JOINT0", "JOINT1"]     # joint output assembled
+    assert "init" in captured                               # sweep fed the init
