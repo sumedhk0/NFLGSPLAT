@@ -30,11 +30,12 @@ def identify_lines(yard_lines, model_kps, *, territory,
         vote count drops that line only (the frame survives on its other
         lines);
       - identified world-X must be strictly monotone in image x, else {}.
-    Unvoted lines strictly between the leftmost and rightmost voted image-x
-    get identity by world-X interpolation snapped via
-    ``yardline_name_from_x_m`` (round-trip-safe); lines outside that range
-    are left unidentified rather than clamped-extrapolated. Any base name
-    that ends up assigned to more than one line is ambiguous and every line
+    Unvoted lines are NOT filled here: linear world-X interpolation/
+    extrapolation misassigns identities under perspective (measured on real
+    footage: the away_40 line snapped to away_35 with votes only on the 20
+    and 30). Unvoted-line completion is done downstream in ``fuse_frame``
+    via an exact homography fit from the voted lines. Any base name that
+    ends up assigned to more than one line is ambiguous and every line
     carrying it is dropped.
     """
     if not yard_lines or not model_kps:
@@ -67,7 +68,6 @@ def identify_lines(yard_lines, model_kps, *, territory,
     # order all lines by x at a common row; voted world-X must be monotone
     ref_y = sum(p[1] for s in yard_lines for p in (s.p0, s.p1)) / (2 * len(yard_lines))
     order = sorted(range(len(yard_lines)), key=lambda i: line_x_at(yard_lines[i], ref_y))
-    xs_img = [line_x_at(yard_lines[i], ref_y) for i in order]
     voted = [(k, ident[order[k]]) for k in range(len(order)) if order[k] in ident]
     Xw = [_yardline_x_m(b) for (_k, b) in voted]
     if len(voted) >= 2:
@@ -76,67 +76,172 @@ def identify_lines(yard_lines, model_kps, *, territory,
         if not (inc or dec):
             return {}                                 # inconsistent left-right ordering
 
-    # fill unvoted lines by piecewise-linear world-X interpolation + snap,
-    # but only strictly between the voted image-x extremes -- np.interp
-    # clamps outside that range, which would assign an out-of-range line
-    # the same identity as the nearest endpoint (a duplicate base).
-    if len(voted) >= 2:
-        import numpy as np
-        vk = [k for (k, _b) in voted]
-        vX = np.array(Xw, float)
-        vx = np.array([xs_img[k] for k in vk], float)
-        x_lo, x_hi = float(min(vx)), float(max(vx))
-        if vx[0] > vx[-1]:
-            vx, vX = vx[::-1], vX[::-1]
-        for k in range(len(order)):
-            if order[k] in ident:
-                continue
-            xk = xs_img[k]
-            if xk < x_lo or xk > x_hi:
-                continue                              # outside voted range: no fill
-            X_est = float(np.interp(xk, vx, vX))
-            try:
-                name = yardline_name_from_x_m(X_est, tol_m=_SNAP_TOL_M)
-            except ValueError:
-                continue                              # off-grid: leave unidentified
-            if abs(_yardline_x_m(name) - X_est) <= _SNAP_TOL_M:
-                ident[order[k]] = name
+    return _drop_duplicate_bases(ident)
 
-    # a base assigned to more than one line is ambiguous: never guess which
-    # is correct -> drop every line carrying that base.
+
+def _drop_duplicate_bases(ident: dict[int, str]) -> dict[int, str]:
+    """A base name assigned to more than one line is ambiguous: never guess
+    which is correct -> drop every line carrying that base."""
     base_counts = Counter(ident.values())
     dupes = {b for b, c in base_counts.items() if c > 1}
     if dupes:
-        ident = {i: b for i, b in ident.items() if b not in dupes}
+        return {i: b for i, b in ident.items() if b not in dupes}
     return ident
+
+
+def _complete_identities_via_homography(ident, yard_lines, rows):
+    """Identify unvoted lines by mapping their hash-row intersections through
+    the homography implied by the voted lines. Projectively exact — linear
+    interpolation misassigns identities under perspective (measured: the 40
+    line snapped to away_35 on real footage). Needs >=2 voted lines and both
+    hash rows (4+ point correspondences => exact plane homography)."""
+    import cv2
+    import numpy as np
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
+
+    if len(ident) < 2 or len(rows) != 2:
+        return ident
+    world, img = [], []
+    for i, base in ident.items():
+        X = _yardline_x_m(base)
+        for Y, row in ((+HASH_OFFSET_M, rows[0]), (-HASH_OFFSET_M, rows[1])):
+            uv = _intersect(yard_lines[i], row)
+            if uv is not None:
+                world.append([X, Y]); img.append(uv)
+    if len(world) < 4:
+        return ident
+    Hm, _ = cv2.findHomography(np.array(world, np.float64), np.array(img, np.float64), 0)
+    if Hm is None:
+        return ident
+    Hinv = np.linalg.inv(Hm)
+    out = dict(ident)
+    for i, seg in enumerate(yard_lines):
+        if i in out:
+            continue
+        Xs = []
+        for row in rows:
+            uv = _intersect(seg, row)
+            if uv is None:
+                continue
+            w = Hinv @ np.array([uv[0], uv[1], 1.0])
+            if abs(w[2]) > 1e-9:
+                Xs.append(w[0] / w[2])
+        if not Xs:
+            continue
+        X_est = float(np.mean(Xs))
+        try:
+            out[i] = yardline_name_from_x_m(X_est, tol_m=_SNAP_TOL_M)
+        except ValueError:
+            continue
+    return out
+
+
+def correspondences_from_identities(ident, yard_lines, rows, *, gate: bool = True):
+    """Identified line x hash-row intersections -> plane-consistent correspondences.
+
+    Requires both hash rows (upper row = +Y = ``*_left_hash``, the convention
+    validated on real footage 2026-06); with fewer than two rows we cannot
+    tell upper from lower, so returns []. With ``gate`` (default), filters the
+    raw intersections through :func:`_ransac_consistent` so only points on a
+    single plane homography survive. :func:`fuse_frame` passes ``gate=False``
+    and gates ONCE over intersections + number keypoints together — gating
+    twice rejected valid points on real footage (a 6-corr frame shrank to 5,
+    below the solver minimum).
+    """
+    if len(rows) != 2:
+        return []
+    corrs: list[tuple[str, tuple[float, float]]] = []
+    for lr, row in (("left", rows[0]), ("right", rows[1])):
+        for i, base in ident.items():
+            seg = yard_lines[i]
+            uv = _intersect(seg, row)
+            if uv is not None:
+                corrs.append((f"{base}_{lr}_hash", uv))
+    return _ransac_consistent(corrs) if gate else corrs
+
+
+def predict_identities(yard_lines, rows, H_plane, *, tol_m: float = 1.0):
+    """Identify classical lines by mapping their hash-row intersections through
+    a KNOWN plane homography (from a solved neighboring frame).
+
+    ``H_plane`` maps world plane points ``(X, Y, 1)`` (Z=0) to image points
+    ``(u, v, w)`` up to scale — exactly ``K @ [R[:,0], R[:,1], t]`` for a
+    solved frame's intrinsics/pose. Chain-propagated frame to frame in the
+    calling sweep, so ``H_plane`` is at most a few frames stale (slow pan
+    footage: adjacent-frame homographies differ by only a few px). Returns
+    ``{line_idx: base_name}``; duplicate base names are dropped (never guess
+    which line is correct).
+    """
+    import numpy as np
+
+    if len(rows) != 2 or H_plane is None:
+        return {}
+    Hinv = np.linalg.inv(H_plane)
+    ident: dict[int, str] = {}
+    for i, seg in enumerate(yard_lines):
+        Xs = []
+        for row in rows:
+            uv = _intersect(seg, row)
+            if uv is None:
+                continue
+            w = Hinv @ np.array([uv[0], uv[1], 1.0])
+            if abs(w[2]) > 1e-9:
+                Xs.append(w[0] / w[2])
+        if not Xs:
+            continue
+        try:
+            ident[i] = yardline_name_from_x_m(float(np.mean(Xs)), tol_m=tol_m)
+        except ValueError:
+            continue
+    return _drop_duplicate_bases(ident)
 
 
 def fuse_frame(yard_lines, hashes, model_kps, *, territory, image_size,
                max_assign_px: float = 60.0, min_margin: float = 2.0):
     """One frame -> labeled correspondences [(landmark_name, (u, v))]."""
+    rows = fit_hash_rows(hashes, image_width=image_size[0])
     ident = identify_lines(yard_lines, model_kps, territory=territory,
                            max_assign_px=max_assign_px, min_margin=min_margin)
     if not ident:
         return []
     corrs: list[tuple[str, tuple[float, float]]] = []
 
-    rows = fit_hash_rows(hashes, image_width=image_size[0])
     # rows are sorted upper-first; upper row = +Y = *_left_hash (convention
     # validated on real footage 2026-06). With only one row we cannot tell
     # upper from lower -> skip hash intersections (fail toward less, correct).
     if len(rows) == 2:
-        for lr, row in (("left", rows[0]), ("right", rows[1])):
-            for i, base in ident.items():
-                seg = yard_lines[i]
-                uv = _intersect(seg, row)
-                if uv is not None:
-                    corrs.append((f"{base}_{lr}_hash", uv))
+        ident = _complete_identities_via_homography(ident, yard_lines, rows)
+        ident = _drop_duplicate_bases(ident)
+        # gate=False: the single RANSAC gate below covers intersections AND
+        # number keypoints together (double-gating starved real frames)
+        corrs.extend(correspondences_from_identities(ident, yard_lines, rows, gate=False))
 
     for (cls, u, v, _conf) in model_kps:
         name = to_nfl_name(cls, territory)
         if name is not None and name.endswith("_number"):
             corrs.append((name, (float(u), float(v))))
-    return corrs
+    return _ransac_consistent(corrs)
+
+
+def _ransac_consistent(corrs, reproj_px: float = 8.0):
+    """Keep only correspondences consistent with a single plane homography.
+
+    Coarse model numbers and occasional misidentified intersections get
+    dropped here so the downstream PnP (which has no outlier rejection and
+    gates on all-point RMS) sees only clean points.
+    """
+    if len(corrs) < 4:
+        return []
+    import cv2
+    import numpy as np
+    from nfl_gsplat.calibration.field_landmarks import NFL_LANDMARKS
+    world = np.array([NFL_LANDMARKS[n][:2] for (n, _uv) in corrs], np.float64)
+    uv = np.array([p for (_n, p) in corrs], np.float64)
+    Hm, mask = cv2.findHomography(world, uv, cv2.RANSAC, reproj_px)
+    if Hm is None:
+        return []
+    keep = mask.ravel().astype(bool)
+    return [c for c, k in zip(corrs, keep) if k]
 
 
 def _intersect(seg_a, seg_b):

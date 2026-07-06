@@ -11,14 +11,19 @@ import numpy as np
 
 from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
 from nfl_gsplat.calibration.field_detect import detect_field_features
-from nfl_gsplat.calibration.field_identify import seed_state_from_hint
-from nfl_gsplat.calibration.fuse_pretrained import fuse_frame
+from nfl_gsplat.calibration.field_identify import fit_hash_rows, seed_state_from_hint
+from nfl_gsplat.calibration.fuse_pretrained import (
+    correspondences_from_identities, fuse_frame, predict_identities,
+)
 from nfl_gsplat.calibration.register_frame import register_frame
 from nfl_gsplat.errors import CalibrationError
 
 
-def _longest_gap_range(valid: np.ndarray) -> tuple[int, int, int]:
-    """Return (longest_gap_len, start, end) over False runs in ``valid``."""
+def _longest_gap_range(valid: np.ndarray, *, interior_only: bool = False) -> tuple[int, int, int]:
+    """Return (longest_gap_len, start, end) over False runs in ``valid``.
+
+    With ``interior_only=True``, runs touching index 0 or len(valid)-1 (leading/
+    trailing gaps) are skipped — those are clamp-extrapolated, not fail-loud."""
     best = (0, -1, -1)
     i, n = 0, len(valid)
     while i < n:
@@ -26,7 +31,8 @@ def _longest_gap_range(valid: np.ndarray) -> tuple[int, int, int]:
             j = i
             while j < n and not valid[j]:
                 j += 1
-            if (j - i) > best[0]:
+            is_boundary = i == 0 or j == n
+            if not (interior_only and is_boundary) and (j - i) > best[0]:
                 best = (j - i, i, j - 1)
             i = j
         else:
@@ -60,7 +66,7 @@ def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> 
     valid = np.array([r is not None for r in results])
     if not valid.any():
         raise CalibrationError("no frame could be registered for this camera.")
-    gap_len, gs, ge = _longest_gap_range(valid)
+    gap_len, gs, ge = _longest_gap_range(valid, interior_only=True)
     if gap_len > max_gap:
         raise CalibrationError(
             f"field registration failed on frames {gs}-{ge} "
@@ -134,7 +140,8 @@ def _register_sequence(feats_by_frame, hint, image_size):
     return results
 
 
-def _register_corrs(corrs, image_size, *, max_reproj_px=6.0, min_landmarks=6):
+def _register_corrs(corrs, image_size, *, max_reproj_px=6.0, min_landmarks=6,
+                     initial_intrinsics=None):
     """One frame's correspondences → CalibrationResult|None (gap)."""
     from nfl_gsplat.calibration.solve_pnp import solve_pnp_from_correspondences
     from nfl_gsplat.errors import CalibrationError
@@ -143,9 +150,93 @@ def _register_corrs(corrs, image_size, *, max_reproj_px=6.0, min_landmarks=6):
     try:
         return solve_pnp_from_correspondences(
             corrs, image_size=image_size, max_reproj_px=max_reproj_px,
-            min_landmarks=min_landmarks)
+            min_landmarks=min_landmarks, initial_intrinsics=initial_intrinsics)
     except CalibrationError:
         return None
+
+
+def _plane_H(res):
+    """The Z=0 plane homography implied by a solved frame: world ``(X, Y, 1)``
+    -> image ``(u, v, w)`` up to scale, via ``K @ [R[:,0], R[:,1], t]``. This is
+    exactly the mapping used by :func:`~nfl_gsplat.calibration.fuse_pretrained.predict_identities`
+    to identify a neighboring frame's classical lines."""
+    K = res.intrinsics.K()
+    Rt = np.column_stack([res.pose.R[:, 0], res.pose.R[:, 1], res.pose.t])
+    return K @ Rt
+
+
+def _sweep_direction(order, results, corrs_by_frame, feats_by_frame,
+                     image_size, max_reproj_px, min_landmarks):
+    """Walk ``order`` (a permutation of frame indices), solving/rescuing gaps
+    in place on the shared ``results`` list and carrying an intrinsics prior
+    (``prior``) plus the nearest solved frame's plane homography (``last_H``).
+
+    ``last_H`` is the temporal-identity-propagation signal: when a frame's
+    model-vote correspondences are missing or too sparse to solve, its
+    classical lines are identified by mapping them through the nearest
+    solved neighbor's plane homography (:func:`predict_identities`), chained
+    frame-by-frame through gaps. ``feats_by_frame`` (``{fidx: (yard_lines,
+    rows, hashes)}``) is only populated for frames with cached classical
+    detections; ``None`` disables the rescue path entirely (keeps this
+    sweep's behavior identical to the pre-propagation solver for callers/
+    tests that don't supply it)."""
+    last_H = None
+    prior = None
+    for fidx in order:
+        if results[fidx] is not None:
+            prior = getattr(results[fidx], "intrinsics", prior)
+            if feats_by_frame is not None:
+                try:
+                    last_H = _plane_H(results[fidx])
+                except AttributeError:
+                    pass
+            continue
+        corrs = corrs_by_frame.get(fidx)
+        res = None
+        if corrs:
+            res = _register_corrs(corrs, image_size, max_reproj_px=max_reproj_px,
+                                  min_landmarks=min_landmarks, initial_intrinsics=prior)
+        if res is None and last_H is not None and feats_by_frame is not None:
+            feats = feats_by_frame.get(fidx)
+            if feats is not None:
+                yard_lines, rows, _hashes = feats
+                ident = predict_identities(yard_lines, rows, last_H)
+                corrs2 = correspondences_from_identities(ident, yard_lines, rows)
+                if len(corrs2) >= min_landmarks:
+                    res = _register_corrs(corrs2, image_size, max_reproj_px=max_reproj_px,
+                                          min_landmarks=min_landmarks, initial_intrinsics=prior)
+        if res is not None:
+            results[fidx] = res
+            prior = getattr(res, "intrinsics", prior)
+            if feats_by_frame is not None:
+                try:
+                    last_H = _plane_H(res)
+                except AttributeError:
+                    pass
+
+
+def _solve_sweep(corrs_by_frame, num_frames, image_size, *,
+                  max_reproj_px=6.0, min_landmarks=6, feats_by_frame=None):
+    """Cached per-frame correspondences -> [CalibrationResult|None], solved in two
+    sweeps that carry an intrinsics prior instead of solving each frame blind.
+
+    Blind-init PnP (``initial_intrinsics=None``) falls into bad local minima on
+    many real frames while neighboring frames — same physically-fixed camera —
+    solve fine. Forward sweep: seed each frame's solve with the last successful
+    frame's intrinsics. Backward sweep: fill frames that precede the first
+    forward success, using the nearest later success as the prior.
+
+    ``feats_by_frame``, if given, additionally enables temporal identity
+    propagation (see :func:`_sweep_direction`): a frame whose own
+    correspondences are missing/insufficient is rescued via the plane
+    homography of the nearest already-solved frame in the current sweep
+    direction, chained across multi-frame gaps."""
+    results = [None] * num_frames
+    _sweep_direction(range(num_frames), results, corrs_by_frame, feats_by_frame,
+                     image_size, max_reproj_px, min_landmarks)
+    _sweep_direction(range(num_frames - 1, -1, -1), results, corrs_by_frame, feats_by_frame,
+                     image_size, max_reproj_px, min_landmarks)
+    return results
 
 
 def _register_sequence_learned(frames, *, detector, image_size,
@@ -210,28 +301,57 @@ def build_autocalib_npz_learned(*, play_dir, videos, fps, model_ckpt, yard_min,
 
 def _register_sequence_pretrained(frames, *, kps_by_frame, territory, image_size,
                                   cfg=None, boxes_for=None):
-    """Per frame: classical detect + cached model kps -> fuse -> PnP.
-    Frames without cached keypoints (or unreadable) are gaps (None)."""
+    """Per frame: classical detect + cached model kps -> fuse -> correspondences,
+    then solve with a two-sweep intrinsics prior (see :func:`_solve_sweep`).
+    Frames without cached keypoints (or unreadable) are gaps (None), unless a
+    frame's own model votes are too sparse to solve but its classical lines
+    can be identified via a solved neighbor's plane homography (temporal
+    identity propagation — see :func:`_sweep_direction`)."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     cfg = cfg or FieldDetectConfig()
     boxes_for = boxes_for or (lambda f: [])
-    results = []
+    corrs_by_frame: dict[int, list] = {}
+    feats_by_frame: dict[int, tuple] = {}
     for fidx, fr in enumerate(frames):
         kps = kps_by_frame.get(fidx, [])
         if fr is None or not kps:
-            results.append(None)
             continue
         feats = detect_field_features(fr, cfg=cfg, player_boxes=boxes_for(fidx))
-        corrs = fuse_frame(feats.yard_lines, feats.hashes, kps,
-                           territory=territory, image_size=image_size)
-        results.append(_register_corrs(corrs, image_size))
-    return results
+        rows = fit_hash_rows(feats.hashes, image_width=image_size[0])
+        feats_by_frame[fidx] = (feats.yard_lines, rows, feats.hashes)
+        corrs_by_frame[fidx] = fuse_frame(feats.yard_lines, feats.hashes, kps,
+                                          territory=territory, image_size=image_size)
+    return _solve_sweep(corrs_by_frame, len(frames), image_size,
+                        feats_by_frame=feats_by_frame)
 
 
 def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory,
                                    cfg=None, masks_provider=None):
     """Pretrained-hybrid calibration: cached Roboflow identity + repaired
-    classical geometry -> per-frame PnP -> cameras.npz. No GPU, no training."""
+    classical geometry -> per-frame PnP -> cameras.npz. No GPU, no training.
+
+    Two phases, kept separate so decoding stays a single streaming pass while
+    solving gets to see the whole clip:
+
+    Phase 1 (streaming): decode each frame once via ``iter_frames``; per frame
+    with cached model keypoints, run detect_field_features + fuse_frame and
+    stash the resulting correspondences in ``corrs_by_frame``, plus the raw
+    classical ``(yard_lines, rows, hashes)`` in ``feats_by_frame`` (a few
+    tuples per frame — cheap to hold in memory; no image buffers retained).
+    No PnP solving happens here.
+
+    Phase 2 (in-memory, two sweeps): solve every frame's correspondences with
+    :func:`_solve_sweep`, which seeds each solve with the last successful
+    frame's intrinsics as a prior. This rescues frames whose blind-init PnP
+    lands in a bad local minimum — common on real footage where geometry is
+    noisy/sparse but the camera is physically fixed, so neighboring frames'
+    intrinsics are a strong prior. It also rescues frames whose model votes
+    are too sparse to identify enough lines on their own, via temporal
+    identity propagation: the classical lines are named by mapping them
+    through the plane homography of the nearest already-solved frame,
+    chained frame-by-frame across gaps (see :func:`_sweep_direction`).
+    """
+    from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     from nfl_gsplat.calibration.roboflow_kps import load_kps_json
     from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
 
@@ -240,9 +360,10 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
         meta = ffprobe_meta(video)
         kps_by_frame = load_kps_json(kps_json, expect_num_frames=meta.num_frames)
         boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
-        results = [None] * meta.num_frames
-        from nfl_gsplat.calibration.field_detect import FieldDetectConfig
         _cfg = cfg or FieldDetectConfig()
+
+        corrs_by_frame: dict[int, list] = {}
+        feats_by_frame: dict[int, tuple] = {}
         for fidx, fr in iter_frames(video, start_frame=0):
             if not (0 <= fidx < meta.num_frames):
                 continue
@@ -250,10 +371,14 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
             if not kps:
                 continue
             feats = detect_field_features(fr, cfg=_cfg, player_boxes=boxes_for(fidx))
-            corrs = fuse_frame(feats.yard_lines, feats.hashes, kps,
-                               territory=territory,
-                               image_size=(meta.width, meta.height))
-            results[fidx] = _register_corrs(corrs, (meta.width, meta.height))
+            rows = fit_hash_rows(feats.hashes, image_width=meta.width)
+            feats_by_frame[fidx] = (feats.yard_lines, rows, feats.hashes)
+            corrs_by_frame[fidx] = fuse_frame(feats.yard_lines, feats.hashes, kps,
+                                              territory=territory,
+                                              image_size=(meta.width, meta.height))
+
+        results = _solve_sweep(corrs_by_frame, meta.num_frames, (meta.width, meta.height),
+                              feats_by_frame=feats_by_frame)
         tracks[cam] = assemble_track_from_results(results, width=meta.width,
                                                   height=meta.height)
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)

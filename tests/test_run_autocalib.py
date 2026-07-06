@@ -32,6 +32,28 @@ def test_assemble_fails_loud_on_long_gap():
         assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
 
 
+def test_assemble_tolerates_long_trailing_gap():
+    # post-play frames (camera on crowd) are a trailing None run; docstring
+    # promises clamp-extrapolation with conf=0, not a hard failure
+    results = [_res(2600, 20.0), _res(2602, 21.0)] + [None] * 10
+    tr = assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
+    assert tr.num_frames == 12
+    assert (tr.conf[2:] == 0).all() and (tr.conf[:2] == 1).all()
+    assert np.isfinite(tr.K).all() and np.isfinite(tr.t).all()
+
+
+def test_assemble_tolerates_long_leading_gap():
+    results = [None] * 8 + [_res(2600, 20.0), _res(2602, 21.0)]
+    tr = assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
+    assert (tr.conf[:8] == 0).all()
+
+
+def test_assemble_still_fails_loud_on_long_interior_gap():
+    results = [_res(2600, 20.0)] + [None] * 4 + [_res(2604, 22.0)] + [None] * 3
+    with pytest.raises(CalibrationError, match="frames 1-4"):
+        assemble_track_from_results(results, width=1920, height=1080, max_gap=2)
+
+
 def test_assemble_smooths_jitter():
     rng = np.random.default_rng(0)
     res = [_res(2600 + rng.normal(0, 30), 20 + rng.normal(0, 0.5)) for _ in range(20)]
@@ -155,3 +177,82 @@ def test_pretrained_none_frame_is_gap(monkeypatch):
         [None], kps_by_frame={0: [("30", 1.0, 2.0, 0.9)]}, territory="away",
         image_size=(1920, 1080))
     assert results == [None]
+
+
+def test_solve_sweep_rescues_frames_with_prior(monkeypatch):
+    # A frame that fails blind-init but succeeds given an intrinsics prior is
+    # rescued by the forward sweep; an early failing frame (no earlier success
+    # to seed it) is rescued by the backward fill.
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    calls = []
+
+    class _Res:
+        def __init__(self, tag):
+            self.intrinsics = tag
+
+    def fake_register_corrs(corrs, image_size, *, initial_intrinsics=None, **kw):
+        calls.append((corrs, initial_intrinsics))
+        if corrs == "blind_ok":
+            return _Res("K1")
+        if corrs == "needs_prior":
+            return _Res("K2") if initial_intrinsics is not None else None
+        return None
+
+    monkeypatch.setattr(ra, "_register_corrs", fake_register_corrs)
+
+    corrs_by_frame = {0: "needs_prior", 1: "blind_ok", 2: "needs_prior"}
+    results = ra._solve_sweep(corrs_by_frame, 3, (1920, 1080))
+    assert results[1] is not None          # blind success
+    assert results[2] is not None          # forward prior rescue
+    assert results[0] is not None          # backward prior rescue
+
+
+def test_solve_sweep_propagates_identity_across_multiframe_gap(monkeypatch):
+    # Frames 2, 3, 4 have model-vote correspondences too sparse to solve on
+    # their own ("sparse" always fails, mirroring the real 77-frame gap where
+    # model votes only pin 2 lines). Frame 5's model votes solve cleanly. Only
+    # frames 2-4 carry cached classical detections (feats_by_frame) -- frames
+    # 0/1 have none, so they cannot be rescued and must stay gaps. Unit-level:
+    # predict_identities/correspondences_from_identities are stubbed so no
+    # cv2/homography geometry runs here (that's covered in test_fuse_pretrained.py).
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    calls = []
+
+    def fake_register_corrs(corrs, image_size, *, initial_intrinsics=None, **kw):
+        calls.append(corrs)
+        if corrs == "blind_ok":
+            return _res(1400.0, 50.0)
+        if isinstance(corrs, list):              # rescued via identity propagation
+            return _res(1400.0, 50.0)
+        return None                               # "sparse" (or missing) never solves alone
+    monkeypatch.setattr(ra, "_register_corrs", fake_register_corrs)
+
+    predict_calls = []
+
+    def fake_predict_identities(yard_lines, rows, H_plane, **kw):
+        predict_calls.append((yard_lines, H_plane is not None))
+        return {0: "away_30"} if H_plane is not None else {}
+    monkeypatch.setattr(ra, "predict_identities", fake_predict_identities)
+
+    def fake_correspondences_from_identities(ident, yard_lines, rows):
+        return [(f"c{i}", (0.0, 0.0)) for i in range(6)] if ident else []
+    monkeypatch.setattr(ra, "correspondences_from_identities", fake_correspondences_from_identities)
+
+    corrs_by_frame = {2: "sparse", 3: "sparse", 4: "sparse", 5: "blind_ok"}
+    feats_by_frame = {
+        2: ("yard_lines_2", "rows_2", "hashes_2"),
+        3: ("yard_lines_3", "rows_3", "hashes_3"),
+        4: ("yard_lines_4", "rows_4", "hashes_4"),
+    }
+    results = ra._solve_sweep(corrs_by_frame, 6, (1920, 1080), feats_by_frame=feats_by_frame)
+
+    assert results[5] is not None                  # frame 5 solves on its own model votes
+    # frames 2, 3, 4 all rescued in sequence during the backward sweep, chained
+    # from frame 5's plane homography across the multi-frame gap
+    assert results[4] is not None and results[3] is not None and results[2] is not None
+    # frames 0/1 have no cached classical detections -> cannot be rescued -> stay gaps
+    assert results[1] is None and results[0] is None
+    # the propagation path was actually exercised on all three rescued frames
+    assert len(predict_calls) >= 3
