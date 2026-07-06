@@ -115,3 +115,92 @@ def jac_sparsity(frame_ids, frame_data, *, smooth_max_gap: int = SMOOTH_MAX_GAP)
             S[row, col[a] + d] = 1; S[row, col[b] + d] = 1
             row += 1
     return S
+
+
+def init_from_results(init_results, frame_ids):
+    """Initialize (C0, r0, f0) from the per-frame sweep's successes.
+
+    C0 = median center of successes (center is the well-agreed quantity on
+    real footage); per-frame r/f from successes, linearly interpolated (and
+    boundary-clamped) across frames the sweep could not solve. Fails loud
+    when the sweep produced too few successes to trust."""
+    import cv2
+    ok = [(i, r) for i, r in enumerate(init_results) if r is not None]
+    if len(ok) < MIN_INIT_FRAMES:
+        raise CalibrationError(
+            f"only {len(ok)} per-frame initializer successes (< {MIN_INIT_FRAMES}) — "
+            "not enough to seed the fixed-center joint solve. Check the fusion "
+            "diagnostics (scripts/diag_pretrained.py)."
+        )
+    C0 = np.median(np.stack([r.pose.center_world() for _i, r in ok]), axis=0)
+    ok_ids = np.array([i for i, _r in ok], dtype=float)
+    rvecs = np.stack([cv2.Rodrigues(r.pose.R)[0].ravel() for _i, r in ok])
+    fs = np.array([r.intrinsics.fx for _i, r in ok])
+    r0, f0 = {}, {}
+    for i in frame_ids:
+        f0[i] = float(np.interp(i, ok_ids, fs))
+        r0[i] = np.array([np.interp(i, ok_ids, rvecs[:, d]) for d in range(3)])
+    return C0, r0, f0
+
+
+def _solve_once(frame_ids, frame_data, image_size, C0, r0, f0):
+    """One trf round. Returns (C, r_by, f_by, robust_cost_before, robust_cost_after)."""
+    from scipy.optimize import least_squares
+    x0 = pack_params(C0, r0, f0, frame_ids)
+    lo = np.full_like(x0, -np.inf)
+    hi = np.full_like(x0, np.inf)
+    for k in range(len(frame_ids)):
+        lo[3 + 4 * k + 3] = F_BOUNDS[0]
+        hi[3 + 4 * k + 3] = F_BOUNDS[1]
+    x0 = np.clip(x0, lo, hi)
+
+    def fn(x):
+        return residuals(x, frame_ids, frame_data, image_size)
+    sol = least_squares(fn, x0, method="trf", loss="soft_l1", f_scale=F_SCALE_PX,
+                        jac_sparsity=jac_sparsity(frame_ids, frame_data),
+                        bounds=(lo, hi), max_nfev=200)
+
+    def robust_cost(x):
+        r = fn(x) / F_SCALE_PX
+        return float(np.sum(2.0 * (np.sqrt(1.0 + r ** 2) - 1.0)))
+    C, r_by, f_by = unpack_params(sol.x, frame_ids)
+    return C, r_by, f_by, robust_cost(x0), robust_cost(sol.x)
+
+
+def _frame_result(i, frame_data, C, r_by, f_by, image_size):
+    import cv2
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+    world, uv = frame_data[i]
+    proj = _project(world, r_by[i], f_by[i], C, image_size)
+    rms = float(np.sqrt(np.mean(np.sum((proj - uv) ** 2, axis=1))))
+    R = cv2.Rodrigues(np.asarray(r_by[i], np.float64))[0]
+    return CalibrationResult(
+        intrinsics=CameraIntrinsics(f_by[i], f_by[i], image_size[0] / 2.0,
+                                    image_size[1] / 2.0, image_size[0], image_size[1]),
+        pose=CameraPose(R=R, t=-R @ C),
+        rms_px=rms, num_correspondences=len(uv), refined_with_ba=True)
+
+
+def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
+                       max_rounds: int = 2, _frame_data_override=None):
+    """Entry point: joint solve over all usable frames -> [CalibrationResult|None]
+    aligned to init_results' length. Self-audit (Task 3) drops irreconcilable
+    frames between rounds."""
+    frame_data = (_frame_data_override if _frame_data_override is not None
+                  else build_frame_data(corrs_by_frame))
+    frame_ids = sorted(frame_data)
+    T = len(init_results)
+    if not frame_ids:
+        raise CalibrationError("no usable frames (>=4 correspondences) for the joint solve.")
+    C0, r0, f0 = init_from_results(init_results, frame_ids)
+    C, r_by, f_by, before, after = _solve_once(frame_ids, frame_data, image_size,
+                                               C0, r0, f0)
+    if after >= before:
+        raise CalibrationError(
+            f"fixed-center joint solve diverged (robust cost {before:.1f} -> {after:.1f}); "
+            "not returning the initializer. Inspect fusion output.")
+    results = [None] * T
+    for i in frame_ids:
+        results[i] = _frame_result(i, frame_data, C, r_by, f_by, image_size)
+    return results

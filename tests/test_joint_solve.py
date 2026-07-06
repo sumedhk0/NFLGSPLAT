@@ -3,7 +3,7 @@ looking at the field plane — all geometry self-checked via project_points."""
 import numpy as np
 import pytest
 
-from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
 
 W, H = 1920, 1080
 C_TRUE = np.array([-19.0, 1.0, 95.0])          # measured real-camera ballpark
@@ -113,3 +113,77 @@ def test_build_frame_data_unknown_name_fails_loud():
     corrs = {0: [("not_a_landmark", (1.0, 2.0))] * 4}
     with pytest.raises(CalibrationError, match="unknown landmark"):
         build_frame_data(corrs)
+
+
+def _init_results_from_truth(ids, f_true, R_true, n_frames, jitter=0.0, seed=1,
+                             keep_every=1):
+    """Fake per-frame sweep output: CalibrationResult for kept frames, None else."""
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    rng = np.random.default_rng(seed)
+    out = [None] * n_frames
+    for i in ids:
+        if i % keep_every != 0:
+            continue
+        R = R_true[i]
+        C = C_TRUE + rng.normal(0, jitter, 3)
+        t = -R @ C
+        out[i] = CalibrationResult(
+            intrinsics=CameraIntrinsics(f_true[i] * (1 + rng.normal(0, jitter / 50)),
+                                        f_true[i], W / 2, H / 2, W, H),
+            pose=CameraPose(R=R, t=t), rms_px=0.5, num_correspondences=8,
+            refined_with_ba=True)
+    return out
+
+
+def test_init_from_results_median_center_and_interpolation():
+    from nfl_gsplat.calibration.joint_solve import init_from_results
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=30)
+    init = _init_results_from_truth(ids, f_true, R_true, 30, jitter=0.5, keep_every=1)
+    init[5] = init[6] = None                    # gap: must be interpolated
+    C0, r0, f0 = init_from_results(init, ids)
+    assert np.linalg.norm(C0 - C_TRUE) < 2.0
+    assert 5 in r0 and 5 in f0                  # gap frames got initialized
+    assert f0[5] == pytest.approx(f_true[5], rel=0.05)
+
+
+def test_init_from_results_fails_loud_when_sparse():
+    from nfl_gsplat.calibration.joint_solve import init_from_results
+    from nfl_gsplat.errors import CalibrationError
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=30)
+    init = _init_results_from_truth(ids, f_true, R_true, 30, keep_every=10)  # 3 frames
+    with pytest.raises(CalibrationError, match="initializer"):
+        init_from_results(init, ids)
+
+
+def test_solve_fixed_center_recovers_ground_truth():
+    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=50, noise_px=0.5)
+    # _frame_data_override bypasses landmark-name resolution (synthetic points
+    # are arbitrary field-plane locations, not named NFL landmarks)
+    results = solve_fixed_center(
+        corrs_by_frame=None, image_size=(W, H),
+        init_results=_init_results_from_truth(ids, f_true, R_true, 50, jitter=1.0),
+        _frame_data_override=fd)
+    solved = [r for r in results if r is not None]
+    assert len(solved) >= 45
+    C_rec = solved[0].pose.center_world()
+    assert np.linalg.norm(C_rec - C_TRUE) < 0.5
+    for i, r in enumerate(results):
+        if r is None:
+            continue
+        assert r.intrinsics.fx == pytest.approx(f_true[i], rel=0.02)
+        assert np.allclose(r.pose.center_world(), C_rec)        # ONE center, all frames
+
+
+def test_solve_fixed_center_diverging_fails_loud(monkeypatch):
+    from nfl_gsplat.calibration import joint_solve as js
+    from nfl_gsplat.errors import CalibrationError
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=25, noise_px=0.5)
+
+    def fake_solve_once(frame_ids, frame_data, image_size, C0, r0, f0):
+        return C0, r0, f0, 100.0, 500.0          # cost went UP
+    monkeypatch.setattr(js, "_solve_once", fake_solve_once)
+    with pytest.raises(CalibrationError, match="diverged"):
+        js.solve_fixed_center(corrs_by_frame=None, image_size=(W, H),
+                              init_results=_init_results_from_truth(ids, f_true, R_true, 25),
+                              _frame_data_override=fd)
