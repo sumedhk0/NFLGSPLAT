@@ -90,10 +90,14 @@ def test_identify_lines_tie_drops_line_not_frame():
     assert ident == {0: "away_40"}
 
 
-def test_identify_lines_no_clamped_extrapolation():
-    # votes only on away_35 (middle) and away_30 (one end); away_40 lies
-    # outside the voted image-x range and must NOT be filled by clamped
-    # np.interp extrapolation.
+def test_identify_lines_no_duplicate_from_extrapolation():
+    # votes only on away_35 (middle) and away_30 (one end); away_40 lies one
+    # step outside the voted image-x range. This used to encode a blanket
+    # ban on any extrapolation (a guard against np.interp's clamping, which
+    # duplicates the nearest endpoint's identity); now that fill is a
+    # non-clamping local-linear one-step extrapolation, away_40 is correctly
+    # identified. What this test actually guards -- no duplicate base names
+    # in the result -- still holds and is what we assert here.
     v35 = 300.0
     u35 = _u_at(_yardline_x_m("away_35"), v35)
     v30 = 500.0
@@ -103,11 +107,37 @@ def test_identify_lines_no_clamped_extrapolation():
         ("30", u30 - 2.0, v30, 0.8),
     ]
     ident = identify_lines(LINES, kps, territory="away")
-    assert 0 not in ident              # away_40 (index 0) left unidentified
     assert ident.get(1) == "away_35"
     assert ident.get(2) == "away_30"
     vals = list(ident.values())
     assert len(vals) == len(set(vals))
+
+
+def test_identify_lines_one_step_extrapolation():
+    # votes on away_35 and away_30 only; away_40 lies one 5-yd step OUTSIDE
+    # the voted range and must be filled by local linear extrapolation (the
+    # old blanket ban left early-play frames under the solver's 6-point
+    # minimum).
+    kps = [("35-top-hash", _u_at(_yardline_x_m("away_35"), 300.0) + 5.0, 300.0, 0.9),
+           ("30", _u_at(_yardline_x_m("away_30"), 200.0) - 5.0, 200.0, 0.8)]
+    ident = identify_lines(LINES, kps, territory="away")
+    assert ident.get(0) == "away_40"
+    assert ident.get(1) == "away_35" and ident.get(2) == "away_30"
+
+
+def test_identify_lines_extrapolation_capped_at_one_step():
+    # a line two 5-yd steps beyond the voted range (away_35, away_30) stays
+    # unidentified: away_35's X=-13.716, away_30's X=-18.288; two steps
+    # beyond away_35 (away_40's position, then one more) lands at away_45's
+    # X=-4.572, which is 9.144 m from the outermost vote (away_35) --
+    # farther than the 1.5-yard-line-spacing cap (6.858 m) -- so it is
+    # rejected even though it lands exactly on a valid painted line.
+    far = _seg_for(_yardline_x_m("away_45"))
+    lines = [far] + LINES[1:]          # [away_45-position, away_35, away_30]
+    kps = [("35-top-hash", _u_at(_yardline_x_m("away_35"), 300.0), 300.0, 0.9),
+           ("30", _u_at(_yardline_x_m("away_30"), 200.0), 200.0, 0.8)]
+    ident = identify_lines(lines, kps, territory="away")
+    assert 0 not in ident              # too far to trust linear extrapolation
 
 
 def test_identify_lines_duplicate_base_dropped():

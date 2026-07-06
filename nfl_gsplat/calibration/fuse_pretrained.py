@@ -32,10 +32,14 @@ def identify_lines(yard_lines, model_kps, *, territory,
       - identified world-X must be strictly monotone in image x, else {}.
     Unvoted lines strictly between the leftmost and rightmost voted image-x
     get identity by world-X interpolation snapped via
-    ``yardline_name_from_x_m`` (round-trip-safe); lines outside that range
-    are left unidentified rather than clamped-extrapolated. Any base name
-    that ends up assigned to more than one line is ambiguous and every line
-    carrying it is dropped.
+    ``yardline_name_from_x_m`` (round-trip-safe); this never clamps like
+    np.interp would. Beyond the voted range, one further step is filled by a
+    local LINEAR extrapolation through the two nearest voted lines at that
+    end (also non-clamping, unlike np.interp), capped at 1.5 yard-line
+    spacings past the outermost vote -- far extrapolation is unsafe because
+    perspective nonlinearity grows with distance. Any base name that ends up
+    assigned to more than one line is ambiguous and every line carrying it
+    is dropped.
     """
     if not yard_lines or not model_kps:
         return {}
@@ -79,7 +83,9 @@ def identify_lines(yard_lines, model_kps, *, territory,
     # fill unvoted lines by piecewise-linear world-X interpolation + snap,
     # but only strictly between the voted image-x extremes -- np.interp
     # clamps outside that range, which would assign an out-of-range line
-    # the same identity as the nearest endpoint (a duplicate base).
+    # the same identity as the nearest endpoint (a duplicate base). Lines
+    # beyond the range are handled separately below, by non-clamping local
+    # linear extrapolation capped to one yard-line step.
     if len(voted) >= 2:
         import numpy as np
         vk = [k for (k, _b) in voted]
@@ -101,6 +107,39 @@ def identify_lines(yard_lines, model_kps, *, territory,
                 continue                              # off-grid: leave unidentified
             if abs(_yardline_x_m(name) - X_est) <= _SNAP_TOL_M:
                 ident[order[k]] = name
+
+        # one-step LINEAR extrapolation at each end, through the two nearest
+        # voted lines at that end. Unlike np.interp this never clamps -- each
+        # unvoted line beyond the range gets its own distinct X_est -- but is
+        # only trusted up to 1.5 yard-line spacings past the outermost vote,
+        # since perspective nonlinearity grows with distance from the votes.
+        _CAP_M = 1.5 * YARD_LINE_SPACING_M
+        for xa, xb, Xa, Xb, side in (
+            (vx[0], vx[1], vX[0], vX[1], "lo"),
+            (vx[-2], vx[-1], vX[-2], vX[-1], "hi"),
+        ):
+            if xb == xa:
+                continue                              # degenerate: coincident voted x's
+            a = (Xb - Xa) / (xb - xa)
+            b = Xa - a * xa
+            X_outer = Xb if side == "hi" else Xa
+            for k in range(len(order)):
+                if order[k] in ident:
+                    continue
+                xk = xs_img[k]
+                if side == "lo" and xk >= x_lo:
+                    continue
+                if side == "hi" and xk <= x_hi:
+                    continue
+                X_est = a * xk + b
+                if abs(X_est - X_outer) > _CAP_M:
+                    continue                          # too far: perspective drift unsafe
+                try:
+                    name = yardline_name_from_x_m(X_est, tol_m=_SNAP_TOL_M)
+                except ValueError:
+                    continue                          # off-grid: leave unidentified
+                if abs(_yardline_x_m(name) - X_est) <= _SNAP_TOL_M:
+                    ident[order[k]] = name
 
     # a base assigned to more than one line is ambiguous: never guess which
     # is correct -> drop every line carrying that base.
