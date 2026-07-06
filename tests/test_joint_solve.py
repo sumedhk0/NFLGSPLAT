@@ -187,3 +187,25 @@ def test_solve_fixed_center_diverging_fails_loud(monkeypatch):
         js.solve_fixed_center(corrs_by_frame=None, image_size=(W, H),
                               init_results=_init_results_from_truth(ids, f_true, R_true, 25),
                               _frame_data_override=fd)
+
+
+def test_self_audit_drops_identity_shifted_frame():
+    # one frame's world points shifted a full yard-line spacing (+4.572 m in X)
+    # = the consistent-mislabel failure mode: PERFECT per-frame residual,
+    # irreconcilable with the shared center -> must be dropped, others kept
+    from nfl_gsplat.calibration.field_landmarks import YARD_LINE_SPACING_M
+    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=40, noise_px=0.3)
+    bad = 17
+    world, uv = fd[bad]
+    world = world.copy(); world[:, 0] += YARD_LINE_SPACING_M
+    fd[bad] = (world, uv)
+    results = solve_fixed_center(
+        corrs_by_frame=None, image_size=(W, H),
+        init_results=_init_results_from_truth(ids, f_true, R_true, 40, jitter=1.0),
+        _frame_data_override=fd)
+    assert results[bad] is None                          # audited out
+    solved = [r for r in results if r is not None]
+    assert len(solved) >= 35
+    C_rec = solved[0].pose.center_world()
+    assert np.linalg.norm(C_rec - C_TRUE) < 0.5          # unpoisoned

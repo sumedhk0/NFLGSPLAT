@@ -200,7 +200,28 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
         raise CalibrationError(
             f"fixed-center joint solve diverged (robust cost {before:.1f} -> {after:.1f}); "
             "not returning the initializer. Inspect fusion output.")
+
     results = [None] * T
-    for i in frame_ids:
-        results[i] = _frame_result(i, frame_data, C, r_by, f_by, image_size)
+    kept = list(frame_ids)
+    for round_no in range(max_rounds):
+        med = {}
+        for i in kept:
+            world, uv = frame_data[i]
+            proj = _project(world, r_by[i], f_by[i], C, image_size)
+            med[i] = float(np.median(np.linalg.norm(proj - uv, axis=1)))
+        drop = [i for i in kept if med[i] > AUDIT_DROP_PX]
+        if not drop or round_no == max_rounds - 1:
+            break
+        kept = [i for i in kept if i not in drop]
+        if not kept:
+            raise CalibrationError("self-audit dropped every frame — fusion output unusable.")
+        C, r_by, f_by, before, after = _solve_once(
+            kept, {i: frame_data[i] for i in kept}, image_size,
+            C, {i: r_by[i] for i in kept}, {i: f_by[i] for i in kept})
+        if after >= before:
+            raise CalibrationError(
+                f"joint re-solve after audit diverged ({before:.1f} -> {after:.1f}).")
+    for i in kept:
+        if med[i] <= AUDIT_DROP_PX:
+            results[i] = _frame_result(i, frame_data, C, r_by, f_by, image_size)
     return results
