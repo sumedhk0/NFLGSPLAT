@@ -440,8 +440,11 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
                 "camera %s: fused left/right hash convention was flipped "
                 "(mirrored labeling) for this camera side; joint solve results "
                 "are in the true world frame.", cam)
+        # max_gap=30 (~1s of smooth pan): the joint solve audits per frame, so
+        # interior gaps are frames whose fusion was rejected, not calibration
+        # jumps; interpolation across them is safe and they carry conf=0.
         tracks[cam] = assemble_track_from_results(joint, width=meta.width,
-                                                  height=meta.height)
+                                                  height=meta.height, max_gap=30)
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
 
 

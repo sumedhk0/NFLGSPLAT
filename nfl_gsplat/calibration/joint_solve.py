@@ -420,7 +420,19 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     if mirrored:
         frame_data = _negate_y(frame_data)
 
-    C, _r_by, _f_by = _staged_solve(frame_ids, frame_data, image_size, C_win)
+    # Rescue-first: refit every frame against the multi-start winner and run the
+    # staged solve on CLEAN frames only. Solving on all frames first lets the
+    # poisoned minority (residual identity/geometry errors) drag the shared
+    # center away (measured on real footage: C wandered onto the field and the
+    # final rescue rejected everything).
+    refit0 = _rescue_refit(frame_ids, frame_data, image_size, C_win)
+    kept = sorted(i for i, (_r, _f, m) in refit0.items() if m <= AUDIT_DROP_PX)
+    if len(kept) < 10:
+        raise CalibrationError(
+            f"only {len(kept)} frames consistent with the multi-start camera "
+            f"(need >= 10) — fusion output unusable for a fixed-center solve.")
+    C, _r_by, _f_by = _staged_solve(kept, {i: frame_data[i] for i in kept},
+                                    image_size, C_win)
 
     refit = _rescue_refit(frame_ids, frame_data, image_size, C)
     results = [None] * T

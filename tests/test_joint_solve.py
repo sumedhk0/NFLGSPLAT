@@ -231,12 +231,14 @@ def test_self_audit_all_frames_bad_fails_loud(monkeypatch):
     ids, fd, f_true, R_true = _synthetic_frames(n_frames=25, noise_px=0.3)
 
     def fake_solve_once(frame_ids, frame_data, image_size, C0, r0, f0, **kw):
-        # Staged solve "converges" (cost drops, no divergence) but to a camera
-        # 60 m off in X. The rescue then freezes that wrong C and cannot fit any
-        # frame's (r, f) within tolerance -> every frame rejected.
+        # Every solve "converges" (cost drops, no divergence) but to a camera
+        # 60 m off in X. The rescue-first gate freezes that wrong C and cannot
+        # fit any frame's (r, f) within tolerance -> fail loud (either at the
+        # rescue-first consistency gate or the final all-rejected guard).
         return C0 + np.array([60.0, 0.0, 0.0]), r0, f0, 100.0, 50.0
     monkeypatch.setattr(js, "_solve_once", fake_solve_once)
-    with pytest.raises(CalibrationError, match="rejected every frame"):
+    with pytest.raises(CalibrationError,
+                       match="rejected every frame|frames consistent with the multi-start"):
         js.solve_fixed_center(
             corrs_by_frame=None, image_size=(W, H),
             init_results=_init_results_from_truth(ids, f_true, R_true, 25),
