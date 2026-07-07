@@ -8,6 +8,26 @@ footage: the same frame solves blind but fails with a neighbor's prior), and
 a consistently mislabeled yard line is invisible per frame but irreconcilable
 with the shared center.
 
+Solve orchestration (design addendum 2026-07-06, validated on real footage):
+
+1. Multi-start init — the per-frame sweep produced only physically-impossible
+   anchors, so we do NOT trust it to seed the solve. Candidate camera centers
+   come from a coarse plausibility grid plus (if the sweep left >= 3 plausible
+   anchors) the median of those anchors. Each candidate gets per-frame look-at
+   rotation + span-derived focal.
+2. Reflection auto-resolve — the fused left/right hash convention is
+   camera-side dependent; a mirrored labeling keeps every homography perfect
+   but is a reflection no rigid camera fits. Both labelings (as-is / world-Y
+   negated) are scored on a frame subsample; the lower-cost one wins. A
+   mirrored win negates world Y for the rest of the solve (the field is
+   Y-symmetric, so results stay in the TRUE world frame) and is reported.
+3. Staged solve — trf needs x_scale and a subsample-deep -> full warm start to
+   converge at this parameter scale.
+4. Fixed-C per-frame rescue refit — freeze C, refit every frame's (r, f)
+   independently with a small LM, keep frames whose median reprojection is
+   within tolerance. Replaces the cascade audit, which dropped good frames
+   against half-converged intermediates.
+
 Parameter vector layout: [C (3)] + per usable frame [r_t (3), f_t (1)],
 frames in ascending index order.
 """
@@ -22,9 +42,27 @@ LAMBDA_F = 0.01          # px of residual per px of frame-to-frame focal change
 LAMBDA_R = 50.0          # px of residual per radian of frame-to-frame rotation change
 SMOOTH_MAX_GAP = 3       # only penalize usable-frame pairs this close in index
 F_BOUNDS = (200.0, 40000.0)
-MIN_INIT_FRAMES = 20
 AUDIT_DROP_PX = 6.0
 F_SCALE_PX = 3.0
+
+# Multi-start grid of plausible camera centers (world meters). The grid does
+# NOT cover the synthetic-test geometry near (-19, 1, 95); the plausible-anchor
+# candidate keeps that reachable (and short-circuits the grid when present).
+_GRID_X = (-30.0, 0.0, 30.0)
+_GRID_Y = (-130.0, -80.0, -45.0, 45.0, 80.0, 130.0)
+_GRID_Z = (15.0, 35.0, 65.0)
+
+# x_scale for trf: C in ~tens of meters, r in ~hundredths of a radian, f in
+# ~thousands of pixels. Solving all three at unit scale stalls.
+_XS_C = 10.0
+_XS_R = 0.01
+_XS_F = 1000.0
+
+_SHORT_NFEV = 12         # per-candidate scoring solve (cost discrimination, not convergence)
+_STAGE_A_NFEV = 1000     # subsample deep solve
+_STAGE_B_NFEV = 600      # full warm-started solve
+_RESCUE_NFEV = 300       # per-frame fixed-C LM refit
+_EARLY_ACCEPT_PX = 2.0   # a candidate this good on the subsample ends the search
 
 FrameData = tuple[np.ndarray, np.ndarray]     # (world (N,3), uv (N,2))
 
@@ -117,115 +155,280 @@ def jac_sparsity(frame_ids, frame_data, *, smooth_max_gap: int = SMOOTH_MAX_GAP)
     return S
 
 
-def init_from_results(init_results, frame_ids):
-    """Initialize (C0, r0, f0) from the per-frame sweep's successes.
+def init_from_results(init_results) -> np.ndarray | None:
+    """Median center of the sweep's PLAUSIBLE anchors, or None.
 
-    C0 = median center of successes (center is the well-agreed quantity on
-    real footage); per-frame r/f from successes, linearly interpolated (and
-    boundary-clamped) across frames the sweep could not solve. Fails loud
-    when the sweep produced too few successes to trust."""
+    The per-frame sweep on real footage produces physically-impossible anchors
+    (focals to 1e13 px, centers scattered 1e8 m); those are gated out. If at
+    least three anchors survive the plausibility gate their median center is a
+    trustworthy extra multi-start candidate (it keeps the synthetic geometry
+    near (-19, 1, 95) reachable). Fewer than three plausible anchors -> None;
+    the grid multi-start covers that case, so this no longer fails loud."""
+    plausible = []
+    for r in init_results:
+        if r is None:
+            continue
+        C = np.asarray(r.pose.center_world(), np.float64)
+        f = float(r.intrinsics.fx)
+        if (1000.0 <= f <= 25000.0 and 5.0 <= C[2] <= 250.0
+                and abs(C[0]) <= 300.0 and abs(C[1]) <= 400.0):
+            plausible.append(C)
+    if len(plausible) < 3:
+        return None
+    return np.median(np.stack(plausible), axis=0)
+
+
+def _look_at_R(C, target):
+    """World->camera rotation for a camera at C looking at target, +Z world up.
+    Camera axes: z forward, x right, y down. None if the geometry is degenerate."""
+    fwd = np.asarray(target, np.float64) - np.asarray(C, np.float64)
+    n = np.linalg.norm(fwd)
+    if n < 1e-9:
+        return None
+    fwd = fwd / n
+    right = np.cross(fwd, np.array([0.0, 0.0, 1.0]))
+    rn = np.linalg.norm(right)
+    if rn < 1e-9:
+        return None
+    right = right / rn
+    down = np.cross(fwd, right)
+    return np.stack([right, down, fwd], axis=0)
+
+
+def _init_frame(C, world, uv):
+    """Per-frame look-at rotation + span-derived focal seed for a camera at C."""
     import cv2
-    ok = [(i, r) for i, r in enumerate(init_results) if r is not None]
-    if len(ok) < MIN_INIT_FRAMES:
-        raise CalibrationError(
-            f"only {len(ok)} per-frame initializer successes (< {MIN_INIT_FRAMES}) — "
-            "not enough to seed the fixed-center joint solve. Check the fusion "
-            "diagnostics (scripts/diag_pretrained.py)."
-        )
-    C0 = np.median(np.stack([r.pose.center_world() for _i, r in ok]), axis=0)
-    ok_ids = np.array([i for i, _r in ok], dtype=float)
-    rvecs = np.stack([cv2.Rodrigues(r.pose.R)[0].ravel() for _i, r in ok])
-    fs = np.array([r.intrinsics.fx for _i, r in ok])
+    target = world.mean(axis=0)
+    R = _look_at_R(C, target)
+    if R is None:
+        return None, None
+    dist = np.linalg.norm(target - np.asarray(C, np.float64))
+    wspan = np.linalg.norm(world.max(0) - world.min(0))
+    pspan = np.linalg.norm(uv.max(0) - uv.min(0))
+    f = float(np.clip(pspan * dist / max(wspan, 1e-6), 500.0, 39000.0))
+    return cv2.Rodrigues(R)[0].ravel(), f
+
+
+def _init_pose_for_C(C, ids, frame_data):
+    """look-at/span init for every frame in ids, or (None, None) if degenerate."""
     r0, f0 = {}, {}
-    for i in frame_ids:
-        f0[i] = float(np.interp(i, ok_ids, fs))
-        r0[i] = np.array([np.interp(i, ok_ids, rvecs[:, d]) for d in range(3)])
-    return C0, r0, f0
+    for i in ids:
+        world, uv = frame_data[i]
+        r, f = _init_frame(C, world, uv)
+        if r is None:
+            return None, None
+        r0[i], f0[i] = r, f
+    return r0, f0
 
 
-def _solve_once(frame_ids, frame_data, image_size, C0, r0, f0):
-    """One trf round. Returns (C, r_by, f_by, robust_cost_before, robust_cost_after)."""
+def _negate_y(frame_data):
+    """Left/right relabel: negate world Y (the field is Y-symmetric)."""
+    flip = np.array([1.0, -1.0, 1.0])
+    return {i: (world * flip, uv) for i, (world, uv) in frame_data.items()}
+
+
+def _median_reproj(ids, frame_data, C, r_by, f_by, image_size) -> float:
+    """Median over frames of each frame's median reprojection residual (px)."""
+    meds = []
+    for i in ids:
+        world, uv = frame_data[i]
+        proj = _project(world, r_by[i], f_by[i], C, image_size)
+        meds.append(float(np.median(np.linalg.norm(proj - uv, axis=1))))
+    return float(np.median(meds)) if meds else float("inf")
+
+
+def _robust_cost(res: np.ndarray) -> float:
+    r = res / F_SCALE_PX
+    return float(np.sum(2.0 * (np.sqrt(1.0 + r ** 2) - 1.0)))
+
+
+def _solve_once(frame_ids, frame_data, image_size, C0, r0, f0, *, max_nfev=200, jac=None):
+    """One trf round with x_scale. Returns (C, r_by, f_by, cost_before, cost_after).
+
+    ``jac`` optionally supplies a precomputed sparsity pattern (the pattern only
+    depends on frame_ids and per-frame point counts, so the multi-start scoring
+    loop reuses one instance across every candidate)."""
     from scipy.optimize import least_squares
     x0 = pack_params(C0, r0, f0, frame_ids)
     lo = np.full_like(x0, -np.inf)
     hi = np.full_like(x0, np.inf)
+    xs = np.ones_like(x0)
+    xs[:3] = _XS_C
     for k in range(len(frame_ids)):
-        lo[3 + 4 * k + 3] = F_BOUNDS[0]
-        hi[3 + 4 * k + 3] = F_BOUNDS[1]
+        o = 3 + 4 * k
+        lo[o + 3] = F_BOUNDS[0]
+        hi[o + 3] = F_BOUNDS[1]
+        xs[o:o + 3] = _XS_R
+        xs[o + 3] = _XS_F
     x0 = np.clip(x0, lo, hi)
 
     def fn(x):
         return residuals(x, frame_ids, frame_data, image_size)
+    sparsity = jac if jac is not None else jac_sparsity(frame_ids, frame_data)
+    # 1e-4 tolerances: the finite-difference Jacobian makes each iteration
+    # costly, and the shared center is nailed to ~0.1 m well before the default
+    # 1e-8 tolerances stop it (per-frame focal is then refined tightly by the
+    # fixed-C rescue LM anyway).
     sol = least_squares(fn, x0, method="trf", loss="soft_l1", f_scale=F_SCALE_PX,
-                        jac_sparsity=jac_sparsity(frame_ids, frame_data),
-                        bounds=(lo, hi), max_nfev=200)
-
-    def robust_cost(x):
-        r = fn(x) / F_SCALE_PX
-        return float(np.sum(2.0 * (np.sqrt(1.0 + r ** 2) - 1.0)))
+                        jac_sparsity=sparsity, bounds=(lo, hi), x_scale=xs, max_nfev=max_nfev,
+                        ftol=1e-4, xtol=1e-4, gtol=1e-4)
     C, r_by, f_by = unpack_params(sol.x, frame_ids)
-    return C, r_by, f_by, robust_cost(x0), robust_cost(sol.x)
+    return C, r_by, f_by, _robust_cost(fn(x0)), _robust_cost(fn(sol.x))
 
 
-def _frame_result(i, frame_data, C, r_by, f_by, image_size):
+def _frame_result(i, frame_data, C, r, f, image_size):
+    """Build a CalibrationResult for frame i from its per-frame (r, f) and shared C."""
     import cv2
     from nfl_gsplat.calibration.solve_pnp import CalibrationResult
     from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
     world, uv = frame_data[i]
-    proj = _project(world, r_by[i], f_by[i], C, image_size)
+    proj = _project(world, r, f, C, image_size)
     rms = float(np.sqrt(np.mean(np.sum((proj - uv) ** 2, axis=1))))
-    R = cv2.Rodrigues(np.asarray(r_by[i], np.float64))[0]
+    R = cv2.Rodrigues(np.asarray(r, np.float64))[0]
     return CalibrationResult(
-        intrinsics=CameraIntrinsics(f_by[i], f_by[i], image_size[0] / 2.0,
+        intrinsics=CameraIntrinsics(f, f, image_size[0] / 2.0,
                                     image_size[1] / 2.0, image_size[0], image_size[1]),
-        pose=CameraPose(R=R, t=-R @ C),
+        pose=CameraPose(R=R, t=-R @ np.asarray(C, np.float64)),
         rms_px=rms, num_correspondences=len(uv), refined_with_ba=True)
+
+
+def _candidate_centers(init_results) -> list[np.ndarray]:
+    """Plausible-anchor median (if any) first, then the plausibility grid."""
+    cands: list[np.ndarray] = []
+    anchor = init_from_results(init_results)
+    if anchor is not None:
+        cands.append(anchor)
+    for X in _GRID_X:
+        for Y in _GRID_Y:
+            for Z in _GRID_Z:
+                cands.append(np.array([X, Y, Z]))
+    return cands
+
+
+def _subsample(frame_ids) -> list[int]:
+    """Every 7th usable frame, at least 8 (densify if too sparse); all if < 8."""
+    if len(frame_ids) <= 8:
+        return list(frame_ids)
+    sub = frame_ids[::7]
+    if len(sub) < 8:
+        idx = np.linspace(0, len(frame_ids) - 1, 8).round().astype(int)
+        sub = [frame_ids[j] for j in sorted(set(idx.tolist()))]
+    return sub
+
+
+def _resolve_reflection(frame_ids, frame_data, image_size, candidates):
+    """Score both labelings x every candidate on a subsample; return the winner.
+
+    Returns (mirrored, C_refined, cost). Early-accepts the first candidate whose
+    short-solve reaches <= _EARLY_ACCEPT_PX median reprojection on the subsample
+    (its labeling is the true one — the reflection can never reach that)."""
+    sub = _subsample(frame_ids)
+    sparsity = jac_sparsity(sub, {i: frame_data[i] for i in sub})   # identical every candidate
+    best = None                                   # (cost, mirrored, C)
+    for mirrored, fd in ((False, frame_data), (True, _negate_y(frame_data))):
+        sub_fd = {i: fd[i] for i in sub}
+        for C0 in candidates:
+            r0, f0 = _init_pose_for_C(C0, sub, fd)
+            if r0 is None:
+                continue
+            C, r_by, f_by, _before, after = _solve_once(
+                sub, sub_fd, image_size, C0, r0, f0, max_nfev=_SHORT_NFEV, jac=sparsity)
+            if not np.isfinite(after):
+                continue
+            if best is None or after < best[0]:
+                best = (after, mirrored, C)
+            if _median_reproj(sub, fd, C, r_by, f_by, image_size) <= _EARLY_ACCEPT_PX:
+                return mirrored, C, after
+    if best is None or not np.isfinite(best[0]):
+        raise CalibrationError(
+            "multi-start joint solve found no finite-cost camera candidate — "
+            "fusion output unusable (inspect scripts/diag_pretrained.py).")
+    return best[1], best[2], best[0]
+
+
+def _staged_solve(frame_ids, frame_data, image_size, C_win):
+    """Stage A (every 3rd frame, deep) -> Stage B (all frames, warm-started)."""
+    subA = frame_ids[::3]
+    rA0, fA0 = _init_pose_for_C(C_win, subA, frame_data)
+    if rA0 is None:
+        raise CalibrationError("joint solve: winning camera center is degenerate "
+                               "for the subsample (look-at undefined).")
+    CA, rA, fA, beforeA, afterA = _solve_once(
+        subA, {i: frame_data[i] for i in subA}, image_size, C_win, rA0, fA0,
+        max_nfev=_STAGE_A_NFEV)
+    if afterA > beforeA:
+        raise CalibrationError(
+            f"fixed-center joint solve diverged in stage A "
+            f"(robust cost {beforeA:.1f} -> {afterA:.1f}); not returning garbage.")
+
+    idsA = np.array(subA, dtype=float)
+    rstack = np.stack([rA[i] for i in subA])
+    fs = np.array([fA[i] for i in subA])
+    r0F = {i: np.array([np.interp(i, idsA, rstack[:, k]) for k in range(3)])
+           for i in frame_ids}
+    f0F = {i: float(np.interp(i, idsA, fs)) for i in frame_ids}
+    CB, rB, fB, beforeB, afterB = _solve_once(
+        frame_ids, frame_data, image_size, CA, r0F, f0F, max_nfev=_STAGE_B_NFEV)
+    if afterB > beforeB:
+        raise CalibrationError(
+            f"fixed-center joint solve diverged in stage B "
+            f"(robust cost {beforeB:.1f} -> {afterB:.1f}); not returning garbage.")
+    return CB, rB, fB
+
+
+def _rescue_refit(frame_ids, frame_data, image_size, C):
+    """Fixed-C per-frame LM refit of (r, f). Returns {i: (r, f, median_px)}."""
+    from scipy.optimize import least_squares
+    out = {}
+    for i in frame_ids:
+        world, uv = frame_data[i]
+        r0, f0 = _init_frame(C, world, uv)
+        if r0 is None:
+            continue
+        x0 = np.concatenate([r0, [f0]])
+
+        def fn(x, w=world, u=uv):
+            return (_project(w, x[:3], x[3], C, image_size) - u).ravel()
+        sol = least_squares(fn, x0, method="lm", max_nfev=_RESCUE_NFEV)
+        proj = _project(world, sol.x[:3], sol.x[3], C, image_size)
+        med = float(np.median(np.linalg.norm(proj - uv, axis=1)))
+        out[i] = (sol.x[:3].copy(), float(sol.x[3]), med)
+    return out
 
 
 def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
                        max_rounds: int = 2, _frame_data_override=None):
-    """Entry point: joint solve over all usable frames -> [CalibrationResult|None]
-    aligned to init_results' length. Self-audit (Task 3) drops irreconcilable
-    frames between rounds."""
+    """Joint solve over all usable frames -> (results, mirrored).
+
+    ``results`` is a list aligned to ``init_results``' length with a
+    ``CalibrationResult`` per rescued frame and ``None`` elsewhere; ``mirrored``
+    is True when the fused left/right hash convention was flipped (world Y
+    negated) to fit a rigid camera. The returned results are always in the TRUE
+    world frame. ``max_rounds`` is accepted for backward compatibility."""
+    del max_rounds
     frame_data = (_frame_data_override if _frame_data_override is not None
                   else build_frame_data(corrs_by_frame))
     frame_ids = sorted(frame_data)
     T = len(init_results)
     if not frame_ids:
         raise CalibrationError("no usable frames (>=4 correspondences) for the joint solve.")
-    C0, r0, f0 = init_from_results(init_results, frame_ids)
-    C, r_by, f_by, before, after = _solve_once(frame_ids, frame_data, image_size,
-                                               C0, r0, f0)
-    if after >= before:
-        raise CalibrationError(
-            f"fixed-center joint solve diverged (robust cost {before:.1f} -> {after:.1f}); "
-            "not returning the initializer. Inspect fusion output.")
 
+    candidates = _candidate_centers(init_results)
+    mirrored, C_win, cost = _resolve_reflection(frame_ids, frame_data, image_size, candidates)
+    if not np.isfinite(cost):
+        raise CalibrationError("multi-start joint solve: best candidate cost not finite.")
+    if mirrored:
+        frame_data = _negate_y(frame_data)
+
+    C, _r_by, _f_by = _staged_solve(frame_ids, frame_data, image_size, C_win)
+
+    refit = _rescue_refit(frame_ids, frame_data, image_size, C)
     results = [None] * T
-    kept = list(frame_ids)
-    for round_no in range(max_rounds):
-        med = {}
-        for i in kept:
-            world, uv = frame_data[i]
-            proj = _project(world, r_by[i], f_by[i], C, image_size)
-            med[i] = float(np.median(np.linalg.norm(proj - uv, axis=1)))
-        drop = [i for i in kept if med[i] > AUDIT_DROP_PX]
-        if not drop or round_no == max_rounds - 1:
-            break
-        kept = [i for i in kept if i not in drop]
-        if not kept:
-            raise CalibrationError("self-audit dropped every frame — fusion output unusable.")
-        C, r_by, f_by, before, after = _solve_once(
-            kept, {i: frame_data[i] for i in kept}, image_size,
-            C, {i: r_by[i] for i in kept}, {i: f_by[i] for i in kept})
-        if after >= before:
-            raise CalibrationError(
-                f"joint re-solve after audit diverged ({before:.1f} -> {after:.1f}).")
-    for i in kept:
-        if med[i] <= AUDIT_DROP_PX:
-            results[i] = _frame_result(i, frame_data, C, r_by, f_by, image_size)
+    for i, (r_i, f_i, med) in refit.items():
+        if med <= AUDIT_DROP_PX:
+            results[i] = _frame_result(i, frame_data, C, r_i, f_i, image_size)
     if all(r is None for r in results):
         raise CalibrationError(
             f"self-audit rejected every frame (all median residuals > {AUDIT_DROP_PX} px) — "
             "fusion output inconsistent with a fixed-center camera.")
-    return results
+    return results, mirrored

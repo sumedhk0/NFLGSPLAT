@@ -146,7 +146,6 @@ def test_learned_register_sequence_with_stub_detector():
 
 def test_pretrained_register_sequence_with_stub_fusion(monkeypatch):
     # Frames with cached model kps register; frames without -> None (gap).
-    import numpy as np
     from nfl_gsplat.calibration import run_autocalib as ra
 
     def fake_detect(frame, *, cfg=None, player_boxes=None):
@@ -267,7 +266,7 @@ def test_build_pretrained_uses_joint_solve(monkeypatch):
 
     def fake_joint(corrs_by_frame, image_size, *, init_results, **kw):
         captured["init"] = init_results
-        return ["JOINT0", "JOINT1"]
+        return ["JOINT0", "JOINT1"], False
     monkeypatch.setattr(ra, "solve_fixed_center", fake_joint)
 
     assembled = {}
@@ -318,7 +317,7 @@ def test_pretrained_build_filters_static_hashes(monkeypatch):
     monkeypatch.setattr(ra, "fuse_frame", fake_fuse)
 
     monkeypatch.setattr(ra, "_solve_sweep", lambda *a, **kw: [None] * N)
-    monkeypatch.setattr(ra, "solve_fixed_center", lambda *a, **kw: [None] * N)
+    monkeypatch.setattr(ra, "solve_fixed_center", lambda *a, **kw: ([None] * N, False))
     monkeypatch.setattr(ra, "assemble_track_from_results", lambda *a, **kw: "TRACK")
     monkeypatch.setattr(ra, "write_camera_track", lambda p, tr, fps: p)
 

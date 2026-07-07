@@ -135,24 +135,36 @@ def _init_results_from_truth(ids, f_true, R_true, n_frames, jitter=0.0, seed=1,
     return out
 
 
-def test_init_from_results_median_center_and_interpolation():
+def test_init_from_results_plausible_anchor_median():
+    # new contract: median center of the PLAUSIBLE anchors, else None (no raise)
     from nfl_gsplat.calibration.joint_solve import init_from_results
     ids, fd, f_true, R_true = _synthetic_frames(n_frames=30)
     init = _init_results_from_truth(ids, f_true, R_true, 30, jitter=0.5, keep_every=1)
-    init[5] = init[6] = None                    # gap: must be interpolated
-    C0, r0, f0 = init_from_results(init, ids)
+    C0 = init_from_results(init)
+    assert C0 is not None
     assert np.linalg.norm(C0 - C_TRUE) < 2.0
-    assert 5 in r0 and 5 in f0                  # gap frames got initialized
-    assert f0[5] == pytest.approx(f_true[5], rel=0.05)
 
 
-def test_init_from_results_fails_loud_when_sparse():
+def test_init_from_results_none_when_too_few_plausible():
     from nfl_gsplat.calibration.joint_solve import init_from_results
-    from nfl_gsplat.errors import CalibrationError
+    # keep_every=20 over 30 frames leaves anchors at 0 and 20 -> only 2 -> None
     ids, fd, f_true, R_true = _synthetic_frames(n_frames=30)
-    init = _init_results_from_truth(ids, f_true, R_true, 30, keep_every=10)  # 3 frames
-    with pytest.raises(CalibrationError, match="initializer"):
-        init_from_results(init, ids)
+    init = _init_results_from_truth(ids, f_true, R_true, 30, keep_every=20)
+    assert init_from_results(init) is None
+
+
+def test_init_from_results_none_when_implausible_focals():
+    # anchors present but physically impossible (sweep failure mode) -> gated out
+    from nfl_gsplat.calibration.joint_solve import init_from_results
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    bad = []
+    for _ in range(10):
+        R = _look_at_R(C_TRUE, np.array([0.0, 0.0, 0.0]))
+        bad.append(CalibrationResult(
+            intrinsics=CameraIntrinsics(5e13, 5e13, W / 2, H / 2, W, H),
+            pose=CameraPose(R=R, t=-R @ C_TRUE), rms_px=0.5,
+            num_correspondences=8, refined_with_ba=True))
+    assert init_from_results(bad) is None
 
 
 def test_solve_fixed_center_recovers_ground_truth():
@@ -160,10 +172,11 @@ def test_solve_fixed_center_recovers_ground_truth():
     ids, fd, f_true, R_true = _synthetic_frames(n_frames=50, noise_px=0.5)
     # _frame_data_override bypasses landmark-name resolution (synthetic points
     # are arbitrary field-plane locations, not named NFL landmarks)
-    results = solve_fixed_center(
+    results, mirrored = solve_fixed_center(
         corrs_by_frame=None, image_size=(W, H),
         init_results=_init_results_from_truth(ids, f_true, R_true, 50, jitter=1.0),
         _frame_data_override=fd)
+    assert mirrored is False
     solved = [r for r in results if r is not None]
     assert len(solved) >= 45
     C_rec = solved[0].pose.center_world()
@@ -180,8 +193,8 @@ def test_solve_fixed_center_diverging_fails_loud(monkeypatch):
     from nfl_gsplat.errors import CalibrationError
     ids, fd, f_true, R_true = _synthetic_frames(n_frames=25, noise_px=0.5)
 
-    def fake_solve_once(frame_ids, frame_data, image_size, C0, r0, f0):
-        return C0, r0, f0, 100.0, 500.0          # cost went UP
+    def fake_solve_once(frame_ids, frame_data, image_size, C0, r0, f0, **kw):
+        return C0, r0, f0, 100.0, 500.0          # cost went UP -> divergence
     monkeypatch.setattr(js, "_solve_once", fake_solve_once)
     with pytest.raises(CalibrationError, match="diverged"):
         js.solve_fixed_center(corrs_by_frame=None, image_size=(W, H),
@@ -200,11 +213,12 @@ def test_self_audit_drops_identity_shifted_frame():
     world, uv = fd[bad]
     world = world.copy(); world[:, 0] += YARD_LINE_SPACING_M
     fd[bad] = (world, uv)
-    results = solve_fixed_center(
+    results, mirrored = solve_fixed_center(
         corrs_by_frame=None, image_size=(W, H),
         init_results=_init_results_from_truth(ids, f_true, R_true, 40, jitter=1.0),
         _frame_data_override=fd)
-    assert results[bad] is None                          # audited out
+    assert mirrored is False
+    assert results[bad] is None                          # rescue refit rejects it
     solved = [r for r in results if r is not None]
     assert len(solved) >= 35
     C_rec = solved[0].pose.center_world()
@@ -215,18 +229,36 @@ def test_self_audit_all_frames_bad_fails_loud(monkeypatch):
     from nfl_gsplat.calibration import joint_solve as js
     from nfl_gsplat.errors import CalibrationError
     ids, fd, f_true, R_true = _synthetic_frames(n_frames=25, noise_px=0.3)
-    call_count = [0]
 
-    def fake_solve_once(frame_ids, frame_data, image_size, C0, r0, f0):
-        # First call: 0.08m shift drops 20 frames in round 0, leaves 5 frames
-        # Second call (re-solve round 0): 1.0m shift makes remaining 5 frames fail final audit
-        # (all med[i] > 6.0 px, so all results stay None, triggering our fix)
-        call_count[0] += 1
-        shift = 0.08 if call_count[0] == 1 else 1.0
-        return C0 + np.array([shift, 0.0, 0.0]), r0, f0, 100.0, 50.0
+    def fake_solve_once(frame_ids, frame_data, image_size, C0, r0, f0, **kw):
+        # Staged solve "converges" (cost drops, no divergence) but to a camera
+        # 60 m off in X. The rescue then freezes that wrong C and cannot fit any
+        # frame's (r, f) within tolerance -> every frame rejected.
+        return C0 + np.array([60.0, 0.0, 0.0]), r0, f0, 100.0, 50.0
     monkeypatch.setattr(js, "_solve_once", fake_solve_once)
     with pytest.raises(CalibrationError, match="rejected every frame"):
         js.solve_fixed_center(
             corrs_by_frame=None, image_size=(W, H),
             init_results=_init_results_from_truth(ids, f_true, R_true, 25),
             _frame_data_override=fd)
+
+
+def test_solve_fixed_center_resolves_mirrored_labels():
+    # The fused left/right hash convention can be flipped for a camera side:
+    # negating world Y keeps every homography perfect but is a reflection no
+    # rigid camera fits. solve_fixed_center must detect it, relabel, and return
+    # results in the TRUE world frame (same camera, since the field is
+    # Y-symmetric).
+    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=50, noise_px=0.5)
+    flip = np.array([1.0, -1.0, 1.0])
+    fd_mir = {i: (w * flip, uv) for i, (w, uv) in fd.items()}   # wrong labeling
+    results, mirrored = solve_fixed_center(
+        corrs_by_frame=None, image_size=(W, H),
+        init_results=_init_results_from_truth(ids, f_true, R_true, 50, jitter=1.0),
+        _frame_data_override=fd_mir)
+    assert mirrored is True
+    solved = [r for r in results if r is not None]
+    assert len(solved) >= 45
+    C_rec = solved[0].pose.center_world()
+    assert np.linalg.norm(C_rec - C_TRUE) < 0.5

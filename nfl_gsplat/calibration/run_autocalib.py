@@ -5,6 +5,7 @@ the per-frame (K,R,t) and interpolate short gaps; fail loud on a long gap.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,8 @@ from nfl_gsplat.calibration.fuse_pretrained import (
 from nfl_gsplat.calibration.joint_solve import solve_fixed_center
 from nfl_gsplat.calibration.register_frame import register_frame
 from nfl_gsplat.errors import CalibrationError
+
+_LOG = logging.getLogger(__name__)
 
 
 def _longest_gap_range(valid: np.ndarray, *, interior_only: bool = False) -> tuple[int, int, int]:
@@ -430,8 +433,13 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
         # Phase 3: fixed-center joint solve — per-frame PnP is multimodal on
         # planar telephoto views (see spec 2026-07-06); the sweep output only
         # initializes the joint problem.
-        joint = solve_fixed_center(corrs_by_frame, (meta.width, meta.height),
-                                   init_results=results)
+        joint, mirrored = solve_fixed_center(corrs_by_frame, (meta.width, meta.height),
+                                             init_results=results)
+        if mirrored:
+            _LOG.warning(
+                "camera %s: fused left/right hash convention was flipped "
+                "(mirrored labeling) for this camera side; joint solve results "
+                "are in the true world frame.", cam)
         tracks[cam] = assemble_track_from_results(joint, width=meta.width,
                                                   height=meta.height)
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
