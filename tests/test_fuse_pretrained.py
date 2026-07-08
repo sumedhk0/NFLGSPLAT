@@ -5,7 +5,6 @@ Geometry: yard lines rendered as slanted segments x = X_world*40 + 800 + 0.15*y
 (lower/right/-Y). Model keypoints derived from the same geometry + noise.
 """
 import numpy as np
-import pytest
 
 from nfl_gsplat.calibration.field_features import YardLineSeg
 from nfl_gsplat.calibration.field_landmarks import _yardline_x_m
@@ -306,3 +305,24 @@ def test_predict_identities_rejects_offgrid():
     assert set(ident.values()) == set(names)   # the three real lines still resolve
     vals = list(ident.values())
     assert len(vals) == len(set(vals))         # no duplicate base names
+
+
+# --- static-graphics hash filter (broadcast watermark/score bug rejection) ----
+
+def test_static_hash_cells_flags_persistent_cells():
+    from nfl_gsplat.calibration.fuse_pretrained import static_hash_cells
+    # watermark at (100, 50) every frame; field tick sweeps x with the pan
+    hbf = {i: [(100.0, 50.0), (500.0 + 30.0 * i, 400.0)] for i in range(20)}
+    cells = static_hash_cells(hbf)
+    assert (100 // 16, 50 // 16) in cells
+    assert not any(c[1] == 400 // 16 for c in cells)
+
+
+def test_filter_static_hashes_drops_only_static():
+    from nfl_gsplat.calibration.fuse_pretrained import (
+        filter_static_hashes, static_hash_cells,
+    )
+    hbf = {i: [(100.0, 50.0), (500.0 + 30.0 * i, 400.0)] for i in range(20)}
+    cells = static_hash_cells(hbf)
+    kept = filter_static_hashes(hbf[3], cells)
+    assert kept == [(590.0, 400.0)]

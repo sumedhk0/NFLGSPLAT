@@ -146,7 +146,6 @@ def test_learned_register_sequence_with_stub_detector():
 
 def test_pretrained_register_sequence_with_stub_fusion(monkeypatch):
     # Frames with cached model kps register; frames without -> None (gap).
-    import numpy as np
     from nfl_gsplat.calibration import run_autocalib as ra
 
     def fake_detect(frame, *, cfg=None, player_boxes=None):
@@ -256,3 +255,90 @@ def test_solve_sweep_propagates_identity_across_multiframe_gap(monkeypatch):
     assert results[1] is None and results[0] is None
     # the propagation path was actually exercised on all three rescued frames
     assert len(predict_calls) >= 3
+
+
+def test_build_pretrained_uses_joint_solve(monkeypatch):
+    # phase 3 gate: build_autocalib_npz_pretrained must pass the sweep output
+    # into solve_fixed_center and assemble ITS results, not the sweep's
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    captured = {}
+
+    def fake_joint(corrs_by_frame, image_size, *, init_results, **kw):
+        captured["init"] = init_results
+        return ["JOINT0", "JOINT1"], False
+    monkeypatch.setattr(ra, "solve_fixed_center", fake_joint)
+
+    assembled = {}
+    def fake_assemble(results, *, width, height, **kw):
+        assembled["results"] = results
+        return "TRACK"
+    monkeypatch.setattr(ra, "assemble_track_from_results", fake_assemble)
+    monkeypatch.setattr(ra, "write_camera_track", lambda p, tr, fps: p)
+
+    class _Meta:
+        num_frames, width, height = 2, 1920, 1080
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+    monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames",
+                        lambda v, start_frame=0: iter([]))
+    monkeypatch.setattr("nfl_gsplat.calibration.roboflow_kps.load_kps_json",
+                        lambda p, expect_num_frames=None: {})
+
+    ra.build_autocalib_npz_pretrained(
+        play_dir=".", videos={"sideline": "v.mp4"}, fps=30.0,
+        kps_json="kps.json", territory="away")
+    assert assembled["results"] == ["JOINT0", "JOINT1"]     # joint output assembled
+    assert "init" in captured                               # sweep fed the init
+
+
+def test_pretrained_build_filters_static_hashes(monkeypatch):
+    # Broadcast graphics (watermark/score bug) sit at the SAME pixel every
+    # frame; a real field tick moves under pan/zoom. Phase 1 must census
+    # across the whole play and strip the static candidate before fuse_frame
+    # ever sees it (per spec 2026-07-06 task 5).
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    N = 20
+    STATIC = (100.0, 50.0)
+
+    def fake_detect(frame, *, cfg=None, player_boxes=None):
+        from nfl_gsplat.calibration.field_features import DetectedFeatures
+        moving = (500.0 + 30.0 * frame, 400.0)
+        return DetectedFeatures(yard_lines=["L"], sidelines=[],
+                                hashes=[STATIC, moving], numbers=[],
+                                image_size=(1920, 1080))
+    monkeypatch.setattr(ra, "detect_field_features", fake_detect)
+
+    captured = []
+
+    def fake_fuse(yard_lines, hashes, model_kps, *, territory, image_size, **kw):
+        captured.append(list(hashes))
+        return []
+    monkeypatch.setattr(ra, "fuse_frame", fake_fuse)
+
+    monkeypatch.setattr(ra, "_solve_sweep", lambda *a, **kw: [None] * N)
+    monkeypatch.setattr(ra, "solve_fixed_center", lambda *a, **kw: ([None] * N, False))
+    monkeypatch.setattr(ra, "assemble_track_from_results", lambda *a, **kw: "TRACK")
+    monkeypatch.setattr(ra, "write_camera_track", lambda p, tr, fps: p)
+
+    class _Meta:
+        num_frames, width, height = N, 1920, 1080
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+
+    def fake_iter_frames(v, start_frame=0):
+        for i in range(N):
+            yield i, i     # "frame" payload is just the index; fake_detect uses it directly
+    monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames", fake_iter_frames)
+
+    kps = {i: [("30", 1.0, 2.0, 0.9)] for i in range(N)}
+    monkeypatch.setattr("nfl_gsplat.calibration.roboflow_kps.load_kps_json",
+                        lambda p, expect_num_frames=None: kps)
+
+    ra.build_autocalib_npz_pretrained(
+        play_dir=".", videos={"sideline": "v.mp4"}, fps=30.0,
+        kps_json="kps.json", territory="away")
+
+    assert len(captured) == N
+    for i, hashes in enumerate(captured):
+        assert STATIC not in hashes
+        assert (500.0 + 30.0 * i, 400.0) in hashes

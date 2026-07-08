@@ -5,6 +5,7 @@ the per-frame (K,R,t) and interpolate short gaps; fail loud on a long gap.
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -13,10 +14,14 @@ from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
 from nfl_gsplat.calibration.field_detect import detect_field_features
 from nfl_gsplat.calibration.field_identify import fit_hash_rows, seed_state_from_hint
 from nfl_gsplat.calibration.fuse_pretrained import (
-    correspondences_from_identities, fuse_frame, predict_identities,
+    correspondences_from_identities, filter_static_hashes, fuse_frame,
+    predict_identities, static_hash_cells,
 )
+from nfl_gsplat.calibration.joint_solve import solve_fixed_center
 from nfl_gsplat.calibration.register_frame import register_frame
 from nfl_gsplat.errors import CalibrationError
+
+_LOG = logging.getLogger(__name__)
 
 
 def _longest_gap_range(valid: np.ndarray, *, interior_only: bool = False) -> tuple[int, int, int]:
@@ -306,20 +311,35 @@ def _register_sequence_pretrained(frames, *, kps_by_frame, territory, image_size
     Frames without cached keypoints (or unreadable) are gaps (None), unless a
     frame's own model votes are too sparse to solve but its classical lines
     can be identified via a solved neighbor's plane homography (temporal
-    identity propagation — see :func:`_sweep_direction`)."""
+    identity propagation — see :func:`_sweep_direction`).
+
+    Broadcast graphics (watermark/score bug) form hash candidates that sit at
+    the SAME pixel every frame — unlike real field ticks, which move under
+    pan/zoom. A static-cell census over this frame list's detections (see
+    :func:`~nfl_gsplat.calibration.fuse_pretrained.static_hash_cells`) flags
+    those cells; candidates there are stripped before row fitting/fusion."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     cfg = cfg or FieldDetectConfig()
     boxes_for = boxes_for or (lambda f: [])
-    corrs_by_frame: dict[int, list] = {}
-    feats_by_frame: dict[int, tuple] = {}
+
+    detected_by_frame: dict[int, tuple] = {}      # fidx -> (yard_lines, hashes)
     for fidx, fr in enumerate(frames):
         kps = kps_by_frame.get(fidx, [])
         if fr is None or not kps:
             continue
         feats = detect_field_features(fr, cfg=cfg, player_boxes=boxes_for(fidx))
-        rows = fit_hash_rows(feats.hashes, image_width=image_size[0])
-        feats_by_frame[fidx] = (feats.yard_lines, rows, feats.hashes)
-        corrs_by_frame[fidx] = fuse_frame(feats.yard_lines, feats.hashes, kps,
+        detected_by_frame[fidx] = (feats.yard_lines, feats.hashes)
+
+    static_cells = static_hash_cells(
+        {fidx: hashes for fidx, (_yard_lines, hashes) in detected_by_frame.items()})
+
+    corrs_by_frame: dict[int, list] = {}
+    feats_by_frame: dict[int, tuple] = {}
+    for fidx, (yard_lines, hashes) in detected_by_frame.items():
+        clean_hashes = filter_static_hashes(hashes, static_cells)
+        rows = fit_hash_rows(clean_hashes, image_width=image_size[0])
+        feats_by_frame[fidx] = (yard_lines, rows, clean_hashes)
+        corrs_by_frame[fidx] = fuse_frame(yard_lines, clean_hashes, kps_by_frame.get(fidx, []),
                                           territory=territory, image_size=image_size)
     return _solve_sweep(corrs_by_frame, len(frames), image_size,
                         feats_by_frame=feats_by_frame)
@@ -330,15 +350,26 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
     """Pretrained-hybrid calibration: cached Roboflow identity + repaired
     classical geometry -> per-frame PnP -> cameras.npz. No GPU, no training.
 
-    Two phases, kept separate so decoding stays a single streaming pass while
-    solving gets to see the whole clip:
+    Phase 1 is split into three steps so the whole play's hash detections can
+    be censused for static broadcast graphics before anything is fused, while
+    decoding still stays a single streaming pass and no frame images are
+    buffered:
 
-    Phase 1 (streaming): decode each frame once via ``iter_frames``; per frame
-    with cached model keypoints, run detect_field_features + fuse_frame and
-    stash the resulting correspondences in ``corrs_by_frame``, plus the raw
-    classical ``(yard_lines, rows, hashes)`` in ``feats_by_frame`` (a few
-    tuples per frame — cheap to hold in memory; no image buffers retained).
-    No PnP solving happens here.
+    Phase 1a (streaming): decode each frame once via ``iter_frames``; per
+    frame with cached model keypoints, run detect_field_features and stash
+    its raw ``(yard_lines, hashes)`` in ``detected_by_frame``. No fusing, no
+    row fitting, no PnP solving happens here.
+
+    Phase 1b (in-memory): :func:`~nfl_gsplat.calibration.fuse_pretrained.static_hash_cells`
+    over every stored frame's hashes flags cells occupied in >25% of frames —
+    broadcast graphics (watermark/score bug) sit at the same pixel every
+    frame, unlike real field ticks, which move under pan/zoom.
+
+    Phase 1c (in-memory): each frame is fused with
+    :func:`~nfl_gsplat.calibration.fuse_pretrained.filter_static_hashes`-cleaned
+    hashes, exactly as the raw hashes were passed before; ``feats_by_frame``
+    (handed to :func:`_solve_sweep`) is rebuilt here so its hash rows are
+    fitted from the CLEANED hashes too.
 
     Phase 2 (in-memory, two sweeps): solve every frame's correspondences with
     :func:`_solve_sweep`, which seeds each solve with the last successful
@@ -350,6 +381,12 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
     identity propagation: the classical lines are named by mapping them
     through the plane homography of the nearest already-solved frame,
     chained frame-by-frame across gaps (see :func:`_sweep_direction`).
+
+    Phase 3 (in-memory, one joint solve): the sweep's per-frame results only
+    initialize the fixed-center joint solve (:func:`solve_fixed_center`) --
+    per-frame PnP is multimodal on planar telephoto views (see spec
+    2026-07-06), so the assembled track comes from the joint solve, not the
+    sweep.
     """
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     from nfl_gsplat.calibration.roboflow_kps import load_kps_json
@@ -362,8 +399,9 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
         boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
         _cfg = cfg or FieldDetectConfig()
 
-        corrs_by_frame: dict[int, list] = {}
-        feats_by_frame: dict[int, tuple] = {}
+        # Phase 1a: stream frames once; detect classical features per frame
+        # with cached model kps. No fusing yet -- frames are NOT buffered.
+        detected_by_frame: dict[int, tuple] = {}   # fidx -> (yard_lines, hashes)
         for fidx, fr in iter_frames(video, start_frame=0):
             if not (0 <= fidx < meta.num_frames):
                 continue
@@ -371,16 +409,42 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
             if not kps:
                 continue
             feats = detect_field_features(fr, cfg=_cfg, player_boxes=boxes_for(fidx))
-            rows = fit_hash_rows(feats.hashes, image_width=meta.width)
-            feats_by_frame[fidx] = (feats.yard_lines, rows, feats.hashes)
-            corrs_by_frame[fidx] = fuse_frame(feats.yard_lines, feats.hashes, kps,
+            detected_by_frame[fidx] = (feats.yard_lines, feats.hashes)
+
+        # Phase 1b: static-graphics census over the whole play's hashes.
+        static_cells = static_hash_cells(
+            {fidx: hashes for fidx, (_yard_lines, hashes) in detected_by_frame.items()})
+
+        # Phase 1c: fuse each frame with cleaned hashes; feats_by_frame's rows
+        # are rebuilt here from the CLEANED hashes for _solve_sweep.
+        corrs_by_frame: dict[int, list] = {}
+        feats_by_frame: dict[int, tuple] = {}
+        for fidx, (yard_lines, hashes) in detected_by_frame.items():
+            clean_hashes = filter_static_hashes(hashes, static_cells)
+            rows = fit_hash_rows(clean_hashes, image_width=meta.width)
+            feats_by_frame[fidx] = (yard_lines, rows, clean_hashes)
+            corrs_by_frame[fidx] = fuse_frame(yard_lines, clean_hashes, kps_by_frame.get(fidx, []),
                                               territory=territory,
                                               image_size=(meta.width, meta.height))
 
         results = _solve_sweep(corrs_by_frame, meta.num_frames, (meta.width, meta.height),
                               feats_by_frame=feats_by_frame)
-        tracks[cam] = assemble_track_from_results(results, width=meta.width,
-                                                  height=meta.height)
+
+        # Phase 3: fixed-center joint solve — per-frame PnP is multimodal on
+        # planar telephoto views (see spec 2026-07-06); the sweep output only
+        # initializes the joint problem.
+        joint, mirrored = solve_fixed_center(corrs_by_frame, (meta.width, meta.height),
+                                             init_results=results)
+        if mirrored:
+            _LOG.warning(
+                "camera %s: fused left/right hash convention was flipped "
+                "(mirrored labeling) for this camera side; joint solve results "
+                "are in the true world frame.", cam)
+        # max_gap=30 (~1s of smooth pan): the joint solve audits per frame, so
+        # interior gaps are frames whose fusion was rejected, not calibration
+        # jumps; interpolation across them is safe and they carry conf=0.
+        tracks[cam] = assemble_track_from_results(joint, width=meta.width,
+                                                  height=meta.height, max_gap=30)
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
 
 

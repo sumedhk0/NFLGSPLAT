@@ -19,6 +19,28 @@ from nfl_gsplat.calibration.roboflow_kps import to_nfl_name, yard_base
 _SNAP_TOL_M = 0.35 * YARD_LINE_SPACING_M     # accept interpolated X within ~1.6 m
 
 
+def static_hash_cells(hashes_by_frame, *, cell_px: int = 16,
+                      max_frac: float = 0.25) -> set[tuple[int, int]]:
+    """Cells occupied in more than max_frac of frames = static broadcast
+    graphics (field points move under pan/zoom; watermarks don't).
+    hashes_by_frame: {frame_idx: [(x, y), ...]}. Returns cell keys
+    (int(x // cell_px), int(y // cell_px)). Occupancy counted at most once
+    per frame per cell."""
+    cell_frames: Counter = Counter()
+    for hashes in hashes_by_frame.values():
+        seen = {(int(x // cell_px), int(y // cell_px)) for (x, y) in hashes}
+        for c in seen:
+            cell_frames[c] += 1
+    n_frames = len(hashes_by_frame)
+    return {c for c, n in cell_frames.items() if n > max_frac * n_frames}
+
+
+def filter_static_hashes(hashes, static_cells, *, cell_px: int = 16) -> list:
+    """Drop hash candidates falling in static cells."""
+    return [(x, y) for (x, y) in hashes
+            if (int(x // cell_px), int(y // cell_px)) not in static_cells]
+
+
 def identify_lines(yard_lines, model_kps, *, territory,
                    max_assign_px: float = 60.0, min_margin: float = 2.0):
     """Vote yard identity onto classical lines. Returns {line_idx: base_name}.
