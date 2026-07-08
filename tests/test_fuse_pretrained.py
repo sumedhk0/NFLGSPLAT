@@ -5,7 +5,6 @@ Geometry: yard lines rendered as slanted segments x = X_world*40 + 800 + 0.15*y
 (lower/right/-Y). Model keypoints derived from the same geometry + noise.
 """
 import numpy as np
-import pytest
 
 from nfl_gsplat.calibration.field_features import YardLineSeg
 from nfl_gsplat.calibration.field_landmarks import _yardline_x_m

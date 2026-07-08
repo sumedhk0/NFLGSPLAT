@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from nfl_gsplat.calibration.field_landmarks import NFL_LANDMARKS
