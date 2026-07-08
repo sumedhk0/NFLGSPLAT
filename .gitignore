@@ -90,3 +90,6 @@ pip-delete-this-directory.txt
 
 # real-footage diagnostic overlays (never commit NFL imagery)
 kp_eval/
+
+# season data tree: per-play videos + artifacts (never commit NFL footage)
+data/
