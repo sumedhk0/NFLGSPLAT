@@ -390,12 +390,30 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
     """
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     from nfl_gsplat.calibration.roboflow_kps import load_kps_json
+    from nfl_gsplat.errors import SetupError
     from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
+
+    # kps_json: one cache per camera. A dict maps camera name -> json path;
+    # a single path is accepted only for a single-camera run (each camera's
+    # cache is validated against ITS video's frame count — sharing one file
+    # across cameras can only ever fit one of them).
+    if not isinstance(kps_json, dict):
+        if len(videos) != 1:
+            raise SetupError(
+                "multiple cameras need per-camera roboflow keypoint caches — "
+                "pass kps_json as {camera: path} (CLI: put "
+                "roboflow_kps_{camera}.json files in the play dir).")
+        kps_json = {next(iter(videos)): kps_json}
+    missing = [c for c in videos if c not in kps_json]
+    if missing:
+        raise SetupError(
+            f"no roboflow keypoint cache for camera(s) {missing} — run "
+            "scripts/03_roboflow_precompute.py on each camera's video.")
 
     tracks = {}
     for cam, video in videos.items():
         meta = ffprobe_meta(video)
-        kps_by_frame = load_kps_json(kps_json, expect_num_frames=meta.num_frames)
+        kps_by_frame = load_kps_json(kps_json[cam], expect_num_frames=meta.num_frames)
         boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
         _cfg = cfg or FieldDetectConfig()
 

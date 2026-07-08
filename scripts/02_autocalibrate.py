@@ -56,11 +56,27 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
     videos = {cam: pd.video(cam) for cam in pd.cameras}
 
     if mode is CalibMode.pretrained:
-        if roboflow_kps is None:
-            raise typer.BadParameter("--roboflow-kps is required in pretrained mode.")
+        # Per-camera keypoint caches: --roboflow-kps names a single-camera
+        # cache explicitly; otherwise each camera uses the convention
+        # <play_dir>/roboflow_kps_{cam}.json (falling back to the legacy
+        # <play_dir>/roboflow_kps.json for a single camera).
+        if roboflow_kps is not None:
+            if len(videos) != 1:
+                raise typer.BadParameter(
+                    "--roboflow-kps only applies to a single camera; with "
+                    "multiple cameras place roboflow_kps_{cam}.json files "
+                    "in the play dir.")
+            kps_json = {next(iter(videos)): roboflow_kps}
+        else:
+            kps_json = {}
+            for cam in videos:
+                p = pd.dir / f"roboflow_kps_{cam}.json"
+                if not p.exists() and len(videos) == 1:
+                    p = pd.dir / "roboflow_kps.json"
+                kps_json[cam] = p
         out = build_autocalib_npz_pretrained(
             play_dir=pd.dir, videos=videos, fps=meta.fps,
-            kps_json=roboflow_kps, territory=territory,
+            kps_json=kps_json, territory=territory,
         )
     elif mode is CalibMode.learned:
         if model_ckpt is None:
