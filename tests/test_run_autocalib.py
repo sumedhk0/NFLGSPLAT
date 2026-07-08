@@ -342,3 +342,22 @@ def test_pretrained_build_filters_static_hashes(monkeypatch):
     for i, hashes in enumerate(captured):
         assert STATIC not in hashes
         assert (500.0 + 30.0 * i, 400.0) in hashes
+
+
+def test_pretrained_multicam_rejects_single_kps_path():
+    # one shared cache can only match one camera's frame count -> fail loud
+    from nfl_gsplat.calibration.run_autocalib import build_autocalib_npz_pretrained
+    from nfl_gsplat.errors import SetupError
+    with pytest.raises(SetupError, match="per-camera"):
+        build_autocalib_npz_pretrained(
+            play_dir=".", videos={"sideline": "s.mp4", "endzone": "e.mp4"},
+            fps=30.0, kps_json="one.json", territory="away")
+
+
+def test_pretrained_multicam_missing_camera_cache_fails_loud():
+    from nfl_gsplat.calibration.run_autocalib import build_autocalib_npz_pretrained
+    from nfl_gsplat.errors import SetupError
+    with pytest.raises(SetupError, match="endzone"):
+        build_autocalib_npz_pretrained(
+            play_dir=".", videos={"sideline": "s.mp4", "endzone": "e.mp4"},
+            fps=30.0, kps_json={"sideline": "s.json"}, territory="away")
