@@ -63,7 +63,10 @@ _XS_C = 10.0
 _XS_R = 0.01
 _XS_F = 1000.0
 
-_SHORT_NFEV = 50         # per-candidate scoring solve (cost discrimination, not convergence; increased to ensure anchor converges with expanded candidate grid)
+_SHORT_NFEV = 12         # per-candidate scoring solve (cost discrimination, not convergence)
+_ANCHOR_NFEV = 50        # the plausible-anchor candidate gets a real convergence budget:
+                         # it is a trusted physical prior and, when it early-accepts, the
+                         # grid is never scored
 _STAGE_A_NFEV = 1000     # subsample deep solve
 _STAGE_B_NFEV = 600      # full warm-started solve
 _RESCUE_NFEV = 300       # per-frame fixed-C LM refit
@@ -325,8 +328,18 @@ def _subsample(frame_ids) -> list[int]:
     return sub
 
 
-def _resolve_reflection(frame_ids, frame_data, image_size, candidates):
+def _resolve_reflection(frame_ids, frame_data, image_size, candidates, n_anchor: int = 0):
     """Score both labelings x every candidate on a subsample; return the winner.
+
+    ``n_anchor`` is the count of leading entries in ``candidates`` that are
+    plausible-anchor candidates (see ``init_from_results``) rather than grid
+    points. Those get ``_ANCHOR_NFEV`` iterations — enough to actually converge,
+    since the anchor is a trusted physical prior and an early accept skips
+    scoring the grid entirely. The remaining (grid) candidates only need
+    ``_SHORT_NFEV`` iterations to be distinguished from each other, not to
+    converge. On real footage ``init_from_results`` returns None (sweep anchors
+    are implausible), so ``n_anchor`` is 0 and nothing costs more than before
+    this split existed.
 
     Returns (mirrored, C_refined, cost). Early-accepts the first candidate whose
     short-solve reaches <= _EARLY_ACCEPT_PX median reprojection on the subsample
@@ -336,12 +349,13 @@ def _resolve_reflection(frame_ids, frame_data, image_size, candidates):
     best = None                                   # (cost, mirrored, C)
     for mirrored, fd in ((False, frame_data), (True, _negate_y(frame_data))):
         sub_fd = {i: fd[i] for i in sub}
-        for C0 in candidates:
+        for idx, C0 in enumerate(candidates):
             r0, f0 = _init_pose_for_C(C0, sub, fd)
             if r0 is None:
                 continue
+            nfev = _ANCHOR_NFEV if idx < n_anchor else _SHORT_NFEV
             C, r_by, f_by, _before, after = _solve_once(
-                sub, sub_fd, image_size, C0, r0, f0, max_nfev=_SHORT_NFEV, jac=sparsity)
+                sub, sub_fd, image_size, C0, r0, f0, max_nfev=nfev, jac=sparsity)
             if not np.isfinite(after):
                 continue
             if best is None or after < best[0]:
@@ -423,7 +437,9 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
         raise CalibrationError("no usable frames (>=4 correspondences) for the joint solve.")
 
     candidates = _candidate_centers(init_results)
-    mirrored, C_win, cost = _resolve_reflection(frame_ids, frame_data, image_size, candidates)
+    n_anchor = 1 if init_from_results(init_results) is not None else 0
+    mirrored, C_win, cost = _resolve_reflection(
+        frame_ids, frame_data, image_size, candidates, n_anchor=n_anchor)
     if not np.isfinite(cost):
         raise CalibrationError("multi-start joint solve: best candidate cost not finite.")
     if mirrored:
