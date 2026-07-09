@@ -264,3 +264,14 @@ def test_solve_fixed_center_resolves_mirrored_labels():
     assert len(solved) >= 45
     C_rec = solved[0].pose.center_world()
     assert np.linalg.norm(C_rec - C_TRUE) < 0.5
+
+
+def test_candidate_centers_include_endzone_positions():
+    # endzone cameras sit behind an endzone (|X| 60-120, Y ~ 0) — the
+    # sideline-only grid physically could not reach them (2026-07-07 failure)
+    from nfl_gsplat.calibration.joint_solve import _candidate_centers
+    cands = np.stack(_candidate_centers([None] * 5))
+    endzoneish = (np.abs(cands[:, 0]) >= 60) & (np.abs(cands[:, 1]) <= 20)
+    assert endzoneish.sum() >= 18            # both endzones x several Z/Y
+    sideline = (np.abs(cands[:, 0]) <= 30) & (np.abs(cands[:, 1]) >= 45)
+    assert sideline.sum() >= 54              # original grid retained

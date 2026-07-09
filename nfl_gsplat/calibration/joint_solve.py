@@ -52,13 +52,18 @@ _GRID_X = (-30.0, 0.0, 30.0)
 _GRID_Y = (-130.0, -80.0, -45.0, 45.0, 80.0, 130.0)
 _GRID_Z = (15.0, 35.0, 65.0)
 
+# Behind-endzone grid for cameras positioned behind an endzone (|X| 60-120, Y ~ 0)
+_GRID_EZ_X = (-120.0, -90.0, -60.0, 60.0, 90.0, 120.0)
+_GRID_EZ_Y = (-20.0, 0.0, 20.0)
+_GRID_EZ_Z = (15.0, 35.0, 65.0)
+
 # x_scale for trf: C in ~tens of meters, r in ~hundredths of a radian, f in
 # ~thousands of pixels. Solving all three at unit scale stalls.
 _XS_C = 10.0
 _XS_R = 0.01
 _XS_F = 1000.0
 
-_SHORT_NFEV = 12         # per-candidate scoring solve (cost discrimination, not convergence)
+_SHORT_NFEV = 50         # per-candidate scoring solve (cost discrimination, not convergence; increased to ensure anchor converges with expanded candidate grid)
 _STAGE_A_NFEV = 1000     # subsample deep solve
 _STAGE_B_NFEV = 600      # full warm-started solve
 _RESCUE_NFEV = 300       # per-frame fixed-C LM refit
@@ -301,6 +306,10 @@ def _candidate_centers(init_results) -> list[np.ndarray]:
     for X in _GRID_X:
         for Y in _GRID_Y:
             for Z in _GRID_Z:
+                cands.append(np.array([X, Y, Z]))
+    for X in _GRID_EZ_X:                     # behind-endzone cameras
+        for Y in _GRID_EZ_Y:
+            for Z in _GRID_EZ_Z:
                 cands.append(np.array([X, Y, Z]))
     return cands
 
