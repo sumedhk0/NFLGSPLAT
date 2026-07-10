@@ -459,3 +459,22 @@ def test_pretrained_error_names_camera(monkeypatch):
         ra.build_autocalib_npz_pretrained(
             play_dir=".", videos={"endzone": "e.mp4"}, fps=30.0,
             kps_json={"endzone": "e.json"}, territory="away")
+
+
+def test_pretrained_rotated_camera_rejects_masks_provider(monkeypatch):
+    # boxes are in ORIGINAL coords; the rotated frame would be masked wrong
+    from nfl_gsplat.calibration import run_autocalib as ra
+    from nfl_gsplat.errors import CalibrationError
+
+    class _Meta:
+        num_frames, width, height = 2, 1920, 1080
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+    monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames",
+                        lambda v, start_frame=0: iter([]))
+    monkeypatch.setattr("nfl_gsplat.calibration.roboflow_kps.load_kps_json",
+                        lambda p, expect_num_frames=None: {})
+    with pytest.raises(CalibrationError, match="masks_provider is not supported"):
+        ra.build_autocalib_npz_pretrained(
+            play_dir=".", videos={"endzone": "e.mp4"}, fps=30.0,
+            kps_json={"endzone": "e.json"}, territory="away",
+            masks_provider=lambda cam: (lambda f: []))

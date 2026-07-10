@@ -444,6 +444,15 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
                     fidx: [(n, *rotate_uv(u, v, deg, orig_wh), c) for (n, u, v, c) in kps]
                     for fidx, kps in kps_by_frame.items()
                 }
+            if masks_provider is not None and deg != 0:
+                # Player boxes are in ORIGINAL pixel coordinates; the frame they
+                # would mask is rotated. Masking with unrotated boxes silently
+                # blanks the wrong region. Rotate the box corners before wiring
+                # masks through a rotated camera.
+                raise CalibrationError(
+                    f"camera {cam!r}: masks_provider is not supported with a "
+                    f"{deg}-degree view rotation (player boxes would be in "
+                    "unrotated coordinates). Rotate the boxes first.")
             boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
             _cfg = cfg or FieldDetectConfig()
 
