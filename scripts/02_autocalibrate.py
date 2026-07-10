@@ -49,8 +49,18 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
              help="Which side of the 50 the visible yard numbers belong to (pretrained mode)."),
          cameras: str = typer.Option("sideline,endzone", "--cameras",
              help="Comma-separated camera names present in the play dir (e.g. 'sideline')."),
+         rotate: str = typer.Option("", "--rotate",
+             help="Per-camera view rotation override, e.g. 'endzone=90' or "
+                  "'endzone=90,sideline=0'. Default: endzone->90, others->0."),
          config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
     load_cli_config(config, config_override, set_)
+    rotations = {}
+    for pair in (p.strip() for p in rotate.split(",") if p.strip()):
+        cam_name, _, deg_s = pair.partition("=")
+        if deg_s not in ("0", "90", "180", "270"):
+            raise typer.BadParameter(
+                f"--rotate {pair!r}: rotation must be 0/90/180/270.")
+        rotations[cam_name.strip()] = int(deg_s)
     pd = PlayDir.from_dir(play_dir, cameras=tuple(c.strip() for c in cameras.split(",") if c.strip()))
     meta = load_meta(pd.meta_yaml)
     videos = {cam: pd.video(cam) for cam in pd.cameras}
@@ -77,6 +87,7 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
         out = build_autocalib_npz_pretrained(
             play_dir=pd.dir, videos=videos, fps=meta.fps,
             kps_json=kps_json, territory=territory,
+            rotations=rotations or None,
         )
     elif mode is CalibMode.learned:
         if model_ckpt is None:

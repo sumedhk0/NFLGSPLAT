@@ -19,9 +19,21 @@ from nfl_gsplat.calibration.fuse_pretrained import (
 )
 from nfl_gsplat.calibration.joint_solve import solve_fixed_center
 from nfl_gsplat.calibration.register_frame import register_frame
+from nfl_gsplat.calibration.view_rotation import (
+    derotate_result, rotate_image, rotate_uv, rotated_wh,
+)
 from nfl_gsplat.errors import CalibrationError
 
 _LOG = logging.getLogger(__name__)
+
+
+def _camera_rotation(cam: str, rotations) -> int:
+    """View rotation for a camera: explicit map wins; else endzone -> 90
+    (broadcast endzone views need the sideline-shaped pipeline rotated),
+    everything else 0."""
+    if rotations and cam in rotations:
+        return int(rotations[cam])
+    return 90 if cam == "endzone" else 0
 
 
 def _longest_gap_range(valid: np.ndarray, *, interior_only: bool = False) -> tuple[int, int, int]:
@@ -346,7 +358,7 @@ def _register_sequence_pretrained(frames, *, kps_by_frame, territory, image_size
 
 
 def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory,
-                                   cfg=None, masks_provider=None):
+                                   cfg=None, masks_provider=None, rotations=None):
     """Pretrained-hybrid calibration: cached Roboflow identity + repaired
     classical geometry -> per-frame PnP -> cameras.npz. No GPU, no training.
 
@@ -387,6 +399,14 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
     per-frame PnP is multimodal on planar telephoto views (see spec
     2026-07-06), so the assembled track comes from the joint solve, not the
     sweep.
+
+    ``rotations`` maps camera name -> view rotation in degrees (0/90/180/270);
+    a camera missing from the map defaults by name (``endzone`` -> 90, else
+    0). Broadcast endzone views are the sideline pipeline rotated 90 deg:
+    frames and cached keypoints are rotated INTO the working (rotated) frame
+    before detection/fusion/solving, and the joint solve's results are
+    de-rotated back to the camera's original pixel coordinates before
+    assembly, so cameras.npz always ends up in original pixel space.
     """
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
     from nfl_gsplat.calibration.roboflow_kps import load_kps_json
@@ -412,57 +432,74 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
 
     tracks = {}
     for cam, video in videos.items():
-        meta = ffprobe_meta(video)
-        kps_by_frame = load_kps_json(kps_json[cam], expect_num_frames=meta.num_frames)
-        boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
-        _cfg = cfg or FieldDetectConfig()
+        try:
+            meta = ffprobe_meta(video)
+            deg = _camera_rotation(cam, rotations)
+            orig_wh = (meta.width, meta.height)
+            work_w, work_h = rotated_wh(deg, orig_wh)
 
-        # Phase 1a: stream frames once; detect classical features per frame
-        # with cached model kps. No fusing yet -- frames are NOT buffered.
-        detected_by_frame: dict[int, tuple] = {}   # fidx -> (yard_lines, hashes)
-        for fidx, fr in iter_frames(video, start_frame=0):
-            if not (0 <= fidx < meta.num_frames):
-                continue
-            kps = kps_by_frame.get(fidx, [])
-            if not kps:
-                continue
-            feats = detect_field_features(fr, cfg=_cfg, player_boxes=boxes_for(fidx))
-            detected_by_frame[fidx] = (feats.yard_lines, feats.hashes)
+            kps_by_frame = load_kps_json(kps_json[cam], expect_num_frames=meta.num_frames)
+            if deg != 0:
+                kps_by_frame = {
+                    fidx: [(n, *rotate_uv(u, v, deg, orig_wh), c) for (n, u, v, c) in kps]
+                    for fidx, kps in kps_by_frame.items()
+                }
+            boxes_for = masks_provider(cam) if masks_provider else (lambda f: [])
+            _cfg = cfg or FieldDetectConfig()
 
-        # Phase 1b: static-graphics census over the whole play's hashes.
-        static_cells = static_hash_cells(
-            {fidx: hashes for fidx, (_yard_lines, hashes) in detected_by_frame.items()})
+            # Phase 1a: stream frames once; detect classical features per frame
+            # with cached model kps. No fusing yet -- frames are NOT buffered.
+            detected_by_frame: dict[int, tuple] = {}   # fidx -> (yard_lines, hashes)
+            for fidx, fr in iter_frames(video, start_frame=0):
+                if not (0 <= fidx < meta.num_frames):
+                    continue
+                kps = kps_by_frame.get(fidx, [])
+                if not kps:
+                    continue
+                fr = rotate_image(fr, deg)
+                feats = detect_field_features(fr, cfg=_cfg, player_boxes=boxes_for(fidx))
+                detected_by_frame[fidx] = (feats.yard_lines, feats.hashes)
 
-        # Phase 1c: fuse each frame with cleaned hashes; feats_by_frame's rows
-        # are rebuilt here from the CLEANED hashes for _solve_sweep.
-        corrs_by_frame: dict[int, list] = {}
-        feats_by_frame: dict[int, tuple] = {}
-        for fidx, (yard_lines, hashes) in detected_by_frame.items():
-            clean_hashes = filter_static_hashes(hashes, static_cells)
-            rows = fit_hash_rows(clean_hashes, image_width=meta.width)
-            feats_by_frame[fidx] = (yard_lines, rows, clean_hashes)
-            corrs_by_frame[fidx] = fuse_frame(yard_lines, clean_hashes, kps_by_frame.get(fidx, []),
-                                              territory=territory,
-                                              image_size=(meta.width, meta.height))
+            # Phase 1b: static-graphics census over the whole play's hashes.
+            static_cells = static_hash_cells(
+                {fidx: hashes for fidx, (_yard_lines, hashes) in detected_by_frame.items()})
 
-        results = _solve_sweep(corrs_by_frame, meta.num_frames, (meta.width, meta.height),
-                              feats_by_frame=feats_by_frame)
+            # Phase 1c: fuse each frame with cleaned hashes; feats_by_frame's rows
+            # are rebuilt here from the CLEANED hashes for _solve_sweep.
+            corrs_by_frame: dict[int, list] = {}
+            feats_by_frame: dict[int, tuple] = {}
+            for fidx, (yard_lines, hashes) in detected_by_frame.items():
+                clean_hashes = filter_static_hashes(hashes, static_cells)
+                rows = fit_hash_rows(clean_hashes, image_width=work_w)
+                feats_by_frame[fidx] = (yard_lines, rows, clean_hashes)
+                corrs_by_frame[fidx] = fuse_frame(yard_lines, clean_hashes, kps_by_frame.get(fidx, []),
+                                                  territory=territory,
+                                                  image_size=(work_w, work_h))
 
-        # Phase 3: fixed-center joint solve — per-frame PnP is multimodal on
-        # planar telephoto views (see spec 2026-07-06); the sweep output only
-        # initializes the joint problem.
-        joint, mirrored = solve_fixed_center(corrs_by_frame, (meta.width, meta.height),
-                                             init_results=results)
-        if mirrored:
-            _LOG.warning(
-                "camera %s: fused left/right hash convention was flipped "
-                "(mirrored labeling) for this camera side; joint solve results "
-                "are in the true world frame.", cam)
-        # max_gap=30 (~1s of smooth pan): the joint solve audits per frame, so
-        # interior gaps are frames whose fusion was rejected, not calibration
-        # jumps; interpolation across them is safe and they carry conf=0.
-        tracks[cam] = assemble_track_from_results(joint, width=meta.width,
-                                                  height=meta.height, max_gap=30)
+            results = _solve_sweep(corrs_by_frame, meta.num_frames, (work_w, work_h),
+                                  feats_by_frame=feats_by_frame)
+
+            # Phase 3: fixed-center joint solve — per-frame PnP is multimodal on
+            # planar telephoto views (see spec 2026-07-06); the sweep output only
+            # initializes the joint problem.
+            joint, mirrored = solve_fixed_center(corrs_by_frame, (work_w, work_h),
+                                                 init_results=results)
+            if mirrored:
+                _LOG.warning(
+                    "camera %s: fused left/right hash convention was flipped "
+                    "(mirrored labeling) for this camera side; joint solve results "
+                    "are in the true world frame.", cam)
+            # De-rotate each recovered frame back to the camera's original pixel
+            # coordinates -- cameras.npz always stores original-frame geometry,
+            # regardless of the working (rotated) pipeline used to solve it.
+            joint = [derotate_result(r, deg, orig_wh) if r is not None else None for r in joint]
+            # max_gap=30 (~1s of smooth pan): the joint solve audits per frame, so
+            # interior gaps are frames whose fusion was rejected, not calibration
+            # jumps; interpolation across them is safe and they carry conf=0.
+            tracks[cam] = assemble_track_from_results(joint, width=meta.width,
+                                                      height=meta.height, max_gap=30)
+        except CalibrationError as e:
+            raise CalibrationError(f"camera {cam!r}: {e}") from e
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
 
 

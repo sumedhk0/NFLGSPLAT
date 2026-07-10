@@ -361,3 +361,101 @@ def test_pretrained_multicam_missing_camera_cache_fails_loud():
         build_autocalib_npz_pretrained(
             play_dir=".", videos={"sideline": "s.mp4", "endzone": "e.mp4"},
             fps=30.0, kps_json={"sideline": "s.json"}, territory="away")
+
+
+def _pretrained_build_harness(monkeypatch, rotations=None, cam="endzone"):
+    """Run build_autocalib_npz_pretrained with one fake camera and capture
+    what reaches detection/fusion/joint-solve. Follows the monkeypatch
+    pattern of test_build_pretrained_uses_joint_solve."""
+    from nfl_gsplat.calibration import run_autocalib as ra
+
+    captured = {}
+
+    class _Meta:
+        num_frames, width, height = 2, 1920, 1080
+
+    frames = [np.full((1080, 1920, 3), i, np.uint8) for i in range(2)]
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+    monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames",
+                        lambda v, start_frame=0: iter(enumerate(frames)))
+    monkeypatch.setattr(
+        "nfl_gsplat.calibration.roboflow_kps.load_kps_json",
+        lambda p, expect_num_frames=None: {0: [("30", 10.0, 20.0, 0.9)],
+                                           1: [("30", 11.0, 21.0, 0.9)]})
+
+    def fake_detect(frame, *, cfg=None, player_boxes=None):
+        from nfl_gsplat.calibration.field_features import DetectedFeatures
+        captured.setdefault("frame_shapes", []).append(frame.shape)
+        return DetectedFeatures(yard_lines=[], sidelines=[], hashes=[],
+                                numbers=[], image_size=frame.shape[:2][::-1])
+    monkeypatch.setattr(ra, "detect_field_features", fake_detect)
+
+    def fake_fuse(yard_lines, hashes, model_kps, *, territory, image_size, **kw):
+        captured.setdefault("fuse_kps", []).append(model_kps)
+        captured["fuse_image_size"] = image_size
+        return [(f"c{i}", (float(i), 0.0)) for i in range(8)]
+    monkeypatch.setattr(ra, "fuse_frame", fake_fuse)
+
+    monkeypatch.setattr(ra, "_solve_sweep",
+                        lambda *a, **k: [None, None], raising=False)
+
+    def fake_joint(corrs_by_frame, image_size, *, init_results, **kw):
+        captured["joint_image_size"] = image_size
+        return ["R0", "R1"], False
+    monkeypatch.setattr(ra, "solve_fixed_center", fake_joint)
+
+    def fake_derotate(result, deg, orig_wh):
+        captured.setdefault("derotated", []).append((result, deg, orig_wh))
+        return result
+    monkeypatch.setattr(ra, "derotate_result", fake_derotate)
+
+    monkeypatch.setattr(ra, "assemble_track_from_results",
+                        lambda results, *, width, height, **kw: ("TRACK", width, height))
+    monkeypatch.setattr(ra, "write_camera_track", lambda p, tr, fps: p)
+
+    ra.build_autocalib_npz_pretrained(
+        play_dir=".", videos={cam: "v.mp4"}, fps=30.0,
+        kps_json={cam: "k.json"}, territory="away", rotations=rotations)
+    return captured
+
+
+def test_pretrained_endzone_rotates_by_default(monkeypatch):
+    cap = _pretrained_build_harness(monkeypatch, rotations=None, cam="endzone")
+    # frames reach detection rotated 90 deg: (1080,1920,3) -> (1920,1080,3)
+    assert all(s == (1920, 1080, 3) for s in cap["frame_shapes"])
+    assert cap["fuse_image_size"] == (1080, 1920)      # rotated (W,H)
+    assert cap["joint_image_size"] == (1080, 1920)
+    # cached kps rotated: (10,20) in 1920x1080 under 90CW -> (1080-1-20, 10)
+    assert cap["fuse_kps"][0][0][1:3] == (1059.0, 10.0)
+    # every joint result de-rotated back to the original dims
+    assert [d for (_r, d, _wh) in cap["derotated"]] == [90, 90]
+    assert all(wh == (1920, 1080) for (_r, _d, wh) in cap["derotated"])
+
+
+def test_pretrained_sideline_not_rotated(monkeypatch):
+    cap = _pretrained_build_harness(monkeypatch, rotations=None, cam="sideline")
+    assert all(s == (1080, 1920, 3) for s in cap["frame_shapes"])
+    assert cap["fuse_image_size"] == (1920, 1080)
+    assert cap["derotated"] == [] or all(d == 0 for (_r, d, _wh) in cap["derotated"])
+
+
+def test_pretrained_rotations_override(monkeypatch):
+    cap = _pretrained_build_harness(monkeypatch, rotations={"endzone": 0}, cam="endzone")
+    assert all(s == (1080, 1920, 3) for s in cap["frame_shapes"])
+
+
+def test_pretrained_error_names_camera(monkeypatch):
+    from nfl_gsplat.calibration import run_autocalib as ra
+    from nfl_gsplat.errors import CalibrationError
+
+    class _Meta:
+        num_frames, width, height = 2, 1920, 1080
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+    monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames",
+                        lambda v, start_frame=0: iter([]))
+    monkeypatch.setattr("nfl_gsplat.calibration.roboflow_kps.load_kps_json",
+                        lambda p, expect_num_frames=None: {})
+    with pytest.raises(CalibrationError, match="endzone"):
+        ra.build_autocalib_npz_pretrained(
+            play_dir=".", videos={"endzone": "e.mp4"}, fps=30.0,
+            kps_json={"endzone": "e.json"}, territory="away")
