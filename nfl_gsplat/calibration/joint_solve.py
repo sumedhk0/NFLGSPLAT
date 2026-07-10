@@ -204,8 +204,20 @@ def _look_at_R(C, target):
 
 
 def _init_frame(C, world, uv):
-    """Per-frame look-at rotation + span-derived focal seed for a camera at C."""
+    """Per-frame look-at rotation + span-derived focal seed for a camera at C.
+
+    The minimal-roll look-at (right = fwd x world-Z) is correct for an
+    unrotated view, but a working image that was itself rotated 90/180/270 deg
+    upstream (endzone pipeline, see view_rotation.py) needs that same extra
+    in-plane roll composed in -- something look-at cannot see from C and
+    target alone (it never looks at uv). Score all 4 candidate rolls against
+    the actual observations (shape only, both point clouds re-centered on
+    their own mean so no principal-point assumption is needed) and seed LM
+    from whichever is closest. For an unrotated view roll=0 always wins by a
+    wide margin (near-zero shape error), so this is a no-op there; it only
+    matters when the working image is itself a rotated one."""
     import cv2
+    from nfl_gsplat.calibration.view_rotation import _rz
     target = world.mean(axis=0)
     R = _look_at_R(C, target)
     if R is None:
@@ -214,6 +226,21 @@ def _init_frame(C, world, uv):
     wspan = np.linalg.norm(world.max(0) - world.min(0))
     pspan = np.linalg.norm(uv.max(0) - uv.min(0))
     f = float(np.clip(pspan * dist / max(wspan, 1e-6), 500.0, 39000.0))
+
+    C_np = np.asarray(C, np.float64)
+    x_world = world - C_np
+    uv_c = uv - uv.mean(axis=0)
+    best_deg, best_err = 0, np.inf
+    for deg in (0, 90, 180, 270):
+        Rr = R if deg == 0 else _rz(deg) @ R
+        x_cam = x_world @ Rr.T
+        z = np.maximum(x_cam[:, 2], 1e-9)
+        proj = f * x_cam[:, :2] / z[:, None]
+        err = float(np.median(np.linalg.norm(proj - proj.mean(axis=0) - uv_c, axis=1)))
+        if err < best_err:
+            best_deg, best_err = deg, err
+    if best_deg != 0:
+        R = _rz(best_deg) @ R
     return cv2.Rodrigues(R)[0].ravel(), f
 
 

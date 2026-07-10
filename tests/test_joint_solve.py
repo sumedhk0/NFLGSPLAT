@@ -266,6 +266,65 @@ def test_solve_fixed_center_resolves_mirrored_labels():
     assert np.linalg.norm(C_rec - C_TRUE) < 0.5
 
 
+def test_rotated_view_solves_to_same_camera():
+    # Simulate an endzone-style rotated view: rotate every synthetic uv
+    # observation 90 deg (as the pipeline does to endzone frames), solve in
+    # rotated coordinates, de-rotate — the recovered camera must match the
+    # unrotated ground truth. End-to-end check of rotate_uv + solve +
+    # derotate_result composing correctly.
+    #
+    # Anchor-seeded (not the no-anchor grid-only variant): C_TRUE = (-19, 1, 95)
+    # is far from every sideline/endzone grid point (nearest grid points are
+    # ~50-55 m away — see _GRID_X/_GRID_Y/_GRID_Z and _GRID_EZ_* in
+    # joint_solve.py), so a grid-only multi-start has no nearby candidate to
+    # converge from. Anchors are rotation-agnostic (they carry only C; the
+    # per-frame pose init is recomputed by look-at inside the solver) — but
+    # look-at alone still assumes near-zero roll, which a 90-deg-rotated
+    # working image never has (measured: initial per-frame reprojection error
+    # in the thousands of px, ~80-100 deg of rotation from the true pose, too
+    # far for LM to recover under the robust loss no matter the iteration
+    # budget). _init_frame (joint_solve.py) now scores 4 in-plane roll
+    # hypotheses per frame against the actual observations and seeds LM from
+    # the best one — a no-op for an unrotated view (roll=0 always wins there)
+    # but required for this rotated case to converge at all.
+    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    from nfl_gsplat.calibration.view_rotation import (
+        derotate_result, rotate_uv, rotated_wh,
+    )
+    ids, fd, f_true, R_true = _synthetic_frames(n_frames=30, noise_px=0.3)
+    rw_h = rotated_wh(90, (W, H))
+    fd_rot = {}
+    for i in ids:
+        world, uv = fd[i]
+        uv_r = np.array([rotate_uv(u, v, 90, (W, H)) for (u, v) in uv])
+        fd_rot[i] = (world, uv_r)
+    results, mirrored = solve_fixed_center(
+        corrs_by_frame=None, image_size=rw_h,
+        init_results=_init_results_from_truth(ids, f_true, R_true, 30, jitter=1.0),
+        _frame_data_override=fd_rot)
+    # mirrored may legitimately be True here: a 90 deg rotation can flip the
+    # handedness the reflection-resolve sees (the field is Y-symmetric), and
+    # solve_fixed_center already returns results in the TRUE world frame
+    # regardless (see test_solve_fixed_center_resolves_mirrored_labels).
+    # Assert on the recovered camera, not on `mirrored`.
+    solved = [(i, r) for i, r in enumerate(results) if r is not None]
+    assert len(solved) >= 25
+    deros = [derotate_result(r, 90, (W, H)) for _i, r in solved]
+    C_rec = deros[0].pose.center_world()
+    assert np.linalg.norm(C_rec - C_TRUE) < 0.5
+    # C alone cannot catch a wrong _rz composition: center_world() = -R^T t is
+    # provably invariant to ANY orthogonal rz (see view_rotation.py's own
+    # docstring), correct angle or not — verified empirically by temporarily
+    # flipping _rz's sign for deg=90: C_rec still landed within 1 cm of
+    # C_TRUE. Check the recovered ORIENTATION too, which the same broken sign
+    # threw ~180 deg off (vs. <0.02 deg with the correct sign).
+    for (i, _r), d in zip(solved, deros):
+        assert d.intrinsics.fx == pytest.approx(f_true[i], rel=0.02)
+        cos_ang = (np.trace(d.pose.R @ R_true[i].T) - 1) / 2
+        ang_deg = np.degrees(np.arccos(np.clip(cos_ang, -1.0, 1.0)))
+        assert ang_deg < 1.0
+
+
 def test_candidate_centers_include_endzone_positions():
     # endzone cameras sit behind an endzone (|X| 60-120, Y ~ 0) — the
     # sideline-only grid physically could not reach them (2026-07-07 failure)
