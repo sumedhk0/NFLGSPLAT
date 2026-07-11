@@ -283,10 +283,15 @@ def test_rotated_view_solves_to_same_camera():
     # working image never has (measured: initial per-frame reprojection error
     # in the thousands of px, ~80-100 deg of rotation from the true pose, too
     # far for LM to recover under the robust loss no matter the iteration
-    # budget). _init_frame (joint_solve.py) now scores 4 in-plane roll
-    # hypotheses per frame against the actual observations and seeds LM from
-    # the best one — a no-op for an unrotated view (roll=0 always wins there)
-    # but required for this rotated case to converge at all.
+    # budget). _init_frame (joint_solve.py) scores 4 in-plane roll hypotheses
+    # per frame against the actual observations and seeds LM from the best
+    # one, but ONLY when told the view is rotated (view_deg=90 below) — an
+    # error-threshold heuristic can't safely auto-detect this (a wrong
+    # multi-start candidate on an UNROTATED view also produces high roll=0
+    # error, and scoring rolls there let a wrong camera win; see
+    # joint_solve.py's _init_frame docstring). Passing view_deg=90 here
+    # mirrors what the pretrained pipeline does: it knows the working-view
+    # rotation up front and threads it through explicitly.
     from nfl_gsplat.calibration.joint_solve import solve_fixed_center
     from nfl_gsplat.calibration.view_rotation import (
         derotate_result, rotate_uv, rotated_wh,
@@ -301,7 +306,7 @@ def test_rotated_view_solves_to_same_camera():
     results, mirrored = solve_fixed_center(
         corrs_by_frame=None, image_size=rw_h,
         init_results=_init_results_from_truth(ids, f_true, R_true, 30, jitter=1.0),
-        _frame_data_override=fd_rot)
+        _frame_data_override=fd_rot, view_deg=90)
     # mirrored may legitimately be True here: a 90 deg rotation can flip the
     # handedness the reflection-resolve sees (the field is Y-symmetric), and
     # solve_fixed_center already returns results in the TRUE world frame

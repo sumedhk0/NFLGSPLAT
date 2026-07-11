@@ -203,19 +203,28 @@ def _look_at_R(C, target):
     return np.stack([right, down, fwd], axis=0)
 
 
-def _init_frame(C, world, uv):
+def _init_frame(C, world, uv, *, view_deg: int = 0):
     """Per-frame look-at rotation + span-derived focal seed for a camera at C.
 
     The minimal-roll look-at (right = fwd x world-Z) is correct for an
-    unrotated view, but a working image that was itself rotated 90/180/270 deg
+    unrotated view. A working image that was itself rotated 90/180/270 deg
     upstream (endzone pipeline, see view_rotation.py) needs that same extra
     in-plane roll composed in -- something look-at cannot see from C and
-    target alone (it never looks at uv). Score all 4 candidate rolls against
-    the actual observations (shape only, both point clouds re-centered on
-    their own mean so no principal-point assumption is needed) and seed LM
-    from whichever is closest. For an unrotated view roll=0 always wins by a
-    wide margin (near-zero shape error), so this is a no-op there; it only
-    matters when the working image is itself a rotated one."""
+    target alone (it never looks at uv).
+
+    ``view_deg`` is the KNOWN working-view rotation (0 for sideline, 90/180/270
+    for endzone), passed in by the caller -- it is not inferred here. When
+    ``view_deg == 0`` this seeds with the plain roll=0 look-at only (the
+    pre-roll-search behavior): an error-threshold heuristic that instead tried
+    to detect rotation from reprojection error cannot tell "wrong candidate
+    center" from "rotated view" apart (both produce high roll=0 error), and at
+    a WRONG multi-start candidate the 4-roll scan finds spuriously low-cost
+    non-zero rolls that let a wrong camera win the multi-start search
+    (measured on real sideline footage: winner cost 63041 at a wrong C vs the
+    true 84397 at the correct C). When ``view_deg != 0`` scores all 4
+    candidate rolls against the actual observations (shape only, both point
+    clouds re-centered on their own mean so no principal-point assumption is
+    needed) and seeds LM from whichever is closest."""
     import cv2
     from nfl_gsplat.calibration.view_rotation import _rz
     target = world.mean(axis=0)
@@ -226,6 +235,9 @@ def _init_frame(C, world, uv):
     wspan = np.linalg.norm(world.max(0) - world.min(0))
     pspan = np.linalg.norm(uv.max(0) - uv.min(0))
     f = float(np.clip(pspan * dist / max(wspan, 1e-6), 500.0, 39000.0))
+
+    if view_deg == 0:
+        return cv2.Rodrigues(R)[0].ravel(), f
 
     C_np = np.asarray(C, np.float64)
     x_world = world - C_np
@@ -244,12 +256,12 @@ def _init_frame(C, world, uv):
     return cv2.Rodrigues(R)[0].ravel(), f
 
 
-def _init_pose_for_C(C, ids, frame_data):
+def _init_pose_for_C(C, ids, frame_data, *, view_deg: int = 0):
     """look-at/span init for every frame in ids, or (None, None) if degenerate."""
     r0, f0 = {}, {}
     for i in ids:
         world, uv = frame_data[i]
-        r, f = _init_frame(C, world, uv)
+        r, f = _init_frame(C, world, uv, view_deg=view_deg)
         if r is None:
             return None, None
         r0[i], f0[i] = r, f
@@ -355,7 +367,8 @@ def _subsample(frame_ids) -> list[int]:
     return sub
 
 
-def _resolve_reflection(frame_ids, frame_data, image_size, candidates, n_anchor: int = 0):
+def _resolve_reflection(frame_ids, frame_data, image_size, candidates, n_anchor: int = 0,
+                        *, view_deg: int = 0):
     """Score both labelings x every candidate on a subsample; return the winner.
 
     ``n_anchor`` is the count of leading entries in ``candidates`` that are
@@ -377,7 +390,7 @@ def _resolve_reflection(frame_ids, frame_data, image_size, candidates, n_anchor:
     for mirrored, fd in ((False, frame_data), (True, _negate_y(frame_data))):
         sub_fd = {i: fd[i] for i in sub}
         for idx, C0 in enumerate(candidates):
-            r0, f0 = _init_pose_for_C(C0, sub, fd)
+            r0, f0 = _init_pose_for_C(C0, sub, fd, view_deg=view_deg)
             if r0 is None:
                 continue
             nfev = _ANCHOR_NFEV if idx < n_anchor else _SHORT_NFEV
@@ -396,10 +409,10 @@ def _resolve_reflection(frame_ids, frame_data, image_size, candidates, n_anchor:
     return best[1], best[2], best[0]
 
 
-def _staged_solve(frame_ids, frame_data, image_size, C_win):
+def _staged_solve(frame_ids, frame_data, image_size, C_win, *, view_deg: int = 0):
     """Stage A (every 3rd frame, deep) -> Stage B (all frames, warm-started)."""
     subA = frame_ids[::3]
-    rA0, fA0 = _init_pose_for_C(C_win, subA, frame_data)
+    rA0, fA0 = _init_pose_for_C(C_win, subA, frame_data, view_deg=view_deg)
     if rA0 is None:
         raise CalibrationError("joint solve: winning camera center is degenerate "
                                "for the subsample (look-at undefined).")
@@ -426,13 +439,13 @@ def _staged_solve(frame_ids, frame_data, image_size, C_win):
     return CB, rB, fB
 
 
-def _rescue_refit(frame_ids, frame_data, image_size, C):
+def _rescue_refit(frame_ids, frame_data, image_size, C, *, view_deg: int = 0):
     """Fixed-C per-frame LM refit of (r, f). Returns {i: (r, f, median_px)}."""
     from scipy.optimize import least_squares
     out = {}
     for i in frame_ids:
         world, uv = frame_data[i]
-        r0, f0 = _init_frame(C, world, uv)
+        r0, f0 = _init_frame(C, world, uv, view_deg=view_deg)
         if r0 is None:
             continue
         x0 = np.concatenate([r0, [f0]])
@@ -447,14 +460,23 @@ def _rescue_refit(frame_ids, frame_data, image_size, C):
 
 
 def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
-                       max_rounds: int = 2, _frame_data_override=None):
+                       max_rounds: int = 2, _frame_data_override=None,
+                       view_deg: int = 0):
     """Joint solve over all usable frames -> (results, mirrored).
 
     ``results`` is a list aligned to ``init_results``' length with a
     ``CalibrationResult`` per rescued frame and ``None`` elsewhere; ``mirrored``
     is True when the fused left/right hash convention was flipped (world Y
     negated) to fit a rigid camera. The returned results are always in the TRUE
-    world frame. ``max_rounds`` is accepted for backward compatibility."""
+    world frame. ``max_rounds`` is accepted for backward compatibility.
+
+    ``view_deg`` is the KNOWN working-view rotation (0 for sideline, 90 for
+    endzone, etc. -- see view_rotation.py). It gates the 4-roll init search in
+    ``_init_frame``: that search is needed to seed a rotated view correctly
+    but is HARMFUL for an unrotated view, where it lets wrong multi-start
+    candidates reach a spuriously low-cost minimum (measured on real sideline
+    footage, see joint_solve.py module docstring / _init_frame). Default 0
+    preserves prior behavior for existing callers."""
     del max_rounds
     frame_data = (_frame_data_override if _frame_data_override is not None
                   else build_frame_data(corrs_by_frame))
@@ -466,7 +488,8 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     candidates = _candidate_centers(init_results)
     n_anchor = 1 if init_from_results(init_results) is not None else 0
     mirrored, C_win, cost = _resolve_reflection(
-        frame_ids, frame_data, image_size, candidates, n_anchor=n_anchor)
+        frame_ids, frame_data, image_size, candidates, n_anchor=n_anchor,
+        view_deg=view_deg)
     if not np.isfinite(cost):
         raise CalibrationError("multi-start joint solve: best candidate cost not finite.")
     if mirrored:
@@ -477,16 +500,16 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     # poisoned minority (residual identity/geometry errors) drag the shared
     # center away (measured on real footage: C wandered onto the field and the
     # final rescue rejected everything).
-    refit0 = _rescue_refit(frame_ids, frame_data, image_size, C_win)
+    refit0 = _rescue_refit(frame_ids, frame_data, image_size, C_win, view_deg=view_deg)
     kept = sorted(i for i, (_r, _f, m) in refit0.items() if m <= AUDIT_DROP_PX)
     if len(kept) < 10:
         raise CalibrationError(
             f"only {len(kept)} frames consistent with the multi-start camera "
             f"(need >= 10) — fusion output unusable for a fixed-center solve.")
     C, _r_by, _f_by = _staged_solve(kept, {i: frame_data[i] for i in kept},
-                                    image_size, C_win)
+                                    image_size, C_win, view_deg=view_deg)
 
-    refit = _rescue_refit(frame_ids, frame_data, image_size, C)
+    refit = _rescue_refit(frame_ids, frame_data, image_size, C, view_deg=view_deg)
     results = [None] * T
     for i, (r_i, f_i, med) in refit.items():
         if med <= AUDIT_DROP_PX:

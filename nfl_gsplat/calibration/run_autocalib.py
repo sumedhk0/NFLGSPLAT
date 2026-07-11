@@ -492,7 +492,7 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
             # planar telephoto views (see spec 2026-07-06); the sweep output only
             # initializes the joint problem.
             joint, mirrored = solve_fixed_center(corrs_by_frame, (work_w, work_h),
-                                                 init_results=results)
+                                                 init_results=results, view_deg=deg)
             if mirrored:
                 _LOG.warning(
                     "camera %s: fused left/right hash convention was flipped "
