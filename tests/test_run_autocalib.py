@@ -461,20 +461,79 @@ def test_pretrained_error_names_camera(monkeypatch):
             kps_json={"endzone": "e.json"}, territory="away")
 
 
-def test_pretrained_rotated_camera_rejects_masks_provider(monkeypatch):
-    # boxes are in ORIGINAL coords; the rotated frame would be masked wrong
+def test_pretrained_rotates_player_boxes_for_masking(monkeypatch):
+    # boxes are original-pixel; on a rotated (endzone) camera they must reach
+    # detect_field_features rotated into the working frame
     from nfl_gsplat.calibration import run_autocalib as ra
-    from nfl_gsplat.errors import CalibrationError
+    from nfl_gsplat.calibration.view_rotation import rotate_box
+
+    captured = {"boxes": []}
 
     class _Meta:
         num_frames, width, height = 2, 1920, 1080
     monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+    frames = [np.zeros((1080, 1920, 3), np.uint8) for _ in range(2)]
     monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames",
-                        lambda v, start_frame=0: iter([]))
+                        lambda v, start_frame=0: iter(enumerate(frames)))
     monkeypatch.setattr("nfl_gsplat.calibration.roboflow_kps.load_kps_json",
-                        lambda p, expect_num_frames=None: {})
-    with pytest.raises(CalibrationError, match="masks_provider is not supported"):
-        ra.build_autocalib_npz_pretrained(
-            play_dir=".", videos={"endzone": "e.mp4"}, fps=30.0,
-            kps_json={"endzone": "e.json"}, territory="away",
-            masks_provider=lambda cam: (lambda f: []))
+                        lambda p, expect_num_frames=None: {0: [("30", 10.0, 20.0, 0.9)],
+                                                           1: [("30", 10.0, 20.0, 0.9)]})
+
+    def fake_detect(frame, *, cfg=None, player_boxes=None):
+        from nfl_gsplat.calibration.field_features import DetectedFeatures
+        captured["boxes"].append(player_boxes)
+        return DetectedFeatures(yard_lines=[], sidelines=[], hashes=[],
+                                numbers=[], image_size=frame.shape[:2][::-1])
+    monkeypatch.setattr(ra, "detect_field_features", fake_detect)
+    monkeypatch.setattr(ra, "fuse_frame",
+                        lambda *a, **k: [(f"c{i}", (float(i), 0.0)) for i in range(8)])
+    monkeypatch.setattr(ra, "_solve_sweep", lambda *a, **k: [None, None], raising=False)
+    monkeypatch.setattr(ra, "solve_fixed_center", lambda *a, **k: (["R0", "R1"], False))
+    monkeypatch.setattr(ra, "derotate_result", lambda r, deg, wh: r)
+    monkeypatch.setattr(ra, "assemble_track_from_results",
+                        lambda results, *, width, height, **kw: ("TRACK", width, height))
+    monkeypatch.setattr(ra, "write_camera_track", lambda p, tr, fps: p)
+
+    orig_box = (100.0, 200.0, 150.0, 400.0)
+
+    def masks(cam):
+        return lambda fidx: [orig_box]
+    ra.build_autocalib_npz_pretrained(
+        play_dir=".", videos={"endzone": "e.mp4"}, fps=30.0,
+        kps_json={"endzone": "e.json"}, territory="away",
+        masks_provider=masks, rotations={"endzone": 90})
+    assert captured["boxes"][0] == [rotate_box(orig_box, 90, (1920, 1080))]
+
+
+def test_pretrained_sideline_boxes_unrotated(monkeypatch):
+    from nfl_gsplat.calibration import run_autocalib as ra
+    captured = {"boxes": []}
+
+    class _Meta:
+        num_frames, width, height = 1, 1920, 1080
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", lambda v: _Meta())
+    monkeypatch.setattr("nfl_gsplat.utils.video.iter_frames",
+                        lambda v, start_frame=0: iter([(0, np.zeros((1080, 1920, 3), np.uint8))]))
+    monkeypatch.setattr("nfl_gsplat.calibration.roboflow_kps.load_kps_json",
+                        lambda p, expect_num_frames=None: {0: [("30", 1.0, 2.0, 0.9)]})
+
+    def fake_detect(frame, *, cfg=None, player_boxes=None):
+        from nfl_gsplat.calibration.field_features import DetectedFeatures
+        captured["boxes"].append(player_boxes)
+        return DetectedFeatures(yard_lines=[], sidelines=[], hashes=[], numbers=[],
+                                image_size=(1920, 1080))
+    monkeypatch.setattr(ra, "detect_field_features", fake_detect)
+    monkeypatch.setattr(ra, "fuse_frame", lambda *a, **k: [("c", (1.0, 0.0))])
+    monkeypatch.setattr(ra, "_solve_sweep", lambda *a, **k: [None], raising=False)
+    monkeypatch.setattr(ra, "solve_fixed_center", lambda *a, **k: (["R0"], False))
+    monkeypatch.setattr(ra, "derotate_result", lambda r, deg, wh: r)
+    monkeypatch.setattr(ra, "assemble_track_from_results",
+                        lambda results, *, width, height, **kw: "TRACK")
+    monkeypatch.setattr(ra, "write_camera_track", lambda p, tr, fps: p)
+
+    box = (10.0, 20.0, 30.0, 40.0)
+    ra.build_autocalib_npz_pretrained(
+        play_dir=".", videos={"sideline": "s.mp4"}, fps=30.0,
+        kps_json={"sideline": "s.json"}, territory="away",
+        masks_provider=lambda cam: (lambda f: [box]))    # rotations=None -> sideline deg 0
+    assert captured["boxes"][0] == [box]                 # unrotated

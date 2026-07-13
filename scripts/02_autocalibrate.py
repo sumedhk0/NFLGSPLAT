@@ -52,6 +52,9 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
          rotate: str = typer.Option("", "--rotate",
              help="Per-camera view rotation override, e.g. 'endzone=90' or "
                   "'endzone=90,sideline=0'. Default: endzone->90, others->0."),
+         player_boxes: Optional[Path] = typer.Option(None, "--player-boxes",
+             help="Path to tracks.parquet for player masking (pretrained mode; "
+                  "default <play_dir>/tracks.parquet if present)."),
          config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
     load_cli_config(config, config_override, set_)
     rotations = {}
@@ -84,10 +87,19 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
                 if not p.exists() and len(videos) == 1:
                     p = pd.dir / "roboflow_kps.json"
                 kps_json[cam] = p
+        from nfl_gsplat.calibration.player_masks import boxes_provider_from_tracks
+        boxes_path = player_boxes if player_boxes is not None else (pd.dir / "tracks.parquet")
+        if boxes_path.exists():
+            masks_provider = boxes_provider_from_tracks(boxes_path)
+        else:
+            _LOG.warning("no player tracks at %s — running calibration UNMASKED "
+                         "(endzone likely fails; run scripts/03b_detect_players.py)",
+                         boxes_path)
+            masks_provider = None
         out = build_autocalib_npz_pretrained(
             play_dir=pd.dir, videos=videos, fps=meta.fps,
             kps_json=kps_json, territory=territory,
-            rotations=rotations or None,
+            rotations=rotations or None, masks_provider=masks_provider,
         )
     elif mode is CalibMode.learned:
         if model_ckpt is None:
