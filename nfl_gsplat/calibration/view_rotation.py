@@ -47,6 +47,22 @@ def rotate_uv(u: float, v: float, deg: int, orig_wh) -> tuple[float, float]:
     return (v, w - 1 - u)               # 270 = counterclockwise
 
 
+def rotate_box(box, deg: int, orig_wh) -> tuple[float, float, float, float]:
+    """Map an axis-aligned (x1, y1, x2, y2) box in the ORIGINAL frame to the
+    axis-aligned box in the rotated frame. 90/180/270 keep boxes axis-aligned,
+    so the min/max over the four rotated corners is exact. Used to mask player
+    boxes (stored in original pixels) on a rotated working frame."""
+    _check(deg)
+    if deg == 0:
+        return (float(box[0]), float(box[1]), float(box[2]), float(box[3]))
+    x1, y1, x2, y2 = box
+    corners = [rotate_uv(x1, y1, deg, orig_wh), rotate_uv(x2, y1, deg, orig_wh),
+               rotate_uv(x1, y2, deg, orig_wh), rotate_uv(x2, y2, deg, orig_wh)]
+    us = [c[0] for c in corners]
+    vs = [c[1] for c in corners]
+    return (float(min(us)), float(min(vs)), float(max(us)), float(max(vs)))
+
+
 def _rz(deg: int) -> np.ndarray:
     """In-plane camera rotation composing the INVERSE pixel rotation, i.e.
     R_orig = _rz(deg) @ R_rotated. Sign fixed by the projection-equivalence

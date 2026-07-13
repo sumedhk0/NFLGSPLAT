@@ -113,6 +113,55 @@ def detect_and_track(
     return _coerce_dtypes(df)
 
 
+def detect_only(video, cam, cfg, *, frame_source=None, _predict=None):
+    """Per-frame YOLO person detection (no BoT-SORT). track_id=-1. For masking,
+    which needs boxes, not track continuity — and runs on CPU without a tracker.
+    ``frame_source`` / ``_predict`` are test injection seams."""
+    if _predict is None:                                    # pragma: no cover (gpu path)
+        try:
+            from ultralytics import YOLO  # type: ignore
+        except ImportError as e:
+            raise SetupError(
+                "ultralytics not installed — activate the `nfl_smplx` conda env. "
+                "See SETUP.md §1.") from e
+        model = YOLO(cfg.yolo_weights)
+
+        def _predict(bgr):
+            res = model.predict(bgr, classes=[cfg.person_class_id],
+                                conf=cfg.min_detection_conf, device=cfg.device,
+                                verbose=False)[0]
+            return res.boxes if (res.boxes is not None and len(res.boxes)) else None
+    if frame_source is None:                                # pragma: no cover (gpu path)
+        from nfl_gsplat.utils.video import iter_frames
+        import cv2
+        frame_source = ((i, cv2.cvtColor(fr, cv2.COLOR_RGB2BGR))
+                        for i, fr in iter_frames(video, start_frame=0))
+    rows: list[dict] = []
+    for idx, bgr in frame_source:
+        boxes = _predict(bgr)
+        if boxes is None:
+            continue
+        xyxy = boxes.xyxy if hasattr(boxes, "xyxy") else boxes
+        confs = getattr(boxes, "conf", [1.0] * len(xyxy))
+        # Real ultralytics returns CUDA/torch tensors; move to CPU numpy. The
+        # injected-test fake already provides plain numpy (no .cpu).
+        if hasattr(xyxy, "cpu"):
+            xyxy = xyxy.cpu().numpy()
+        if hasattr(confs, "cpu"):
+            confs = confs.cpu().numpy()
+        for b, c in zip(np.asarray(xyxy, float), np.asarray(confs, float)):
+            u, v = foot_point_from_bbox(np.asarray(b, dtype=np.float64))
+            rows.append({
+                "frame": int(idx), "cam": cam, "track_id": -1,
+                "global_player_id": -1,
+                "bbox_x1": float(b[0]), "bbox_y1": float(b[1]),
+                "bbox_x2": float(b[2]), "bbox_y2": float(b[3]),
+                "conf": float(c), "foot_u": float(u), "foot_v": float(v),
+                "jersey_number_ocr": -1})
+    df = pd.DataFrame(rows, columns=TRACK_COLUMNS)
+    return _coerce_dtypes(df)
+
+
 def _coerce_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     for c in TRACK_COLUMNS:
         if c in df.columns:

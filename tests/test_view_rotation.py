@@ -83,3 +83,32 @@ def test_derotate_zero_is_identity():
     res = derotate_result(res_rot, 0, orig_wh)
     assert np.allclose(res.pose.R, res_rot.pose.R)
     assert np.allclose(res.pose.t, res_rot.pose.t)
+
+
+@pytest.mark.parametrize("deg", [0, 90, 180, 270])
+def test_rotate_box_covers_rotated_corners(deg):
+    from nfl_gsplat.calibration.view_rotation import rotate_box, rotate_uv
+    box = (5.0, 3.0, 20.0, 12.0)          # x1,y1,x2,y2 in a (W=32,H=20) frame
+    ow = (32, 20)
+    rb = rotate_box(box, deg, ow)
+    # every original corner, rotated, must lie inside the rotated box (± epsilon)
+    corners = [(box[0], box[1]), (box[2], box[1]), (box[0], box[3]), (box[2], box[3])]
+    for (u, v) in corners:
+        ru, rv = rotate_uv(u, v, deg, ow)
+        assert rb[0] - 1e-6 <= ru <= rb[2] + 1e-6
+        assert rb[1] - 1e-6 <= rv <= rb[3] + 1e-6
+    assert rb[0] <= rb[2] and rb[1] <= rb[3]     # well-ordered
+
+
+def test_rotate_box_zero_is_identity():
+    from nfl_gsplat.calibration.view_rotation import rotate_box
+    assert rotate_box((1.0, 2.0, 3.0, 4.0), 0, (32, 20)) == (1.0, 2.0, 3.0, 4.0)
+
+
+def test_rotate_box_round_trip_90_270():
+    from nfl_gsplat.calibration.view_rotation import rotate_box, rotated_wh
+    box = (5.0, 3.0, 20.0, 12.0)
+    ow = (32, 20)
+    r90 = rotate_box(box, 90, ow)
+    back = rotate_box(r90, 270, rotated_wh(90, ow))
+    assert max(abs(a - b) for a, b in zip(back, box)) <= 1.0   # index-vs-center ≤1px
