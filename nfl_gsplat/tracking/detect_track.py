@@ -128,7 +128,8 @@ def detect_only(video, cam, cfg, *, frame_source=None, _predict=None):
 
         def _predict(bgr):
             res = model.predict(bgr, classes=[cfg.person_class_id],
-                                conf=cfg.min_detection_conf, verbose=False)[0]
+                                conf=cfg.min_detection_conf, device=cfg.device,
+                                verbose=False)[0]
             return res.boxes if (res.boxes is not None and len(res.boxes)) else None
     if frame_source is None:                                # pragma: no cover (gpu path)
         from nfl_gsplat.utils.video import iter_frames
@@ -142,6 +143,12 @@ def detect_only(video, cam, cfg, *, frame_source=None, _predict=None):
             continue
         xyxy = boxes.xyxy if hasattr(boxes, "xyxy") else boxes
         confs = getattr(boxes, "conf", [1.0] * len(xyxy))
+        # Real ultralytics returns CUDA/torch tensors; move to CPU numpy. The
+        # injected-test fake already provides plain numpy (no .cpu).
+        if hasattr(xyxy, "cpu"):
+            xyxy = xyxy.cpu().numpy()
+        if hasattr(confs, "cpu"):
+            confs = confs.cpu().numpy()
         for b, c in zip(np.asarray(xyxy, float), np.asarray(confs, float)):
             u, v = foot_point_from_bbox(np.asarray(b, dtype=np.float64))
             rows.append({
