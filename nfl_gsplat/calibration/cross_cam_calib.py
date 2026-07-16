@@ -36,3 +36,34 @@ def match_frame(world_xyz, endzone_uv, K, R, t, *, max_px):
     keep = cost[rows, cols] <= max_px
     wsel = idx[rows[keep]]
     return world_xyz[wsel], endzone_uv[cols[keep]]
+
+
+def sideline_field_by_frame(tracks_df, sideline_track, *, cam="sideline"):
+    """{frame: world (N,3), Z=0} from projecting the sideline cam's foot points
+    to the field plane. Drops NaN / off-field-magnitude rows."""
+    from nfl_gsplat.calibration.cameras_io import CameraTrack  # noqa: F401 (type)
+    from nfl_gsplat.tracking.cross_cam_reid import project_foot_points_to_field
+    proj = project_foot_points_to_field(tracks_df[tracks_df["cam"] == cam],
+                                        {cam: sideline_track})
+    out: dict[int, np.ndarray] = {}
+    for fr, grp in proj.groupby("frame"):
+        xy = grp[["foot_x_m", "foot_y_m"]].to_numpy()
+        ok = np.isfinite(xy).all(axis=1) & (np.abs(xy[:, 0]) <= 60) & (np.abs(xy[:, 1]) <= 30)
+        if ok.any():
+            w = np.column_stack([xy[ok], np.zeros(ok.sum())])
+            out[int(fr)] = w.astype(np.float64)
+    return out
+
+
+def endzone_feet_by_frame(tracks_df, *, cam="endzone", deg, orig_wh):
+    """{frame: uv (M,2)} of endzone foot points, mapped into the rotated
+    working frame by rotate_uv."""
+    from nfl_gsplat.calibration.view_rotation import rotate_uv
+    ez = tracks_df[tracks_df["cam"] == cam]
+    out: dict[int, np.ndarray] = {}
+    for fr, grp in ez.groupby("frame"):
+        uv = grp[["foot_u", "foot_v"]].to_numpy()
+        rot = np.array([rotate_uv(u, v, deg, orig_wh) for (u, v) in uv], np.float64)
+        if len(rot):
+            out[int(fr)] = rot
+    return out

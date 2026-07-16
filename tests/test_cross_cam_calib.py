@@ -48,3 +48,48 @@ def test_match_frame_far_projection_no_match():
     K, R, t = _cam([-100.0, 0.0, 40.0], [-30.0, 0.0, 0.0])
     mw, mu = match_frame(world, np.array([[5.0, 5.0]]), K, R, t, max_px=5.0)
     assert mw.shape == (0, 3) and mu.shape == (0, 2)
+
+
+def _tracks_df(rows):
+    import pandas as pd
+    from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS
+    df = pd.DataFrame(rows)
+    for c in TRACK_COLUMNS:
+        if c not in df.columns:
+            df[c] = -1 if c not in ("cam",) else ""
+    return df
+
+
+def _sideline_track(C, target, n_frames=3, f=2600.0, wh=(1920, 1080)):
+    from nfl_gsplat.calibration.cameras_io import CameraTrack
+    R = _look_at(np.asarray(C, float), np.asarray(target, float))
+    t = -R @ np.asarray(C, float)
+    K = CameraIntrinsics(f, f, wh[0] / 2, wh[1] / 2, wh[0], wh[1]).K()
+    return CameraTrack(K=np.repeat(K[None], n_frames, 0), R=np.repeat(R[None], n_frames, 0),
+                       t=np.repeat(t[None], n_frames, 0), conf=np.ones(n_frames),
+                       width=wh[0], height=wh[1])
+
+
+def test_sideline_field_by_frame_projects_feet_to_z0():
+    from nfl_gsplat.calibration.cross_cam_calib import sideline_field_by_frame
+    sl = _sideline_track([-3.6, 80.0, 36.0], [0.0, 0.0, 0.0])
+    # a player truly at field (X=-10, Y=4, 0): find its sideline foot pixel
+    K, R, t = sl.at(0)[0].K(), sl.at(0)[1].R, sl.at(0)[1].t
+    uv = project_points(np.array([[-10.0, 4.0, 0.0]]), K, R, t)[0]
+    df = _tracks_df([{"frame": 0, "cam": "sideline", "foot_u": uv[0], "foot_v": uv[1],
+                      "bbox_x1": 0, "bbox_y1": 0, "bbox_x2": 1, "bbox_y2": 1}])
+    fb = sideline_field_by_frame(df, sl)
+    assert 0 in fb
+    assert np.allclose(fb[0][0, :2], [-10.0, 4.0], atol=0.2) and fb[0][0, 2] == 0.0
+
+
+def test_endzone_feet_by_frame_rotates():
+    from nfl_gsplat.calibration.cross_cam_calib import endzone_feet_by_frame
+    from nfl_gsplat.calibration.view_rotation import rotate_uv
+    df = _tracks_df([{"frame": 0, "cam": "endzone", "foot_u": 100.0, "foot_v": 200.0,
+                      "bbox_x1": 0, "bbox_y1": 0, "bbox_x2": 1, "bbox_y2": 1},
+                     {"frame": 0, "cam": "sideline", "foot_u": 5.0, "foot_v": 6.0,
+                      "bbox_x1": 0, "bbox_y1": 0, "bbox_x2": 1, "bbox_y2": 1}])
+    fb = endzone_feet_by_frame(df, deg=90, orig_wh=(1920, 1080))
+    assert list(fb) == [0]
+    assert np.allclose(fb[0][0], rotate_uv(100.0, 200.0, 90, (1920, 1080)))
