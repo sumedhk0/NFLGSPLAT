@@ -590,3 +590,20 @@ def test_build_endzone_missing_sideline_fails_loud(tmp_path):
     with pytest.raises(SetupError, match="sideline"):
         build_endzone_from_sideline(play_dir=str(tmp_path), tracks_path=str(tmp_path / "t.parquet"),
                                     cameras_npz=str(npz), endzone_video="e.mp4", fps=30.0)
+
+
+def test_build_endzone_missing_tracks_fails_loud(tmp_path):
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_from_sideline
+    from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
+    from nfl_gsplat.errors import SetupError
+    import numpy as np
+    T = 3
+    npz = tmp_path / "cameras.npz"
+    # Create a valid sideline camera (so the sideline check passes)
+    sl = CameraTrack(K=np.repeat(np.eye(3)[None], T, 0), R=np.repeat(np.eye(3)[None], T, 0),
+                     t=np.zeros((T, 3)), conf=np.ones(T), width=1920, height=1080)
+    write_camera_track(npz, {"sideline": sl}, fps=30.0)
+    # Point tracks_path at a nonexistent file
+    with pytest.raises(SetupError, match="tracks"):
+        build_endzone_from_sideline(play_dir=str(tmp_path), tracks_path=str(tmp_path / "nonexistent.parquet"),
+                                    cameras_npz=str(npz), endzone_video="e.mp4", fps=30.0)

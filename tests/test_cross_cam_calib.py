@@ -132,6 +132,11 @@ def test_solve_endzone_cross_camera_recovers_synthetic():
     assert np.linalg.norm(C_rec - C_true) < 1.0
     for r in solved:
         assert np.allclose(r.pose.center_world(), C_rec)     # one fixed center
+    # Assert focal within 2% of ground truth for each frame
+    for i, r in enumerate(results):
+        if r is None:
+            continue
+        assert abs(r.intrinsics.fx - f_by[i]) / f_by[i] < 0.02
 
 
 def test_solve_endzone_cross_camera_fails_loud_no_matches():
