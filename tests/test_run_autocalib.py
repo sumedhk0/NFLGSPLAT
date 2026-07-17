@@ -537,3 +537,56 @@ def test_pretrained_sideline_boxes_unrotated(monkeypatch):
         kps_json={"sideline": "s.json"}, territory="away",
         masks_provider=lambda cam: (lambda f: [box]))    # rotations=None -> sideline deg 0
     assert captured["boxes"][0] == [box]                 # unrotated
+
+
+def test_build_endzone_from_sideline_merges(monkeypatch, tmp_path):
+    # sideline camera present in cameras.npz; endzone solved from cross-camera
+    # stub; result merged as endzone_* without dropping sideline_*.
+    import numpy as np
+    import pandas as pd
+    from nfl_gsplat.calibration import run_autocalib as ra
+    from nfl_gsplat.calibration.cameras_io import CameraTrack, load_camera_track, write_camera_track
+
+    T = 3
+    sl = CameraTrack(K=np.repeat(np.eye(3)[None], T, 0), R=np.repeat(np.eye(3)[None], T, 0),
+                     t=np.zeros((T, 3)), conf=np.ones(T), width=1920, height=1080)
+    npz = tmp_path / "cameras.npz"
+    write_camera_track(npz, {"sideline": sl}, fps=30.0)
+
+    tracks = tmp_path / "tracks.parquet"
+    pd.DataFrame({"frame": [0], "cam": ["endzone"], "foot_u": [1.0], "foot_v": [2.0],
+                  "bbox_x1": [0.0], "bbox_y1": [0.0], "bbox_x2": [1.0], "bbox_y2": [1.0]}
+                 ).to_parquet(tracks, index=False)
+
+    # stub the heavy solve: return T frames of a fixed endzone camera
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+    def fake_solve(field_by, feet_by, image_size, *, init_C, view_deg=90, **kw):
+        R = np.eye(3); t = np.array([100.0, 0.0, 40.0])
+        return [CalibrationResult(intrinsics=CameraIntrinsics(2000, 2000, 540, 960, 1080, 1920),
+                                  pose=CameraPose(R=R, t=t), rms_px=1.0,
+                                  num_correspondences=8, refined_with_ba=True)] * T
+    monkeypatch.setattr(ra, "solve_endzone_cross_camera", fake_solve, raising=False)
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda v: type("M", (), {"num_frames": T, "width": 1920, "height": 1080})())
+
+    out = ra.build_endzone_from_sideline(
+        play_dir=str(tmp_path), tracks_path=str(tracks), cameras_npz=str(npz),
+        endzone_video="e.mp4", fps=30.0)
+    cams = load_camera_track(out)
+    assert "sideline" in cams and "endzone" in cams          # merged, sideline kept
+    assert cams["endzone"].num_frames == T
+
+
+def test_build_endzone_missing_sideline_fails_loud(tmp_path):
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_from_sideline
+    from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
+    from nfl_gsplat.errors import SetupError
+    import numpy as np
+    npz = tmp_path / "cameras.npz"
+    write_camera_track(npz, {"endzone": CameraTrack(
+        K=np.repeat(np.eye(3)[None], 2, 0), R=np.repeat(np.eye(3)[None], 2, 0),
+        t=np.zeros((2, 3)), conf=np.ones(2), width=1920, height=1080)}, fps=30.0)
+    with pytest.raises(SetupError, match="sideline"):
+        build_endzone_from_sideline(play_dir=str(tmp_path), tracks_path=str(tmp_path / "t.parquet"),
+                                    cameras_npz=str(npz), endzone_video="e.mp4", fps=30.0)
