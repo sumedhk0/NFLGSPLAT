@@ -30,6 +30,7 @@ class CalibMode(str, Enum):
     hint = "hint"
     learned = "learned"
     pretrained = "pretrained"
+    cross_endzone = "cross-endzone"
 
 
 @app.command()
@@ -68,7 +69,13 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
     meta = load_meta(pd.meta_yaml)
     videos = {cam: pd.video(cam) for cam in pd.cameras}
 
-    if mode is CalibMode.pretrained:
+    if mode is CalibMode.cross_endzone:
+        from nfl_gsplat.calibration.run_autocalib import build_endzone_from_sideline
+        out = build_endzone_from_sideline(
+            play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
+            cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
+            fps=meta.fps, rotations=rotations or None)
+    elif mode is CalibMode.pretrained:
         # Per-camera keypoint caches: --roboflow-kps names a single-camera
         # cache explicitly; otherwise each camera uses the convention
         # <play_dir>/roboflow_kps_{cam}.json (falling back to the legacy

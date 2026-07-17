@@ -11,6 +11,9 @@ from pathlib import Path
 import numpy as np
 
 from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
+from nfl_gsplat.calibration.cross_cam_calib import (
+    endzone_feet_by_frame, sideline_field_by_frame, solve_endzone_cross_camera,
+)
 from nfl_gsplat.calibration.field_detect import detect_field_features
 from nfl_gsplat.calibration.field_identify import fit_hash_rows, seed_state_from_hint
 from nfl_gsplat.calibration.fuse_pretrained import (
@@ -508,6 +511,49 @@ def build_autocalib_npz_pretrained(*, play_dir, videos, fps, kps_json, territory
         except CalibrationError as e:
             raise CalibrationError(f"camera {cam!r}: {e}") from e
     return write_camera_track(Path(play_dir) / "cameras.npz", tracks, fps=fps)
+
+
+def build_endzone_from_sideline(*, play_dir, tracks_path, cameras_npz, endzone_video,
+                                fps, init_C=(-111.0, -20.9, 63.8),
+                                sideline_cam="sideline", endzone_cam="endzone",
+                                rotations=None):
+    """Calibrate the endzone camera from players shared with the calibrated
+    sideline camera; merge endzone_* into cameras.npz (keep sideline)."""
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.calibration.cameras_io import load_camera_track, write_camera_track
+    from nfl_gsplat.errors import SetupError
+    from nfl_gsplat.utils.video import ffprobe_meta
+
+    cams = load_camera_track(cameras_npz)
+    sl = cams.get(sideline_cam)
+    if sl is None or float(np.mean(sl.conf > 0)) < 0.2:
+        raise SetupError(
+            f"no calibrated {sideline_cam!r} camera in {cameras_npz} — run the "
+            "sideline pretrained calibration first (02_autocalibrate --mode pretrained).")
+    if not Path(tracks_path).exists():
+        raise SetupError(
+            f"player tracks not found: {tracks_path} — run scripts/03b_detect_players.py first.")
+    df = pd.read_parquet(tracks_path)
+
+    meta = ffprobe_meta(endzone_video)
+    deg = _camera_rotation(endzone_cam, rotations)
+    orig_wh = (meta.width, meta.height)
+    from nfl_gsplat.calibration.view_rotation import rotated_wh
+    work_wh = rotated_wh(deg, orig_wh)
+
+    field_by = sideline_field_by_frame(df, sl, cam=sideline_cam)
+    feet_by = endzone_feet_by_frame(df, cam=endzone_cam, deg=deg, orig_wh=orig_wh)
+    results = solve_endzone_cross_camera(field_by, feet_by, work_wh,
+                                         init_C=np.asarray(init_C, float), view_deg=deg)
+    results = [derotate_result(r, deg, orig_wh) if r is not None else None for r in results]
+    # pad/trim to the endzone frame count for assembly
+    T = meta.num_frames
+    results = (results + [None] * T)[:T]
+    cams[endzone_cam] = assemble_track_from_results(results, width=meta.width,
+                                                    height=meta.height, max_gap=30)
+    return write_camera_track(Path(cameras_npz), cams, fps=fps)
 
 
 def build_autocalib_npz(*, play_dir, videos, fps, hints, cfg=None, masks_provider=None):
