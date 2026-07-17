@@ -1,5 +1,6 @@
 """Cross-camera endzone calibration. Synthetic 2-camera scenes, no video/YOLO."""
 import numpy as np
+import pytest
 
 from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
 
@@ -93,3 +94,52 @@ def test_endzone_feet_by_frame_rotates():
     fb = endzone_feet_by_frame(df, deg=90, orig_wh=(1920, 1080))
     assert list(fb) == [0]
     assert np.allclose(fb[0][0], rotate_uv(100.0, 200.0, 90, (1920, 1080)))
+
+
+def test_solve_endzone_cross_camera_recovers_synthetic():
+    # Ground truth: a fixed endzone camera + ~20 players moving over 40 frames.
+    # Sideline gives the players' true field points; endzone sees their feet.
+    # The solve must recover the endzone camera from a grid/measured init that
+    # is NOT the truth.
+    from nfl_gsplat.calibration.cross_cam_calib import solve_endzone_cross_camera
+    from nfl_gsplat.calibration.view_rotation import rotated_wh
+    rng = np.random.default_rng(0)
+    ow = (1920, 1080)
+    ez_wh = rotated_wh(90, ow)                      # endzone works in rotated frame
+    C_true = np.array([-110.0, -8.0, 45.0])
+    n_frames, n_players = 40, 20
+    field_by, feet_by = {}, {}
+    f_by = {}
+    for i in range(n_frames):
+        # players scattered on the field, drifting frame to frame
+        base = rng.uniform([-45, -22], [10, 22], size=(n_players, 2))
+        world = np.column_stack([base, np.zeros(n_players)])
+        field_by[i] = world
+        tx = -20.0 + 30.0 * i / (n_frames - 1)
+        R = _look_at(C_true, np.array([tx, 0.0, 0.0]))
+        t = -R @ C_true
+        f = 2400.0 + 400.0 * i / (n_frames - 1)
+        K = CameraIntrinsics(f, f, ez_wh[0] / 2, ez_wh[1] / 2, ez_wh[0], ez_wh[1]).K()
+        uv = project_points(world, K, R, t)
+        ok = np.isfinite(uv).all(axis=1)
+        feet_by[i] = uv[ok] + rng.normal(0, 0.5, uv[ok].shape)
+        f_by[i] = f
+    results = solve_endzone_cross_camera(
+        field_by, feet_by, ez_wh, init_C=np.array([-90.0, 0.0, 35.0]), view_deg=90)
+    solved = [r for r in results if r is not None]
+    assert len(solved) >= 30
+    C_rec = solved[0].pose.center_world()
+    assert np.linalg.norm(C_rec - C_true) < 1.0
+    for r in solved:
+        assert np.allclose(r.pose.center_world(), C_rec)     # one fixed center
+
+
+def test_solve_endzone_cross_camera_fails_loud_no_matches():
+    from nfl_gsplat.calibration.cross_cam_calib import solve_endzone_cross_camera
+    from nfl_gsplat.errors import CalibrationError
+    # players at (X,Y) that no plausible endzone camera can align to random feet
+    field_by = {i: np.array([[-30.0, 0.0, 0.0]]) for i in range(15)}
+    feet_by = {i: np.array([[9999.0, 9999.0]]) for i in range(15)}
+    with pytest.raises(CalibrationError, match="cross-camera"):
+        solve_endzone_cross_camera(field_by, feet_by, (1080, 1920),
+                                   init_C=np.array([-90.0, 0.0, 35.0]), view_deg=90)
