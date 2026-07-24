@@ -18,6 +18,7 @@ from nfl_gsplat.calibration.run_autocalib import (
     build_autocalib_npz, build_autocalib_npz_learned, build_autocalib_npz_pretrained,
 )
 from nfl_gsplat.cli import CONFIG_OPT, CONFIG_OVERRIDE_OPT, SET_OPT, load_cli_config
+from nfl_gsplat.errors import SetupError
 from nfl_gsplat.paths import PlayDir
 from nfl_gsplat.utils.logging import get_logger
 from nfl_gsplat.utils.meta import load_meta
@@ -31,6 +32,7 @@ class CalibMode(str, Enum):
     learned = "learned"
     pretrained = "pretrained"
     cross_endzone = "cross-endzone"
+    identity_endzone = "identity-endzone"
 
 
 @app.command()
@@ -56,6 +58,9 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
          player_boxes: Optional[Path] = typer.Option(None, "--player-boxes",
              help="Path to tracks.parquet for player masking (pretrained mode; "
                   "default <play_dir>/tracks.parquet if present)."),
+         play_dirs: Optional[str] = typer.Option(None, "--play-dirs",
+             help="Comma-separated play dirs sharing one physically-fixed endzone "
+                  "camera (identity-endzone mode); defaults to --play-dir alone."),
          config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
     load_cli_config(config, config_override, set_)
     rotations = {}
@@ -69,7 +74,21 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
     meta = load_meta(pd.meta_yaml)
     videos = {cam: pd.video(cam) for cam in pd.cameras}
 
-    if mode is CalibMode.cross_endzone:
+    if mode is CalibMode.identity_endzone:
+        from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+        from nfl_gsplat.calibration.run_autocalib import build_endzone_identity_from_plays
+        ep = meta.endzone_prior
+        if ep is None:
+            raise SetupError(
+                f"{pd.meta_yaml}: --mode identity-endzone requires an `endzone_prior:` "
+                "block (x_range/y_range/z_range/focal_range). See SETUP.md §3."
+            )
+        prior = EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
+                             tuple(ep["z_range"]), tuple(ep["focal_range"]))
+        dirs = [PlayDir.from_dir(Path(p.strip()), cameras=pd.cameras).dir
+                for p in play_dirs.split(",") if p.strip()] if play_dirs else [pd.dir]
+        out = build_endzone_identity_from_plays(play_dirs=dirs, prior=prior, fps=meta.fps)
+    elif mode is CalibMode.cross_endzone:
         from nfl_gsplat.calibration.run_autocalib import build_endzone_from_sideline
         out = build_endzone_from_sideline(
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",

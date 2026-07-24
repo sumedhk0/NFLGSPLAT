@@ -592,6 +592,98 @@ def test_build_endzone_missing_sideline_fails_loud(tmp_path):
                                     cameras_npz=str(npz), endzone_video="e.mp4", fps=30.0)
 
 
+def test_build_endzone_identity_from_plays(tmp_path, monkeypatch):
+    # Two play dirs share one physically-fixed endzone camera at C=(-112,0,24).
+    # Each play carries a calibrated sideline CameraTrack + tracks.parquet whose
+    # sideline/endzone foot pixels are projections of shared player_uids (sideline
+    # from a static camera, endzone from the ground-truth endzone camera panning
+    # frame-to-frame, mirroring endzone_multiplay's _play_corrs). No video I/O:
+    # ffprobe_meta is monkeypatched.
+    from types import SimpleNamespace
+
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.calibration.cameras_io import CameraTrack, load_camera_track, write_camera_track
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_identity_from_plays
+    from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    def _look_at(C, target):
+        fwd = np.asarray(target, float) - np.asarray(C, float); fwd /= np.linalg.norm(fwd)
+        right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+        down = np.cross(fwd, right)
+        return np.stack([right, down, fwd])
+
+    def _sideline_track(C, target, n_frames, f=6000.0, wh=(1920, 1080)):
+        R = _look_at(C, target); t = -R @ np.asarray(C, float)
+        K = CameraIntrinsics(f, f, wh[0] / 2, wh[1] / 2, wh[0], wh[1]).K()
+        return CameraTrack(K=np.repeat(K[None], n_frames, 0), R=np.repeat(R[None], n_frames, 0),
+                           t=np.repeat(t[None], n_frames, 0), conf=np.ones(n_frames),
+                           width=wh[0], height=wh[1])
+
+    C_true = np.array([-112.0, 0.0, 24.0])
+    n_frames, n_players, wh = 25, 8, (1920, 1080)
+    sl = _sideline_track([-3.6, 80.0, 36.0], [0, 0, 0], n_frames)
+    K_sl, R_sl, t_sl = sl.K[0], sl.R[0], sl.t[0]
+
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15), z_range=(10, 60),
+                         focal_range=(1500, 3500))
+
+    play_dirs = []
+    for pl in range(2):
+        rng = np.random.default_rng(pl)
+        start_xy = rng.uniform([-20, -12], [20, 12], size=(n_players, 2))
+        vel_xy = rng.uniform(-0.05, 0.05, size=(n_players, 2))
+
+        rows = []
+        for i in range(n_frames):
+            tx = -20.0 + 30.0 * i / (n_frames - 1)
+            R_ez = _look_at(C_true, [tx, 0.0, 0.0]); t_ez = -R_ez @ C_true
+            f_ez = 2500.0 + 300.0 * i / (n_frames - 1)
+            K_ez = CameraIntrinsics(f_ez, f_ez, wh[0] / 2, wh[1] / 2, wh[0], wh[1]).K()
+            for p in range(n_players):
+                xy = start_xy[p] + vel_xy[p] * i
+                world_pt = np.array([[xy[0], xy[1], 0.0]])
+                uv_sl = project_points(world_pt, K_sl, R_sl, t_sl)[0]
+                uv_ez = project_points(world_pt, K_ez, R_ez, t_ez)[0]
+                if not (np.isfinite(uv_sl).all() and np.isfinite(uv_ez).all()):
+                    continue
+                uid = f"2025_A_{p}"
+                rows.append({"frame": i, "cam": "sideline", "track_id": p,
+                            "foot_u": uv_sl[0], "foot_v": uv_sl[1], "player_uid": uid})
+                rows.append({"frame": i, "cam": "endzone", "track_id": p,
+                            "foot_u": uv_ez[0], "foot_v": uv_ez[1], "player_uid": uid})
+        df = pd.DataFrame(rows)
+        for c in TRACK_COLUMNS:
+            if c not in df.columns:
+                df[c] = -1 if c != "cam" else ""
+
+        pdir = tmp_path / f"play_{pl}"
+        pdir.mkdir()
+        write_camera_track(pdir / "cameras.npz", {"sideline": sl}, fps=30.0)
+        df.to_parquet(pdir / "tracks.parquet", index=False)
+        play_dirs.append(pdir)
+
+    monkeypatch.setattr(
+        "nfl_gsplat.utils.video.ffprobe_meta",
+        lambda p: SimpleNamespace(width=wh[0], height=wh[1], num_frames=n_frames, fps=30.0))
+
+    written = build_endzone_identity_from_plays(play_dirs=play_dirs, prior=prior, fps=30.0)
+
+    assert len(written) == 2
+    for out_path in written:
+        cams = load_camera_track(out_path)
+        assert "sideline" in cams          # preserved
+        assert "endzone" in cams
+        ez = cams["endzone"]
+        centers = np.array([ez.at(f)[1].center_world() for f in range(ez.num_frames)])
+        valid = ez.conf > 0
+        mean_center = centers[valid].mean(axis=0) if valid.any() else centers.mean(axis=0)
+        assert -150 < mean_center[0] < -60    # inside the prior box, correct side
+
+
 def test_build_endzone_missing_tracks_fails_loud(tmp_path):
     from nfl_gsplat.calibration.run_autocalib import build_endzone_from_sideline
     from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track

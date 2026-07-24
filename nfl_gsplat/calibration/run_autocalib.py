@@ -556,6 +556,48 @@ def build_endzone_from_sideline(*, play_dir, tracks_path, cameras_npz, endzone_v
     return write_camera_track(Path(cameras_npz), cams, fps=fps)
 
 
+def build_endzone_identity_from_plays(*, play_dirs, prior, sideline_cam="sideline",
+                                      endzone_cam="endzone", fps, audit_drop_px=15.0):
+    """Calibrate the endzone camera from jersey-identity correspondences across
+    several first-half plays sharing one center; write endzone_* into each play's
+    cameras.npz (sideline preserved)."""
+    import pandas as pd
+
+    from nfl_gsplat.calibration.cameras_io import load_camera_track, write_camera_track
+    from nfl_gsplat.calibration.endzone_identity import identity_correspondences
+    from nfl_gsplat.calibration.endzone_multiplay import solve_endzone_identity
+    from nfl_gsplat.errors import SetupError
+    from nfl_gsplat.utils.video import ffprobe_meta
+
+    play_dirs = [Path(p) for p in play_dirs]
+    corrs_by_play, metas, cams_by_play, image_size = [], [], [], None
+    for pdir in play_dirs:
+        cams = load_camera_track(pdir / "cameras.npz")
+        sl = cams.get(sideline_cam)
+        if sl is None:
+            raise SetupError(f"no {sideline_cam!r} camera in {pdir/'cameras.npz'} — "
+                             "run the sideline calibration first.")
+        df = pd.read_parquet(pdir / "tracks.parquet")
+        if "player_uid" not in df.columns:
+            raise SetupError(f"{pdir/'tracks.parquet'} has no player_uid — run "
+                             "scripts/03c_identity_tracks.py first.")
+        meta = ffprobe_meta(str(pdir / f"{endzone_cam}.mp4"))
+        image_size = (meta.width, meta.height)
+        corrs_by_play.append(identity_correspondences(
+            df, sl, sideline_cam=sideline_cam, endzone_cam=endzone_cam))
+        metas.append(meta); cams_by_play.append(cams)
+
+    per_play = solve_endzone_identity(corrs_by_play, image_size, prior,
+                                      audit_drop_px=audit_drop_px)
+    written = []
+    for pdir, cams, meta, results in zip(play_dirs, cams_by_play, metas, per_play):
+        results = (results + [None] * meta.num_frames)[:meta.num_frames]
+        cams[endzone_cam] = assemble_track_from_results(
+            results, width=meta.width, height=meta.height, max_gap=30)
+        written.append(write_camera_track(pdir / "cameras.npz", cams, fps=fps))
+    return written
+
+
 def build_autocalib_npz(*, play_dir, videos, fps, hints, cfg=None, masks_provider=None):
     """Detect+register every frame of each camera using its CalibHint → cameras.npz."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig
