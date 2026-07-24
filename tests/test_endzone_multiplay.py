@@ -54,3 +54,27 @@ def test_prior_center_bounds_and_center0():
     p = EndzonePrior((-150, -60), (-15, 15), (10, 60), (1500, 3500))
     assert p.center_bounds == ((-150, -60), (-15, 15), (10, 60))
     assert np.allclose(p.center0, [-105.0, 0.0, 35.0])
+
+
+def test_center_bounds_constrains_to_prior_box():
+    # Same scene whose true camera is at X=-112, but the prior box is on the
+    # WRONG (mirror) side, excluding the truth. center_bounds must keep the solve
+    # out of the true region: it either fails loud (no in-box camera fits the
+    # data) or returns a center in the wrong box -- never the true -112. If
+    # center_bounds were ignored the solve would recover -112 (proven by the
+    # correct-side recovery test), so this is a real regression guard.
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior, solve_endzone_identity
+    from nfl_gsplat.errors import CalibrationError
+    import numpy as np
+    rng = np.random.default_rng(0)
+    C_true = np.array([-112.0, 0.0, 24.0])
+    plays = [_play_corrs(C_true, rng) for _ in range(3)]
+    prior_wrong = EndzonePrior(x_range=(50, 150), y_range=(-15, 15),
+                               z_range=(10, 60), focal_range=(1500, 3500))
+    try:
+        per_play = solve_endzone_identity(plays, (1920, 1080), prior_wrong, audit_drop_px=8.0)
+    except CalibrationError:
+        return   # no in-box camera consistent with the data -> acceptable
+    solved = [r for pl in per_play for r in pl if r is not None]
+    for r in solved:
+        assert r.pose.center_world()[0] > 0   # stayed in the wrong box, never found true -112

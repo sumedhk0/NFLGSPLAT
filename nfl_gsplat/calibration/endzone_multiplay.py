@@ -13,8 +13,6 @@ import numpy as np
 
 from nfl_gsplat.errors import CalibrationError
 
-_PLAY_STRIDE = 1_000_000     # frame-index offset per play; assumes < 1e6 frames/play
-
 
 @dataclass(frozen=True)
 class EndzonePrior:
@@ -41,15 +39,18 @@ def solve_endzone_identity(corrs_by_play, image_size, prior, *,
     from nfl_gsplat.calibration.solve_pnp import CalibrationResult
     from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
 
-    # Union frame_data with per-play offsets.
+    # Union frame_data with dense global indices; index_map recovers (play, local frame).
     frame_data: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    index_map: list[tuple[int, int]] = []   # global idx -> (play, local frame)
     lengths = []
     for p, corrs in enumerate(corrs_by_play):
         maxf = -1
-        for fr, (w, uv) in corrs.items():
+        for fr in sorted(corrs):
+            w, uv = corrs[fr]
             if len(w) >= 4:
-                frame_data[p * _PLAY_STRIDE + int(fr)] = (np.asarray(w, np.float64),
-                                                          np.asarray(uv, np.float64))
+                frame_data[len(index_map)] = (np.asarray(w, np.float64),
+                                              np.asarray(uv, np.float64))
+                index_map.append((p, int(fr)))
             maxf = max(maxf, int(fr))
         lengths.append(maxf + 1)
     if len(frame_data) < min_frames:
@@ -58,7 +59,7 @@ def solve_endzone_identity(corrs_by_play, image_size, prior, *,
             f"{len(corrs_by_play)} plays (need >= {min_frames}) — thin jersey OCR or "
             "too few plays; re-run identity precompute or add plays.")
 
-    T = (max(frame_data) + 1) if frame_data else 0
+    T = len(index_map)
     # Anchor solve_fixed_center's multi-start at the prior box center.
     anchor = CalibrationResult(
         intrinsics=CameraIntrinsics(sum(prior.focal_range) / 2, sum(prior.focal_range) / 2,
@@ -72,10 +73,9 @@ def solve_endzone_identity(corrs_by_play, image_size, prior, *,
         _frame_data_override=frame_data, view_deg=0,
         center_bounds=prior.center_bounds, audit_drop_px=audit_drop_px)
 
-    # Split the union results back per play by the offset.
-    per_play = []
-    for p, length in enumerate(lengths):
-        base = p * _PLAY_STRIDE
-        per_play.append([results[base + i] if base + i < len(results) else None
-                         for i in range(length)])
+    # Split the union results back per play using the dense index map.
+    per_play = [[None] * L for L in lengths]
+    for gidx, (p, fr) in enumerate(index_map):
+        if gidx < len(results) and results[gidx] is not None:
+            per_play[p][fr] = results[gidx]
     return per_play
