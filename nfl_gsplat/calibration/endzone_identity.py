@@ -34,11 +34,21 @@ def field_positions_by_uid(tracks_df, sideline_track, *, cam="sideline", smooth_
         g = g[ok]; xy = xy[ok]
         if not len(g):
             continue
+        # Frame-number-aware rolling window: reindex onto the dense integer
+        # frame range (missing frames = NaN) BEFORE rolling, so a 15-row
+        # window is measured in FRAMES, not row position. Without this, a
+        # track with an occlusion gap (e.g. frame 100 then frame 340) pools
+        # temporally-distant frames into the same window, biasing the
+        # smoothed field point.
+        fr_arr = g["frame"].to_numpy().astype(int)
+        lo, hi = int(fr_arr.min()), int(fr_arr.max())
+        full_idx = np.arange(lo, hi + 1)
+        sx = pd.Series(xy[:, 0], index=fr_arr).reindex(full_idx)
+        sy = pd.Series(xy[:, 1], index=fr_arr).reindex(full_idx)
         w = max(1, int(smooth_window))
-        sx = pd.Series(xy[:, 0]).rolling(w, center=True, min_periods=1).median().to_numpy()
-        sy = pd.Series(xy[:, 1]).rolling(w, center=True, min_periods=1).median().to_numpy()
-        out[str(uid)] = {int(fr): (float(a), float(b))
-                         for fr, a, b in zip(g["frame"].to_numpy(), sx, sy)}
+        sx = sx.rolling(w, center=True, min_periods=1).median()
+        sy = sy.rolling(w, center=True, min_periods=1).median()
+        out[str(uid)] = {int(f): (float(sx.loc[f]), float(sy.loc[f])) for f in fr_arr}
     return out
 
 

@@ -570,7 +570,7 @@ def build_endzone_identity_from_plays(*, play_dirs, prior, sideline_cam="sidelin
     from nfl_gsplat.utils.video import ffprobe_meta
 
     play_dirs = [Path(p) for p in play_dirs]
-    corrs_by_play, metas, cams_by_play, image_size = [], [], [], None
+    corrs_by_play, metas, cams_by_play, sizes = [], [], [], []
     for pdir in play_dirs:
         cams = load_camera_track(pdir / "cameras.npz")
         sl = cams.get(sideline_cam)
@@ -582,10 +582,20 @@ def build_endzone_identity_from_plays(*, play_dirs, prior, sideline_cam="sidelin
             raise SetupError(f"{pdir/'tracks.parquet'} has no player_uid — run "
                              "scripts/03c_identity_tracks.py first.")
         meta = ffprobe_meta(str(pdir / f"{endzone_cam}.mp4"))
-        image_size = (meta.width, meta.height)
+        sizes.append((meta.width, meta.height))
         corrs_by_play.append(identity_correspondences(
             df, sl, sideline_cam=sideline_cam, endzone_cam=endzone_cam))
         metas.append(meta); cams_by_play.append(cams)
+
+    # All plays must share one endzone camera resolution -- the solve below
+    # is a single joint problem over all plays' correspondences, so a
+    # per-play resolution mismatch would silently solve every play against
+    # whichever play's image_size happened to be kept (fail loud instead).
+    if len(set(sizes)) > 1:
+        raise SetupError(
+            f"endzone videos differ in resolution across plays: {sizes} — "
+            "all plays must share one endzone camera resolution.")
+    image_size = sizes[0]
 
     per_play = solve_endzone_identity(corrs_by_play, image_size, prior,
                                       audit_drop_px=audit_drop_px)

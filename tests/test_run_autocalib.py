@@ -684,6 +684,59 @@ def test_build_endzone_identity_from_plays(tmp_path, monkeypatch):
         assert -150 < mean_center[0] < -60    # inside the prior box, correct side
 
 
+def _write_identity_play_dir(pdir, sl):
+    """Minimal play dir for build_endzone_identity_from_plays: a valid sideline
+    CameraTrack + an empty (but correctly-columned) tracks.parquet. No actual
+    correspondences are needed for tests that only exercise the pre-solve
+    resolution guard -- identity_correspondences tolerates an empty frame."""
+    import pandas as pd
+    from nfl_gsplat.calibration.cameras_io import write_camera_track
+    from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS
+
+    pdir.mkdir()
+    write_camera_track(pdir / "cameras.npz", {"sideline": sl}, fps=30.0)
+    df = pd.DataFrame(columns=[*TRACK_COLUMNS, "player_uid"])
+    df.to_parquet(pdir / "tracks.parquet", index=False)
+
+
+def test_build_endzone_identity_rejects_mismatched_resolutions(tmp_path, monkeypatch):
+    # image_size used to be overwritten per-loop-iteration with no check, so
+    # mismatched play resolutions silently solved every play against the LAST
+    # play's (width, height). Must fail loud instead, naming the mismatch.
+    from types import SimpleNamespace
+
+    import numpy as np
+    import pytest
+
+    from nfl_gsplat.calibration.cameras_io import CameraTrack
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_identity_from_plays
+    from nfl_gsplat.errors import SetupError
+
+    T = 3
+    sl = CameraTrack(K=np.repeat(np.eye(3)[None], T, 0), R=np.repeat(np.eye(3)[None], T, 0),
+                     t=np.zeros((T, 3)), conf=np.ones(T), width=1920, height=1080)
+
+    play_dirs = [tmp_path / "play_0", tmp_path / "play_1"]
+    for pdir in play_dirs:
+        _write_identity_play_dir(pdir, sl)
+
+    sizes_by_video = {
+        str(play_dirs[0] / "endzone.mp4"): (1920, 1080),
+        str(play_dirs[1] / "endzone.mp4"): (1280, 720),
+    }
+
+    def fake_ffprobe_meta(video):
+        w, h = sizes_by_video[str(video)]
+        return SimpleNamespace(width=w, height=h, num_frames=T, fps=30.0)
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta", fake_ffprobe_meta)
+
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15), z_range=(10, 60),
+                         focal_range=(1500, 3500))
+    with pytest.raises(SetupError, match="resolution"):
+        build_endzone_identity_from_plays(play_dirs=play_dirs, prior=prior, fps=30.0)
+
+
 def test_build_endzone_missing_tracks_fails_loud(tmp_path):
     from nfl_gsplat.calibration.run_autocalib import build_endzone_from_sideline
     from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track

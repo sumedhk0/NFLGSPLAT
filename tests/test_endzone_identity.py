@@ -49,6 +49,35 @@ def test_identity_correspondences_joins_on_uid():
     assert np.allclose(world[i58, :2], [-10.0, 4.0], atol=0.3) and world[i58, 2] == 0.0
 
 
+def test_field_positions_smoothing_is_frame_aware_across_gap():
+    # One uid has two frame-clusters far apart in FRAME NUMBER (0-4 near field
+    # X=-10, then 300-304 near X=+10) but adjacent in ROW POSITION (only 10
+    # rows total). A positional rolling window (the old behavior) would pool
+    # both clusters into a single 5-wide window and pull frame 0's smoothed
+    # value toward +10. The frame-aware fix reindexes onto the dense integer
+    # frame range first, so the window is measured in frames: a 295-frame gap
+    # never fits inside a window of 5, and the distant cluster can't leak in.
+    sl = _sideline_track([-3.6, 80.0, 36.0], [0, 0, 0], n_frames=305)
+    K, R, t = sl.at(0)[0].K(), sl.at(0)[1].R, sl.at(0)[1].t
+
+    recs = []
+    for f in range(5):
+        p = np.array([[-10.0 + 0.1 * f, 0.0, 0.0]])
+        u = project_points(p, K, R, t)[0]
+        recs.append({"frame": f, "cam": "sideline", "player_uid": "2025_A_58",
+                     "foot_u": u[0], "foot_v": u[1], "conf": 1})
+    for f in range(300, 305):
+        p = np.array([[10.0 + 0.1 * (f - 300), 0.0, 0.0]])
+        u = project_points(p, K, R, t)[0]
+        recs.append({"frame": f, "cam": "sideline", "player_uid": "2025_A_58",
+                     "foot_u": u[0], "foot_v": u[1], "conf": 1})
+
+    from nfl_gsplat.calibration.endzone_identity import field_positions_by_uid
+    out = field_positions_by_uid(_rows(recs), sl, smooth_window=5)
+    x0 = out["2025_A_58"][0][0]
+    assert x0 < -8.0    # stays near -10; the +10 cluster (295 frames away) does not leak in
+
+
 def test_excludes_non_players_and_requires_both_cams():
     from nfl_gsplat.calibration.endzone_identity import identity_correspondences
     sl = _sideline_track([-3.6, 80.0, 36.0], [0, 0, 0], n_frames=1)
