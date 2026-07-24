@@ -3,6 +3,7 @@ looking at the field plane — all geometry self-checked via project_points."""
 import numpy as np
 import pytest
 
+from nfl_gsplat.calibration import joint_solve as js
 from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
 
 W, H = 1920, 1080
@@ -339,3 +340,41 @@ def test_candidate_centers_include_endzone_positions():
     assert endzoneish.sum() >= 18            # both endzones x several Z/Y
     sideline = (np.abs(cands[:, 0]) <= 30) & (np.abs(cands[:, 1]) >= 45)
     assert sideline.sum() >= 54              # original grid retained
+
+
+def test_filter_centers_keeps_only_in_box():
+    cands = [np.array([-115.0, 0.0, 25.0]), np.array([120.0, 20.0, 35.0]),
+             np.array([-90.0, 0.0, 35.0])]
+    box = ((-150.0, -50.0), (-10.0, 10.0), (10.0, 80.0))
+    kept = js._filter_centers(cands, box)
+    got = {tuple(c) for c in kept}
+    assert (-115.0, 0.0, 25.0) in got            # in box
+    assert (-90.0, 0.0, 35.0) in got             # in box
+    assert (120.0, 20.0, 35.0) not in got        # reflected, excluded
+
+
+def test_filter_centers_none_is_identity():
+    cands = [np.array([1.0, 2.0, 3.0]), np.array([4.0, 5.0, 6.0])]
+    assert js._filter_centers(cands, None) == cands
+
+
+def test_solve_fixed_center_defaults_unchanged(monkeypatch):
+    # center_bounds=None and audit_drop_px=None must not alter candidate set
+    seen = {}
+    real = js._filter_centers
+    def spy(cands, cb):
+        seen["cb"] = cb
+        return real(cands, cb)
+    monkeypatch.setattr(js, "_filter_centers", spy)
+    # corrs_by_frame={} alone short-circuits on "no usable frames" before
+    # candidates are ever built, so _filter_centers is never reached; seed one
+    # dummy frame via _frame_data_override so the solve gets far enough to
+    # call it (and then fails harmlessly downstream, which is fine — we only
+    # assert the bounds passed through were None).
+    fd = {0: (np.zeros((4, 3)), np.zeros((4, 2)))}
+    try:
+        js.solve_fixed_center({}, (1920, 1080), init_results=[None] * 3,
+                              _frame_data_override=fd)
+    except Exception:
+        pass
+    assert seen.get("cb", "unset") is None
