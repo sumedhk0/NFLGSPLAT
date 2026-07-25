@@ -17,6 +17,23 @@ from `data/all22/sea_at_az_wk4`, all FIRST HALF, 59.94 fps, 1080p). Each has
 **Recommended first batch (~10, varied pass/run, good player spread):**
 `play_001 play_002 play_004 play_005 play_009 play_011 play_014 play_016 play_026 play_029`
 
+## FAST PATH — batch driver (recommended)
+
+`scripts/run_precompute_batch.py` runs one stage across the whole batch
+(`--plays BATCH` = the recommended set; play_001's roboflow/sideline are
+auto-skipped since already done). Three commands, in order:
+
+```
+set ROBOFLOW_API_KEY=...                                             # step 1 env (Windows)
+python scripts/run_precompute_batch.py --stage roboflow --plays BATCH   # LOCAL, internet+API
+python scripts/run_precompute_batch.py --stage sideline --plays BATCH   # local or PACE
+python scripts/run_precompute_batch.py --stage identity --plays BATCH --device cuda  # PACE nfl_smplx GPU
+```
+Each stage continues past a failed play and prints an ok/failed summary. Then
+the controller runs the final `--mode identity-endzone` solve.
+
+The per-play commands below are the same steps, for debugging a single play.
+
 ## Per-play precompute (each play in the batch)
 
 ### Step 1 — Roboflow keypoints for the sideline (LOCAL, Windows, needs internet + `ROBOFLOW_API_KEY`)
