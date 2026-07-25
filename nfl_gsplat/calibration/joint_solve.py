@@ -356,6 +356,18 @@ def _candidate_centers(init_results) -> list[np.ndarray]:
     return cands
 
 
+def _filter_centers(cands, center_bounds):
+    """Keep only candidate centers inside center_bounds
+    ((xmin,xmax),(ymin,ymax),(zmin,zmax)); None -> unchanged. Always keeps at
+    least the first candidate (the anchor) so the solve never starves."""
+    if center_bounds is None:
+        return cands
+    (xlo, xhi), (ylo, yhi), (zlo, zhi) = center_bounds
+    kept = [c for c in cands
+            if xlo <= c[0] <= xhi and ylo <= c[1] <= yhi and zlo <= c[2] <= zhi]
+    return kept if kept else cands[:1]
+
+
 def _subsample(frame_ids) -> list[int]:
     """Every 7th usable frame, at least 8 (densify if too sparse); all if < 8."""
     if len(frame_ids) <= 8:
@@ -461,7 +473,7 @@ def _rescue_refit(frame_ids, frame_data, image_size, C, *, view_deg: int = 0):
 
 def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
                        max_rounds: int = 2, _frame_data_override=None,
-                       view_deg: int = 0):
+                       view_deg: int = 0, center_bounds=None, audit_drop_px=None):
     """Joint solve over all usable frames -> (results, mirrored).
 
     ``results`` is a list aligned to ``init_results``' length with a
@@ -476,8 +488,17 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     but is HARMFUL for an unrotated view, where it lets wrong multi-start
     candidates reach a spuriously low-cost minimum (measured on real sideline
     footage, see joint_solve.py module docstring / _init_frame). Default 0
-    preserves prior behavior for existing callers."""
+    preserves prior behavior for existing callers.
+
+    ``center_bounds`` restricts the multi-start candidate centers to a box
+    ((xmin,xmax),(ymin,ymax),(zmin,zmax)); None (default) leaves the full
+    candidate set untouched -- see ``_filter_centers``.
+
+    ``audit_drop_px`` overrides the module-level ``AUDIT_DROP_PX`` gate for
+    the frame-consistency audits in this solve only; None (default) falls
+    back to ``AUDIT_DROP_PX``."""
     del max_rounds
+    drop_px = AUDIT_DROP_PX if audit_drop_px is None else audit_drop_px
     frame_data = (_frame_data_override if _frame_data_override is not None
                   else build_frame_data(corrs_by_frame))
     frame_ids = sorted(frame_data)
@@ -486,6 +507,7 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
         raise CalibrationError("no usable frames (>=4 correspondences) for the joint solve.")
 
     candidates = _candidate_centers(init_results)
+    candidates = _filter_centers(candidates, center_bounds)
     n_anchor = 1 if init_from_results(init_results) is not None else 0
     mirrored, C_win, cost = _resolve_reflection(
         frame_ids, frame_data, image_size, candidates, n_anchor=n_anchor,
@@ -501,7 +523,7 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     # center away (measured on real footage: C wandered onto the field and the
     # final rescue rejected everything).
     refit0 = _rescue_refit(frame_ids, frame_data, image_size, C_win, view_deg=view_deg)
-    kept = sorted(i for i, (_r, _f, m) in refit0.items() if m <= AUDIT_DROP_PX)
+    kept = sorted(i for i, (_r, _f, m) in refit0.items() if m <= drop_px)
     if len(kept) < 10:
         raise CalibrationError(
             f"only {len(kept)} frames consistent with the multi-start camera "
@@ -512,10 +534,10 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     refit = _rescue_refit(frame_ids, frame_data, image_size, C, view_deg=view_deg)
     results = [None] * T
     for i, (r_i, f_i, med) in refit.items():
-        if med <= AUDIT_DROP_PX:
+        if med <= drop_px:
             results[i] = _frame_result(i, frame_data, C, r_i, f_i, image_size)
     if all(r is None for r in results):
         raise CalibrationError(
-            f"self-audit rejected every frame (all median residuals > {AUDIT_DROP_PX} px) — "
+            f"self-audit rejected every frame (all median residuals > {drop_px} px) — "
             "fusion output inconsistent with a fixed-center camera.")
     return results, mirrored

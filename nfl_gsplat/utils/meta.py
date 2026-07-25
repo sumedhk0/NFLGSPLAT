@@ -14,6 +14,11 @@ Schema::
     away_team: "NO"      # quote abbreviations: bare NO/ON/NA parse as booleans
     fps: 30.0
     gsis_play_id: 36     # optional; nflverse participation alignment only
+    endzone_prior:        # optional; required for --mode identity-endzone
+      x_range: [-150, -60]
+      y_range: [-15, 15]
+      z_range: [10, 60]
+      focal_range: [1500, 3500]
 """
 from __future__ import annotations
 
@@ -43,6 +48,7 @@ class PlayMeta:
     fps: float
     gsis_play_id: str | None = None
     calib_hints: dict[str, CalibHint] = field(default_factory=dict)
+    endzone_prior: dict | None = None
 
     @property
     def game_teams(self) -> tuple[str, str]:
@@ -90,6 +96,20 @@ def load_meta(path) -> PlayMeta:
             ref_frame=int(h["ref_frame"]), ref_x=float(h["ref_x"]),
             yard=yard, side=side, increasing=inc,
         )
+    endzone_prior: dict | None = None
+    raw_ep = raw.get("endzone_prior")
+    if raw_ep is not None:
+        endzone_prior = {}
+        for key in ("x_range", "y_range", "z_range", "focal_range"):
+            if key not in raw_ep:
+                raise SetupError(f"{path}: endzone_prior.{key} is required.")
+            vals = list(raw_ep[key])
+            if len(vals) != 2:
+                raise SetupError(
+                    f"{path}: endzone_prior.{key} must be a 2-element [min, max] "
+                    f"list, got {vals!r}."
+                )
+            endzone_prior[key] = [float(v) for v in vals]
     return PlayMeta(
         season=str(raw["season"]),
         week=int(raw["week"]),
@@ -98,4 +118,5 @@ def load_meta(path) -> PlayMeta:
         fps=float(raw.get("fps", 30.0)),
         gsis_play_id=str(gsis) if gsis is not None else None,
         calib_hints=hints,
+        endzone_prior=endzone_prior,
     )
