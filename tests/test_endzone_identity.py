@@ -26,6 +26,29 @@ def _rows(recs):
     return df
 
 
+def test_duplicate_uid_in_frame_does_not_crash():
+    # Two sideline tracks resolve to the SAME player_uid (jersey collision /
+    # track fragmentation), so one uid has two rows in the same frame. The
+    # frame-aware smoothing must not raise "cannot reindex on an axis with
+    # duplicate labels" — it collapses them to the per-frame median.
+    from nfl_gsplat.calibration.endzone_identity import field_positions_by_uid
+    sl = _sideline_track([-3.6, 80.0, 36.0], [0, 0, 0], n_frames=2)
+    K, R, t = sl.at(0)[0].K(), sl.at(0)[1].R, sl.at(0)[1].t
+    # two field points that should median to (-10, 4)
+    ua = project_points(np.array([[-11.0, 4.0, 0.0]]), K, R, t)[0]
+    ub = project_points(np.array([[-9.0, 4.0, 0.0]]), K, R, t)[0]
+    recs = [
+        {"frame": 0, "cam": "sideline", "track_id": 1, "player_uid": "2025_A_58",
+         "foot_u": ua[0], "foot_v": ua[1], "conf": 1},
+        {"frame": 0, "cam": "sideline", "track_id": 2, "player_uid": "2025_A_58",
+         "foot_u": ub[0], "foot_v": ub[1], "conf": 1},
+    ]
+    fb = field_positions_by_uid(_rows(recs), sl, smooth_window=1)
+    assert "2025_A_58" in fb and 0 in fb["2025_A_58"]
+    x, y = fb["2025_A_58"][0]
+    assert abs(x - (-10.0)) < 0.3 and abs(y - 4.0) < 0.3   # median of the two
+
+
 def test_identity_correspondences_joins_on_uid():
     sl = _sideline_track([-3.6, 80.0, 36.0], [0, 0, 0], n_frames=2)
     K, R, t = sl.at(0)[0].K(), sl.at(0)[1].R, sl.at(0)[1].t

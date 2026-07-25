@@ -8,9 +8,7 @@ endzone pixels (no rotation)."""
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
-from nfl_gsplat.calibration.cameras_io import CameraTrack  # noqa: F401 (type)
 from nfl_gsplat.identity.registry import OTHER_UID, REFEREE_UID
 
 
@@ -28,27 +26,29 @@ def field_positions_by_uid(tracks_df, sideline_track, *, cam="sideline", smooth_
     for uid, grp in proj.groupby("player_uid"):
         if not _is_player(uid):
             continue
-        g = grp.sort_values("frame")
-        xy = g[["foot_x_m", "foot_y_m"]].to_numpy(float)
-        ok = np.isfinite(xy).all(axis=1)
-        g = g[ok]; xy = xy[ok]
+        g = grp[np.isfinite(grp[["foot_x_m", "foot_y_m"]].to_numpy(float)).all(axis=1)]
         if not len(g):
             continue
+        # One position per frame FIRST: a uid can have two rows in one frame
+        # when two tracks resolve to the same jersey (fragmentation / OCR
+        # collision); collapse them to the per-frame median so the frame index
+        # is unique (else the reindex below raises) and the collision resolves
+        # deterministically instead of arbitrary last-wins.
+        per_frame = g.groupby("frame")[["foot_x_m", "foot_y_m"]].median().sort_index()
+        fr_idx = per_frame.index.to_numpy().astype(int)
         # Frame-number-aware rolling window: reindex onto the dense integer
-        # frame range (missing frames = NaN) BEFORE rolling, so a 15-row
+        # frame range (missing frames = NaN) BEFORE rolling, so a 15-frame
         # window is measured in FRAMES, not row position. Without this, a
         # track with an occlusion gap (e.g. frame 100 then frame 340) pools
         # temporally-distant frames into the same window, biasing the
         # smoothed field point.
-        fr_arr = g["frame"].to_numpy().astype(int)
-        lo, hi = int(fr_arr.min()), int(fr_arr.max())
-        full_idx = np.arange(lo, hi + 1)
-        sx = pd.Series(xy[:, 0], index=fr_arr).reindex(full_idx)
-        sy = pd.Series(xy[:, 1], index=fr_arr).reindex(full_idx)
+        full_idx = np.arange(int(fr_idx.min()), int(fr_idx.max()) + 1)
         w = max(1, int(smooth_window))
-        sx = sx.rolling(w, center=True, min_periods=1).median()
-        sy = sy.rolling(w, center=True, min_periods=1).median()
-        out[str(uid)] = {int(f): (float(sx.loc[f]), float(sy.loc[f])) for f in fr_arr}
+        sx = per_frame["foot_x_m"].reindex(full_idx).rolling(
+            w, center=True, min_periods=1).median()
+        sy = per_frame["foot_y_m"].reindex(full_idx).rolling(
+            w, center=True, min_periods=1).median()
+        out[str(uid)] = {int(f): (float(sx.loc[f]), float(sy.loc[f])) for f in fr_idx}
     return out
 
 
@@ -59,8 +59,11 @@ def endzone_pixels_by_uid(tracks_df, *, cam="endzone"):
     for uid, grp in ez.groupby("player_uid"):
         if not _is_player(uid):
             continue
+        # Per-frame median so a uid with two tracks in one frame (jersey
+        # collision / fragmentation) resolves deterministically, not last-wins.
+        per_frame = grp.groupby("frame")[["foot_u", "foot_v"]].median()
         out[str(uid)] = {int(fr): (float(u), float(v))
-                         for fr, u, v in zip(grp["frame"], grp["foot_u"], grp["foot_v"])}
+                         for fr, (u, v) in per_frame.iterrows()}
     return out
 
 
