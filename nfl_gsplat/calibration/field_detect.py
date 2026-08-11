@@ -29,6 +29,14 @@ class FieldDetectConfig:
     hash_max_h_px: int = 22
 
 
+def _hough_rows(segs) -> np.ndarray:
+    """(N, 4) endpoint rows from cv2.HoughLinesP, whatever the OpenCV major.
+
+    OpenCV <=4 returns (N, 1, 4); OpenCV 5 dropped the middle axis and returns
+    (N, 4). Reshaping covers both instead of hard-coding one layout."""
+    return np.asarray(segs).reshape(-1, 4)
+
+
 def _white_mask(img_bgr: np.ndarray, cfg: FieldDetectConfig) -> np.ndarray:
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     _, m = cv2.threshold(gray, cfg.white_thresh, 255, cv2.THRESH_BINARY)
@@ -58,7 +66,7 @@ def detect_lines(
     out: list[YardLineSeg] = []
     if segs is None:
         return out
-    for x1, y1, x2, y2 in segs[:, 0, :]:
+    for x1, y1, x2, y2 in _hough_rows(segs):
         ang = np.degrees(np.arctan2(abs(y2 - y1), abs(x2 - x1)))
         if ang >= (90 - cfg.vertical_deg):
             out.append(YardLineSeg((float(x1), float(y1)), (float(x2), float(y2))))
@@ -114,7 +122,7 @@ def _detect_sidelines(img_bgr, cfg):
     out = []
     if segs is None:
         return out
-    for x1, y1, x2, y2 in segs[:, 0, :]:
+    for x1, y1, x2, y2 in _hough_rows(segs):
         ang = np.degrees(np.arctan2(abs(y2 - y1), abs(x2 - x1)))
         if ang < cfg.vertical_deg:
             out.append(YardLineSeg((float(x1), float(y1)), (float(x2), float(y2))))
