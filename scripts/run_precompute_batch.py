@@ -18,10 +18,12 @@ recommended first batch below). Paths are under data/2025/week_04/SEA_at_AZ/.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 GAME_DIR = Path("data/2025/week_04/SEA_at_AZ")
 BATCH = ["play_001", "play_002", "play_004", "play_005", "play_009",
          "play_011", "play_014", "play_016", "play_026", "play_029"]
@@ -61,6 +63,14 @@ def main() -> None:
     if args.stage in ("roboflow", "sideline"):
         plays = [p for p in plays if p != "play_001"]
 
+    # The stage scripts import nfl_gsplat, but `python scripts/x.py` only puts
+    # scripts/ on sys.path — and the repo cannot be pip-installed editable
+    # everywhere (pyproject pins numpy<2 for paddle, which would break a cu128
+    # torch). Hand the repo root down via PYTHONPATH instead.
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO_ROOT)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
+
     print(f"stage={args.stage}  plays={plays}\n")
     ok, failed = [], []
     for play in plays:
@@ -68,7 +78,7 @@ def main() -> None:
             print(f"[SKIP] {play}: dir not found"); failed.append(play); continue
         cmd = _cmd(args.stage, play, args.season, args.device)
         print(f"[RUN ] {play}: {' '.join(cmd)}", flush=True)
-        rc = subprocess.run(cmd).returncode
+        rc = subprocess.run(cmd, env=env).returncode
         (ok if rc == 0 else failed).append(play)
         print(f"[{'OK  ' if rc == 0 else 'FAIL'}] {play} (exit {rc})\n", flush=True)
 

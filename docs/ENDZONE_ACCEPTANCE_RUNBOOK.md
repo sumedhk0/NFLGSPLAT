@@ -29,6 +29,15 @@ Jersey OCR uses **easyocr on CUDA** (paddlepaddle has no Python 3.14 wheels);
 pass `--ocr-backend easyocr` explicitly if you want to pin it. See
 `docs/HANDOFF.md` → Environment for the full stack and gotchas.
 
+**Running a stage script directly needs `PYTHONPATH`** — `python scripts/x.py`
+puts only `scripts/` on `sys.path`, and this repo is deliberately not
+pip-installed here (its `numpy<2` pin would break the cu128 torch):
+```
+set PYTHONPATH=%CD%
+```
+`run_precompute_batch.py` sets this for its children automatically, so the fast
+path below needs nothing extra.
+
 ## FAST PATH — batch driver (recommended)
 
 `scripts/run_precompute_batch.py` runs one stage across the whole batch
