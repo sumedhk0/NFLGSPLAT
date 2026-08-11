@@ -29,19 +29,81 @@ class JerseyOCRConfig:
     min_bbox_h_px: int = 80
     min_ocr_conf: float = 0.5
     use_gpu: bool = True
+    backend: str = "auto"   # auto | paddle | rapidocr | easyocr
 
 
-def _lazy_ocr_engine(use_gpu: bool):
-    try:
-        from paddleocr import PaddleOCR  # type: ignore
-    except ImportError as e:
+def _build_paddle(use_gpu: bool):
+    from paddleocr import PaddleOCR  # type: ignore
+    engine = PaddleOCR(use_angle_cls=False, lang="en", show_log=False, use_gpu=use_gpu)
+
+    def read(crop):
+        result = engine.ocr(crop, cls=False)
+        if not result or not result[0]:
+            return []
+        return [(line[1][0], float(line[1][1])) for line in result[0]]
+    return read
+
+
+def _build_rapidocr(use_gpu: bool):
+    """PP-OCR models on onnxruntime — same recognizer family as paddleocr, but
+    with no paddlepaddle dependency (paddle ships no wheels for some Pythons)."""
+    from rapidocr import RapidOCR  # type: ignore
+    engine = RapidOCR()
+
+    def read(crop):
+        out = engine(crop)
+        if out is None:
+            return []
+        # rapidocr >=2 returns an object with .txts/.scores; older returns
+        # (list[[box, text, score]], elapse). Support both.
+        txts = getattr(out, "txts", None)
+        if txts is not None:
+            scores = getattr(out, "scores", None) or []
+            return [(t, float(s)) for t, s in zip(txts, scores)]
+        res = out[0] if isinstance(out, tuple) else out
+        return [(r[1], float(r[2])) for r in (res or [])]
+    return read
+
+
+def _build_easyocr(use_gpu: bool):
+    import easyocr  # type: ignore
+    engine = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
+
+    def read(crop):
+        return [(t, float(c)) for _box, t, c in engine.readtext(crop)]
+    return read
+
+
+# Insertion order = preference for backend="auto".
+_BACKEND_BUILDERS = {
+    "paddle": _build_paddle,
+    "rapidocr": _build_rapidocr,
+    "easyocr": _build_easyocr,
+}
+
+
+def _lazy_ocr_engine(use_gpu: bool, backend: str = "auto"):
+    """Return ``reader(crop) -> [(text, conf), ...]`` for the chosen backend.
+
+    ``auto`` tries each backend in preference order and uses the first that
+    imports, so the same code runs on PACE (paddle) and on machines where
+    paddlepaddle has no wheels (rapidocr / easyocr)."""
+    if backend != "auto" and backend not in _BACKEND_BUILDERS:
         raise SetupError(
-            "paddleocr not installed — activate the `nfl_smplx` conda env. See SETUP.md §1."
-        ) from e
-    return PaddleOCR(
-        use_angle_cls=False, lang="en", show_log=False,
-        use_gpu=use_gpu,
-    )
+            f"unknown jersey-OCR backend {backend!r} — pick one of "
+            f"{sorted(_BACKEND_BUILDERS)} or 'auto'.")
+
+    names = list(_BACKEND_BUILDERS) if backend == "auto" else [backend]
+    failures = []
+    for name in names:
+        try:
+            return _BACKEND_BUILDERS[name](use_gpu)
+        except ImportError as e:
+            failures.append(f"{name} ({e})")
+    raise SetupError(
+        "no jersey-OCR backend available — tried: " + "; ".join(failures) +
+        ". Install one: `pip install rapidocr onnxruntime-gpu` (no paddle "
+        "needed), `pip install easyocr`, or use the paddleocr `nfl_smplx` env.")
 
 
 def _read_frame(video: Path | str, frame_idx: int) -> np.ndarray | None:
@@ -54,21 +116,16 @@ def _read_frame(video: Path | str, frame_idx: int) -> np.ndarray | None:
         cap.release()
 
 
-def _ocr_crop(engine, crop: np.ndarray, min_conf: float) -> int | None:
-    """Return digit integer 0..99 or None."""
-    result = engine.ocr(crop, cls=False)
-    if not result or not result[0]:
-        return None
+def _ocr_crop(reader, crop: np.ndarray, min_conf: float) -> int | None:
+    """Highest-confidence 1-2 digit reading as an int 0..99, else None.
+    ``reader`` is a backend adapter returning ``[(text, conf), ...]``."""
     best: tuple[float, str] | None = None
-    for line in result[0]:
-        text = line[1][0]
-        conf = float(line[1][1])
+    for text, conf in reader(crop) or []:
         if conf < min_conf:
             continue
         digits = "".join(ch for ch in text if ch.isdigit())
-        if 1 <= len(digits) <= 2:
-            if best is None or conf > best[0]:
-                best = (conf, digits)
+        if 1 <= len(digits) <= 2 and (best is None or conf > best[0]):
+            best = (conf, digits)
     return int(best[1]) if best else None
 
 
@@ -82,7 +139,7 @@ def vote_jersey_numbers(
     if df.empty:
         return df.copy()
 
-    engine = _lazy_ocr_engine(cfg.use_gpu)
+    reader = _lazy_ocr_engine(cfg.use_gpu, cfg.backend)
     out = df.copy()
 
     for (cam, tid), group in df.groupby(["cam", "track_id"]):
@@ -106,7 +163,7 @@ def vote_jersey_numbers(
             if x2 - x1 < 4 or y2 - y1 < 4:
                 continue
             crop = frame[y1:y2, x1:x2]
-            digit = _ocr_crop(engine, crop, cfg.min_ocr_conf)
+            digit = _ocr_crop(reader, crop, cfg.min_ocr_conf)
             if digit is not None:
                 votes[digit] += 1
 
