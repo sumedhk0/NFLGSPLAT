@@ -37,6 +37,11 @@ def main():
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--season", type=int, required=True)
     ap.add_argument("--cameras", default="sideline,endzone")
+    ap.add_argument("--ocr-backend", default="auto",
+                    choices=["auto", "paddle", "easyocr", "rapidocr"],
+                    help="jersey OCR engine; 'auto' picks the first importable")
+    ap.add_argument("--ocr-top-k", type=int, default=8,
+                    help="crops OCR'd per track for the majority vote")
     args = ap.parse_args()
     cams = tuple(c.strip() for c in args.cameras.split(",") if c.strip())
     pd_ = PlayDir.from_dir(args.play_dir, cameras=cams)
@@ -44,8 +49,10 @@ def main():
     dfs = [detect_and_track(pd_.video(cam), cam, cfg) for cam in pd_.cameras
            if Path(pd_.video(cam)).exists()]
     df = pd.concat(dfs, ignore_index=True)
+    ocr_cfg = JerseyOCRConfig(backend=args.ocr_backend, top_k_frames=args.ocr_top_k,
+                              use_gpu=args.device != "cpu")
     df = vote_jersey_numbers(df, {cam: pd_.video(cam) for cam in pd_.cameras},
-                             JerseyOCRConfig())      # fills jersey_number_ocr
+                             ocr_cfg)                # fills jersey_number_ocr
     df = assign_identity_columns(df, _crop_provider(pd_), season=args.season)
     df.to_parquet(pd_.tracks, index=False)
     print(f"wrote {len(df)} rows with player_uid -> {pd_.tracks}")

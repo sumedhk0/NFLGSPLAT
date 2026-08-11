@@ -70,15 +70,23 @@ def _build_easyocr(use_gpu: bool):
     engine = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
 
     def read(crop):
-        return [(t, float(c)) for _box, t, c in engine.readtext(crop)]
+        # allowlist digits: jersey numbers are numeric, and constraining the
+        # charset stops letters on the uniform (names, logos) from winning.
+        return [(t, float(c)) for _box, t, c in
+                engine.readtext(crop, allowlist="0123456789")]
     return read
 
 
-# Insertion order = preference for backend="auto".
+# Insertion order = preference for backend="auto". easyocr outranks rapidocr:
+# measured on 60 real player crops (RTX 4080, play_002), easyocr on CUDA ran
+# 37.7 crops/s with 18/60 reads vs rapidocr's 1.3 crops/s with 14/60 — rapidocr
+# rides onnxruntime, whose CUDA provider does not engage here (setting
+# EngineConfig.onnxruntime.use_cuda changed nothing), so it stays CPU-bound.
+# 1.3 crops/s makes a multi-play precompute impractical (~40 min/play).
 _BACKEND_BUILDERS = {
     "paddle": _build_paddle,
-    "rapidocr": _build_rapidocr,
     "easyocr": _build_easyocr,
+    "rapidocr": _build_rapidocr,
 }
 
 
