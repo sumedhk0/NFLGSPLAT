@@ -141,7 +141,33 @@ acceptance PENDING.** History of three approaches (full detail in
 
 ## Environment
 
-- Local: Python 3.11, torch 2.4.1+cpu, torchvision 0.19.1, ultralytics 8.4.96,
-  pyarrow 25, easyocr (CPU OCR proxy). PaddleOCR is PACE-only (`nfl_smplx`).
-- Tests: `python -m pytest -m "not gpu and not slow" -q`. Lint:
-  `python -m ruff check nfl_gsplat tests scripts`.
+**Local CUDA box (set up 2026-08-10) — precompute no longer needs PACE.**
+RTX 4080 Laptop, 12 GB, driver 595.71 / CUDA 13.2. Calibration + tracking + OCR
+peak ~2-3 GB, so the whole precompute runs here. Keep PACE for Gaussian-Splat
+training, where 12 GB is tight.
+
+- **Interpreter: use the venv, not the system Python.**
+  `C:\venvs\nflgsplat\Scripts\python.exe` (Python 3.14.7). It lives at a SHORT
+  path on purpose: `LongPathsEnabled=0` on this machine, and deep CUDA wheel
+  paths blow the 260-char limit when installed under the OneDrive repo path.
+- Stack: torch 2.11.0+cu128 (CUDA verified), ultralytics 8.4.117, numpy 2.4.4,
+  pandas 3.0.5, opencv-python 5.0.0, scipy 1.18, pyarrow 25.0.1, easyocr,
+  rapidocr + onnxruntime-gpu, omegaconf 2.3.1.
+- ffmpeg/ffprobe 9.0 via winget (`Gyan.FFmpeg`). If `ffprobe` is not found, add
+  `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\ffmpeg-9.0-full_build\bin`
+  to PATH (winget edits PATH only for new shells).
+- **Do NOT `pip install -e .` here:** `pyproject` pins `numpy<2` for paddle/mmcv,
+  which would downgrade numpy out from under torch 2.11. Install deps directly;
+  `python -m pytest` from the repo root puts the repo on `sys.path` anyway.
+- **Jersey OCR: paddlepaddle has no Python 3.14 wheels at all.** Backends are
+  pluggable (`JerseyOCRConfig.backend`, `03c --ocr-backend`); `auto` resolves to
+  **easyocr on CUDA** here — measured 37.7 crops/s vs rapidocr's 1.3 (rapidocr's
+  ONNX CUDA provider never engages, so it stays CPU-bound).
+- Tests: `C:\venvs\nflgsplat\Scripts\python.exe -m pytest -m "not gpu and not slow" -q`
+  (359 passing on this stack). Lint: `... -m ruff check nfl_gsplat tests scripts`
+  — one pre-existing `B008` (typer.Option defaults) repo-wide.
+
+Videos: `data/all22/sea_at_az_wk4` and the play dirs live in OneDrive and arrive
+as **cloud-only placeholders** on a new machine. Copying/reading hydrates them
+(~1.4 GB). Hardlinks do NOT survive a OneDrive sync — repopulate play dirs by
+copying, not linking.
