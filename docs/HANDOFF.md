@@ -118,6 +118,47 @@ acceptance PENDING.** History of three approaches (full detail in
    agree within a few meters). If back-projection lands on the wrong side, flip
    the prior X-sign.
 
+### MEASURED BLOCKER (2026-08-10, real local run on play_002)
+
+Ran the full identity precompute on the local GPU (`03c`, easyocr on CUDA,
+6 min/play). Result:
+
+| metric | value |
+|---|---|
+| tracks with a voted jersey | 49 / 236 |
+| distinct uids: sideline / endzone | 16 / 26 |
+| **uids shared across BOTH cameras** | **5** |
+| **frames with >= 4 shared uids in both** | **0 / 327** (median 1) |
+
+`solve_fixed_center` needs **>= 4 correspondences per frame**
+(`build_frame_data(min_corrs=4)`), so as it stands almost no frame qualifies and
+the solve cannot run — this is the same wall the geometric approach hit, now
+from the identity side.
+
+Note **multi-play aggregation does NOT fix this**: more plays add more frames,
+each still carrying ~1 shared uid. The binding constraint is *per-frame*
+density, not total correspondence count.
+
+Why yield is thin: the endzone sees players' backs (numbers legible, 26 uids)
+while the sideline sees side-on profiles where the number is often not readable
+(16 uids) — and a correspondence needs the SAME player read in BOTH views. The
+torso-crop + upscale fix lifted per-crop reads ~15x and is already in, but the
+sideline viewing angle is the real limiter.
+
+Options, roughly in order of cost:
+1. **Relax the per-frame requirement.** Add temporal smoothness on rotation/
+   focal so frames with 1-2 correspondences still constrain the solve, and drop
+   `min_corrs` accordingly. Touches `joint_solve` (the load-bearing solver) —
+   needs care and its own spec.
+2. **Raise sideline yield**: OCR more crops per track (`--ocr-top-k`), lower
+   `min_ocr_conf`, or propagate one confident read along a whole track (already
+   done per track — the gap is tracks never read at all).
+3. **Constrain with the roster** (`data/rosters/2025/rosters.parquet` is
+   fetched): snap OCR misreads to valid SEA/ARI jerseys and use team colour to
+   halve the candidate set, converting weak reads into usable identities.
+4. Fall back to the geometric trajectory matcher for the frames identity cannot
+   cover, using identity-matched players as anchors.
+
 ### Watch during acceptance (data-dependent review findings)
 
 - **Team-color split may partition by CAMERA not team** (lighting differs
