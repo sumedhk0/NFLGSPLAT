@@ -30,6 +30,13 @@ class JerseyOCRConfig:
     min_ocr_conf: float = 0.5
     use_gpu: bool = True
     backend: str = "auto"   # auto | paddle | rapidocr | easyocr
+    # OCR the torso band rather than the whole player, upscaled: measured on
+    # real SEA@AZ crops, feeding the full unscaled box read ~2% of crops, while
+    # the upscaled torso band read ~30%. The number sits on the upper back /
+    # chest, so everything below the waist is noise that drags detection.
+    torso_top_frac: float = 0.15
+    torso_bot_frac: float = 0.55
+    upscale: float = 2.5
 
 
 def _build_paddle(use_gpu: bool):
@@ -124,6 +131,30 @@ def _read_frame(video: Path | str, frame_idx: int) -> np.ndarray | None:
         cap.release()
 
 
+def jersey_crop(frame: np.ndarray, box, cfg: JerseyOCRConfig) -> np.ndarray | None:
+    """Upscaled torso band of a player box — the region the number sits on.
+
+    ``box`` is (x1, y1, x2, y2) in frame pixels; returns None when the band is
+    degenerate. Cropping to the torso and upscaling is what makes small,
+    far-from-camera numbers legible (see JerseyOCRConfig)."""
+    x1, y1, x2, y2 = (int(v) for v in box)
+    h, w = frame.shape[:2]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    if x2 - x1 < 4 or y2 - y1 < 4:
+        return None
+    bh = y2 - y1
+    ty1 = y1 + int(cfg.torso_top_frac * bh)
+    ty2 = y1 + int(cfg.torso_bot_frac * bh)
+    band = frame[ty1:ty2, x1:x2]
+    if band.size == 0 or band.shape[0] < 2 or band.shape[1] < 2:
+        return None
+    if cfg.upscale and cfg.upscale != 1.0:
+        band = cv2.resize(band, None, fx=cfg.upscale, fy=cfg.upscale,
+                          interpolation=cv2.INTER_CUBIC)
+    return band
+
+
 def _ocr_crop(reader, crop: np.ndarray, min_conf: float) -> int | None:
     """Highest-confidence 1-2 digit reading as an int 0..99, else None.
     ``reader`` is a backend adapter returning ``[(text, conf), ...]``."""
@@ -164,13 +195,10 @@ def vote_jersey_numbers(
             frame = _read_frame(video, int(row["frame"]))
             if frame is None:
                 continue
-            x1, y1, x2, y2 = int(row["bbox_x1"]), int(row["bbox_y1"]), int(row["bbox_x2"]), int(row["bbox_y2"])
-            x1, y1 = max(0, x1), max(0, y1)
-            x2 = min(frame.shape[1], x2)
-            y2 = min(frame.shape[0], y2)
-            if x2 - x1 < 4 or y2 - y1 < 4:
+            crop = jersey_crop(frame, (row["bbox_x1"], row["bbox_y1"],
+                                       row["bbox_x2"], row["bbox_y2"]), cfg)
+            if crop is None:
                 continue
-            crop = frame[y1:y2, x1:x2]
             digit = _ocr_crop(reader, crop, cfg.min_ocr_conf)
             if digit is not None:
                 votes[digit] += 1

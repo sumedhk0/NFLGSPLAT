@@ -37,6 +37,22 @@ def test_ocr_crop_empty_result_is_none():
     assert jo._ocr_crop(lambda _c: [], _crop(), min_conf=0.5) is None
 
 
+def test_jersey_crop_takes_upscaled_torso_band():
+    frame = np.zeros((400, 300, 3), np.uint8)
+    cfg = jo.JerseyOCRConfig(torso_top_frac=0.2, torso_bot_frac=0.6, upscale=2.0)
+    out = jo.jersey_crop(frame, (100, 100, 180, 300), cfg)   # box 80x200
+    # band = rows 100+0.2*200=140 .. 100+0.6*200=220 -> 80 tall, 80 wide, x2
+    assert out.shape[:2] == (160, 160)
+
+
+def test_jersey_crop_clips_to_frame_and_rejects_degenerate():
+    frame = np.zeros((100, 100, 3), np.uint8)
+    cfg = jo.JerseyOCRConfig()
+    assert jo.jersey_crop(frame, (10, 10, 12, 12), cfg) is None    # too small
+    out = jo.jersey_crop(frame, (-20, -20, 90, 90), cfg)           # clipped, still valid
+    assert out is not None and out.shape[0] > 0
+
+
 def test_unknown_backend_fails_loud():
     with pytest.raises(SetupError, match="backend"):
         jo._lazy_ocr_engine(use_gpu=False, backend="not-a-backend")
