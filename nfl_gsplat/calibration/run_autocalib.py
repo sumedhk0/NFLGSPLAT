@@ -611,7 +611,8 @@ def build_endzone_identity_from_plays(*, play_dirs, prior, sideline_cam="sidelin
 def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
                          fps, prior, anchors=None, stride: int = 6,
                          ref_frame=None, sideline_cam: str = "sideline",
-                         endzone_cam: str = "endzone"):
+                         endzone_cam: str = "endzone",
+                         diag_dir: str = r"C:/Users/sumedh/diag"):
     """Calibrate the endzone camera from an accumulated static-paint mosaic.
 
     Sampled frames are registered into one reference frame (homographies),
@@ -665,23 +666,51 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
         frames, H_by, boxes, ref_shape=(meta.height, meta.width))
 
     lines = detect_accumulated_lines(votes)
-    yard_range = _sideline_yard_range(df, cams[sideline_cam], cam=sideline_cam)
     if anchors is None:
         # No anchors yet: save the mosaic so the human can read one off it ONCE
         # per game, then fail loud. Guessing the offset is exactly the failure
-        # this design exists to prevent.
-        diag = Path(r"C:/Users/sumedh/diag") / f"{Path(play_dir).name}_mosaic.png"
+        # this design exists to prevent. This must be reachable on a bare
+        # tracks.parquet (03b_detect_players.py output, no player_uid) --
+        # it is the very first thing an operator runs on a new game, before
+        # 03c_identity_tracks.py has ever been run -- so nothing below this
+        # point may depend on the identity pipeline.
+        diag = Path(diag_dir) / f"{Path(play_dir).name}_mosaic.png"
         diag.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(diag), (np.clip(votes, 0, 1) * 255).astype(np.uint8))
+        # Draw the DETECTED segments (+ midpoints) over the raw votes, not just
+        # the raw votes field: an operator anchoring faint paint the detector
+        # never found gets a confusing "anchor is N px from the nearest line"
+        # on the next run instead of a match.
+        diag_img = cv2.cvtColor((np.clip(votes, 0, 1) * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        for seg in lines:
+            p0 = (round(seg.p0[0]), round(seg.p0[1]))
+            p1 = (round(seg.p1[0]), round(seg.p1[1]))
+            mid = (round((seg.p0[0] + seg.p1[0]) / 2), round((seg.p0[1] + seg.p1[1]) / 2))
+            cv2.line(diag_img, p0, p1, (0, 0, 255), 1)
+            cv2.circle(diag_img, mid, 4, (0, 255, 0), -1)
+        cv2.imwrite(str(diag), diag_img)
         raise SetupError(
             f"no endzone_anchor in meta.yaml. Wrote the accumulated mosaic to "
-            f"{diag} — identify the OUTERMOST TWO yard lines in it and add:\n"
+            f"{diag} (detected lines in red, midpoints in green) — identify the "
+            "OUTERMOST TWO yard lines in it and add:\n"
             "endzone_anchor:\n  lines:\n"
             "    - {point_px: [x1, y1], world_x_m: -18.288}\n"
             "    - {point_px: [x2, y2], world_x_m: 0.0}\n"
             "(once per game: the tripod shares one camera centre all half). "
             "Two anchors are required: one fixes only the offset, leaving the "
             "labeling direction free and a missing line undetectable.")
+
+    # yard_range is a soft VALIDATOR only (label_yard_lines never uses it to
+    # choose a labeling, just to reject an obviously-wrong one) -- it requires
+    # player_uid, which only 03c_identity_tracks.py adds, not the bare
+    # 03b_detect_players.py tracks.parquet this driver otherwise only needs.
+    # Its absence (or any failure deriving it) must not block the mosaic path
+    # it was designed to sidestep.
+    yard_range = None
+    if "player_uid" in df.columns:
+        try:
+            yard_range = _sideline_yard_range(df, cams[sideline_cam], cam=sideline_cam)
+        except SetupError:
+            yard_range = None
     xs = label_yard_lines(lines, anchors=anchors, yard_range_m=yard_range)
 
     # Each merged line already spans the visible paint, so its two endpoints are
