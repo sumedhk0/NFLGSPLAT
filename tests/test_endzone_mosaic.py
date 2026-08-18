@@ -46,8 +46,55 @@ def test_register_fails_loud_on_unregisterable_frame():
     import pytest
 
     from nfl_gsplat.errors import CalibrationError
+    # 1 bad frame out of 2 = 50%, above the default 25% tolerance -- still fatal.
     frames = {0: _textured_field(), 1: np.zeros((480, 640, 3), np.uint8)}
     with pytest.raises(CalibrationError, match="could not be registered"):
+        em.register_to_reference(frames, ref_idx=0)
+
+
+def test_register_tolerates_a_minority_of_unregisterable_frames():
+    """A few unregisterable frames (e.g. the broadcast camera swinging away
+    after the play ends, or a wipe-to-graphic) must not abort the whole
+    mosaic -- they simply contribute nothing and are dropped from
+    H_by_frame, while every registerable frame still comes through."""
+    base = _textured_field()
+    warps = [(12.0, 1.00), (25.0, 1.04), (-18.0, 0.97), (30.0, 1.02),
+             (-10.0, 0.98), (5.0, 1.01), (18.0, 1.03)]
+    frames = {0: base}
+    for i, (dx, s) in enumerate(warps, start=1):
+        H = np.array([[s, 0.0, dx], [0.0, s, 0.5 * dx], [0.0, 0.0, 1.0]])
+        frames[i] = _warp(base, H)
+    # tail frames with no usable field -- e.g. the camera has swung away.
+    frames[100] = np.zeros((480, 640, 3), np.uint8)
+    frames[101] = np.zeros((480, 640, 3), np.uint8)
+    # 2 bad / 10 total = 20%, at/under the 25% default tolerance.
+
+    H_by, _inl = em.register_to_reference(frames, ref_idx=0)
+
+    for i in range(8):
+        assert i in H_by, f"good frame {i} should still be registered"
+    assert 100 not in H_by, "unregisterable frame must not appear in H_by_frame"
+    assert 101 not in H_by, "unregisterable frame must not appear in H_by_frame"
+
+
+def test_register_raises_when_majority_of_frames_unregisterable():
+    """A MAJORITY of unregisterable frames is still a fatal, loud error --
+    tolerance is bounded, not unconditional -- and the message must state
+    the offending fraction so it is diagnosable."""
+    import pytest
+
+    from nfl_gsplat.errors import CalibrationError
+    base = _textured_field()
+    H1 = np.array([[1.0, 0.0, 12.0], [0.0, 1.0, 6.0], [0.0, 0.0, 1.0]])
+    frames = {
+        0: base,
+        1: _warp(base, H1),
+        2: np.zeros((480, 640, 3), np.uint8),
+        3: np.zeros((480, 640, 3), np.uint8),
+        4: np.zeros((480, 640, 3), np.uint8),
+    }
+    # 3 bad / 5 total = 60%, above the 25% default tolerance.
+    with pytest.raises(CalibrationError, match="60%"):
         em.register_to_reference(frames, ref_idx=0)
 
 

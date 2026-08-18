@@ -13,14 +13,13 @@ direct link is too weak.
 """
 from __future__ import annotations
 
-import logging
-
 import cv2
 import numpy as np
 
 from nfl_gsplat.errors import CalibrationError
+from nfl_gsplat.utils.logging import get_logger
 
-_LOG = logging.getLogger(__name__)
+_LOG = get_logger(__name__)
 
 _RATIO = 0.78          # Lowe ratio for descriptor matching
 _RANSAC_PX = 2.5
@@ -68,7 +67,8 @@ def _homography(fa, fb, min_inliers):
 
 
 def register_to_reference(frames, *, ref_idx, min_inliers: int = 25,
-                          boxes_by_frame=None):
+                          boxes_by_frame=None,
+                          max_unregistered_frac: float = 0.25):
     """{frame: H mapping that frame's pixels INTO the reference}, {frame: inliers}.
 
     Direct link first; if it is too weak, fall back to composing through the
@@ -78,7 +78,17 @@ def register_to_reference(frames, *, ref_idx, min_inliers: int = 25,
 
     ``boxes_by_frame``, if given, excludes players from feature detection
     (via :func:`keep_mask`) so moving players never contribute non-rigid
-    matches that would break the pure-rotation/zoom model."""
+    matches that would break the pure-rotation/zoom model.
+
+    Frames that still cannot be registered after both passes are common at
+    the TAIL of a play (the broadcast camera swings away, wipes to a
+    graphic, or loses the field once the play ends) — that is normal
+    footage, not a defect, and it contributes nothing to the mosaic either
+    way. Up to ``max_unregistered_frac`` of the sampled frames are therefore
+    dropped (no entry in the returned dict) with a loud warning rather than
+    aborting the whole calibration; only when MORE than that fraction fails
+    does this raise, since at that point too little of the sample is usable
+    to trust the result."""
     if ref_idx not in frames:
         raise CalibrationError(
             f"endzone mosaic: reference frame {ref_idx} not among the sampled "
@@ -114,10 +124,25 @@ def register_to_reference(frames, *, ref_idx, min_inliers: int = 25,
             inl_by[i] = n
             pending.remove(i)
     if pending:
-        raise CalibrationError(
-            f"endzone mosaic: {len(pending)} frames could not be registered "
-            f"(e.g. {pending[:5]}) — too little static field visible; sample "
-            "different frames or lower the frame stride.")
+        frac = len(pending) / len(frames)
+        if frac > max_unregistered_frac:
+            raise CalibrationError(
+                f"endzone mosaic: {len(pending)} frames could not be registered "
+                f"(e.g. {pending[:5]}) — too little static field visible; sample "
+                f"different frames or lower the frame stride. That is "
+                f"{frac:.0%} of {len(frames)} sampled frames, above the "
+                f"max_unregistered_frac={max_unregistered_frac:.0%} tolerance.")
+        # Below tolerance: drop them rather than abort. They simply get no
+        # entry in H_by_frame -- accumulate_field_paint skips any frame whose
+        # H_by_frame.get(i) is None, and propagate leaves out[t] = None for
+        # it, which assemble_track_from_results handles as an interpolated
+        # or clamp-extrapolated gap. Never silent, though: a couple of
+        # dropped frames looks identical to a healthy run unless logged.
+        _LOG.warning(
+            "endzone mosaic: dropping %d/%d unregistered frames (%.0f%%, "
+            "e.g. %s) — too little static field visible in each; they get "
+            "no entry in H_by_frame and are skipped downstream",
+            len(pending), len(frames), frac * 100, pending[:5])
     return H_by, inl_by
 
 
