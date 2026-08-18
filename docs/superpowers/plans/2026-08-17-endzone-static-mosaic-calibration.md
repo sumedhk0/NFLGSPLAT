@@ -6,7 +6,7 @@
 
 **Architecture:** The endzone camera is a fixed tripod, so frames are related exactly by homographies (measured 0.55 px median). Register each frame directly to a reference frame; warp the player-masked white mask into the reference and accumulate so paint reinforces and transients wash out; fit the metric field to the accumulated paint (labeling pinned by an absolute anchor plus the sideline's yard range); solve one camera; propagate per frame.
 
-**Tech Stack:** Python 3.14, OpenCV 5 (SIFT, `findHomography`), NumPy, SciPy, pytest. Reuses `field_detect`, `player_masks`, `joint_solve.solve_fixed_center`, `EndzonePrior`.
+**Tech Stack:** Python 3.14, OpenCV 5 (SIFT, `findHomography`), NumPy, SciPy, pytest. Reuses `field_detect`, `player_masks`, `decompose_homography.homography_to_krt`, `EndzonePrior`.
 
 ## Global Constraints
 
@@ -15,7 +15,7 @@
 - Do NOT `pip install -e .` (the `numpy<2` pin would break the cu128 torch). Run tests as `python -m pytest` from the repo root.
 - **Work in NATIVE endzone pixels**: `view_deg=0`, no view rotation, no roll. The 90° rotation only ever served the dead field-marking detector.
 - `utils.video.iter_frames` yields **RGB**; OpenCV expects **BGR**. Convert explicitly (`cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)`) or index `[..., ::-1]`. Getting this wrong silently corrupts colour-based masks.
-- Player world points are arbitrary `(X, Y, 0)`, NOT named `NFL_LANDMARKS` — any `solve_fixed_center` call must use `_frame_data_override`, never the named-landmark path.
+- Field/player world points are arbitrary `(X, Y, 0)`, NOT named `NFL_LANDMARKS`. The reference camera is solved as a SINGLE-VIEW planar homography (`homography_to_krt`), not via `solve_fixed_center` — that gates on >= 10 mutually consistent frames and cannot solve one view.
 - Fail loud with `CalibrationError`/`SetupError` + an actionable pointer. No silent fallback that changes numerical results.
 - Field constants live in `nfl_gsplat/calibration/field_landmarks.py`: `YARD_LINE_SPACING_M=4.572`, `HALF_WIDTH_M=24.384`, `HASH_OFFSET_M=2.8194`, `GOAL_LINE_X_M=45.720`, `HALF_LENGTH_M=54.864`.
 - Never commit real NFL video/frames; `data/` and `kp_eval/` are gitignored. Diagnostics go to `C:\Users\sumedh\diag\` or scratch.
@@ -684,9 +684,9 @@ git commit -m "fix(calibration): two-anchor labeling pins direction and catches 
 - Test: `tests/test_endzone_mosaic.py`
 
 **Interfaces:**
-- Consumes: `endzone_multiplay.EndzonePrior` (has `.center_bounds`, `.center0`, `.focal_range`); `joint_solve.solve_fixed_center(corrs_by_frame, image_size, *, init_results, _frame_data_override, view_deg, center_bounds, audit_drop_px)`; `solve_pnp.CalibrationResult`; `utils.geometry.CameraIntrinsics, CameraPose`.
+- Consumes: `endzone_multiplay.EndzonePrior` (has `.center_bounds`, `.center0`, `.focal_range`); `decompose_homography.homography_to_krt(H, *, width, height) -> (K, R, t)` (single view of the z=0 plane); `solve_pnp.CalibrationResult`; `utils.geometry.CameraIntrinsics, CameraPose, project_points`.
 - Produces:
-  - `solve_reference_camera(world_xyz, ref_uv, image_size, prior, *, audit_drop_px=4.0) -> CalibrationResult`
+  - `solve_reference_camera(world_xyz, ref_uv, image_size, prior) -> CalibrationResult` — single-view planar solve via `decompose_homography.homography_to_krt`, validated against the prior box and focal range. NOT `solve_fixed_center` (that gates on >=10 consistent frames and cannot solve one view).
   - `propagate(H_by_frame, ref_cam, n_frames) -> list[CalibrationResult | None]` — frame `t`'s camera. Since `H_t` maps frame `t` INTO the reference, `K_t R_t = H_t^{-1} K_ref R_ref`; the centre is shared, so `t_t = -R_t C`.
 
 - [ ] **Step 1: Write the failing test**
@@ -725,6 +725,58 @@ def test_propagate_matches_a_directly_rendered_camera():
     back = cv2.perspectiveTransform(uv_t.reshape(-1, 1, 2).astype(np.float32), H_t)
     assert np.abs(back.reshape(-1, 2) - uv_ref).max() < 1.0
     assert np.allclose(cam.pose.center_world(), C, atol=1e-6)   # shared centre
+
+def test_solve_reference_camera_recovers_a_known_planar_camera():
+    """Project field points through a KNOWN camera, then solve it back."""
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            p = np.array([[X, Y, 0.0]])
+            q = project_points(p, K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    cam = em.solve_reference_camera(world, uv, wh, prior)
+    assert np.allclose(cam.pose.center_world(), C, atol=0.5)
+    assert abs(cam.intrinsics.fx - 2600.0) / 2600.0 < 0.02
+    assert cam.rms_px < 1.0
+
+
+def test_solve_reference_camera_rejects_a_centre_outside_the_prior():
+    import pytest
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.errors import CalibrationError
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            q = project_points(np.array([[X, Y, 0.0]]), K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    wrong = EndzonePrior(x_range=(60, 150), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    with pytest.raises(CalibrationError, match="prior box"):
+        em.solve_reference_camera(world, uv, wh, wrong)
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -737,40 +789,59 @@ Expected: FAIL — `has no attribute 'propagate'`.
 Append to `endzone_mosaic.py`:
 
 ```python
-def solve_reference_camera(world_xyz, ref_uv, image_size, prior,
-                           *, audit_drop_px: float = 4.0):
-    """One camera for the reference frame from accumulated field correspondences.
+def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
+    """One camera for the reference frame from the labelled field lines.
 
-    These are arbitrary field points, so we use solve_fixed_center's
-    _frame_data_override path (never the named-landmark path)."""
-    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    A single view of the z=0 field plane is a HOMOGRAPHY problem, not a
+    multi-frame shared-centre problem. An earlier draft routed this through
+    solve_fixed_center, which gates on >= 10 mutually consistent FRAMES and so
+    could never have succeeded on one view — it would have failed every real
+    run. decompose_homography.homography_to_krt is purpose-built for this: it
+    recovers the focal from the orthonormality of the plane axes."""
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
     from nfl_gsplat.calibration.solve_pnp import CalibrationResult
-    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+    from nfl_gsplat.utils.geometry import (
+        CameraIntrinsics, CameraPose, project_points)
 
     world = np.asarray(world_xyz, np.float64).reshape(-1, 3)
     uv = np.asarray(ref_uv, np.float64).reshape(-1, 2)
-    if len(world) < 6:
+    if len(world) < 4:
         raise CalibrationError(
             f"endzone mosaic: only {len(world)} field correspondences in the "
-            "reference frame (need >= 6) — accumulated paint too sparse.")
-    f0 = float(sum(prior.focal_range)) / 2.0
-    anchor = CalibrationResult(
-        intrinsics=CameraIntrinsics(f0, f0, 0.0, 0.0, 1, 1),
-        pose=CameraPose(R=np.eye(3), t=-prior.center0),
-        rms_px=0.0, num_correspondences=0, refined_with_ba=False)
-    # Repeat the single reference view so the solver's anchor threshold is met.
-    frame_data = {i: (world, uv) for i in range(3)}
-    results, _mirrored = solve_fixed_center(
-        corrs_by_frame=None, image_size=image_size,
-        init_results=[anchor, anchor, anchor], _frame_data_override=frame_data,
-        view_deg=0, center_bounds=prior.center_bounds,
-        audit_drop_px=audit_drop_px)
-    solved = [r for r in results if r is not None]
-    if not solved:
+            "reference frame (need >= 4 for a homography) — accumulated paint "
+            "too sparse; lower vote_thresh or sample more frames.")
+
+    H, _mask = cv2.findHomography(world[:, :2].astype(np.float64),
+                                  uv.astype(np.float64), cv2.RANSAC, 3.0)
+    if H is None:
         raise CalibrationError(
-            "endzone mosaic: reference camera solve kept no frames — the "
-            "field labeling or the accumulated lines are inconsistent.")
-    return solved[0]
+            "endzone mosaic: field->reference homography did not fit — the "
+            "yard-line labeling is probably wrong (check the anchors).")
+
+    w, h = int(image_size[0]), int(image_size[1])
+    K, R, t = homography_to_krt(H, width=w, height=h)
+    C = -R.T @ t
+
+    (xlo, xhi), (ylo, yhi), (zlo, zhi) = prior.center_bounds
+    if not (xlo <= C[0] <= xhi and ylo <= C[1] <= yhi and zlo <= C[2] <= zhi):
+        raise CalibrationError(
+            f"endzone mosaic: solved camera centre {C.round(1)} is outside the "
+            f"prior box {prior.center_bounds} — the yard-line labeling or the "
+            "anchors are wrong.")
+    flo, fhi = prior.focal_range
+    if not (flo <= float(K[0, 0]) <= fhi):
+        raise CalibrationError(
+            f"endzone mosaic: solved focal {K[0, 0]:.0f} px is outside the "
+            f"prior range {prior.focal_range}.")
+
+    proj = project_points(world, K, R, t)
+    ok = np.isfinite(proj).all(axis=1)
+    rms = float(np.sqrt(np.mean(np.sum((proj[ok] - uv[ok]) ** 2, axis=1))))
+    return CalibrationResult(
+        intrinsics=CameraIntrinsics(float(K[0, 0]), float(K[1, 1]),
+                                    float(K[0, 2]), float(K[1, 2]), w, h),
+        pose=CameraPose(R=R, t=t), rms_px=rms,
+        num_correspondences=int(len(world)), refined_with_ba=False)
 
 
 def propagate(H_by_frame, ref_cam, n_frames: int):
