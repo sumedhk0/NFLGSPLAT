@@ -265,10 +265,21 @@ def test_smoke_lbs_animation_moves_avatar(tmp_path: Path):
 def test_smoke_render_nonblack(tmp_path: Path):
     """Render a single frame of the composite and assert mean luminance > 5.
 
-    Skips if torch/gsplat is not importable, which is normal on CPU CI.
+    Skips if torch/gsplat cannot actually RASTERIZE, which is normal on CPU CI.
+
+    Importability is not the right gate. gsplat ships as a pure-Python wheel and
+    JIT-compiles its CUDA kernels on first use, so on a machine with a GPU but
+    no CUDA toolkit it imports cleanly, prints "No CUDA toolkit found. gsplat
+    will be disabled.", leaves its backend as None, and only then fails inside
+    the render with an AttributeError. Gating on the import alone therefore
+    turned a green suite red the moment anyone ran `pip install gsplat` without
+    a toolkit -- measured on this machine.
     """
     torch = pytest.importorskip("torch")
-    pytest.importorskip("gsplat")
+    gsplat = pytest.importorskip("gsplat")
+    if getattr(gsplat.cuda, "_C", None) is None:
+        pytest.skip("gsplat imported but its CUDA backend is unavailable "
+                    "(no CUDA toolkit to JIT-compile against)")
 
     from nfl_gsplat.compositing.render_gsplat import RenderConfig, render_trajectory
 
