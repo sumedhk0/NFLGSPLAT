@@ -67,7 +67,9 @@ def register_to_reference(frames, *, ref_idx, min_inliers: int = 25):
     """{frame: H mapping that frame's pixels INTO the reference}, {frame: inliers}.
 
     Direct link first; if it is too weak, fall back to composing through the
-    nearest already-registered frame (a SHORT chain, so drift stays bounded)."""
+    nearest DIRECTLY-registered frame — exactly one hop, so drift stays
+    bounded by construction rather than by how many pending frames happen to
+    register first."""
     if ref_idx not in frames:
         raise CalibrationError(
             f"endzone mosaic: reference frame {ref_idx} not among the sampled "
@@ -85,12 +87,16 @@ def register_to_reference(frames, *, ref_idx, min_inliers: int = 25):
         else:
             pending.append(i)
 
-    # Fallback: compose through the nearest registered neighbour.
+    # Fallback: compose through the nearest DIRECTLY-registered frame. The
+    # candidate set is frozen before the pass, so a fallback is always exactly
+    # one hop from a direct registration and can never chain through another
+    # fallback — chaining is what drifts (6px -> 282px measured), so it is
+    # bounded here by construction rather than by hope.
+    direct_done = sorted(H_by)
     for i in list(pending):
-        done = sorted(H_by)
-        if not done:
+        if not direct_done:
             break
-        j = min(done, key=lambda d: abs(d - i))
+        j = min(direct_done, key=lambda d: abs(d - i))
         H, n = _homography(feats[i], feats[j], min_inliers)
         if H is not None and n >= min_inliers:
             H_by[i] = H_by[j] @ H

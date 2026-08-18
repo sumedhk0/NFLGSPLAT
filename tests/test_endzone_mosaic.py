@@ -56,3 +56,59 @@ def test_keep_mask_zeroes_player_boxes_with_padding():
     assert m[50, 60] == 0          # inside the box
     assert m[36, 46] == 0          # inside the pad
     assert m[10, 10] == 255        # untouched field
+
+
+def test_register_fallback_bounded_to_one_hop_from_direct(monkeypatch):
+    """Contiguous pending frames must each hop off a DIRECTLY-registered
+    anchor, never off a frame that was itself only resolved by the fallback
+    -- that is the naive sequential chaining the module explicitly rejects
+    (measured drift 6px -> 282px on real footage)."""
+    base = _textured_field()
+    truth = {0: np.eye(3)}
+    frames = {0: base}
+    warps = [(12.0, 1.00), (25.0, 1.04), (38.0, 1.03)]
+    for i, (dx, s) in enumerate(warps, start=1):
+        H = np.array([[s, 0.0, dx], [0.0, s, 0.5 * dx], [0.0, 0.0, 1.0]])
+        truth[i] = H
+        frames[i] = _warp(base, H)
+    # frame 0 = reference, frame 1 = the only frame that registers DIRECTLY,
+    # frames 2 and 3 = a contiguous run with an (injected) weak direct link.
+
+    owner_of = {id(img): i for i, img in frames.items()}
+    real_features = em._features
+    real_homography = em._homography
+    feats_owner = {}
+    calls = []  # (owner_a, owner_b, accepted)
+
+    def tagging_features(img_bgr, mask=None):
+        out = real_features(img_bgr, mask)
+        feats_owner[id(out)] = owner_of[id(img_bgr)]
+        return out
+
+    def gated_homography(fa, fb, min_inliers):
+        oa, ob = feats_owner.get(id(fa)), feats_owner.get(id(fb))
+        if oa in (2, 3) and ob == 0:
+            calls.append((oa, ob, False))
+            return None, 0          # simulate a weak direct link to the ref
+        H, n = real_homography(fa, fb, min_inliers)
+        calls.append((oa, ob, H is not None and n >= min_inliers))
+        return H, n
+
+    monkeypatch.setattr(em, "_features", tagging_features)
+    monkeypatch.setattr(em, "_homography", gated_homography)
+
+    H_by, _ = em.register_to_reference(frames, ref_idx=0)
+
+    assert set(H_by) == {0, 1, 2, 3}
+    # The accepted fallback hop for frames 2 and 3 must anchor on frame 1 (the
+    # only frame that registered DIRECTLY) -- never on each other. Anchoring
+    # frame 3 on frame 2 would be exactly the rejected sequential chain.
+    accepted_anchor = {oa: ob for oa, ob, ok in calls if ok and oa in (2, 3)}
+    assert accepted_anchor[2] == 1
+    assert accepted_anchor[3] == 1
+
+    pts = np.float32([[100, 100], [500, 120], [300, 400]]).reshape(-1, 1, 2)
+    for i in (1, 2, 3):
+        back = cv2.perspectiveTransform(
+            cv2.perspectiveTransform(pts, truth[i]), H_by[i])
+        assert np.abs(back - pts).max() < 2.0, f"frame {i} round-trip off"
