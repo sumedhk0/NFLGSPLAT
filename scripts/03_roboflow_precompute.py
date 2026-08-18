@@ -49,8 +49,43 @@ def main():
     if not args.api_key:
         raise SystemExit("Set ROBOFLOW_API_KEY or pass --api-key")
 
-    from inference_sdk import InferenceHTTPClient
-    client = InferenceHTTPClient(api_url=args.api_url, api_key=args.api_key)
+    # inference_sdk is a thin wrapper over Roboflow's hosted REST endpoint, and
+    # it caps at Python <3.13 -- so on a current interpreter it simply cannot be
+    # installed (measured: pip finds no candidate on 3.14). The endpoint itself
+    # is stable and documented, so fall back to calling it directly rather than
+    # pinning the whole pipeline to an old Python for one HTTP POST.
+    try:
+        from inference_sdk import InferenceHTTPClient
+        client = InferenceHTTPClient(api_url=args.api_url, api_key=args.api_key)
+        _infer_one = lambda path: client.infer(path, model_id=args.model_id)
+    except ImportError:
+        import base64
+
+        import requests
+
+        def _infer_one(path):
+            with open(path, "rb") as fh:
+                payload = base64.b64encode(fh.read())
+            resp = requests.post(
+                f"{args.api_url.rstrip('/')}/{args.model_id}",
+                params={"api_key": args.api_key},
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=60,
+            )
+            if not resp.ok:
+                # Never surface the response URL: the api_key rides in the
+                # query string, so raise_for_status() prints the secret into
+                # tracebacks and CI logs verbatim.
+                detail = {402: "Roboflow account is out of hosted-inference "
+                               "credits (HTTP 402). Add credits, or use "
+                               "--mode learned with a local landmark model.",
+                          401: "Roboflow rejected the API key (HTTP 401).",
+                          403: "Roboflow denied access to this model (HTTP 403)."
+                          }.get(resp.status_code,
+                                f"Roboflow returned HTTP {resp.status_code}.")
+                raise SystemExit(f"roboflow precompute: {detail}")
+            return resp.json()
 
     def infer_fn(bgr):
         # hosted API takes a file path; write frame to a temp png
@@ -58,7 +93,7 @@ def main():
             tmp = f.name
         try:
             cv2.imwrite(tmp, bgr)
-            res = client.infer(tmp, model_id=args.model_id)
+            res = _infer_one(tmp)
         finally:
             os.unlink(tmp)
         if isinstance(res, list):
