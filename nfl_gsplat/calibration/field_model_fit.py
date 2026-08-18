@@ -22,14 +22,40 @@ could not see it. v2 also measured offsets from a segment's p0, which made the
 measured gap depend on which endpoint the detector happened to emit first —
 under perspective that artifact was large enough to swamp the real spacing.
 
-v3 (current): TWO anchors, offsets measured at the segment MIDPOINT. Two
-anchored lines pin translation, direction, AND spacing consistency in one
-stroke — the step implied by the two anchors must come out to exactly
-+-YARD_LINE_SPACING_M, which is violated precisely when a line is missing,
-spurious, or over-merged. This is still "one-time per game" for the human
-(the tripod shares one camera centre across the half); they name two lines
-instead of one. The yard-range prior remains a VALIDATOR only: it may reject
-a labeling, never choose one.
+v3: TWO anchors, offsets measured at the segment MIDPOINT. Two anchored lines
+pin translation, direction, AND spacing consistency in one stroke — the step
+implied by the two anchors must come out to exactly +-YARD_LINE_SPACING_M,
+which is violated precisely when a line is missing, spurious, or over-merged.
+This is still "one-time per game" for the human (the tripod shares one camera
+centre across the half); they name two lines instead of one. The yard-range
+prior remains a VALIDATOR only: it may reject a labeling, never choose one.
+
+v3 first shipped with the step check applied only to the SPAN BETWEEN the two
+anchors, plus a candidate over-merge guard inside detect_accumulated_lines.
+Both were measured unsound:
+- A missing/spurious/over-merged line OUTSIDE the anchor span was invisible
+  to the between-anchor step check (measured: 5 lines with the 4th absent,
+  anchors on the two adjacent inner lines, returned a labeling whose last
+  entry was wrong by a full spacing — no error raised).
+- Two candidate over-merge guards were tried inside detect_accumulated_lines
+  (a between-merged-group gap check, then a within-group residual-spread
+  check) and both were measured unsound: the gap check is structurally blind
+  to lines closer than merge_tol_px (they fuse into one group during
+  clustering before any between-group gap exists to inspect), and the
+  residual-spread check has no safe threshold — calibrated at
+  merge_tol_px/5 it false-positives on legitimate paint >= 7 px thick
+  (measured std 2.46 px) while silently missing over-merges of lines
+  <= 4 px apart (measured std 2.00 px), which are exactly the distant,
+  compressed lines that actually over-merge in an endzone view.
+
+v3.1 (current): the anchors are now required to be the OUTERMOST two detected
+lines, which makes the step check span every line, not just the interval
+between the anchors — a missing/spurious/over-merged line anywhere now breaks
+it. This also subsumes the over-merge guard: over-merging reduces the line
+COUNT by one, so the implied step becomes (N)/(N-1) of a spacing and the
++-0.05 m step check fires. That is a count invariant, independent of paint
+thickness and line separation, so detect_accumulated_lines carries no
+over-merge check of its own.
 """
 from __future__ import annotations
 
@@ -79,10 +105,16 @@ def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
 
     HoughLinesP returns many collinear fragments per painted line (more so where
     a cable breaks it), so fragments are grouped by orientation + perpendicular
-    offset and each group is refit to a single spanning segment. After merging,
-    raises if the smallest surviving gap is not comfortably larger than
-    merge_tol_px — over-merging (two distinct lines fused into one) is how a
-    "missing line" appears, and it silently shifts every later label."""
+    offset and each group is refit to a single spanning segment.
+
+    Deliberately NO over-merge guard here: two candidates were measured unsound
+    (see the module docstring) — a between-group gap check is structurally
+    blind to lines closer than merge_tol_px, and a within-group residual-spread
+    check has no safe threshold, false-positiving on thick legitimate paint
+    while missing over-merges of lines just a few px apart. Over-merging is
+    instead caught in label_yard_lines as a line-COUNT violation: the outermost
+    two anchors must span exactly len(lines) - 1 steps of YARD_LINE_SPACING_M,
+    and a merge changes that count."""
     mask = (np.asarray(votes) >= vote_thresh).astype(np.uint8) * 255
     h, w = mask.shape[:2]
     segs = cv2.HoughLinesP(mask, 1, np.pi / 360, threshold=50,
@@ -111,37 +143,11 @@ def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
             groups.append([s])
             keys.append((nrm, off))
 
-    # Over-merge guard: two physical lines closer together than merge_tol_px
-    # get fused into the SAME group by the clustering loop above, before any
-    # gap ever exists between separate groups for a between-group check to
-    # see — a gap check on the final `merged` list is structurally blind to
-    # this (verified empirically: two lines 6 px apart with the default
-    # merge_tol_px=12 collapse into one group, leaving only the huge gap to
-    # the next, unrelated line for a between-group check to inspect). Instead
-    # check the perpendicular residual SPREAD of the raw points *within* each
-    # group against its own best-fit line: genuine fragments of one physical
-    # line cluster tightly around that fit (observed std ~1.4 px for a 3 px
-    # thick painted line broken by a cable gap); two distinct lines fused
-    # together leave two offset clusters, roughly doubling that std (observed
-    # 3.0 px for two 1-px lines 6 px apart). The threshold is scaled off
-    # merge_tol_px so it stays meaningful if the caller changes it.
     merged: list[YardLineSeg] = []
     for g in groups:
         pts = np.array([p for s in g for p in (s.p0, s.p1)], float)
         mean = pts.mean(axis=0)
         direction = np.linalg.svd(pts - mean)[2][0]
-        normal = np.array([-direction[1], direction[0]])
-        perp = (pts - mean) @ normal
-        residual_std = float(perp.std())
-        spread_limit = merge_tol_px / 5.0
-        if residual_std > spread_limit:
-            raise CalibrationError(
-                f"endzone field fit: a merged line's points spread "
-                f"{residual_std:.1f} px (std) perpendicular to its own best "
-                f"fit, above the {spread_limit:.1f} px limit ({merge_tol_px} "
-                "merge_tol_px / 5) — two distinct lines were probably fused "
-                "into one, which would silently shift every later label. "
-                "Lower merge_tol_px or raise vote_thresh.")
         ts = (pts - mean) @ direction
         merged.append(YardLineSeg(tuple(mean + ts.min() * direction),
                                   tuple(mean + ts.max() * direction)))
@@ -206,6 +212,17 @@ def label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]:
             "name two distinct yard lines.")
 
     r0, r1 = rank_of[idxs[0]], rank_of[idxs[1]]
+    # The anchors MUST be the outermost detected lines. The step check below
+    # only constrains the span BETWEEN them, so anchoring inner lines leaves a
+    # missing/spurious/over-merged line outside that span silently mislabelled
+    # by a full spacing. Spanning every line makes the check global — and makes
+    # a separate over-merge guard unnecessary, since a merge changes the count.
+    if abs(r1 - r0) != len(lines) - 1:
+        raise CalibrationError(
+            f"endzone field fit: the two anchors span {abs(r1 - r0) + 1} of "
+            f"{len(lines)} detected lines. Anchor the OUTERMOST two lines, so "
+            "the spacing check covers every line; otherwise a missing or "
+            "spurious line outside the span is silently mislabelled.")
     x0, x1 = float(anchors[0][1]), float(anchors[1][1])
     step = (x1 - x0) / (r1 - r0)
     if abs(abs(step) - YARD_LINE_SPACING_M) > 0.05:

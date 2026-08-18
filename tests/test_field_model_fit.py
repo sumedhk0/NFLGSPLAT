@@ -48,6 +48,17 @@ def test_missing_line_fails_loud():
         fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
 
 
+def test_outermost_rule_catches_a_missing_line_outside_the_anchor_span():
+    """Reviewer's exact repro: with the 4th of 5 lines absent, anchoring the
+    two adjacent INNER lines used to silently mislabel the last line by a full
+    spacing, because the step BETWEEN those two anchors is locally correct
+    (they really are adjacent) — only the span outside them is wrong. Must
+    now raise instead of returning a wrong labeling."""
+    lines = _horiz([100, 150, 200, 300])          # the y=250 line is absent
+    with pytest.raises(CalibrationError, match="(?i)outermost"):
+        fmf.label_yard_lines(lines, anchors=_anchors(150, -13.716, 200, -9.144))
+
+
 def test_anchor_far_from_every_line_fails_loud():
     lines = _horiz([100, 150, 200])
     with pytest.raises(CalibrationError, match="anchor"):
@@ -69,6 +80,22 @@ def test_anchor_off_the_yard_grid_fails_loud():
 def test_missing_anchors_fails_loud():
     with pytest.raises(CalibrationError, match="anchor"):
         fmf.label_yard_lines(_horiz([100, 150]), anchors=None)
+
+
+def test_coincident_offsets_fail_loud():
+    """Two lines at an identical offset means merging upstream failed."""
+    lines = _horiz([100, 100, 200])        # first two lines exactly coincide
+    with pytest.raises(CalibrationError, match="coincident"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -9.144, 200, 0.0))
+
+
+def test_labels_outside_painted_field_fail_loud():
+    lines = _horiz([100 + 50 * k for k in range(8)])
+    # Outermost anchors, internally consistent spacing, but centred far from
+    # the field (multiples 9..16 of the yard-line spacing).
+    anchors = _anchors(100, 9 * S, 450, 16 * S)
+    with pytest.raises(CalibrationError, match="painted field"):
+        fmf.label_yard_lines(lines, anchors=anchors)
 
 
 def test_prior_is_validator_only():
@@ -99,15 +126,15 @@ def test_near_vertical_lines_also_label():
     assert np.allclose(xs, [-9.144, -4.572, 0.0], atol=1e-6)
 
 
-def test_detect_merges_fragments_and_rejects_over_merge():
+def test_detect_merges_fragments_across_a_cable_gap():
+    """One physical line, painted with a cable gap in it, must yield ONE
+    segment, not many fragments. detect_accumulated_lines deliberately carries
+    no over-merge guard (both tried variants were measured unsound — see the
+    module docstring); over-merging is instead caught in label_yard_lines as
+    a line-count violation via the outermost-anchor rule, exercised above."""
     votes = np.zeros((300, 400), np.float32)
     for y in (80, 160, 240):
         cv2.line(votes, (10, y), (390, y), 1.0, 3)
         cv2.line(votes, (200, y), (240, y), 0.0, 5)      # cable gap
-    assert len(fmf.detect_accumulated_lines(votes)) == 3
-    # two lines closer than the merge tolerance must fail loud, not silently fuse
-    tight = np.zeros((300, 400), np.float32)
-    for y in (80, 86, 240):
-        cv2.line(tight, (10, y), (390, y), 1.0, 1)
-    with pytest.raises(CalibrationError, match="merge"):
-        fmf.detect_accumulated_lines(tight)
+    lines = fmf.detect_accumulated_lines(votes)
+    assert len(lines) == 3, f"expected 3 merged lines, got {len(lines)}"
