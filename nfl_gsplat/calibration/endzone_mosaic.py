@@ -202,7 +202,95 @@ def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
     return np.where(seen >= min_support, ratio, 0.0).astype(np.float32)
 
 
-def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
+from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
+
+
+def _refine_reference_camera(world, uv, K, R, t, line_constraints=None):
+    """Least-squares refinement of (focal, rotation, centre) on the points.
+
+    homography_to_krt recovers the focal by ENFORCING that the plane's two
+    world axes come out orthonormal. At a narrow field of view that constraint
+    is weakly determined, so noise in a fitted H swings the resulting camera
+    far away from the fit H itself describes -- measured on SEA@AZ play_001
+    (about 6 degrees horizontal FOV): the homography reprojects its own
+    correspondences at 1.9 px while the camera decomposed from it reprojects
+    them at 253 px, because the world-X column of H flipped sign under the
+    orthonormality projection. Both were 'valid' cameras; only one fits.
+
+    So the decomposition is an INITIALISATION and this is the estimate: it
+    minimises reprojection under exactly the camera model the caller assumes
+    (square pixels, principal point fixed where homography_to_krt put it),
+    which is the quantity the rms gate below then judges. A soft_l1 loss keeps
+    a handful of mis-snapped hash marks from dragging the fit."""
+    from scipy.optimize import least_squares
+
+    cx, cy = float(K[0, 2]), float(K[1, 2])
+    WIDE, TALL = 2.0 * cx, 2.0 * cy
+    centre = -R.T @ t
+    rvec, _ = cv2.Rodrigues(R)
+    p0 = np.concatenate([[float(K[0, 0])], rvec.ravel(), centre])
+
+    # Every point correspondence sits on one of the two hash rows, a strip
+    # only 2*HASH_OFFSET_M wide. That barely constrains rotation about the
+    # field's long axis: measured on play_001, two rotations 0.29 deg apart
+    # both fit the marks at ~2 px, and at f~19000 that is 96 px on the field.
+    # The yard lines span the whole visible width and break the tie -- as LINE
+    # constraints, since where a point falls ALONG a yard line is unknown (and
+    # feeding their intersections as points instead imports their tilt error,
+    # which is the least-determined thing in this view).
+    spans = []
+    if line_constraints:
+        for world_x, line in line_constraints:
+            # Sample only across the span the camera can actually SEE, not the
+            # full field width: a zoomed endzone view covers ~14 m of it, so
+            # sampling +-HALF_WIDTH_M puts most points far outside the frame
+            # where the point-to-line residual is meaningless and swamps the
+            # real ones (measured: it moved a correct solve 99 px off).
+            ys = np.linspace(-3.0 * HASH_OFFSET_M, 3.0 * HASH_OFFSET_M, 25)
+            pts = np.column_stack([np.full_like(ys, float(world_x)), ys,
+                                   np.zeros_like(ys)])
+            spans.append((pts, np.asarray(line, float)))
+
+    def residual(p):
+        rot, _ = cv2.Rodrigues(p[1:4])
+        centre = p[4:7]
+        cam = world @ rot.T + (-rot @ centre)
+        z = np.where(np.abs(cam[:, 2]) < 1e-6, 1e-6, cam[:, 2])
+        out = [p[0] * cam[:, 0] / z + cx - uv[:, 0],
+               p[0] * cam[:, 1] / z + cy - uv[:, 1]]
+        for pts, line in spans:
+            c = pts @ rot.T + (-rot @ centre)
+            zz = np.where(np.abs(c[:, 2]) < 1e-6, 1e-6, c[:, 2])
+            u_ = p[0] * c[:, 0] / zz + cx
+            v_ = p[0] * c[:, 1] / zz + cy
+            # and drop any sample that still lands off-sensor
+            usable = ((c[:, 2] > 1e-6) & (u_ > -0.25 * WIDE) & (u_ < 1.25 * WIDE)
+                      & (v_ > -0.25 * TALL) & (v_ < 1.25 * TALL))
+            d = line[0] * u_ + line[1] * v_ + line[2]
+            out.append(np.where(usable, d, 0.0))
+        return np.concatenate(out)
+
+    # TWO stages. A robust loss alone cannot be used for the first: the yard
+    # line constraints exist precisely to pull the fit out of a wrong basin,
+    # and they start there at ~99 px -- which soft_l1 with a 3 px scale
+    # dismisses as outliers, leaving the solve stuck exactly where it needs
+    # moving from (measured: identical wrong camera with and without the line
+    # constraints). So fit once with a plain quadratic loss to find the basin,
+    # then refine robustly to shed genuinely mis-snapped marks.
+    sol = least_squares(residual, p0, max_nfev=500)
+    if np.isfinite(sol.x).all() and sol.x[0] > 0:
+        p0 = sol.x
+    sol = least_squares(residual, p0, loss="soft_l1", f_scale=3.0,
+                        max_nfev=500)
+    if not np.isfinite(sol.x).all() or sol.x[0] <= 0:
+        return K, R, t          # refinement diverged; keep the decomposition
+    rot, _ = cv2.Rodrigues(sol.x[1:4])
+    k_new = np.array([[sol.x[0], 0.0, cx], [0.0, sol.x[0], cy], [0.0, 0.0, 1.0]])
+    return k_new, rot, -rot @ sol.x[4:7]
+
+
+def solve_reference_camera(world_xyz, ref_uv, image_size, prior,
+                           line_constraints=None):
     """One camera for the reference frame from the labelled field lines.
 
     A single view of the z=0 field plane is a HOMOGRAPHY problem, not a
@@ -254,6 +342,8 @@ def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
             f"endzone mosaic: reference view is degenerate for focal recovery "
             f"({e}) — the accumulated lines are nearly all parallel in the "
             "image; sample frames with more pan/zoom spread.") from e
+    K, R, t = _refine_reference_camera(world, uv, K, R, t,
+                                       line_constraints=line_constraints)
     C = -R.T @ t
 
     (xlo, xhi), (ylo, yhi), (zlo, zhi) = prior.center_bounds
@@ -337,6 +427,10 @@ def propagate(H_by_frame, ref_cam, n_frames: int, *,
     C = np.asarray(ref_cam.pose.center_world(), np.float64)
     M_ref = ref_cam.intrinsics.K() @ ref_cam.pose.R
     w, h = ref_cam.intrinsics.width, ref_cam.intrinsics.height
+    cx, cy = float(ref_cam.intrinsics.cx), float(ref_cam.intrinsics.cy)
+    K_pp = np.array([[1.0, 0.0, cx], [0.0, 1.0, cy], [0.0, 0.0, 1.0]])
+    cx, cy = float(ref_cam.intrinsics.cx), float(ref_cam.intrinsics.cy)
+    K_pp = np.array([[1.0, 0.0, cx], [0.0, 1.0, cy], [0.0, 0.0, 1.0]])
     alo, ahi = aspect_range
     out: list = [None] * n_frames
     n_sampled = len(H_by_frame)
@@ -345,34 +439,38 @@ def propagate(H_by_frame, ref_cam, n_frames: int, *,
         if not (0 <= t < n_frames):
             continue
         M = np.linalg.inv(H) @ M_ref                 # = K_t R_t
-        # H (and so M) is only defined up to an arbitrary nonzero homogeneous
-        # scale, so det(M) < 0 just means that scale came out negative here --
-        # NOT that the frame camera is a reflection. Normalise BEFORE
-        # decomposing: negating a 3x3 flips its determinant, so this picks the
-        # positive-scale representative and _rq3 (which always returns a
-        # positive-diagonal K) is then guaranteed det(R) > 0. multiplying K by
-        # diag(-1,-1,1) AFTER decomposition cannot fix a wrong det(R) --
-        # det(diag(-1,-1,1)) = +1, so it cannot flip sign(det(R)); it can only
-        # corrupt K's focal signs, which is the bug this replaces.
-        if np.linalg.det(M) < 0:
-            M = -M
-        # RQ-decompose M into upper-triangular K and rotation R.
-        K, R = _rq3(M)
-        if K[2, 2] == 0:
+        # A tripod camera's principal point CANNOT move -- it is fixed by the
+        # sensor. Decomposing M with a general RQ lets the principal point
+        # float and absorb registration noise instead, which is not a harmless
+        # reparametrisation: measured on SEA@AZ play_001 it wandered to
+        # (-286, -945) on a 1920x1080 frame, and even the REFERENCE frame,
+        # where H is the identity and the answer must come back unchanged,
+        # came out shifted 168 px with its yard-line spacing still correct --
+        # the signature of a moved principal point.
+        #
+        # So the principal point is HELD at the reference's, and only the
+        # focal and the rotation are recovered:
+        #     K_pp^-1 M = diag(fx, fy, 1) R
+        # whose third row is R's third row (unit norm, which fixes the
+        # homogeneous scale) and whose first two rows are the focals times R's
+        # first two. That is the same pinhole model the reference camera was
+        # solved under, so the propagated frames stay comparable to it.
+        n_mat = np.linalg.solve(K_pp, M)
+        scale = float(np.linalg.norm(n_mat[2]))
+        if not np.isfinite(scale) or scale < 1e-12:
             dropped += 1
             continue
-        K = K / K[2, 2]
-        if np.linalg.det(R) < 0:
-            raise CalibrationError(
-                f"endzone mosaic: frame {t} decomposed to a reflection "
-                "(det R < 0) — the homography or the reference camera is "
-                "inconsistent; this must not be silently accepted.")
-        fx, fy = float(K[0, 0]), float(K[1, 1])
+        n_mat = n_mat / scale
+        fx = float(np.linalg.norm(n_mat[0]))
+        fy = float(np.linalg.norm(n_mat[1]))
+        if not (np.isfinite(fx) and np.isfinite(fy)) or fx <= 0 or fy <= 0:
+            dropped += 1
+            continue
         # Sanity gate -- see the docstring. Anything outside the unit-aspect
         # pinhole model used everywhere else in this repo, or (if the
         # operator supplied a focal_range) outside their own declared focal
         # range, is dropped rather than emitted.
-        if fy == 0 or not (alo <= fx / fy <= ahi):
+        if not (alo <= fx / fy <= ahi):
             dropped += 1
             continue
         if focal_range is not None:
@@ -380,8 +478,23 @@ def propagate(H_by_frame, ref_cam, n_frames: int, *,
             if not (flo <= fx <= fhi):
                 dropped += 1
                 continue
+        focal = 0.5 * (fx + fy)
+        approx = np.vstack([n_mat[0] / focal, n_mat[1] / focal, n_mat[2]])
+        # M is defined only up to a nonzero homogeneous scale, so the sign is
+        # still free; exactly one choice is a rotation rather than a
+        # reflection. Negating all three rows flips det for a 3x3, so this
+        # cannot fail to find it.
+        if np.linalg.det(approx) < 0:
+            approx = -approx
+        u_mat, _sv, vt = np.linalg.svd(approx)
+        R = u_mat @ vt
+        if np.linalg.det(R) < 0:
+            raise CalibrationError(
+                f"endzone mosaic: frame {t} decomposed to a reflection "
+                "(det R < 0) - the homography or the reference camera is "
+                "inconsistent; this must not be silently accepted.")
         out[t] = CalibrationResult(
-            intrinsics=CameraIntrinsics(fx, fy, float(K[0, 2]), float(K[1, 2]), w, h),
+            intrinsics=CameraIntrinsics(focal, focal, cx, cy, w, h),
             pose=CameraPose(R=R, t=-R @ C),
             rms_px=0.0, num_correspondences=0,
             refined_with_ba=False)

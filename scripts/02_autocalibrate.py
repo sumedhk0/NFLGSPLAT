@@ -69,6 +69,11 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
                   "the sampled frame with the largest field extent (mosaic-endzone "
                   "mode) — the operator's recovery lever if auto-pick clips yard "
                   "lines at the image border."),
+         max_gap: int | None = typer.Option(None, "--max-gap",
+             help="Longest run of consecutive uncalibrated frames tolerated "
+                  "inside the mosaic-endzone track (default: 3x --stride). "
+                  "Raise it only when the uncovered span is understood: a "
+                  "fast pan can break the pure-rotation model outright."),
          diag_dir: str | None = typer.Option(None, "--diag-dir",
              help="Directory for the first-run mosaic diagnostic PNG (mosaic-endzone "
                   "mode); default <play_dir>."),
@@ -115,7 +120,7 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
             fps=meta.fps, anchors=anchors, stride=stride, ref_frame=ref_frame,
-            diag_dir=diag_dir,
+            max_gap=max_gap, diag_dir=diag_dir,
             prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
                                tuple(ep["z_range"]), tuple(ep["focal_range"])))
     elif mode is CalibMode.cross_endzone:

@@ -828,14 +828,36 @@ def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True,
         return np.stack([right, down, fwd])
 
     N = 12
-    wh = (1200, 675)
-    C_true = np.array([-130.0, 0.0, 50.0])           # inside the prior box below
-    R = look_at(C_true, [-27.0, 0.0, 0.0])
+    # Real sensor size on purpose. The nine yard lines must span most of the
+    # frame while the 1-yard hash marks stay separable, and those two pull
+    # against each other: the span is 40 mark-pitches, so a 675-px frame caps
+    # mark spacing near 16 px and blur then merges adjacent marks into single
+    # components whose centroid lands between grid points (measured: 7.5 px
+    # spacing, 0.32 m snap error against a 0.457 m ambiguity limit). play_001
+    # resolves them at 21.8 px because it is 1920x1080.
+    wh = (1920, 1080)
+    # Position and zoom are set so a real 2-ft (0.6096 m) hash mark actually
+    # RESOLVES: detect_hash_columns needs marks of at least min_dash_px, and
+    # the scene must earn that honestly rather than by shrinking the detector.
+    # Here the cross-field scale is ~36 px/m, so a mark spans ~22 px and the
+    # two rows sit ~202 px apart -- a separation/length ratio of ~9.2 against
+    # the 9.25 the detector checks for.
+    # OFF the centre line on purpose. A camera at exactly Y=0 makes the scene
+    # perfectly mirror-symmetric -- the hash rows are symmetric by definition
+    # and the yard lines project with symmetric tilts -- so which row is +Y is
+    # genuinely undecidable and the driver rightly refuses it. Real mounts are
+    # never exactly centred (play_001's solves to Y=1.6 m).
+    C_true = np.array([-70.0, 2.5, 20.0])            # inside the prior box below
+    # Aim and zoom chosen so all NINE painted lines stay on the sensor at both
+    # ends of the zoom (rows ~139..647 of 675). The nearest line is the one at
+    # risk: aimed farther downfield it projected to v=780 on a 675-px frame,
+    # so it was never detected and its anchor had no line to match.
+    R = look_at(C_true, [-30.0, 0.0, 0.0])
     t = -R @ C_true
     ref_frame = 6
 
     def fx_at(fr):
-        return 1050.0 + (150.0 / (N - 1)) * fr        # gentle zoom, stays in prior.focal_range
+        return 1840.0 + (320.0 / (N - 1)) * fr        # gentle zoom, stays in prior.focal_range
 
     X_lines = [-45.72 + 4.572 * k for k in range(9)]  # 9 real yard lines, 5 yd/4.572m apart
 
@@ -847,7 +869,7 @@ def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True,
     # texture, not just the lines) is exactly consistent with a single
     # tripod camera -- exactly what register_to_reference assumes.
     rng = np.random.default_rng(0)
-    mpp = 0.1
+    mpp = 0.05
     Xmin, Xmax, Ymin, Ymax = -60.0, 5.0, -32.0, 32.0
     Wpx, Hpx = int((Xmax - Xmin) / mpp), int((Ymax - Ymin) / mpp)
     # (40, 90, 60): B != R (deliberately asymmetric) -- lets a spy tell BGR
@@ -869,7 +891,9 @@ def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True,
         cx_, cy_ = int(rng.integers(0, Wpx)), int(rng.integers(0, Hpx))
         shade = int(rng.integers(-30, 30))
         color = tuple(int(np.clip(c + shade, 0, 255)) for c in BASE_BGR)
-        cv2.circle(world_tex, (cx_, cy_), int(rng.integers(2, 6)), color, -1)
+        # radius in METRES, so halving mpp does not shrink the SIFT texture
+        cv2.circle(world_tex, (cx_, cy_),
+                   int(rng.integers(2, 6) * (0.1 / mpp)), color, -1)
 
     def w2px(X, Y):
         return ((X - Xmin) / mpp, (Y - Ymin) / mpp)
@@ -877,6 +901,52 @@ def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True,
         px, _ = w2px(X, 0.0)
         _, py0 = w2px(X, -HALF_WIDTH_M); _, py1 = w2px(X, HALF_WIDTH_M)
         cv2.line(world_tex, (int(px), int(py0)), (int(px), int(py1)), (255, 255, 255), 4)
+
+    # Hash marks: two rows at Y = +-HASH_OFFSET_M, one mark per YARD along the
+    # field, each HASH_MARK_LEN_M long and painted PARALLEL to the yard lines
+    # (which is why an orientation filter cannot separate the two families --
+    # only length can). These are what make the cross-field scale observable;
+    # without them the yard lines are all mutually parallel and 3 DOF of the
+    # homography are unconstrained.
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
+    from nfl_gsplat.calibration.field_model_fit import (HASH_MARK_LEN_M,
+                                                        HASH_MARK_PITCH_M)
+    # Marks sit on multiples of HASH_MARK_PITCH_M from MIDFIELD, sharing an
+    # origin with the yard lines (which are multiples of 5 yards) exactly as a
+    # real field does. Phasing them from Xmin instead put them 0.56 m off that
+    # grid, and the driver -- which correctly snaps to the real grid -- then
+    # carried a systematic 0.35 m error into the solve.
+    half = HASH_MARK_LEN_M / 2.0
+    k_lo = int(np.ceil(Xmin / HASH_MARK_PITCH_M))
+    k_hi = int(np.floor(Xmax / HASH_MARK_PITCH_M))
+    for sgn in (-1.0, +1.0):
+        Yh = sgn * HASH_OFFSET_M
+        for k_m in range(k_lo, k_hi + 1):
+            Xm = k_m * HASH_MARK_PITCH_M
+            pxm, py_a = w2px(Xm, Yh - half)
+            _, py_b = w2px(Xm, Yh + half)
+            cv2.line(world_tex, (int(pxm), int(py_a)), (int(pxm), int(py_b)),
+                     (255, 255, 255), 2)
+
+    # Hash marks: two rows at Y = +-HASH_OFFSET_M, one mark per YARD along the
+    # field, each HASH_MARK_LEN_M long and painted PARALLEL to the yard lines
+    # (which is why an orientation filter cannot separate the two families --
+    # only length can). These are what make the cross-field scale observable;
+    # without them the yard lines are all mutually parallel and 3 DOF of the
+    # homography are unconstrained.
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
+    from nfl_gsplat.calibration.field_model_fit import (HASH_MARK_LEN_M,
+                                                        HASH_MARK_PITCH_M)
+    half = HASH_MARK_LEN_M / 2.0
+    n_marks = int((Xmax - Xmin) / HASH_MARK_PITCH_M)
+    for sgn in (-1.0, +1.0):
+        Yh = sgn * HASH_OFFSET_M
+        for i in range(n_marks):
+            Xm = Xmin + i * HASH_MARK_PITCH_M
+            pxm, py_a = w2px(Xm, Yh - half)
+            _, py_b = w2px(Xm, Yh + half)
+            cv2.line(world_tex, (int(pxm), int(py_a)), (int(pxm), int(py_b)),
+                     (255, 255, 255), 2)
 
     M_px_to_world = np.array([[mpp, 0, Xmin], [0, mpp, Ymin], [0, 0, 1]])
 
@@ -931,7 +1001,7 @@ def test_build_endzone_mosaic_writes_endzone_track(tmp_path, monkeypatch):
               ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), X_lines[-1]))
 
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(10, 60), focal_range=(400, 2000))
+                         z_range=(10, 60), focal_range=(400, 3000))
 
     # Spy on the frames dict the driver hands to register_to_reference: this
     # is the actual load-bearing proof that iter_frames' RGB is converted to
@@ -996,7 +1066,15 @@ def test_build_endzone_mosaic_writes_endzone_track(tmp_path, monkeypatch):
         true_uv = project_points(test_pt, K_by_frame[fr], R, t)[0]
         rec_uv = project_points(test_pt, intr.K(), pose.R, pose.t)[0]
         errs.append(float(np.linalg.norm(true_uv - rec_uv)))
-    assert np.mean(errs) < 1.5, f"propagated per-frame cameras reproject off-target: {errs}"
+    # MAX, not mean: the frames nearest the reference are insensitive to a
+    # broken per-frame decomposition (there H ~ I, so inv(H) ~ H) and averaging
+    # them in dilutes the signal. Measured on this scene -- correct: max 2.26 px;
+    # with propagate's inv(H) flipped to H: max 6.94 px. The old 1.5 px mean was
+    # calibrated when correspondences were the yard lines' ENDPOINTS, which this
+    # synthetic field satisfied EXACTLY; they now come from hash marks detected
+    # in an accumulated mosaic, which is legitimately noisier (real play_001
+    # reprojects its yard lines at 1.02 px mean / 2.72 px max).
+    assert max(errs) < 3.0, f"propagated per-frame cameras reproject off-target: {errs}"
 
 
 def test_build_endzone_mosaic_no_anchor_dumps_diag_and_fails_loud(tmp_path, monkeypatch):
@@ -1022,7 +1100,7 @@ def test_build_endzone_mosaic_no_anchor_dumps_diag_and_fails_loud(tmp_path, monk
                         lambda p: SimpleNamespace(width=scene.wh[0], height=scene.wh[1],
                                                   num_frames=scene.N, fps=30.0))
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(10, 60), focal_range=(400, 2000))
+                         z_range=(10, 60), focal_range=(400, 3000))
     diag_dir = tmp_path / "diag"
     with pytest.raises(SetupError, match="OUTERMOST TWO"):
         build_endzone_mosaic(
@@ -1070,7 +1148,7 @@ def test_build_endzone_mosaic_works_without_player_uid(tmp_path, monkeypatch):
     anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), X_lines[0]),
               ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), X_lines[-1]))
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(10, 60), focal_range=(400, 2000))
+                         z_range=(10, 60), focal_range=(400, 3000))
 
     out = build_endzone_mosaic(
         play_dir=pdir, tracks_path=pdir / "tracks.parquet",
@@ -1128,7 +1206,7 @@ def test_build_endzone_mosaic_honours_explicit_ref_frame(tmp_path, monkeypatch):
     anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), X_lines[0]),
               ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), X_lines[-1]))
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(10, 60), focal_range=(400, 2000))
+                         z_range=(10, 60), focal_range=(400, 3000))
 
     captured = _spy_ref_idx(monkeypatch, em_mod)
 
@@ -1173,7 +1251,7 @@ def test_build_endzone_mosaic_defaults_to_median_sampled_index(tmp_path, monkeyp
     anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), X_lines[0]),
               ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), X_lines[-1]))
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(10, 60), focal_range=(400, 2000))
+                         z_range=(10, 60), focal_range=(400, 3000))
 
     captured = _spy_ref_idx(monkeypatch, em_mod)
 
@@ -1203,7 +1281,7 @@ def test_build_endzone_mosaic_rejects_z_range_spanning_zero(tmp_path, monkeypatc
                         lambda p: SimpleNamespace(width=scene.wh[0], height=scene.wh[1],
                                                   num_frames=scene.N, fps=30.0))
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(-10, 60), focal_range=(400, 2000))   # spans zero
+                         z_range=(-10, 60), focal_range=(400, 3000))   # spans zero
     with pytest.raises(SetupError, match="mirror"):
         build_endzone_mosaic(
             play_dir=pdir, tracks_path=pdir / "tracks.parquet",
@@ -1230,7 +1308,7 @@ def test_build_endzone_mosaic_no_endzone_boxes_fails_loud(tmp_path, monkeypatch)
                         lambda p: SimpleNamespace(width=scene.wh[0], height=scene.wh[1],
                                                   num_frames=scene.N, fps=30.0))
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(10, 60), focal_range=(400, 2000))
+                         z_range=(10, 60), focal_range=(400, 3000))
     with pytest.raises(SetupError, match="03b_detect_players"):
         build_endzone_mosaic(
             play_dir=pdir, tracks_path=pdir / "tracks.parquet",
@@ -1256,7 +1334,7 @@ def test_build_endzone_mosaic_diag_dir_defaults_to_play_dir(tmp_path, monkeypatc
                         lambda p: SimpleNamespace(width=scene.wh[0], height=scene.wh[1],
                                                   num_frames=scene.N, fps=30.0))
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
-                         z_range=(10, 60), focal_range=(400, 2000))
+                         z_range=(10, 60), focal_range=(400, 3000))
     with pytest.raises(SetupError, match="OUTERMOST TWO"):
         build_endzone_mosaic(
             play_dir=pdir, tracks_path=pdir / "tracks.parquet",

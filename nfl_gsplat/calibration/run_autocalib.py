@@ -73,7 +73,8 @@ def _check_ckpt_classes(ckpt_classes, schema_names):
         )
 
 
-def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> CameraTrack:
+def assemble_track_from_results(results, *, width, height, max_gap: int = 5,
+                                smooth: bool = True) -> CameraTrack:
     """Stack per-frame CalibrationResults (None = gap) into a CameraTrack.
 
     Interior short gaps (<= max_gap consecutive) are linearly interpolated.
@@ -81,7 +82,16 @@ def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> 
     nearest valid frame via np.interp, flagged by ``conf=0``.
     A longer interior gap raises CalibrationError naming the range (fail loud).
     After interpolation, K/R/t are smoothed with a 1€ filter to reduce
-    frame-to-frame jitter; R is then re-orthonormalized via SVD."""
+    frame-to-frame jitter; R is then re-orthonormalized via SVD.
+
+    ``smooth=False`` skips that filter. The 1€ filter is CAUSAL -- it is built
+    for real-time use -- so on an offline sequence it lags whatever it follows,
+    by an amount that grows with how fast the camera moves. Callers whose
+    per-frame cameras are already mutually consistent should turn it off:
+    measured on the endzone mosaic path, whose frames are all derived from
+    registration homographies against one reference, smoothing moved the
+    REFERENCE frame's own camera -- which is exact by construction -- from
+    2.72 px of yard-line reprojection error to 99.69 px, purely as pan lag."""
     T = len(results)
     valid = np.array([r is not None for r in results])
     if not valid.any():
@@ -105,11 +115,13 @@ def assemble_track_from_results(results, *, width, height, max_gap: int = 5) -> 
             flat[:, c] = np.interp(idx, vi, flat[vi, c])
         return flat.reshape(stack.shape)
     K, R, t = _interp(K), _interp(R), _interp(t)
-    from nfl_gsplat.pose.temporal_smooth import OneEuroConfig, smooth_param_sequence
-    sm = OneEuroConfig()
-    K = smooth_param_sequence(K.reshape(T, 9), sm).reshape(T, 3, 3)
-    R = smooth_param_sequence(R.reshape(T, 9), sm).reshape(T, 3, 3)
-    t = smooth_param_sequence(t, sm)
+    if smooth:
+        from nfl_gsplat.pose.temporal_smooth import (OneEuroConfig,
+                                                     smooth_param_sequence)
+        sm = OneEuroConfig()
+        K = smooth_param_sequence(K.reshape(T, 9), sm).reshape(T, 3, 3)
+        R = smooth_param_sequence(R.reshape(T, 9), sm).reshape(T, 3, 3)
+        t = smooth_param_sequence(t, sm)
     for i in range(T):
         U, _, Vt = np.linalg.svd(R[i]); R[i] = U @ Vt
     return CameraTrack(K=K, R=R, t=t, conf=conf, width=width, height=height)
@@ -612,6 +624,7 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
                          fps, prior, anchors=None, stride: int = 6,
                          ref_frame=None, sideline_cam: str = "sideline",
                          endzone_cam: str = "endzone",
+                         max_gap: int | None = None,
                          vote_thresh: float = 0.5, min_len_frac: float = 0.25,
                          merge_tol_px: float = 12.0,
                          diag_dir: str | None = None):
@@ -637,10 +650,14 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
 
     from nfl_gsplat.calibration import endzone_mosaic as em
     from nfl_gsplat.calibration.cameras_io import load_camera_track, write_camera_track
-    from nfl_gsplat.calibration.field_landmarks import HALF_WIDTH_M
+    from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
     from nfl_gsplat.calibration.field_model_fit import (
+        HASH_MARK_PITCH_M,
         detect_accumulated_lines,
+        detect_hash_columns,
         label_yard_lines,
+        prune_to_yard_ladder,
+        yard_x_mapper,
     )
     from nfl_gsplat.errors import SetupError
     from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
@@ -750,37 +767,152 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
             yard_range = _sideline_yard_range(df, cams[sideline_cam], cam=sideline_cam)
         except SetupError:
             yard_range = None
-    xs = label_yard_lines(lines, anchors=anchors, yard_range_m=yard_range)
 
-    # Each merged line already spans the visible paint, so its two endpoints are
-    # the correspondences; they sit at the field's edges in world Y. Which
-    # endpoint (p0 or p1) is the +Y sideline vs the -Y one is NOT determined by
-    # this driver: detect_accumulated_lines's per-line merge fits a direction via
-    # SVD (sign only defined up to +-1), so which physical edge becomes "p0" is
-    # an accident of that per-line fit, not a real left/right convention -- and
-    # even a globally-consistent image left<->world Y handedness depends on the
-    # broadcast feed's mount/roll, which this driver has no way to know in
-    # advance. Try both global assignments (they cannot differ per line: the
-    # SVD direction picks the same handedness on every nearly-parallel merged
-    # line here, confirmed empirically) and keep whichever solves -- exactly the
-    # same "try the mirror, keep what's valid" pattern solve_fixed_center uses
-    # for the fused-hash left/right ambiguity (see its `mirrored` return).
+    # A real mosaic carries the odd spurious line, and one is enough to make
+    # the whole set inconsistent, so prune before labelling (measured on
+    # play_001: 8 lines fit at best 16.29 px, dropping the single stray at
+    # 1.9 degrees fits at 0.862 px).
+    lines, ladder_idx, dropped = prune_to_yard_ladder(lines)
+    if dropped:
+        _LOG.warning("endzone mosaic: dropped %d detected line(s) that fit no "
+                    "yard ladder (positions %s)", len(dropped), dropped)
+    xs = label_yard_lines(lines, anchors=anchors, yard_range_m=yard_range,
+                          indices=ladder_idx)
+
+    # The cross-field constraint comes from the HASH ROWS, not from the yard
+    # lines' endpoints. An earlier version mapped each line's two endpoints to
+    # world Y = +-HALF_WIDTH_M, assuming every line spanned sideline to
+    # sideline; measured on play_001 that is false -- six of seven lines end at
+    # x=1919, the IMAGE EDGE, and the camera sees only a ~14 m wide strip, so
+    # those endpoints sit at |Y| ~ 4-10 m. Since yard lines are mutually
+    # parallel, they leave 3 DOF of the homography unobservable and the
+    # endpoints were the only thing supplying them -- wrongly.
+    hash_rows = detect_hash_columns(votes, lines)
+    to_x = yard_x_mapper(lines, ladder_idx, xs)
+
     def _world_uv(swap: bool):
+        """Correspondences from the hash marks plus yard-line intersections.
+
+        Each hash mark is a POINT of known world position: its row fixes Y, and
+        its world X snaps to the 1-yard grid the marks are painted on. They also
+        sample the full visible depth every 0.9144 m, which is what separates
+        focal length from camera distance -- the seven yard lines alone leave
+        that pair nearly degenerate at this field of view.
+
+        Which row is +Y and which is -Y is not knowable here (it depends on the
+        broadcast mount), so both assignments are tried, exactly as the caller
+        already does for the fused-hash left/right ambiguity."""
+        ys = (HASH_OFFSET_M, -HASH_OFFSET_M) if swap else (-HASH_OFFSET_M, HASH_OFFSET_M)
         w, u = [], []
-        for seg, X in zip(lines, xs):
-            ys = (HALF_WIDTH_M, -HALF_WIDTH_M) if swap else (-HALF_WIDTH_M, HALF_WIDTH_M)
-            for (px, py), Y in zip((seg.p0, seg.p1), ys):
-                w.append([X, Y, 0.0])
+        for row, world_y in zip(hash_rows, ys):
+            pts = np.asarray(row.dashes, float).reshape(-1, 2)
+            # Project each centroid onto its own row line: a mark broken by the
+            # vote threshold leaves a centroid displaced along the mark, which
+            # is pure noise across the row.
+            homo = np.column_stack([pts, np.ones(len(pts))])
+            pts = pts - (homo @ row.line)[:, None] * row.line[:2][None, :]
+            # Snap each mark to the 1-yard grid it is painted on. Round about
+            # ZERO, not about the set's own phase: the yard-line labels are
+            # multiples of YARD_LINE_SPACING_M and so already sit on this grid,
+            # and rounding about a fitted phase silently slid the whole dash set
+            # one yard off them -- which fits the marks BETTER on their own
+            # (rms 1.68 px against 2.06) while reprojecting every yard line
+            # 99 px out. The ladder is tied to the operator's anchors and is the
+            # authority for absolute position; the marks must share its grid.
+            raw_x = to_x(pts)
+            gx = np.round(raw_x / HASH_MARK_PITCH_M) * HASH_MARK_PITCH_M
+            # Keep only marks whose YARD is unambiguous. Far down the field the
+            # projected 1-yard pitch shrinks below the accumulation blur, so
+            # neighbouring marks merge and a centroid can land halfway between
+            # two grid positions -- assigning it either way is a coin flip that
+            # injects a half-yard of world error. A residual past a quarter of
+            # the pitch means the assignment is not trustworthy, so the mark is
+            # dropped rather than guessed.
+            trust = np.abs(raw_x - gx) <= 0.25 * HASH_MARK_PITCH_M
+            for keep_it, (px, py), world_x in zip(trust, pts, gx):
+                if not keep_it:
+                    continue
+                w.append([float(world_x), world_y, 0.0])
                 u.append([float(px), float(py)])
+        # Deliberately NOT adding yard-line x hash-row intersections. They look
+        # like free correspondences but they inherit the yard lines' TILT, which
+        # is the least-determined thing in this view: the lines are so nearly
+        # parallel in the image that their vanishing point sits at x ~ 358,000,
+        # so a sub-0.1-degree tilt error swings the intersection far along the
+        # row. Measured on play_001: dashes alone solve to f=19006 and reproject
+        # every yard line within 2.72 px, while adding the 14 intersections
+        # pulls it to f=17864 and 97 px. The yard lines still enter through the
+        # ladder that gives each dash its world X, and are then free to serve as
+        # an independent check.
         return w, u
 
-    try:
-        ref_cam = em.solve_reference_camera(*_world_uv(False), image_size, prior)
-    except CalibrationError as e_first:
+    # each labelled yard line, as a normalised image line, for the refinement
+    yard_constraints = []
+    for seg, world_x in zip(lines, xs):
+        ln = np.cross([seg.p0[0], seg.p0[1], 1.0], [seg.p1[0], seg.p1[1], 1.0])
+        n = float(np.hypot(ln[0], ln[1]))
+        if n > 1e-9:
+            yard_constraints.append((float(world_x), ln / n))
+
+    def _yard_line_error(cam):
+        """Mean distance from each labelled yard line to where it reprojects.
+
+        The hash marks alone cannot choose between the two orientations -- they
+        are symmetric about the field's centre line, so the mirror fits them
+        just as well and lands inside a symmetric y_range prior. The yard lines
+        are NOT symmetric in the frame, so they separate the two decisively
+        (measured on play_001: 2.7 px for the true orientation against 99 px
+        for its mirror)."""
+        k = cam.intrinsics.K()
+        rot, tvec = cam.pose.R, cam.pose.t
+        errs = []
+        for (world_x, line) in yard_constraints:
+            ys = np.linspace(-3.0 * HASH_OFFSET_M, 3.0 * HASH_OFFSET_M, 25)
+            pts = np.column_stack([np.full_like(ys, world_x), ys,
+                                   np.zeros_like(ys)])
+            cam_pts = (rot @ pts.T + tvec[:, None]).T
+            ok = cam_pts[:, 2] > 1e-6
+            if not ok.any():
+                continue
+            uvw = (k @ cam_pts[ok].T).T
+            uv2 = uvw[:, :2] / uvw[:, 2:3]
+            errs.append(np.abs(uv2 @ line[:2] + line[2]))
+        return float(np.mean(np.concatenate(errs))) if errs else float("inf")
+
+    # Solve BOTH orientations and keep the better one, rather than the first
+    # that happens to satisfy the prior box: the box cannot tell them apart,
+    # since mirroring the hash rows mirrors the camera in Y and a y_range
+    # centred on the field admits both.
+    candidates, failures = [], []
+    for swap in (False, True):
         try:
-            ref_cam = em.solve_reference_camera(*_world_uv(True), image_size, prior)
-        except CalibrationError:
-            raise e_first from None
+            # yard_constraints are used to SCORE the two orientations below,
+            # not to drive the fit. Folding them into the refinement was
+            # measured to make things worse, not better: they contribute ~175
+            # residuals against the marks' 72, so they dominate the objective
+            # and dragged a solve that reprojects the yard lines at 2.7 px out
+            # to 99 px. The marks alone fit well; the lines are the referee.
+            cand = em.solve_reference_camera(*_world_uv(swap), image_size, prior)
+        except CalibrationError as exc:
+            failures.append(f"  rows {'mirrored' if swap else 'as detected'}: {exc}")
+            continue
+        candidates.append((_yard_line_error(cand), swap, cand))
+    if not candidates:
+        raise CalibrationError(
+            "endzone mosaic: neither hash-row orientation solved.\n"
+            + "\n".join(failures))
+    candidates.sort(key=lambda c: c[0])
+    best_err, best_swap, ref_cam = candidates[0]
+    if len(candidates) == 2 and candidates[1][0] < 3.0 * best_err:
+        raise CalibrationError(
+            "endzone mosaic: the two hash-row orientations fit the yard lines "
+            f"almost equally ({candidates[0][0]:.1f} px vs "
+            f"{candidates[1][0]:.1f} px), so which sideline is +Y cannot be "
+            "decided from this mosaic. Too few yard lines survived to break "
+            "the symmetry.")
+    _LOG.info("endzone mosaic: hash rows %s; yard-line reprojection %.2f px "
+              "(mirror %.2f px)", "mirrored" if best_swap else "as detected",
+              best_err, candidates[1][0] if len(candidates) == 2 else float("nan"))
 
     # focal_range is the OPERATOR's own declared prior, not an arbitrary
     # window derived from wherever the reference happened to land -- a
@@ -788,8 +920,19 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     # zoom span (acceptance band s in [0.85, 1.25]).
     results = em.propagate(H_by, ref_cam, n_frames=meta.num_frames,
                            focal_range=prior.focal_range)
+    # A fast pan can break the pure-rotation model outright -- during one on
+    # play_001 the propagated frames failed the unit-aspect gate over ~95
+    # consecutive frames, which is a real uncovered span, not a tuning
+    # artefact (rolling shutter shears the frame while the camera slews). The
+    # default stays 3x stride so that surfaces as an error; an operator who
+    # has looked at the span can widen it deliberately.
+    # smooth=False: these cameras all come from homographies registered to one
+    # reference, so they are already mutually consistent, and the causal 1€
+    # filter would only add pan lag (measured: it moved the reference frame's
+    # own exact camera by 97 px).
     cams[endzone_cam] = assemble_track_from_results(
-        results, width=meta.width, height=meta.height, max_gap=stride * 3)
+        results, width=meta.width, height=meta.height, smooth=False,
+        max_gap=stride * 3 if max_gap is None else int(max_gap))
     return write_camera_track(Path(cameras_npz), cams, fps=fps)
 
 
