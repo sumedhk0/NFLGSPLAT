@@ -93,3 +93,7 @@ kp_eval/
 
 # season data tree: per-play videos + artifacts (never commit NFL footage)
 data/
+
+# agent tooling scratch
+.claude/
+.claude-flow/
