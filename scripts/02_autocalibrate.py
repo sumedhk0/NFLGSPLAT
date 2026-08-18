@@ -62,6 +62,16 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
          play_dirs: Optional[str] = typer.Option(None, "--play-dirs",
              help="Comma-separated play dirs sharing one physically-fixed endzone "
                   "camera (identity-endzone mode); defaults to --play-dir alone."),
+         stride: int = typer.Option(6, "--stride",
+             help="Frame sampling stride for the accumulated mosaic (mosaic-endzone mode)."),
+         ref_frame: int | None = typer.Option(None, "--ref-frame",
+             help="Force the mosaic's reference frame index instead of auto-picking "
+                  "the sampled frame with the largest field extent (mosaic-endzone "
+                  "mode) — the operator's recovery lever if auto-pick clips yard "
+                  "lines at the image border."),
+         diag_dir: str | None = typer.Option(None, "--diag-dir",
+             help="Directory for the first-run mosaic diagnostic PNG (mosaic-endzone "
+                  "mode); default <play_dir>."),
          config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT) -> None:
     load_cli_config(config, config_override, set_)
     rotations = {}
@@ -104,7 +114,8 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
         out = build_endzone_mosaic(
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
-            fps=meta.fps, anchors=anchors,
+            fps=meta.fps, anchors=anchors, stride=stride, ref_frame=ref_frame,
+            diag_dir=diag_dir,
             prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
                                tuple(ep["z_range"]), tuple(ep["focal_range"])))
     elif mode is CalibMode.cross_endzone:

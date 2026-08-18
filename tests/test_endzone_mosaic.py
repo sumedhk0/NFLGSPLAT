@@ -58,6 +58,31 @@ def test_keep_mask_zeroes_player_boxes_with_padding():
     assert m[10, 10] == 255        # untouched field
 
 
+def test_register_to_reference_masks_players_via_boxes_by_frame(monkeypatch):
+    """I1: register_to_reference must exclude players from feature detection
+    (keep_mask's own docstring: 'excluded before feature detection') --
+    before this fix, features were computed with NO mask at all and the
+    function had no boxes parameter."""
+    base = _textured_field()
+    frames = {0: base, 1: _warp(base, np.eye(3))}
+    boxes_by_frame = {0: [(50, 50, 150, 150)], 1: []}
+
+    captured_masks = {}
+    real_features = em._features
+
+    def spy_features(img_bgr, mask=None):
+        captured_masks[id(img_bgr)] = None if mask is None else mask.copy()
+        return real_features(img_bgr, mask)
+    monkeypatch.setattr(em, "_features", spy_features)
+
+    em.register_to_reference(frames, ref_idx=0, boxes_by_frame=boxes_by_frame)
+
+    mask0 = captured_masks[id(frames[0])]
+    assert mask0 is not None, "boxes_by_frame must reach feature detection as a mask"
+    assert mask0[100, 100] == 0            # inside the boxed player region
+    assert mask0[10, 10] == 255            # untouched field
+
+
 def test_register_fallback_bounded_to_one_hop_from_direct(monkeypatch):
     """Contiguous pending frames must each hop off a DIRECTLY-registered
     anchor, never off a frame that was itself only resolved by the fallback
@@ -168,6 +193,54 @@ def test_accumulate_masks_stationary_bright_box_via_boxes():
     box_vote = acc[65, 200]
     assert line_vote > 0.9, f"static paint should still reinforce, got {line_vote}"
     assert box_vote < 0.1, f"boxed stationary player should be masked out, got {box_vote}"
+
+
+def test_accumulate_survives_player_parked_on_the_line_of_scrimmage():
+    """C1 RED/GREEN: linemen stand still on the line of scrimmage, so a player
+    box covering a painted line in the MAJORITY of frames must not erase that
+    line. Before the fix, `seen` warped an all-ones image regardless of
+    masking, so every frame claimed to have observed pixels it deliberately
+    discarded via the player mask -- diluting the under-player vote by frames
+    where paint could never have been counted there in the first place
+    (measured: 0.40, below the 0.5 survival threshold, vs 1.00 once `seen`
+    only counts player-masked-KEPT coverage)."""
+    h, w = 300, 400
+    frames, boxes, H_by = {}, {}, {}
+    line_y = 150
+    box = (180, 140, 220, 160)          # straddles the line at x in [180, 220]
+    for i in range(10):
+        img = np.full((h, w, 3), (40, 90, 40), np.uint8)   # green field (BGR)
+        cv2.line(img, (0, line_y), (w, line_y), (250, 250, 250), 3)   # STATIC paint
+        frames[i], H_by[i] = img, np.eye(3)
+        boxes[i] = [box] if i < 6 else []      # player parked on the line 6/10 frames
+    acc = em.accumulate_field_paint(frames, H_by, boxes, ref_shape=(h, w))
+    under_player_vote = acc[line_y, 200]        # inside the box's x-range, on the line
+    assert under_player_vote >= 0.5, (
+        f"line under a majority-frames-parked player should survive the "
+        f"vote threshold, got {under_player_vote}")
+
+
+def test_field_extent_score_prefers_more_visible_paint():
+    """I3: field_extent_score is the proxy build_endzone_mosaic uses to pick
+    the mosaic's reference frame over an arbitrary median-index pick -- a
+    frame showing more of the field's painted lines must score higher than a
+    zoomed-in frame showing only a small patch."""
+    h, w = 200, 300
+    zoomed = np.full((h, w, 3), (40, 90, 40), np.uint8)
+    cv2.rectangle(zoomed, (100, 80), (200, 120), (250, 250, 250), -1)
+    wide = np.full((h, w, 3), (40, 90, 40), np.uint8)
+    for y in range(20, 180, 30):
+        cv2.line(wide, (0, y), (w, y), (250, 250, 250), 3)
+    assert em.field_extent_score(wide) > em.field_extent_score(zoomed)
+
+
+def test_field_extent_score_excludes_player_boxes():
+    h, w = 200, 300
+    img = np.full((h, w, 3), (40, 90, 40), np.uint8)
+    cv2.rectangle(img, (50, 50), (150, 150), (250, 250, 250), -1)
+    unmasked = em.field_extent_score(img)
+    masked = em.field_extent_score(img, boxes=[(50, 50, 150, 150)])
+    assert masked < unmasked
 
 
 def test_propagate_matches_a_directly_rendered_camera():
@@ -297,6 +370,50 @@ def test_propagate_sign_normalises_before_rq_when_det_m_is_negative():
     M_signed = -M if np.linalg.det(M) < 0 else M
     M_rec = cam.intrinsics.K() @ cam.pose.R
     assert np.allclose(M_rec / M_rec[2, 2], M_signed / M_signed[2, 2])
+
+
+def test_propagate_drops_a_frame_that_decomposes_anisotropic():
+    """C3 RED/GREEN: whatever the RQ decomposition yields used to be emitted
+    verbatim, with the reference camera's rms_px/num_correspondences copied
+    onto it -- so a frame resolved via a weak/degenerate homography (e.g. the
+    one-hop registration fallback) could come out grossly anisotropic
+    (measured: fx=1300, fy=5200, a 4:1 K) yet still carry the reference's
+    confidence numbers, giving a downstream consumer no signal it was
+    garbage. An anisotropic H (unequal x/y scale about the principal point --
+    not a pure zoom) must now be REJECTED (out[t] is None), and an accepted
+    frame must never wear the reference's rms_px/num_correspondences."""
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd])
+    ref = CalibrationResult(
+        intrinsics=CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh),
+        pose=CameraPose(R=R, t=-R @ C), rms_px=0.31, num_correspondences=18,
+        refined_with_ba=False)
+
+    cx, cy = wh[0] / 2, wh[1] / 2
+    sx, sy = 1.15, 4.0          # anisotropic scale -- not a pure zoom
+    H_aniso = np.array([[sx, 0, cx * (1 - sx)], [0, sy, cy * (1 - sy)], [0, 0, 1.0]])
+
+    out = em.propagate({7: H_aniso}, ref, n_frames=8)
+    assert out[7] is None, "anisotropic frame must be dropped, not emitted"
+
+    # A genuine isotropic zoom must still be accepted -- but never wearing
+    # the reference's confidence numbers (they were never re-measured for
+    # this frame).
+    s = 1.15
+    H_iso = np.array([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)], [0, 0, 1.0]])
+    out2 = em.propagate({7: H_iso}, ref, n_frames=8)
+    cam = out2[7]
+    assert cam is not None
+    assert abs(cam.intrinsics.fx / cam.intrinsics.fy - 1.0) < 0.05
+    assert cam.rms_px == 0.0
+    assert cam.num_correspondences == 0
 
 
 def test_solve_reference_camera_wraps_degenerate_focal_as_calibration_error(monkeypatch):

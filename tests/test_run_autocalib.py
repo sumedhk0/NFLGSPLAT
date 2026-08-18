@@ -754,7 +754,8 @@ def test_build_endzone_missing_tracks_fails_loud(tmp_path):
                                     cameras_npz=str(npz), endzone_video="e.mp4", fps=30.0)
 
 
-def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True):
+def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True,
+                                  include_endzone_boxes: bool = True):
     """Shared scene builder for the mosaic-endzone tests: a calibrated
     sideline camera + tracks.parquet, and a real endzone clip (9 painted
     yard lines, 5-yd/4.572m spacing) rendered by warping a textured
@@ -770,7 +771,13 @@ def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True):
 
     ``include_player_uid=False`` omits the player_uid column tracks.parquet
     would have, matching scripts/03b_detect_players.py's bare output before
-    scripts/03c_identity_tracks.py ever runs (see Fix round 1, finding 1)."""
+    scripts/03c_identity_tracks.py ever runs (see Fix round 1, finding 1).
+
+    ``include_endzone_boxes=False`` omits every cam=="endzone" row, matching
+    a tracks.parquet whose player-detection step never ran on the endzone
+    video -- the mosaic driver must fail loud on that (finding I5), since
+    every boxes[idx] would silently come back empty and white jerseys would
+    then be indistinguishable from paint."""
     import cv2
     import numpy as np
     import pandas as pd
@@ -800,6 +807,13 @@ def _build_synthetic_endzone_clip(pdir, *, include_player_uid: bool = True):
             if include_player_uid:
                 row["player_uid"] = f"u{k}"
             rows.append(row)
+        if include_endzone_boxes:
+            # A tiny placeholder box per frame -- not meant to mask anything
+            # meaningful in this synthetic scene, just enough for a real
+            # cam=="endzone" row to exist (finding I5's precondition).
+            rows.append({"frame": fr, "cam": "endzone", "track_id": 0,
+                        "foot_u": 0, "foot_v": 0, "bbox_x1": 0, "bbox_y1": 0,
+                        "bbox_x2": 1, "bbox_y2": 1, "conf": 1})
     df = pd.DataFrame(rows)
     for c in TRACK_COLUMNS:
         if c not in df.columns:
@@ -1065,3 +1079,148 @@ def test_build_endzone_mosaic_works_without_player_uid(tmp_path, monkeypatch):
 
     cams = load_camera_track(out)
     assert "endzone" in cams and (cams["endzone"].conf > 0).sum() >= 1
+
+
+def test_build_endzone_mosaic_picks_largest_field_extent_as_reference(tmp_path, monkeypatch):
+    """I3: the mosaic is clipped to the reference frame's FOV, so an
+    arbitrary median-index pick can select a more-zoomed-in frame than
+    necessary and clip yard lines at the image border. build_endzone_mosaic
+    (ref_frame=None) must instead pick the SAMPLED frame with the largest
+    field-extent score -- computed independently here from the decoded
+    frames, not assumed."""
+    from types import SimpleNamespace
+
+    import cv2
+    import numpy as np
+
+    import nfl_gsplat.calibration.endzone_mosaic as em_mod
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+    from nfl_gsplat.utils.geometry import project_points
+    from nfl_gsplat.utils.video import iter_frames
+
+    pdir = tmp_path / "play_ref"
+    scene = _build_synthetic_endzone_clip(pdir)
+    wh, N = scene.wh, scene.N
+    K_by_frame, R, t, X_lines = scene.K_by_frame, scene.R, scene.t, scene.X_lines
+
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda p: SimpleNamespace(width=wh[0], height=wh[1],
+                                                  num_frames=N, fps=30.0))
+
+    # Independently compute the field-extent score for every stride=2 sampled
+    # frame, exactly as the driver will decode them, to know in advance which
+    # frame SHOULD be picked (and to build valid anchors for it -- anchors
+    # are pixel coordinates in the reference frame).
+    scores = {}
+    for idx, rgb in iter_frames(scene.vid, stride=2):
+        scores[idx] = em_mod.field_extent_score(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    expected_ref = max(scores, key=scores.get)
+    median_idx = sorted(scores)[len(scores) // 2]
+    assert expected_ref != median_idx, \
+        "test scene must actually distinguish largest-extent from median-index"
+
+    K_ref = K_by_frame[expected_ref]
+    anchor_uv = project_points(
+        np.array([[X_lines[0], 0.0, 0.0], [X_lines[-1], 0.0, 0.0]]), K_ref, R, t)
+    anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), X_lines[0]),
+              ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), X_lines[-1]))
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(400, 2000))
+
+    captured = {}
+    real_register = em_mod.register_to_reference
+
+    def spy_register(frames, *, ref_idx, **kw):
+        captured["ref_idx"] = ref_idx
+        return real_register(frames, ref_idx=ref_idx, **kw)
+    monkeypatch.setattr(em_mod, "register_to_reference", spy_register)
+
+    build_endzone_mosaic(
+        play_dir=pdir, tracks_path=pdir / "tracks.parquet",
+        cameras_npz=pdir / "cameras.npz", endzone_video=scene.vid, fps=30.0,
+        prior=prior, anchors=anchors, stride=2)          # ref_frame NOT forced
+
+    assert captured["ref_idx"] == expected_ref
+
+
+def test_build_endzone_mosaic_rejects_z_range_spanning_zero(tmp_path, monkeypatch):
+    """I4: the both-orientations mirror search relies ENTIRELY on the mirror
+    flipping C_z negative. A z_range spanning zero would silently accept a
+    mirrored camera; the driver must fail loud before doing any work."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+    from nfl_gsplat.errors import SetupError
+
+    pdir = tmp_path / "play_zneg"
+    scene = _build_synthetic_endzone_clip(pdir)
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda p: SimpleNamespace(width=scene.wh[0], height=scene.wh[1],
+                                                  num_frames=scene.N, fps=30.0))
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(-10, 60), focal_range=(400, 2000))   # spans zero
+    with pytest.raises(SetupError, match="mirror"):
+        build_endzone_mosaic(
+            play_dir=pdir, tracks_path=pdir / "tracks.parquet",
+            cameras_npz=pdir / "cameras.npz", endzone_video=scene.vid, fps=30.0,
+            prior=prior, anchors=None, stride=2, ref_frame=scene.ref_frame)
+
+
+def test_build_endzone_mosaic_no_endzone_boxes_fails_loud(tmp_path, monkeypatch):
+    """I5: if tracks.parquet has no cam=="endzone" rows, every boxes[idx] is
+    empty and the entire player-masking premise silently evaporates (white
+    jerseys are bright + low-saturation, indistinguishable from paint to
+    _white_mask). Must fail loud pointing at scripts/03b_detect_players.py."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+    from nfl_gsplat.errors import SetupError
+
+    pdir = tmp_path / "play_noboxes"
+    scene = _build_synthetic_endzone_clip(pdir, include_endzone_boxes=False)
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda p: SimpleNamespace(width=scene.wh[0], height=scene.wh[1],
+                                                  num_frames=scene.N, fps=30.0))
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(400, 2000))
+    with pytest.raises(SetupError, match="03b_detect_players"):
+        build_endzone_mosaic(
+            play_dir=pdir, tracks_path=pdir / "tracks.parquet",
+            cameras_npz=pdir / "cameras.npz", endzone_video=scene.vid, fps=30.0,
+            prior=prior, anchors=None, stride=2, ref_frame=scene.ref_frame)
+
+
+def test_build_endzone_mosaic_diag_dir_defaults_to_play_dir(tmp_path, monkeypatch):
+    """I6: diag_dir must default to play_dir, never a hardcoded personal
+    path -- the first-run mosaic dump must land somewhere real without an
+    operator having to pass --diag-dir."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+    from nfl_gsplat.errors import SetupError
+
+    pdir = tmp_path / "play_diagdefault"
+    scene = _build_synthetic_endzone_clip(pdir)
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda p: SimpleNamespace(width=scene.wh[0], height=scene.wh[1],
+                                                  num_frames=scene.N, fps=30.0))
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(400, 2000))
+    with pytest.raises(SetupError, match="OUTERMOST TWO"):
+        build_endzone_mosaic(
+            play_dir=pdir, tracks_path=pdir / "tracks.parquet",
+            cameras_npz=pdir / "cameras.npz", endzone_video=scene.vid, fps=30.0,
+            prior=prior, anchors=None, stride=2, ref_frame=scene.ref_frame)
+
+    png = pdir / f"{pdir.name}_mosaic.png"
+    assert png.exists(), "diag PNG must land under play_dir by default"

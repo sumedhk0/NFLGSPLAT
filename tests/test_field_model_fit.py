@@ -48,6 +48,42 @@ def test_missing_line_fails_loud():
         fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
 
 
+def test_step_check_error_names_line_count_and_offsets():
+    """I2: the step-check failure must be diagnosable -- name the detected
+    line count and offsets, not just the wrong step."""
+    lines = _horiz([100, 150, 200, 300])          # the y=250 line is absent
+    with pytest.raises(CalibrationError, match=r"Detected 4 lines at offsets"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
+
+
+def test_anchor_margin_uses_local_gap_not_global_min():
+    """I2: the anchor click tolerance is gated on the LOCAL gap at the
+    matched line, not the GLOBAL minimum gap across every detected line. A
+    single close/compressed pair of lines elsewhere in the mosaic (far lines
+    fall under merge_tol_px on a full-field render) must not force an
+    unreasonably tight click tolerance on a widely-separated OUTERMOST line
+    the operator is actually told to anchor (reviewer measured: 3.4-5.4 px
+    tolerance even at the outermost lines on a 1920-px mosaic)."""
+    # Outermost lines each have a single 50px-away neighbour; an unrelated
+    # close pair sits in the middle (5px apart) and drags the GLOBAL minimum
+    # gap down to 5px -- but must not affect the tolerance at y=100.
+    lines = _horiz([100, 150, 200, 205, 400])
+    anchors = _anchors(103, -2 * S, 400, 2 * S)     # 3px off the true y=100 line
+    xs = fmf.label_yard_lines(lines, anchors=anchors)
+    assert np.isclose(xs[0], -2 * S)                # matched despite the 3px click
+
+
+def test_anchor_margin_still_rejects_a_bad_click_near_a_tight_local_gap():
+    """The local-gap relaxation must not become globally permissive: a click
+    near a line whose OWN local gap is genuinely tight must still fail."""
+    lines = _horiz([100, 150, 200, 205, 400])
+    # nearest line is y=200 (local gap = min(gaps to 150, to 205) = 5px);
+    # 3px off -> 3 > 0.4*5=2.0px, must still fail.
+    anchors = _anchors(197, 0.0, 400, 2 * S)
+    with pytest.raises(CalibrationError, match="anchor"):
+        fmf.label_yard_lines(lines, anchors=anchors)
+
+
 def test_outermost_rule_catches_a_missing_line_outside_the_anchor_span():
     """Reviewer's exact repro: with the 4th of 5 lines absent, anchoring the
     two adjacent INNER lines used to silently mislabel the last line by a full
@@ -124,6 +160,43 @@ def test_near_vertical_lines_also_label():
     xs = fmf.label_yard_lines(
         lines, anchors=(((100.0, 150.0), -9.144), ((200.0, 150.0), 0.0)))
     assert np.allclose(xs, [-9.144, -4.572, 0.0], atol=1e-6)
+
+
+def test_detect_accumulated_lines_drops_non_parallel_sidelines():
+    """C2 RED/GREEN: real endzone footage always shows both sidelines. Before
+    the fix, detect_accumulated_lines returned every merged group regardless
+    of orientation, so the reviewer's render (11 merged lines including two
+    sidelines at +-43.5deg, symmetric about the image centre so their
+    midpoint offsets are IDENTICAL) drove gaps.min() to ~0 and broke the
+    anchor-margin check downstream. Only the largest cluster of MUTUALLY
+    near-parallel lines (the yard-line pencil) must survive; the two
+    non-parallel sidelines here must be dropped entirely, before any offset/
+    rank/gap math runs."""
+    h, w = 400, 600
+    votes = np.zeros((h, w), np.float32)
+    for y in (80, 140, 200, 260, 320):
+        cv2.line(votes, (10, y), (w - 10, y), 1.0, 3)
+    # Two sidelines converging toward a vanishing point, at a steep angle to
+    # the near-horizontal yard-line pencil -- NOT part of it.
+    cv2.line(votes, (0, 0), (w // 2, h - 1), 1.0, 3)
+    cv2.line(votes, (w - 1, 0), (w // 2, h - 1), 1.0, 3)
+    lines = fmf.detect_accumulated_lines(votes)
+    assert len(lines) == 5, f"expected only the 5 yard lines, got {len(lines)}"
+    for seg in lines:
+        n = fmf._line_normal(seg)
+        assert abs(n[1]) > 0.9, f"non-yard-line orientation slipped through: {n}"
+
+
+def test_largest_parallel_cluster_rejects_too_few_survivors():
+    """A vote image with no clean pencil of >= 2 mutually-parallel lines
+    (e.g. only crossing sidelines) must fail loud, not silently hand a
+    single stray line to the rest of the pipeline."""
+    h, w = 300, 400
+    votes = np.zeros((h, w), np.float32)
+    cv2.line(votes, (0, 0), (w // 2, h - 1), 1.0, 3)
+    cv2.line(votes, (w - 1, 0), (w // 2, h - 1), 1.0, 3)
+    with pytest.raises(CalibrationError, match="mutually-parallel"):
+        fmf.detect_accumulated_lines(votes)
 
 
 def test_detect_merges_fragments_across_a_cable_gap():

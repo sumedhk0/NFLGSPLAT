@@ -63,18 +63,25 @@ def _homography(fa, fb, min_inliers):
     return H, int(msk.sum())
 
 
-def register_to_reference(frames, *, ref_idx, min_inliers: int = 25):
+def register_to_reference(frames, *, ref_idx, min_inliers: int = 25,
+                          boxes_by_frame=None):
     """{frame: H mapping that frame's pixels INTO the reference}, {frame: inliers}.
 
     Direct link first; if it is too weak, fall back to composing through the
     nearest DIRECTLY-registered frame — exactly one hop, so drift stays
     bounded by construction rather than by how many pending frames happen to
-    register first."""
+    register first.
+
+    ``boxes_by_frame``, if given, excludes players from feature detection
+    (via :func:`keep_mask`) so moving players never contribute non-rigid
+    matches that would break the pure-rotation/zoom model."""
     if ref_idx not in frames:
         raise CalibrationError(
             f"endzone mosaic: reference frame {ref_idx} not among the sampled "
             "frames — pick a reference that was actually decoded.")
-    feats = {i: _features(img) for i, img in frames.items()}
+    boxes_by_frame = boxes_by_frame or {}
+    feats = {i: _features(img, keep_mask(img.shape, boxes_by_frame.get(i)))
+             for i, img in frames.items()}
     H_by = {ref_idx: np.eye(3)}
     inl_by = {ref_idx: len(feats[ref_idx][0])}
     pending = []
@@ -118,13 +125,35 @@ def _white_mask(img_bgr, lo, hi) -> np.ndarray:
     return cv2.inRange(hsv, np.array(lo, np.uint8), np.array(hi, np.uint8))
 
 
+def field_extent_score(img_bgr, boxes=None, *,
+                       white_lo=(0, 0, 165), white_hi=(180, 70, 255)) -> int:
+    """Cheap proxy for how much of the field is in view: count of
+    player-masked white/paint pixels in one frame.
+
+    Used to pick the mosaic's reference frame. The mosaic is clipped to the
+    reference frame's FOV, so a zoomed-in reference silently clips yard lines
+    at the image border (the ``+-HALF_WIDTH_M`` endpoint assumption then
+    becomes wrong) -- preferring the frame with the most visible field paint
+    over an arbitrary median-index pick avoids that."""
+    mask = cv2.bitwise_and(_white_mask(img_bgr, white_lo, white_hi),
+                           keep_mask(img_bgr.shape, boxes))
+    return int(np.count_nonzero(mask))
+
+
 def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
                            white_lo=(0, 0, 165), white_hi=(180, 70, 255)):
     """Votes-per-pixel image of STATIC paint in the reference frame (0..1).
 
     Each frame's player-masked white mask is warped into the reference and
-    summed, then divided by how often each pixel was actually observed. Static
-    paint reinforces; movers and per-frame junk wash out."""
+    summed, then divided by how often each pixel was actually ELIGIBLE to be
+    observed as paint -- i.e. warped-in coverage of the player-masked ``keep``
+    region, not the whole frame. A pixel a player is standing on in some
+    frames was never a candidate for paint there in those frames; counting it
+    as "seen" anyway would dilute the vote of a line a player parks on for
+    much of the play (e.g. a lineman on the line of scrimmage) below the
+    survival threshold even though every frame that COULD see paint there
+    agreed it was paint. Static paint reinforces; movers and per-frame junk
+    wash out."""
     h, w = ref_shape[:2]
     votes = np.zeros((h, w), np.float32)
     seen = np.zeros((h, w), np.float32)
@@ -132,12 +161,12 @@ def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
         H = H_by_frame.get(i)
         if H is None:
             continue
-        paint = _white_mask(img, white_lo, white_hi)
-        paint = cv2.bitwise_and(paint, keep_mask(img.shape, boxes_by_frame.get(i)))
+        keep = keep_mask(img.shape, boxes_by_frame.get(i))
+        paint = cv2.bitwise_and(_white_mask(img, white_lo, white_hi), keep)
         votes += cv2.warpPerspective(
             (paint > 0).astype(np.float32), H, (w, h), flags=cv2.INTER_NEAREST)
         seen += cv2.warpPerspective(
-            np.ones(img.shape[:2], np.float32), H, (w, h), flags=cv2.INTER_NEAREST)
+            (keep > 0).astype(np.float32), H, (w, h), flags=cv2.INTER_NEAREST)
     if not seen.any():
         raise CalibrationError(
             "endzone mosaic: no frames contributed coverage — check the "
@@ -238,17 +267,33 @@ def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
         num_correspondences=inliers, refined_with_ba=False)
 
 
-def propagate(H_by_frame, ref_cam, n_frames: int):
+def propagate(H_by_frame, ref_cam, n_frames: int, *,
+             aspect_range=(0.95, 1.05), ref_focal_tol: float = 0.20):
     """Per-frame cameras from the reference camera and each frame's homography.
 
     H_t maps frame t's pixels INTO the reference, so K_t R_t = H_t^-1 K_ref R_ref.
-    The centre is shared (tripod), so t_t = -R_t C."""
+    The centre is shared (tripod), so t_t = -R_t C.
+
+    Every decomposed frame is gated before being emitted: the RQ decomposition
+    of an arbitrary 3x3 will always produce SOME (K, R), including camera
+    models nothing else in this repo accepts (measured: fx=1300, fy=5200, a
+    4:1 anisotropic K, from a frame resolved via the one-hop registration
+    fallback or matched on weak texture). A frame whose fx/fy falls outside
+    ``aspect_range`` (the pinhole/unit-aspect model used everywhere else) or
+    whose fx strays more than ``ref_focal_tol`` from the reference camera's
+    focal is dropped (``out[t] = None``) rather than emitted with unearned
+    confidence. Accepted frames carry rms_px=0.0/num_correspondences=0 -- NOT
+    the reference camera's, since propagate never re-measures reprojection
+    error and copying the reference's numbers would let a consumer read a
+    propagated frame's confidence as if it had been independently verified."""
     from nfl_gsplat.calibration.solve_pnp import CalibrationResult
     from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
 
     C = np.asarray(ref_cam.pose.center_world(), np.float64)
     M_ref = ref_cam.intrinsics.K() @ ref_cam.pose.R
     w, h = ref_cam.intrinsics.width, ref_cam.intrinsics.height
+    ref_fx = float(ref_cam.intrinsics.fx)
+    alo, ahi = aspect_range
     out: list = [None] * n_frames
     for t, H in H_by_frame.items():
         if not (0 <= t < n_frames):
@@ -276,10 +321,17 @@ def propagate(H_by_frame, ref_cam, n_frames: int):
                 "(det R < 0) — the homography or the reference camera is "
                 "inconsistent; this must not be silently accepted.")
         fx, fy = float(K[0, 0]), float(K[1, 1])
+        # Sanity gate -- see the docstring. Anything outside the unit-aspect
+        # pinhole model used everywhere else in this repo, or too far from
+        # the reference camera's own focal, is dropped rather than emitted.
+        if fy == 0 or not (alo <= fx / fy <= ahi):
+            continue
+        if ref_fx == 0 or abs(fx - ref_fx) > ref_focal_tol * ref_fx:
+            continue
         out[t] = CalibrationResult(
             intrinsics=CameraIntrinsics(fx, fy, float(K[0, 2]), float(K[1, 2]), w, h),
             pose=CameraPose(R=R, t=-R @ C),
-            rms_px=ref_cam.rms_px, num_correspondences=ref_cam.num_correspondences,
+            rms_px=0.0, num_correspondences=0,
             refined_with_ba=False)
     return out
 

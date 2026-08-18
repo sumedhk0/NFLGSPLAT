@@ -98,6 +98,61 @@ def _on_yard_grid(x: float, tol_m: float = 0.05) -> bool:
         * YARD_LINE_SPACING_M <= tol_m
 
 
+def _largest_parallel_cluster(lines: list[YardLineSeg],
+                              align_tol: float = 0.9) -> list[YardLineSeg]:
+    """Partition merged lines into components of mutually near-parallel
+    normals (|n_i . n_j| >= align_tol) and return only the largest.
+
+    Everything downstream of this (a single ``ref_n``, ranks, gaps, the
+    outermost-span rule) is only meaningful for one pencil of NEAR-PARALLEL
+    yard lines. Real endzone footage always shows both sidelines too, which
+    detect_accumulated_lines' fragment-merge returns right alongside the yard
+    lines regardless of orientation. Two sidelines can even be symmetric
+    about the image centre, giving them IDENTICAL offsets under a yard-line
+    reference normal (measured: gaps.min() collapses to ~0, which then makes
+    the anchor-margin check reject a pixel-perfect anchor click). ``align_tol``
+    is looser than the 0.985 used to merge raw Hough fragments into one line,
+    to tolerate the perspective fan of a real pencil of parallel field lines."""
+    n = len(lines)
+    normals = [_line_normal(s) for s in lines]
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if abs(float(normals[i] @ normals[j])) >= align_tol:
+                union(i, j)
+
+    clusters: dict[int, list[int]] = {}
+    for i in range(n):
+        clusters.setdefault(find(i), []).append(i)
+    sizes = sorted((len(idxs) for idxs in clusters.values()), reverse=True)
+    if sizes[0] < 2:
+        raise CalibrationError(
+            "endzone field fit: no cluster of >= 2 mutually-parallel "
+            "detected lines — the accumulated mosaic has no clean yard-line "
+            "pencil (only sidelines/noise survived); sample frames with "
+            "more of the field visible.")
+    if len(sizes) > 1 and sizes[0] == sizes[1]:
+        raise CalibrationError(
+            f"endzone field fit: two equally-sized clusters of "
+            f"{sizes[0]} mutually-parallel lines were detected — cannot "
+            "tell which is the yard-line pencil (e.g. yard lines vs. "
+            "sidelines); check the accumulated mosaic.")
+    best = max(clusters.values(), key=len)
+    return [lines[i] for i in best]
+
+
 def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
                              min_len_frac: float = 0.25,
                              merge_tol_px: float = 12.0) -> list[YardLineSeg]:
@@ -114,7 +169,13 @@ def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
     while missing over-merges of lines just a few px apart. Over-merging is
     instead caught in label_yard_lines as a line-COUNT violation: the outermost
     two anchors must span exactly len(lines) - 1 steps of YARD_LINE_SPACING_M,
-    and a merge changes that count."""
+    and a merge changes that count.
+
+    After merging, only the LARGEST mutually-parallel cluster of merged lines
+    is returned (see :func:`_largest_parallel_cluster`) — real endzone footage
+    always shows both sidelines, which are not part of the near-parallel
+    yard-line pencil everything downstream assumes, and can even collide in
+    offset with each other under a yard-line reference normal."""
     mask = (np.asarray(votes) >= vote_thresh).astype(np.uint8) * 255
     h, w = mask.shape[:2]
     segs = cv2.HoughLinesP(mask, 1, np.pi / 360, threshold=50,
@@ -153,6 +214,11 @@ def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
                                   tuple(mean + ts.max() * direction)))
     if not merged:
         return []
+    # Keep only the largest mutually-parallel cluster BEFORE any offset/rank/
+    # gap math runs (see _largest_parallel_cluster docstring): real footage
+    # always shows both sidelines, which are not part of the yard-line
+    # pencil the rest of this function (and label_yard_lines) assumes.
+    merged = _largest_parallel_cluster(merged)
     ref_n = _line_normal(merged[0])
     merged.sort(key=lambda s: _offset(s, ref_n))
     return merged
@@ -199,12 +265,22 @@ def label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]:
         d = np.abs(offs - float(ref_n @ np.asarray(pt, float)))
         k = int(np.argmin(d))
         # the match must be clearly nearer than the next line, else a slightly
-        # misplaced human click silently yields an off-by-one labeling
-        if d[k] > 0.4 * float(gaps.min()):
+        # misplaced human click silently yields an off-by-one labeling.
+        # Gated on the LOCAL gap at the matched line (the smaller of its
+        # neighbouring gaps), not the GLOBAL minimum gap across every detected
+        # line: on a full-field render, far/compressed lines can shrink the
+        # global minimum well below the gap around the widely-separated
+        # outermost lines an operator is actually told to anchor, forcing an
+        # unreasonably tight click tolerance even there (measured: 3.4-5.4 px
+        # on a 1920-px mosaic).
+        pos = rank_of[k]
+        local_gaps = [gaps[i] for i in (pos - 1, pos) if 0 <= i < len(gaps)]
+        local_gap = float(min(local_gaps))
+        if d[k] > 0.4 * local_gap:
             raise CalibrationError(
                 f"endzone field fit: anchor at {pt} is {d[k]:.1f} px from the "
-                f"nearest line, more than 40% of the smallest line gap "
-                f"({gaps.min():.1f} px) — click closer to a line.")
+                f"nearest line, more than 40% of that line's local gap "
+                f"({local_gap:.1f} px) — click closer to a line.")
         idxs.append(k)
     if idxs[0] == idxs[1]:
         raise CalibrationError(
@@ -229,7 +305,10 @@ def label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]:
         raise CalibrationError(
             f"endzone field fit: the two anchors imply a step of {step:.3f} m "
             f"per detected line, not +-{YARD_LINE_SPACING_M:.3f} m — a yard "
-            "line is missing, spurious, or two lines were merged into one.")
+            "line is missing, spurious, or two lines were merged into one. "
+            f"Detected {len(lines)} lines at offsets "
+            f"{np.round(offs[order], 1).tolist()} px (anchors ranked {r0} "
+            f"and {r1}) — a wrong count there is the usual cause.")
 
     xs_by_rank = [x0 + (pos - r0) * step for pos in range(len(lines))]
     worst = max(abs(x) for x in xs_by_rank)
