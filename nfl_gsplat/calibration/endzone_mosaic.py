@@ -145,40 +145,58 @@ def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
     return np.divide(votes, seen, out=np.zeros_like(votes), where=seen > 0)
 
 
-def solve_reference_camera(world_xyz, ref_uv, image_size, prior,
-                           *, audit_drop_px: float = 4.0):
-    """One camera for the reference frame from accumulated field correspondences.
+def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
+    """One camera for the reference frame from the labelled field lines.
 
-    These are arbitrary field points, so we use solve_fixed_center's
-    _frame_data_override path (never the named-landmark path)."""
-    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    A single view of the z=0 field plane is a HOMOGRAPHY problem, not a
+    multi-frame shared-centre problem. An earlier draft routed this through
+    solve_fixed_center, which gates on >= 10 mutually consistent FRAMES and so
+    could never have succeeded on one view — it would have failed every real
+    run. decompose_homography.homography_to_krt is purpose-built for this: it
+    recovers the focal from the orthonormality of the plane axes."""
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
     from nfl_gsplat.calibration.solve_pnp import CalibrationResult
-    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
 
     world = np.asarray(world_xyz, np.float64).reshape(-1, 3)
     uv = np.asarray(ref_uv, np.float64).reshape(-1, 2)
-    if len(world) < 6:
+    if len(world) < 4:
         raise CalibrationError(
             f"endzone mosaic: only {len(world)} field correspondences in the "
-            "reference frame (need >= 6) — accumulated paint too sparse.")
-    f0 = float(sum(prior.focal_range)) / 2.0
-    anchor = CalibrationResult(
-        intrinsics=CameraIntrinsics(f0, f0, 0.0, 0.0, 1, 1),
-        pose=CameraPose(R=np.eye(3), t=-prior.center0),
-        rms_px=0.0, num_correspondences=0, refined_with_ba=False)
-    # Repeat the single reference view so the solver's anchor threshold is met.
-    frame_data = {i: (world, uv) for i in range(3)}
-    results, _mirrored = solve_fixed_center(
-        corrs_by_frame=None, image_size=image_size,
-        init_results=[anchor, anchor, anchor], _frame_data_override=frame_data,
-        view_deg=0, center_bounds=prior.center_bounds,
-        audit_drop_px=audit_drop_px)
-    solved = [r for r in results if r is not None]
-    if not solved:
+            "reference frame (need >= 4 for a homography) — accumulated paint "
+            "too sparse; lower vote_thresh or sample more frames.")
+
+    H, _mask = cv2.findHomography(world[:, :2].astype(np.float64),
+                                  uv.astype(np.float64), cv2.RANSAC, 3.0)
+    if H is None:
         raise CalibrationError(
-            "endzone mosaic: reference camera solve kept no frames — the "
-            "field labeling or the accumulated lines are inconsistent.")
-    return solved[0]
+            "endzone mosaic: field->reference homography did not fit — the "
+            "yard-line labeling is probably wrong (check the anchors).")
+
+    w, h = int(image_size[0]), int(image_size[1])
+    K, R, t = homography_to_krt(H, width=w, height=h)
+    C = -R.T @ t
+
+    (xlo, xhi), (ylo, yhi), (zlo, zhi) = prior.center_bounds
+    if not (xlo <= C[0] <= xhi and ylo <= C[1] <= yhi and zlo <= C[2] <= zhi):
+        raise CalibrationError(
+            f"endzone mosaic: solved camera centre {C.round(1)} is outside the "
+            f"prior box {prior.center_bounds} — the yard-line labeling or the "
+            "anchors are wrong.")
+    flo, fhi = prior.focal_range
+    if not (flo <= float(K[0, 0]) <= fhi):
+        raise CalibrationError(
+            f"endzone mosaic: solved focal {K[0, 0]:.0f} px is outside the "
+            f"prior range {prior.focal_range}.")
+
+    proj = project_points(world, K, R, t)
+    ok = np.isfinite(proj).all(axis=1)
+    rms = float(np.sqrt(np.mean(np.sum((proj[ok] - uv[ok]) ** 2, axis=1))))
+    return CalibrationResult(
+        intrinsics=CameraIntrinsics(float(K[0, 0]), float(K[1, 1]),
+                                    float(K[0, 2]), float(K[1, 2]), w, h),
+        pose=CameraPose(R=R, t=t), rms_px=rms,
+        num_correspondences=len(world), refined_with_ba=False)
 
 
 def propagate(H_by_frame, ref_cam, n_frames: int):

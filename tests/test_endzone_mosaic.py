@@ -203,3 +203,57 @@ def test_propagate_matches_a_directly_rendered_camera():
     back = cv2.perspectiveTransform(uv_t.reshape(-1, 1, 2).astype(np.float32), H_t)
     assert np.abs(back.reshape(-1, 2) - uv_ref).max() < 1.0
     assert np.allclose(cam.pose.center_world(), C, atol=1e-6)   # shared centre
+
+
+def test_solve_reference_camera_recovers_a_known_planar_camera():
+    """Project field points through a KNOWN camera, then solve it back."""
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            p = np.array([[X, Y, 0.0]])
+            q = project_points(p, K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    cam = em.solve_reference_camera(world, uv, wh, prior)
+    assert np.allclose(cam.pose.center_world(), C, atol=0.5)
+    assert abs(cam.intrinsics.fx - 2600.0) / 2600.0 < 0.02
+    assert cam.rms_px < 1.0
+
+
+def test_solve_reference_camera_rejects_a_centre_outside_the_prior():
+    import pytest
+
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.errors import CalibrationError
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            q = project_points(np.array([[X, Y, 0.0]]), K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    wrong = EndzonePrior(x_range=(60, 150), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    with pytest.raises(CalibrationError, match="prior box"):
+        em.solve_reference_camera(world, uv, wh, wrong)
