@@ -69,7 +69,11 @@ def test_anchor_margin_uses_local_gap_not_global_min():
     # gap down to 5px -- but must not affect the tolerance at y=100.
     lines = _horiz([100, 150, 200, 205, 400])
     anchors = _anchors(103, -2 * S, 400, 2 * S)     # 3px off the true y=100 line
-    xs = fmf.label_yard_lines(lines, anchors=anchors)
+    # This fixture is deliberately NOT on a yard grid (gaps 50/50/5/195) -- it
+    # exists to exercise the anchor click tolerance, so the ladder is supplied
+    # rather than fitted. fit_yard_ladder has its own tests; left to itself it
+    # would (correctly) reject these offsets before the anchor logic ran.
+    xs = fmf.label_yard_lines(lines, anchors=anchors, indices=[0, 1, 2, 3, 4])
     assert np.isclose(xs[0], -2 * S)                # matched despite the 3px click
 
 
@@ -81,16 +85,20 @@ def test_anchor_margin_still_rejects_a_bad_click_near_a_tight_local_gap():
     # 3px off -> 3 > 0.4*5=2.0px, must still fail.
     anchors = _anchors(197, 0.0, 400, 2 * S)
     with pytest.raises(CalibrationError, match="anchor"):
-        fmf.label_yard_lines(lines, anchors=anchors)
+        # ladder supplied for the same reason as the test above
+        fmf.label_yard_lines(lines, anchors=anchors, indices=[0, 1, 2, 3, 4])
 
 
-def test_outermost_rule_catches_a_missing_line_outside_the_anchor_span():
-    """Reviewer's exact repro: with the 4th of 5 lines absent, anchoring the
-    two adjacent INNER lines used to silently mislabel the last line by a full
-    spacing, because the step BETWEEN those two anchors is locally correct
-    (they really are adjacent) — only the span outside them is wrong. Must
-    now raise instead of returning a wrong labeling."""
-    lines = _horiz([100, 150, 200, 300])          # the y=250 line is absent
+def test_outermost_rule_refuses_inner_anchors():
+    """Reviewer's repro, restated for v4: anchoring two INNER lines used to
+    silently mislabel lines outside their span, because the step BETWEEN those
+    two anchors is locally correct (they really are adjacent). Must refuse.
+
+    The set here is evenly spaced, so the LADDER is unambiguous -- otherwise
+    this would fail on the ambiguity check instead and stop testing the
+    outermost rule at all (the original 4-line fixture, with the 4th of 5 lines
+    absent, is now caught earlier by test_missing_line_fails_loud)."""
+    lines = _horiz([100, 150, 200, 250, 300])
     with pytest.raises(CalibrationError, match="(?i)outermost"):
         fmf.label_yard_lines(lines, anchors=_anchors(150, -13.716, 200, -9.144))
 
