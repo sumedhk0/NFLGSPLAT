@@ -23,6 +23,7 @@ dependencies = [
     "plyfile>=1.0",
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
+    "av>=11",             # iter_frames (utils/video.py) decodes via imageio's pyav plugin
 ]
 
 [project.optional-dependencies]

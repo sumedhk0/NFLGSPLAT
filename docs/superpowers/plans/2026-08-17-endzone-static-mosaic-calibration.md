@@ -6,7 +6,7 @@
 
 **Architecture:** The endzone camera is a fixed tripod, so frames are related exactly by homographies (measured 0.55 px median). Register each frame directly to a reference frame; warp the player-masked white mask into the reference and accumulate so paint reinforces and transients wash out; fit the metric field to the accumulated paint (labeling pinned by an absolute anchor plus the sideline's yard range); solve one camera; propagate per frame.
 
-**Tech Stack:** Python 3.14, OpenCV 5 (SIFT, `findHomography`), NumPy, SciPy, pytest. Reuses `field_detect`, `player_masks`, `joint_solve.solve_fixed_center`, `EndzonePrior`.
+**Tech Stack:** Python 3.14, OpenCV 5 (SIFT, `findHomography`), NumPy, SciPy, pytest. Reuses `field_detect`, `player_masks`, `decompose_homography.homography_to_krt`, `EndzonePrior`.
 
 ## Global Constraints
 
@@ -15,7 +15,7 @@
 - Do NOT `pip install -e .` (the `numpy<2` pin would break the cu128 torch). Run tests as `python -m pytest` from the repo root.
 - **Work in NATIVE endzone pixels**: `view_deg=0`, no view rotation, no roll. The 90° rotation only ever served the dead field-marking detector.
 - `utils.video.iter_frames` yields **RGB**; OpenCV expects **BGR**. Convert explicitly (`cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)`) or index `[..., ::-1]`. Getting this wrong silently corrupts colour-based masks.
-- Player world points are arbitrary `(X, Y, 0)`, NOT named `NFL_LANDMARKS` — any `solve_fixed_center` call must use `_frame_data_override`, never the named-landmark path.
+- Field/player world points are arbitrary `(X, Y, 0)`, NOT named `NFL_LANDMARKS`. The reference camera is solved as a SINGLE-VIEW planar homography (`homography_to_krt`), not via `solve_fixed_center` — that gates on >= 10 mutually consistent frames and cannot solve one view.
 - Fail loud with `CalibrationError`/`SetupError` + an actionable pointer. No silent fallback that changes numerical results.
 - Field constants live in `nfl_gsplat/calibration/field_landmarks.py`: `YARD_LINE_SPACING_M=4.572`, `HALF_WIDTH_M=24.384`, `HASH_OFFSET_M=2.8194`, `GOAL_LINE_X_M=45.720`, `HALF_LENGTH_M=54.864`.
 - Never commit real NFL video/frames; `data/` and `kp_eval/` are gitignored. Diagnostics go to `C:\Users\sumedh\diag\` or scratch.
@@ -356,168 +356,323 @@ git commit -m "feat(calibration): accumulate static field paint in the reference
 
 ---
 
-## Task 3: Fit the metric field model (labeling)
+## Task 3: Fit the metric field model (two-anchor labeling)
 
-**This is the crux — it is what killed the field-markings approach. It must fail loud rather than guess.**
+**REVISED TWICE after review. Read this history — it is why the contract looks the way it does.**
+
+Labeling is the step that killed this project's earlier field-markings approach (labels 67–210 px wrong, producing a plausible camera that fit nothing). Three defects have been found here, each by review, each in the plan rather than the implementation:
+
+1. **v1 — the prior chose the labels.** `label_yard_lines` never consulted the detected lines; its output was a pure function of `(count, yard_range, tol)`. A *shifted* prior returned a unique but silently WRONG labeling (measured: off by one and two full yard lines), and Task 5 feeds it a window derived from player positions, which are asymmetric about the line of scrimmage — so shifted is the NORMAL case.
+   Root cause: equally-spaced parallel lines are **translation-invariant** along the field.
+2. **v1 — `x = a*y + b` is degenerate for NEAR-HORIZONTAL lines**, which is what endzone yard lines are. Fixed by using the repo's `YardLineSeg` (two endpoints).
+3. **v2 — one anchor is not enough.** It pins translation but not **direction**: `ref_n` inherits an arbitrary endpoint order (ultimately an SVD sign), so the identical physical lines label either `[-18.288 … 0.0]` or mirrored `[0.0 … -18.288]`. The yard-range validator provably cannot catch this, because a mirror about the anchor leaves `min`/`max` unchanged. Separately, labels assigned by **rank** mean one missing or over-merged line shifts every later label by a full 4.572 m, and a loose gap-ratio gate cannot see it.
+
+**v3 contract: TWO anchors.** Two anchored lines pin translation, direction, AND spacing consistency in one stroke — the step implied by the two anchors must come out to exactly ±`YARD_LINE_SPACING_M`, which is violated precisely when a line is missing, spurious, or over-merged. This is still "one-time per game" for the human (the tripod shares one camera centre across the half); they name two lines instead of one.
 
 **Files:**
-- Create: `nfl_gsplat/calibration/field_model_fit.py`
+- Modify: `nfl_gsplat/calibration/field_model_fit.py`
 - Test: `tests/test_field_model_fit.py`
 
 **Interfaces:**
-- Consumes: accumulated votes image from Task 2; `field_landmarks` constants.
-- Produces:
-  - `detect_accumulated_lines(votes, *, vote_thresh=0.5, min_len_frac=0.10) -> list[tuple[float, float]]` — each yard-line candidate as `(a, b)` for the image line `x = a*y + b`, sorted by `b`.
-  - `label_yard_lines(lines, *, yard_range_m, spacing_px_hint=None, tol_m=0.6) -> list[float]` — world X (metres) per detected line. Raises `CalibrationError` when two different label offsets fit within `tol_m` (ambiguous) or when spacing is not consistent.
+- `detect_accumulated_lines(votes, *, vote_thresh=0.5, min_len_frac=0.25, merge_tol_px=12.0) -> list[YardLineSeg]` — unchanged in signature. Two changes inside: offsets are projected from the segment **midpoint** (not `p0`, whose identity depends on an arbitrary SVD sign and injects a perspective artifact into the measured gaps), and there is deliberately NO over-merge guard inside it (both candidate guards were measured unsound; the outermost-anchor step check in `label_yard_lines` catches over-merging as a count violation instead).
+- `label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]` — `anchors` is a pair `(((x1,y1), world_x1), ((x2,y2), world_x2))` naming two DISTINCT detected lines. Returns world X per line in the caller's input order. Raises `CalibrationError` when: `anchors` is None or not two entries; either anchor matches no line within a clear margin; both anchors match the same line; either `world_x` is not on the 5-yard grid; the implied step is not ±`YARD_LINE_SPACING_M` (missing/spurious/over-merged line); any label leaves the painted field; or a supplied `yard_range_m` contradicts the result (validator only).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
-Create `tests/test_field_model_fit.py`:
+Replace `tests/test_field_model_fit.py` with:
 
 ```python
+import cv2
 import numpy as np
 import pytest
 
 from nfl_gsplat.calibration import field_model_fit as fmf
+from nfl_gsplat.calibration.field_features import YardLineSeg
 from nfl_gsplat.calibration.field_landmarks import YARD_LINE_SPACING_M
 from nfl_gsplat.errors import CalibrationError
 
-
-def test_label_yard_lines_assigns_world_x_from_prior():
-    # 5 equally spaced lines; the sideline says the action sits near X=-20..0
-    lines = [(0.0, 100.0 + k * 50.0) for k in range(5)]
-    xs = fmf.label_yard_lines(lines, yard_range_m=(-20.0, 0.0))
-    assert len(xs) == 5
-    d = np.diff(xs)
-    assert np.allclose(np.abs(d), YARD_LINE_SPACING_M, atol=1e-6)
-    assert min(xs) >= -25.0 and max(xs) <= 5.0     # inside the prior window
+S = YARD_LINE_SPACING_M
 
 
-def test_label_yard_lines_fails_loud_when_ambiguous():
-    # A prior window far wider than the observed span admits several offsets
-    lines = [(0.0, 100.0 + k * 50.0) for k in range(3)]
-    with pytest.raises(CalibrationError, match="ambiguous"):
-        fmf.label_yard_lines(lines, yard_range_m=(-50.0, 50.0))
+def _horiz(ys, w=400, flip=()):
+    """Near-horizontal yard lines. `flip` reverses endpoint order for those
+    indices, mimicking the arbitrary ordering real detections come back with."""
+    out = []
+    for i, y in enumerate(ys):
+        p0, p1 = (0.0, float(y)), (float(w), float(y) + 1.0)
+        out.append(YardLineSeg(p1, p0) if i in flip else YardLineSeg(p0, p1))
+    return out
 
 
-def test_label_yard_lines_rejects_inconsistent_spacing():
-    lines = [(0.0, 100.0), (0.0, 150.0), (0.0, 260.0)]      # 50, 110 - not uniform
-    with pytest.raises(CalibrationError, match="spacing"):
-        fmf.label_yard_lines(lines, yard_range_m=(-20.0, 0.0))
+def _anchors(y_a, x_a, y_b, x_b, w=400):
+    return (((w / 2, float(y_a)), float(x_a)), ((w / 2, float(y_b)), float(x_b)))
+
+
+def test_two_anchors_give_signed_labels():
+    lines = _horiz([100, 150, 200, 250, 300])
+    xs = fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
+    # SIGNED equality — not abs(); the sign is what v2 got wrong
+    assert np.allclose(xs, [-18.288, -13.716, -9.144, -4.572, 0.0], atol=1e-6)
+
+
+def test_labels_are_invariant_to_endpoint_order():
+    """The v2 mirror bug: flipping some segments' endpoint order must not
+    mirror the labeling."""
+    ys = [100, 150, 200, 250, 300]
+    a = fmf.label_yard_lines(_horiz(ys), anchors=_anchors(100, -18.288, 300, 0.0))
+    b = fmf.label_yard_lines(_horiz(ys, flip=(0, 3)),
+                             anchors=_anchors(100, -18.288, 300, 0.0))
+    assert np.allclose(a, b), "endpoint order must not change the labeling"
+
+
+def test_missing_line_fails_loud():
+    """A dropped line would shift every later label by a full spacing."""
+    lines = _horiz([100, 150, 200, 300])          # the y=250 line is absent
+    with pytest.raises(CalibrationError, match="spacing|missing"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
+
+
+def test_outermost_rule_catches_a_missing_line_outside_the_anchor_span():
+    """Reviewer's exact repro: with the 4th of 5 lines absent, anchoring the
+    two adjacent INNER lines used to silently mislabel the last line by a full
+    spacing, because the step BETWEEN those two anchors is locally correct
+    (they really are adjacent) — only the span outside them is wrong. Must
+    now raise instead of returning a wrong labeling."""
+    lines = _horiz([100, 150, 200, 300])          # the y=250 line is absent
+    with pytest.raises(CalibrationError, match="(?i)outermost"):
+        fmf.label_yard_lines(lines, anchors=_anchors(150, -13.716, 200, -9.144))
+
+
+def test_anchor_far_from_every_line_fails_loud():
+    lines = _horiz([100, 150, 200])
+    with pytest.raises(CalibrationError, match="anchor"):
+        fmf.label_yard_lines(lines, anchors=_anchors(9e5, -9.144, 150, -4.572))
+
+
+def test_both_anchors_on_same_line_fails_loud():
+    lines = _horiz([100, 150, 200])
+    with pytest.raises(CalibrationError, match="distinct"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -9.144, 102, -4.572))
+
+
+def test_anchor_off_the_yard_grid_fails_loud():
+    lines = _horiz([100, 150, 200])
+    with pytest.raises(CalibrationError, match="grid"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -7.3, 200, -7.3 + 2 * S))
+
+
+def test_missing_anchors_fails_loud():
+    with pytest.raises(CalibrationError, match="anchor"):
+        fmf.label_yard_lines(_horiz([100, 150]), anchors=None)
+
+
+def test_coincident_offsets_fail_loud():
+    """Two lines at an identical offset means merging upstream failed."""
+    lines = _horiz([100, 100, 200])        # first two lines exactly coincide
+    with pytest.raises(CalibrationError, match="coincident"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -9.144, 200, 0.0))
+
+
+def test_labels_outside_painted_field_fail_loud():
+    lines = _horiz([100 + 50 * k for k in range(8)])
+    # Outermost anchors, internally consistent spacing, but centred far from
+    # the field (multiples 9..16 of the yard-line spacing).
+    anchors = _anchors(100, 9 * S, 450, 16 * S)
+    with pytest.raises(CalibrationError, match="painted field"):
+        fmf.label_yard_lines(lines, anchors=anchors)
+
+
+def test_prior_is_validator_only():
+    lines = _horiz([100, 150, 200, 250, 300])
+    a = fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
+    b = fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0),
+                             yard_range_m=(-30.0, 10.0))
+    assert np.allclose(a, b)
+    with pytest.raises(CalibrationError, match="contradict"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0),
+                             yard_range_m=(30.0, 45.0))
+
+
+def test_nonfinite_prior_fails_loud_either_slot():
+    """min()/max() silently drop a NaN that is not first — check both slots."""
+    lines = _horiz([100, 150, 200])
+    for rng in ((float("nan"), 10.0), (10.0, float("nan"))):
+        with pytest.raises(CalibrationError, match="finite"):
+            fmf.label_yard_lines(lines, anchors=_anchors(100, -9.144, 200, 0.0),
+                                 yard_range_m=rng)
+
+
+def test_near_vertical_lines_also_label():
+    lines = [YardLineSeg((float(x), 0.0), (float(x) + 1.0, 300.0))
+             for x in (100, 150, 200)]
+    xs = fmf.label_yard_lines(
+        lines, anchors=(((100.0, 150.0), -9.144), ((200.0, 150.0), 0.0)))
+    assert np.allclose(xs, [-9.144, -4.572, 0.0], atol=1e-6)
+
+
+def test_detect_merges_fragments_across_a_cable_gap():
+    """One physical line, painted with a cable gap in it, must yield ONE
+    segment, not many fragments. detect_accumulated_lines deliberately carries
+    no over-merge guard (both tried variants were measured unsound — see the
+    module docstring); over-merging is instead caught in label_yard_lines as
+    a line-count violation via the outermost-anchor rule, exercised above."""
+    votes = np.zeros((300, 400), np.float32)
+    for y in (80, 160, 240):
+        cv2.line(votes, (10, y), (390, y), 1.0, 3)
+        cv2.line(votes, (200, y), (240, y), 0.0, 5)      # cable gap
+    lines = fmf.detect_accumulated_lines(votes)
+    assert len(lines) == 3, f"expected 3 merged lines, got {len(lines)}"
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 2: Run to verify they fail**
 
 Run: `C:\venvs\nflgsplat\Scripts\python.exe -m pytest tests/test_field_model_fit.py -v`
-Expected: FAIL — module `field_model_fit` not found.
+Expected: FAIL — `label_yard_lines` still takes `anchor=`, not `anchors=`.
 
 - [ ] **Step 3: Implement**
 
-Create `nfl_gsplat/calibration/field_model_fit.py`:
+Rewrite the two public functions in `nfl_gsplat/calibration/field_model_fit.py` (keep the module docstring, extend it with the v3 reasoning). `_line_normal` stays; replace `_offset` and both public functions:
 
 ```python
-"""Fit the metric NFL field model to accumulated endzone paint.
+def _offset(seg: YardLineSeg, normal: np.ndarray) -> float:
+    """Perpendicular offset of a segment, measured at its MIDPOINT.
 
-Labeling (deciding WHICH yard line each detected line is) is the step that
-defeated single-frame field-marking calibration: the painted numbers face the
-sideline, so from the endzone they are edge-on and unreadable. Two things make
-it tractable here: the accumulated mosaic spans far more of the field than any
-one frame, and the calibrated SIDELINE camera says which yard range is in view.
-
-When the evidence admits more than one labeling, this module raises rather than
-guessing — a wrong label offset is exactly how the earlier approach produced a
-plausible-looking camera that fit nothing.
-"""
-from __future__ import annotations
-
-import cv2
-import numpy as np
-
-from nfl_gsplat.calibration.field_landmarks import YARD_LINE_SPACING_M
-from nfl_gsplat.errors import CalibrationError
+    Projecting from p0 makes the measured gaps depend on which endpoint the
+    detector happened to emit first, which under perspective injects an
+    artifact large enough to swamp the real spacing (measured: true gap ratio
+    1.23 read as 4.15)."""
+    mid = 0.5 * (np.asarray(seg.p0, float) + np.asarray(seg.p1, float))
+    return float(normal @ mid)
 
 
-def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
-                             min_len_frac: float = 0.10):
-    """Yard-line candidates from the votes image, as (a, b) with x = a*y + b."""
-    mask = (votes >= vote_thresh).astype(np.uint8) * 255
-    h, w = mask.shape[:2]
-    segs = cv2.HoughLinesP(mask, 1, np.pi / 360, threshold=60,
-                           minLineLength=int(min_len_frac * max(h, w)),
-                           maxLineGap=25)
-    if segs is None:
-        return []
-    out = []
-    for x1, y1, x2, y2 in np.asarray(segs).reshape(-1, 4):
-        if abs(y2 - y1) < 1e-6:
-            continue
-        a = (x2 - x1) / (y2 - y1)
-        b = x1 - a * y1
-        out.append((float(a), float(b)))
-    return sorted(out, key=lambda ab: ab[1])
+def _on_yard_grid(x: float, tol_m: float = 0.05) -> bool:
+    return abs(x / YARD_LINE_SPACING_M - round(x / YARD_LINE_SPACING_M)) \
+        * YARD_LINE_SPACING_M <= tol_m
 
 
-def label_yard_lines(lines, *, yard_range_m, tol_m: float = 0.6):
-    """World X (metres) for each detected line, or raise if ambiguous.
+def label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]:
+    """World X per detected line, from TWO anchored lines.
 
-    Lines are equally spaced by YARD_LINE_SPACING_M in world X, so their image
-    order maps to a uniform world sequence; only the OFFSET (which line is
-    which) is unknown. We enumerate offsets that place every line inside the
-    sideline-derived ``yard_range_m`` window and require exactly one to fit."""
+    Two anchors pin translation, DIRECTION, and spacing consistency at once.
+    One anchor cannot: it leaves the sign free (the identical lines then label
+    mirrored), and rank-based labeling silently absorbs a missing line. The
+    step implied by the two anchors must come out to exactly +-spacing, which
+    is violated precisely when a line is missing, spurious or over-merged."""
+    if anchors is None or len(anchors) != 2:
+        raise CalibrationError(
+            "endzone field fit: need TWO yard-line anchors "
+            "(((x1,y1), world_x1), ((x2,y2), world_x2)). One anchor leaves the "
+            "labeling direction free and cannot detect a missing line. Add an "
+            "'endzone_anchor' block naming two lines (once per game).")
     if len(lines) < 2:
         raise CalibrationError(
-            "endzone field fit: need >= 2 yard lines to label, got "
-            f"{len(lines)} — accumulated paint too sparse.")
-    bs = np.array([b for _a, b in lines], float)
-    gaps = np.diff(bs)
-    if gaps.min() <= 0:
-        raise CalibrationError("endzone field fit: lines are not ordered.")
-    # Uniform image spacing is only expected under mild perspective; require the
-    # gaps to be self-consistent, else the detections are not a clean pencil.
-    if gaps.max() / gaps.min() > 1.6:
-        raise CalibrationError(
-            "endzone field fit: inconsistent yard-line spacing "
-            f"(gap ratio {gaps.max() / gaps.min():.2f}) — detections are not a "
-            "clean set of yard lines; raise vote_thresh or re-check masking.")
+            f"endzone field fit: need >= 2 yard lines, got {len(lines)}.")
 
-    n = len(lines)
-    lo, hi = float(min(yard_range_m)), float(max(yard_range_m))
-    span = (n - 1) * YARD_LINE_SPACING_M
-    # Candidate offsets: start X so that the whole run sits within the window
-    # (widened by tol_m, since the prior is approximate).
-    starts = []
-    k = -200
-    while True:
-        x0 = k * YARD_LINE_SPACING_M
-        if x0 > hi + tol_m:
-            break
-        if x0 >= lo - tol_m and x0 + span <= hi + tol_m:
-            starts.append(x0)
-        k += 1
-    if not starts:
+    for (pt, wx) in anchors:
+        if not np.isfinite(np.asarray([pt[0], pt[1], wx], float)).all():
+            raise CalibrationError("endzone field fit: anchors must be finite.")
+        if not _on_yard_grid(wx):
+            raise CalibrationError(
+                f"endzone field fit: anchor world_x {wx} is not on the 5-yard "
+                f"grid (multiples of {YARD_LINE_SPACING_M:.3f} m) — check the "
+                "value read off the mosaic.")
+
+    ref_n = _line_normal(lines[0])
+    offs = np.array([_offset(s, ref_n) for s in lines], float)
+    order = np.argsort(offs)
+    rank_of = {int(idx): pos for pos, idx in enumerate(order)}
+    gaps = np.diff(offs[order])
+    if np.any(gaps <= 0):
         raise CalibrationError(
-            "endzone field fit: no yard-line labeling fits the sideline yard "
-            f"range {yard_range_m} for {n} lines spanning {span:.1f} m — the "
-            "prior and the detections disagree.")
-    if len(starts) > 1:
+            "endzone field fit: coincident line offsets — merging failed.")
+
+    idxs = []
+    for (pt, _wx) in anchors:
+        d = np.abs(offs - float(ref_n @ np.asarray(pt, float)))
+        k = int(np.argmin(d))
+        # the match must be clearly nearer than the next line, else a slightly
+        # misplaced human click silently yields an off-by-one labeling
+        if d[k] > 0.4 * float(gaps.min()):
+            raise CalibrationError(
+                f"endzone field fit: anchor at {pt} is {d[k]:.1f} px from the "
+                f"nearest line, more than 40% of the smallest line gap "
+                f"({gaps.min():.1f} px) — click closer to a line.")
+        idxs.append(k)
+    if idxs[0] == idxs[1]:
         raise CalibrationError(
-            f"endzone field fit: labeling ambiguous — {len(starts)} offsets fit "
-            f"the yard range {yard_range_m} equally well. Narrow the range "
-            "(more sideline evidence) or supply an absolute anchor.")
-    x0 = starts[0]
-    return [x0 + i * YARD_LINE_SPACING_M for i in range(n)]
+            "endzone field fit: both anchors matched the SAME line; they must "
+            "name two distinct yard lines.")
+
+    r0, r1 = rank_of[idxs[0]], rank_of[idxs[1]]
+    # The anchors MUST be the outermost detected lines. The step check below
+    # only constrains the span BETWEEN them, so anchoring inner lines leaves a
+    # missing/spurious/over-merged line outside that span silently mislabelled
+    # by a full spacing. Spanning every line makes the check global — and makes
+    # a separate over-merge guard unnecessary, since a merge changes the count.
+    if abs(r1 - r0) != len(lines) - 1:
+        raise CalibrationError(
+            f"endzone field fit: the two anchors span {abs(r1 - r0) + 1} of "
+            f"{len(lines)} detected lines. Anchor the OUTERMOST two lines, so "
+            "the spacing check covers every line; otherwise a missing or "
+            "spurious line outside the span is silently mislabelled.")
+    x0, x1 = float(anchors[0][1]), float(anchors[1][1])
+    step = (x1 - x0) / (r1 - r0)
+    if abs(abs(step) - YARD_LINE_SPACING_M) > 0.05:
+        raise CalibrationError(
+            f"endzone field fit: the two anchors imply a step of {step:.3f} m "
+            f"per detected line, not +-{YARD_LINE_SPACING_M:.3f} m — a yard "
+            "line is missing, spurious, or two lines were merged into one.")
+
+    xs_by_rank = [x0 + (pos - r0) * step for pos in range(len(lines))]
+    worst = max(abs(x) for x in xs_by_rank)
+    if worst > GOAL_LINE_X_M + 1e-6:
+        raise CalibrationError(
+            f"endzone field fit: labeling runs off the painted field (|X| up to "
+            f"{worst:.1f} m > {GOAL_LINE_X_M:.1f} m) — check the anchors.")
+
+    if yard_range_m is not None:
+        arr = np.asarray(yard_range_m, float)
+        if arr.size != 2 or not np.isfinite(arr).all():
+            raise CalibrationError(
+                "endzone field fit: yard_range_m must be two finite values.")
+        lo, hi = float(arr.min()), float(arr.max())
+        if max(xs_by_rank) < lo - 15.0 or min(xs_by_rank) > hi + 15.0:
+            raise CalibrationError(
+                f"endzone field fit: anchored labels {min(xs_by_rank):.1f}.."
+                f"{max(xs_by_rank):.1f} m contradict the sideline yard range "
+                f"{yard_range_m} — the anchors are probably wrong.")
+
+    out = [0.0] * len(lines)
+    for pos, idx in enumerate(order):
+        out[int(idx)] = xs_by_rank[pos]
+    return out
 ```
 
-- [ ] **Step 4: Run to verify it passes**
+**No separate over-merge guard.** An earlier draft added one; both variants were
+measured to be unsound. A between-group gap check is structurally blind to the
+case it targets (two lines closer than `merge_tol_px` fuse during clustering, so
+no small between-group gap ever exists), and a within-group residual-spread
+check has no safe threshold — calibrated at `merge_tol_px/5` it false-positives
+on legitimate paint ≥7 px thick (std 2.46) while silently missing over-merges of
+lines ≤4 px apart (std 2.00), which are exactly the distant, compressed lines
+that actually over-merge in an endzone view.
 
-Run: `C:\venvs\nflgsplat\Scripts\python.exe -m pytest tests/test_field_model_fit.py -v` → PASS.
+The outermost-anchor rule above subsumes it: over-merging two lines reduces the
+count by one, so the implied step becomes `(N)/(N-1)` of a spacing and the
+±0.05 m step check fires. That is a *count* invariant, independent of paint
+thickness and line separation, so it has neither failure mode.
+
+- [ ] **Step 4: Run to verify they pass**
+
+Run: `C:\venvs\nflgsplat\Scripts\python.exe -m pytest tests/test_field_model_fit.py -v` → all PASS.
+Then: `C:\venvs\nflgsplat\Scripts\python.exe -m pytest -m "not gpu and not slow" -q` → still green.
 
 - [ ] **Step 5: Lint + commit**
 
 ```bash
 C:\venvs\nflgsplat\Scripts\python.exe -m ruff check nfl_gsplat/calibration/field_model_fit.py tests/test_field_model_fit.py
 git add nfl_gsplat/calibration/field_model_fit.py tests/test_field_model_fit.py
-git commit -m "feat(calibration): label accumulated yard lines, fail loud on ambiguity"
+git commit -m "fix(calibration): two-anchor labeling pins direction and catches a missing line"
 ```
 
 ---
@@ -529,9 +684,9 @@ git commit -m "feat(calibration): label accumulated yard lines, fail loud on amb
 - Test: `tests/test_endzone_mosaic.py`
 
 **Interfaces:**
-- Consumes: `endzone_multiplay.EndzonePrior` (has `.center_bounds`, `.center0`, `.focal_range`); `joint_solve.solve_fixed_center(corrs_by_frame, image_size, *, init_results, _frame_data_override, view_deg, center_bounds, audit_drop_px)`; `solve_pnp.CalibrationResult`; `utils.geometry.CameraIntrinsics, CameraPose`.
+- Consumes: `endzone_multiplay.EndzonePrior` (has `.center_bounds`, `.center0`, `.focal_range`); `decompose_homography.homography_to_krt(H, *, width, height) -> (K, R, t)` (single view of the z=0 plane); `solve_pnp.CalibrationResult`; `utils.geometry.CameraIntrinsics, CameraPose, project_points`.
 - Produces:
-  - `solve_reference_camera(world_xyz, ref_uv, image_size, prior, *, audit_drop_px=4.0) -> CalibrationResult`
+  - `solve_reference_camera(world_xyz, ref_uv, image_size, prior) -> CalibrationResult` — single-view planar solve via `decompose_homography.homography_to_krt`, validated against the prior box and focal range. NOT `solve_fixed_center` (that gates on >=10 consistent frames and cannot solve one view).
   - `propagate(H_by_frame, ref_cam, n_frames) -> list[CalibrationResult | None]` — frame `t`'s camera. Since `H_t` maps frame `t` INTO the reference, `K_t R_t = H_t^{-1} K_ref R_ref`; the centre is shared, so `t_t = -R_t C`.
 
 - [ ] **Step 1: Write the failing test**
@@ -570,6 +725,58 @@ def test_propagate_matches_a_directly_rendered_camera():
     back = cv2.perspectiveTransform(uv_t.reshape(-1, 1, 2).astype(np.float32), H_t)
     assert np.abs(back.reshape(-1, 2) - uv_ref).max() < 1.0
     assert np.allclose(cam.pose.center_world(), C, atol=1e-6)   # shared centre
+
+def test_solve_reference_camera_recovers_a_known_planar_camera():
+    """Project field points through a KNOWN camera, then solve it back."""
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            p = np.array([[X, Y, 0.0]])
+            q = project_points(p, K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    cam = em.solve_reference_camera(world, uv, wh, prior)
+    assert np.allclose(cam.pose.center_world(), C, atol=0.5)
+    assert abs(cam.intrinsics.fx - 2600.0) / 2600.0 < 0.02
+    assert cam.rms_px < 1.0
+
+
+def test_solve_reference_camera_rejects_a_centre_outside_the_prior():
+    import pytest
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.errors import CalibrationError
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            q = project_points(np.array([[X, Y, 0.0]]), K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    wrong = EndzonePrior(x_range=(60, 150), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    with pytest.raises(CalibrationError, match="prior box"):
+        em.solve_reference_camera(world, uv, wh, wrong)
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -582,40 +789,59 @@ Expected: FAIL — `has no attribute 'propagate'`.
 Append to `endzone_mosaic.py`:
 
 ```python
-def solve_reference_camera(world_xyz, ref_uv, image_size, prior,
-                           *, audit_drop_px: float = 4.0):
-    """One camera for the reference frame from accumulated field correspondences.
+def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
+    """One camera for the reference frame from the labelled field lines.
 
-    These are arbitrary field points, so we use solve_fixed_center's
-    _frame_data_override path (never the named-landmark path)."""
-    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    A single view of the z=0 field plane is a HOMOGRAPHY problem, not a
+    multi-frame shared-centre problem. An earlier draft routed this through
+    solve_fixed_center, which gates on >= 10 mutually consistent FRAMES and so
+    could never have succeeded on one view — it would have failed every real
+    run. decompose_homography.homography_to_krt is purpose-built for this: it
+    recovers the focal from the orthonormality of the plane axes."""
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
     from nfl_gsplat.calibration.solve_pnp import CalibrationResult
-    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+    from nfl_gsplat.utils.geometry import (
+        CameraIntrinsics, CameraPose, project_points)
 
     world = np.asarray(world_xyz, np.float64).reshape(-1, 3)
     uv = np.asarray(ref_uv, np.float64).reshape(-1, 2)
-    if len(world) < 6:
+    if len(world) < 4:
         raise CalibrationError(
             f"endzone mosaic: only {len(world)} field correspondences in the "
-            "reference frame (need >= 6) — accumulated paint too sparse.")
-    f0 = float(sum(prior.focal_range)) / 2.0
-    anchor = CalibrationResult(
-        intrinsics=CameraIntrinsics(f0, f0, 0.0, 0.0, 1, 1),
-        pose=CameraPose(R=np.eye(3), t=-prior.center0),
-        rms_px=0.0, num_correspondences=0, refined_with_ba=False)
-    # Repeat the single reference view so the solver's anchor threshold is met.
-    frame_data = {i: (world, uv) for i in range(3)}
-    results, _mirrored = solve_fixed_center(
-        corrs_by_frame=None, image_size=image_size,
-        init_results=[anchor, anchor, anchor], _frame_data_override=frame_data,
-        view_deg=0, center_bounds=prior.center_bounds,
-        audit_drop_px=audit_drop_px)
-    solved = [r for r in results if r is not None]
-    if not solved:
+            "reference frame (need >= 4 for a homography) — accumulated paint "
+            "too sparse; lower vote_thresh or sample more frames.")
+
+    H, _mask = cv2.findHomography(world[:, :2].astype(np.float64),
+                                  uv.astype(np.float64), cv2.RANSAC, 3.0)
+    if H is None:
         raise CalibrationError(
-            "endzone mosaic: reference camera solve kept no frames — the "
-            "field labeling or the accumulated lines are inconsistent.")
-    return solved[0]
+            "endzone mosaic: field->reference homography did not fit — the "
+            "yard-line labeling is probably wrong (check the anchors).")
+
+    w, h = int(image_size[0]), int(image_size[1])
+    K, R, t = homography_to_krt(H, width=w, height=h)
+    C = -R.T @ t
+
+    (xlo, xhi), (ylo, yhi), (zlo, zhi) = prior.center_bounds
+    if not (xlo <= C[0] <= xhi and ylo <= C[1] <= yhi and zlo <= C[2] <= zhi):
+        raise CalibrationError(
+            f"endzone mosaic: solved camera centre {C.round(1)} is outside the "
+            f"prior box {prior.center_bounds} — the yard-line labeling or the "
+            "anchors are wrong.")
+    flo, fhi = prior.focal_range
+    if not (flo <= float(K[0, 0]) <= fhi):
+        raise CalibrationError(
+            f"endzone mosaic: solved focal {K[0, 0]:.0f} px is outside the "
+            f"prior range {prior.focal_range}.")
+
+    proj = project_points(world, K, R, t)
+    ok = np.isfinite(proj).all(axis=1)
+    rms = float(np.sqrt(np.mean(np.sum((proj[ok] - uv[ok]) ** 2, axis=1))))
+    return CalibrationResult(
+        intrinsics=CameraIntrinsics(float(K[0, 0]), float(K[1, 1]),
+                                    float(K[0, 2]), float(K[1, 2]), w, h),
+        pose=CameraPose(R=R, t=t), rms_px=rms,
+        num_correspondences=int(len(world)), refined_with_ba=False)
 
 
 def propagate(H_by_frame, ref_cam, n_frames: int):
@@ -685,8 +911,9 @@ git commit -m "feat(calibration): solve reference camera and propagate through h
 - Test: `tests/test_run_autocalib.py`
 
 **Interfaces:**
-- Consumes: everything above; `player_masks.boxes_provider_from_tracks`; `cameras_io.load_camera_track/write_camera_track`; `utils.video.ffprobe_meta/iter_frames`; `endzone_multiplay.EndzonePrior`; `run_autocalib.assemble_track_from_results`.
-- Produces: `build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video, fps, prior, stride=6, ref_frame=None, sideline_cam="sideline", endzone_cam="endzone") -> Path`.
+- Consumes: everything above; `player_masks.boxes_provider_from_tracks`; `cameras_io.load_camera_track/write_camera_track`; `utils.video.ffprobe_meta/iter_frames`; `endzone_multiplay.EndzonePrior`; `run_autocalib.assemble_track_from_results`. `detect_accumulated_lines` returns `list[YardLineSeg]` (two endpoints each) — the `(a, b)` convention was removed in Task 3 because it is degenerate for near-horizontal lines.
+- Produces: `build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video, fps, prior, anchors=None, stride=6, ref_frame=None, sideline_cam="sideline", endzone_cam="endzone") -> Path`.
+- **Also add `endzone_anchor` to the meta loader** (`nfl_gsplat/utils/meta.py`), alongside the existing optional `endzone_prior`: an optional mapping `{lines: [{point_px: [x, y], world_x_m: float}, {point_px: [x, y], world_x_m: float}]}` — exactly TWO entries, naming the OUTERMOST two detected lines — parsed to `PlayMeta.endzone_anchor: dict | None = None`. Raise `SetupError` if present but not exactly two entries. The CLI converts it to the pair `(((x1,y1), world_x1), ((x2,y2), world_x2))` that `label_yard_lines` expects. Absent → `None` (the driver then saves the mosaic and fails loud, which is the intended first-run flow).
 
 - [ ] **Step 1: Write the failing wiring test**
 
@@ -767,8 +994,8 @@ Add to `run_autocalib.py`:
 
 ```python
 def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
-                         fps, prior, stride: int = 6, ref_frame=None,
-                         sideline_cam: str = "sideline",
+                         fps, prior, anchors=None, stride: int = 6,
+                         ref_frame=None, sideline_cam: str = "sideline",
                          endzone_cam: str = "endzone"):
     """Calibrate the endzone camera from an accumulated static-paint mosaic."""
     from pathlib import Path
@@ -812,15 +1039,31 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
 
     lines = detect_accumulated_lines(votes)
     yard_range = _sideline_yard_range(df, cams[sideline_cam], cam=sideline_cam)
-    xs = label_yard_lines(lines, yard_range_m=yard_range)
+    if anchors is None:
+        # No anchors yet: save the mosaic so the human can read one off it ONCE
+        # per game, then fail loud. Guessing the offset is exactly the failure
+        # this design exists to prevent.
+        diag = Path(r"C:/Users/sumedh/diag") / f"{Path(play_dir).name}_mosaic.png"
+        diag.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(diag), (np.clip(votes, 0, 1) * 255).astype(np.uint8))
+        raise SetupError(
+            f"no endzone_anchor in meta.yaml. Wrote the accumulated mosaic to "
+            f"{diag} — identify the OUTERMOST TWO yard lines in it and add:\n"
+            "endzone_anchor:\n  lines:\n"
+            "    - {point_px: [x1, y1], world_x_m: -18.288}\n"
+            "    - {point_px: [x2, y2], world_x_m: 0.0}\n"
+            "(once per game: the tripod shares one camera centre all half). "
+            "Two anchors are required: one fixes only the offset, leaving the "
+            "labeling direction free and a missing line undetectable.")
+    xs = label_yard_lines(lines, anchors=anchors, yard_range_m=yard_range)
 
-    # Each labelled line contributes two correspondences (its ends at +-HALF_WIDTH_M).
+    # Each merged line already spans the visible paint, so its two endpoints are
+    # the correspondences; they sit at the field's edges in world Y.
     world, uv = [], []
-    for (a, b), X in zip(lines, xs):
-        for Y in (-HALF_WIDTH_M, HALF_WIDTH_M):
-            y_img = 0.25 * meta.height if Y < 0 else 0.75 * meta.height
+    for seg, X in zip(lines, xs):
+        for (px, py), Y in ((seg.p0, -HALF_WIDTH_M), (seg.p1, HALF_WIDTH_M)):
             world.append([X, Y, 0.0])
-            uv.append([a * y_img + b, y_img])
+            uv.append([float(px), float(py)])
     ref_cam = em.solve_reference_camera(world, uv, image_size, prior)
 
     results = em.propagate(H_by, ref_cam, n_frames=meta.num_frames)
@@ -857,10 +1100,13 @@ In `scripts/02_autocalibrate.py` add `mosaic_endzone = "mosaic-endzone"` to `Cal
             raise SetupError(
                 f"{pd.meta_yaml}: --mode mosaic-endzone needs an 'endzone_prior:' "
                 "block (x_range/y_range/z_range/focal_range).")
+        ea = meta.endzone_anchor
+        anchors = tuple(((float(a["point_px"][0]), float(a["point_px"][1])),
+                         float(a["world_x_m"])) for a in ea["lines"]) if ea else None
         out = build_endzone_mosaic(
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
-            fps=meta.fps,
+            fps=meta.fps, anchors=anchors,
             prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
                                tuple(ep["z_range"]), tuple(ep["focal_range"])))
         _LOG.info(f"wrote endzone mosaic calibration → {out}")

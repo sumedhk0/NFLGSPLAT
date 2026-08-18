@@ -19,6 +19,10 @@ Schema::
       y_range: [-15, 15]
       z_range: [10, 60]
       focal_range: [1500, 3500]
+    endzone_anchor:        # optional; read off the mosaic diag PNG (--mode mosaic-endzone)
+      lines:
+        - {point_px: [120, 340], world_x_m: -18.288}
+        - {point_px: [520, 340], world_x_m: 0.0}
 """
 from __future__ import annotations
 
@@ -49,6 +53,7 @@ class PlayMeta:
     gsis_play_id: str | None = None
     calib_hints: dict[str, CalibHint] = field(default_factory=dict)
     endzone_prior: dict | None = None
+    endzone_anchor: dict | None = None
 
     @property
     def game_teams(self) -> tuple[str, str]:
@@ -110,6 +115,38 @@ def load_meta(path) -> PlayMeta:
                     f"list, got {vals!r}."
                 )
             endzone_prior[key] = [float(v) for v in vals]
+    endzone_anchor: dict | None = None
+    raw_ea = raw.get("endzone_anchor")
+    if raw_ea is not None:
+        lines = raw_ea.get("lines") if isinstance(raw_ea, dict) else None
+        if lines is None:
+            raise SetupError(
+                f"{path}: endzone_anchor.lines is required (a list of exactly "
+                "two {point_px, world_x_m} entries naming the outermost yard lines)."
+            )
+        if len(lines) != 2:
+            raise SetupError(
+                f"{path}: endzone_anchor.lines must have exactly TWO entries "
+                f"(the outermost detected yard lines), got {len(lines)}."
+            )
+        parsed_lines = []
+        for entry in lines:
+            if "point_px" not in entry or "world_x_m" not in entry:
+                raise SetupError(
+                    f"{path}: each endzone_anchor.lines entry needs point_px "
+                    "and world_x_m."
+                )
+            pt = list(entry["point_px"])
+            if len(pt) != 2:
+                raise SetupError(
+                    f"{path}: endzone_anchor.lines[].point_px must be [x, y], "
+                    f"got {pt!r}."
+                )
+            parsed_lines.append({
+                "point_px": [float(pt[0]), float(pt[1])],
+                "world_x_m": float(entry["world_x_m"]),
+            })
+        endzone_anchor = {"lines": parsed_lines}
     return PlayMeta(
         season=str(raw["season"]),
         week=int(raw["week"]),
@@ -119,4 +156,5 @@ def load_meta(path) -> PlayMeta:
         gsis_play_id=str(gsis) if gsis is not None else None,
         calib_hints=hints,
         endzone_prior=endzone_prior,
+        endzone_anchor=endzone_anchor,
     )

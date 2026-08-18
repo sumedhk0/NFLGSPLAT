@@ -93,3 +93,42 @@ def test_calib_hint_bad_increasing_raises(tmp_path):
     )
     with pytest.raises(SetupError, match="increasing"):
         load_meta(p)
+
+
+def test_endzone_anchor_absent_is_none(tmp_path):
+    p = tmp_path / "meta.yaml"
+    p.write_text(_VALID)
+    assert load_meta(p).endzone_anchor is None
+
+
+def test_endzone_anchor_parses_two_lines(tmp_path):
+    p = tmp_path / "meta.yaml"
+    p.write_text(
+        _VALID + "endzone_anchor:\n  lines:\n"
+        "    - {point_px: [120, 340], world_x_m: -18.288}\n"
+        "    - {point_px: [520, 340], world_x_m: 0.0}\n"
+    )
+    m = load_meta(p)
+    assert m.endzone_anchor == {
+        "lines": [
+            {"point_px": [120.0, 340.0], "world_x_m": -18.288},
+            {"point_px": [520.0, 340.0], "world_x_m": 0.0},
+        ]
+    }
+
+
+def test_endzone_anchor_wrong_count_raises(tmp_path):
+    p = tmp_path / "meta.yaml"
+    p.write_text(
+        _VALID + "endzone_anchor:\n  lines:\n"
+        "    - {point_px: [120, 340], world_x_m: -18.288}\n"
+    )
+    with pytest.raises(SetupError, match="TWO"):
+        load_meta(p)
+
+
+def test_endzone_anchor_missing_lines_key_raises(tmp_path):
+    p = tmp_path / "meta.yaml"
+    p.write_text(_VALID + "endzone_anchor: {}\n")
+    with pytest.raises(SetupError, match="lines"):
+        load_meta(p)

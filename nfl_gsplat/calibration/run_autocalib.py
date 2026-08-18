@@ -608,6 +608,207 @@ def build_endzone_identity_from_plays(*, play_dirs, prior, sideline_cam="sidelin
     return written
 
 
+def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
+                         fps, prior, anchors=None, stride: int = 6,
+                         ref_frame=None, sideline_cam: str = "sideline",
+                         endzone_cam: str = "endzone",
+                         vote_thresh: float = 0.5, min_len_frac: float = 0.25,
+                         merge_tol_px: float = 12.0,
+                         diag_dir: str | None = None):
+    """Calibrate the endzone camera from an accumulated static-paint mosaic.
+
+    Sampled frames are registered into one reference frame (homographies),
+    their player-masked white paint is accumulated into a votes image, the
+    accumulated yard lines are detected + labelled from two anchors, a single
+    reference camera is solved from the labelled lines, and every sampled
+    frame's camera is propagated from the reference through its homography.
+    ``sideline`` is preserved; ``endzone_*`` is written/overwritten.
+
+    ``vote_thresh``/``min_len_frac``/``merge_tol_px`` are
+    :func:`~nfl_gsplat.calibration.field_model_fit.detect_accumulated_lines`
+    knobs, exposed here so an operator can retune line detection without
+    editing code. ``diag_dir`` defaults to ``play_dir`` (never a hardcoded
+    path) for the first-run mosaic dump."""
+    from pathlib import Path
+
+    import cv2
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.calibration import endzone_mosaic as em
+    from nfl_gsplat.calibration.cameras_io import load_camera_track, write_camera_track
+    from nfl_gsplat.calibration.field_landmarks import HALF_WIDTH_M
+    from nfl_gsplat.calibration.field_model_fit import (
+        detect_accumulated_lines,
+        label_yard_lines,
+    )
+    from nfl_gsplat.errors import SetupError
+    from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
+
+    # The both-orientations mirror search inside solve_reference_camera /
+    # propagate relies ENTIRELY on the mirror flipping C_z negative -- a
+    # z_range spanning zero would silently accept a mirrored camera, since it
+    # is the only bound distinguishing the true camera from its reflection.
+    if prior.z_range[0] <= 0:
+        raise SetupError(
+            "endzone_prior.z_range must exclude negatives — it is the only "
+            "thing distinguishing the true camera from its mirror image.")
+
+    diag_dir = Path(diag_dir) if diag_dir is not None else Path(play_dir)
+
+    cams = load_camera_track(cameras_npz)
+    if cams.get(sideline_cam) is None:
+        raise SetupError(
+            f"no {sideline_cam!r} camera in {cameras_npz} — run the sideline "
+            "calibration first (02_autocalibrate --mode pretrained).")
+    if not Path(tracks_path).exists():
+        raise SetupError(
+            f"player tracks not found: {tracks_path} — run scripts/03b_detect_players.py first.")
+    df = pd.read_parquet(tracks_path)
+
+    meta = ffprobe_meta(str(endzone_video))
+    image_size = (meta.width, meta.height)
+
+    # sample frames (iter_frames yields RGB; OpenCV wants BGR)
+    frames, boxes = {}, {}
+    ez_boxes = df[df["cam"] == endzone_cam]
+    if ez_boxes.empty:
+        raise SetupError(
+            f"no cam=={endzone_cam!r} rows in {tracks_path} — every player "
+            "box would be empty, and white jerseys (bright, low-saturation) "
+            "are then indistinguishable from paint to the white-mask "
+            "threshold; run scripts/03b_detect_players.py on the endzone "
+            "video first.")
+    for idx, rgb in iter_frames(endzone_video, stride=stride):
+        frames[idx] = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        g = ez_boxes[ez_boxes["frame"] == idx]
+        boxes[idx] = list(zip(g["bbox_x1"], g["bbox_y1"], g["bbox_x2"], g["bbox_y2"]))
+    if not frames:
+        raise SetupError(f"no frames decoded from {endzone_video}")
+    # Median sampled index by default. A field-extent heuristic was tried and
+    # measured to select the OPPOSITE of what's needed here: a digital zoom
+    # about the principal point raises fx while painted-pixel COUNT stays
+    # roughly invariant (lines thicken as fewer stay visible), so a
+    # paint-pixel-count score is dominated by how much of the FRAME the field
+    # fills, not how much of the FIELD is in frame -- it systematically
+    # preferred more-zoomed-in frames, exactly the failure this mosaic is
+    # trying to avoid (measured: picked the 2nd-most-zoomed of 6 candidate
+    # frames while losing a third of the visible yard lines). ``--ref-frame``
+    # is the durable, explicit recovery lever if the median clips a line; a
+    # wrong heuristic default is worse than an obvious one.
+    ref = ref_frame if ref_frame is not None else sorted(frames)[len(frames) // 2]
+
+    H_by, _inl = em.register_to_reference(frames, ref_idx=ref, boxes_by_frame=boxes)
+    votes = em.accumulate_field_paint(
+        frames, H_by, boxes, ref_shape=(meta.height, meta.width))
+
+    lines = detect_accumulated_lines(votes, vote_thresh=vote_thresh,
+                                     min_len_frac=min_len_frac,
+                                     merge_tol_px=merge_tol_px)
+    if anchors is None:
+        # No anchors yet: save the mosaic so the human can read one off it ONCE
+        # per game, then fail loud. Guessing the offset is exactly the failure
+        # this design exists to prevent. This must be reachable on a bare
+        # tracks.parquet (03b_detect_players.py output, no player_uid) --
+        # it is the very first thing an operator runs on a new game, before
+        # 03c_identity_tracks.py has ever been run -- so nothing below this
+        # point may depend on the identity pipeline.
+        diag = Path(diag_dir) / f"{Path(play_dir).name}_mosaic.png"
+        diag.parent.mkdir(parents=True, exist_ok=True)
+        # Draw the DETECTED segments (+ midpoints) over the raw votes, not just
+        # the raw votes field: an operator anchoring faint paint the detector
+        # never found gets a confusing "anchor is N px from the nearest line"
+        # on the next run instead of a match.
+        diag_img = cv2.cvtColor((np.clip(votes, 0, 1) * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+        for seg in lines:
+            p0 = (round(seg.p0[0]), round(seg.p0[1]))
+            p1 = (round(seg.p1[0]), round(seg.p1[1]))
+            mid = (round((seg.p0[0] + seg.p1[0]) / 2), round((seg.p0[1] + seg.p1[1]) / 2))
+            cv2.line(diag_img, p0, p1, (0, 0, 255), 1)
+            cv2.circle(diag_img, mid, 4, (0, 255, 0), -1)
+        cv2.imwrite(str(diag), diag_img)
+        raise SetupError(
+            f"no endzone_anchor in meta.yaml. Wrote the accumulated mosaic to "
+            f"{diag} (detected lines in red, midpoints in green) — identify the "
+            "OUTERMOST TWO yard lines in it and add:\n"
+            "endzone_anchor:\n  lines:\n"
+            "    - {point_px: [x1, y1], world_x_m: -18.288}\n"
+            "    - {point_px: [x2, y2], world_x_m: 0.0}\n"
+            "(once per game: the tripod shares one camera centre all half). "
+            "Two anchors are required: one fixes only the offset, leaving the "
+            "labeling direction free and a missing line undetectable.")
+
+    # yard_range is a soft VALIDATOR only (label_yard_lines never uses it to
+    # choose a labeling, just to reject an obviously-wrong one) -- it requires
+    # player_uid, which only 03c_identity_tracks.py adds, not the bare
+    # 03b_detect_players.py tracks.parquet this driver otherwise only needs.
+    # Its absence (or any failure deriving it) must not block the mosaic path
+    # it was designed to sidestep.
+    yard_range = None
+    if "player_uid" in df.columns:
+        try:
+            yard_range = _sideline_yard_range(df, cams[sideline_cam], cam=sideline_cam)
+        except SetupError:
+            yard_range = None
+    xs = label_yard_lines(lines, anchors=anchors, yard_range_m=yard_range)
+
+    # Each merged line already spans the visible paint, so its two endpoints are
+    # the correspondences; they sit at the field's edges in world Y. Which
+    # endpoint (p0 or p1) is the +Y sideline vs the -Y one is NOT determined by
+    # this driver: detect_accumulated_lines's per-line merge fits a direction via
+    # SVD (sign only defined up to +-1), so which physical edge becomes "p0" is
+    # an accident of that per-line fit, not a real left/right convention -- and
+    # even a globally-consistent image left<->world Y handedness depends on the
+    # broadcast feed's mount/roll, which this driver has no way to know in
+    # advance. Try both global assignments (they cannot differ per line: the
+    # SVD direction picks the same handedness on every nearly-parallel merged
+    # line here, confirmed empirically) and keep whichever solves -- exactly the
+    # same "try the mirror, keep what's valid" pattern solve_fixed_center uses
+    # for the fused-hash left/right ambiguity (see its `mirrored` return).
+    def _world_uv(swap: bool):
+        w, u = [], []
+        for seg, X in zip(lines, xs):
+            ys = (HALF_WIDTH_M, -HALF_WIDTH_M) if swap else (-HALF_WIDTH_M, HALF_WIDTH_M)
+            for (px, py), Y in zip((seg.p0, seg.p1), ys):
+                w.append([X, Y, 0.0])
+                u.append([float(px), float(py)])
+        return w, u
+
+    try:
+        ref_cam = em.solve_reference_camera(*_world_uv(False), image_size, prior)
+    except CalibrationError as e_first:
+        try:
+            ref_cam = em.solve_reference_camera(*_world_uv(True), image_size, prior)
+        except CalibrationError:
+            raise e_first from None
+
+    # focal_range is the OPERATOR's own declared prior, not an arbitrary
+    # window derived from wherever the reference happened to land -- a
+    # +-20%-of-reference window was measured too narrow for a real play's
+    # zoom span (acceptance band s in [0.85, 1.25]).
+    results = em.propagate(H_by, ref_cam, n_frames=meta.num_frames,
+                           focal_range=prior.focal_range)
+    cams[endzone_cam] = assemble_track_from_results(
+        results, width=meta.width, height=meta.height, max_gap=stride * 3)
+    return write_camera_track(Path(cameras_npz), cams, fps=fps)
+
+
+def _sideline_yard_range(df, sideline_track, *, cam, pad_m: float = 8.0):
+    """World-X window the sideline camera says is in play, padded."""
+    import numpy as np
+
+    from nfl_gsplat.calibration.endzone_identity import field_positions_by_uid
+    from nfl_gsplat.errors import SetupError
+
+    field = field_positions_by_uid(df, sideline_track, cam=cam, smooth_window=1)
+    xs = [p[0] for fmap in field.values() for p in fmap.values()]
+    if not xs:
+        raise SetupError(
+            "cannot derive a yard range: no sideline field positions — "
+            "run scripts/03c_identity_tracks.py so tracks carry player_uid.")
+    return (float(np.min(xs)) - pad_m, float(np.max(xs)) + pad_m)
+
+
 def build_autocalib_npz(*, play_dir, videos, fps, hints, cfg=None, masks_provider=None):
     """Detect+register every frame of each camera using its CalibHint → cameras.npz."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig

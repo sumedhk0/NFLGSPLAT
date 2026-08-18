@@ -30,14 +30,25 @@ def _solve_focal(H: np.ndarray, cx: float, cy: float) -> float:
     num_o = -(h1[0] * h2[0] + h1[1] * h2[1])
     denom_n = (h1[2] ** 2 - h2[2] ** 2)
     num_n = (h2[0] ** 2 + h2[1] ** 2) - (h1[0] ** 2 + h1[1] ** 2)
-    f2_candidates = []
-    if abs(denom_o) > 1e-12 and num_o / denom_o > 0:
-        f2_candidates.append(num_o / denom_o)
-    if abs(denom_n) > 1e-12 and num_n / denom_n > 0:
-        f2_candidates.append(num_n / denom_n)
-    if not f2_candidates:
+    # Both formulas divide by quantities that vanish at particular poses:
+    # denom_o -> 0 when a plane axis is parallel to the image plane (a camera on
+    # the field centerline, the nominal endzone rig pose). An ABSOLUTE gate is
+    # meaningless because H carries an arbitrary scale, so a 0/0-shaped blowup
+    # slipped through and poisoned the mean (measured: 1.14e6 averaged in, giving
+    # f=1990 instead of 2600). Gate on RELATIVE conditioning, then weight what
+    # survives by how well-conditioned it is.
+    scale2 = max(abs(h1[2]), abs(h2[2]), 1e-30) ** 2
+    cands, weights = [], []
+    for num, den in ((num_o, denom_o), (num_n, denom_n)):
+        if abs(den) / scale2 <= 1e-6:        # relatively degenerate: discard
+            continue
+        val = num / den
+        if val > 0:
+            cands.append(val)
+            weights.append(abs(den))
+    if not cands:
         raise ValueError("cannot recover focal from homography (degenerate view)")
-    return float(np.sqrt(np.mean(f2_candidates)))
+    return float(np.sqrt(np.average(cands, weights=weights)))
 
 
 def homography_to_krt(
