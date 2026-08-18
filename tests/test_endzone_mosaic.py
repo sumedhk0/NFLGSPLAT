@@ -112,3 +112,33 @@ def test_register_fallback_bounded_to_one_hop_from_direct(monkeypatch):
         back = cv2.perspectiveTransform(
             cv2.perspectiveTransform(pts, truth[i]), H_by[i])
         assert np.abs(back - pts).max() < 2.0, f"frame {i} round-trip off"
+
+
+def test_accumulate_reinforces_static_paint_and_suppresses_movers():
+    h, w = 300, 400
+    frames, boxes, H_by = {}, {}, {}
+    for i in range(8):
+        img = np.full((h, w, 3), (40, 90, 40), np.uint8)   # green field (BGR)
+        cv2.line(img, (0, 150), (w, 150), (250, 250, 250), 3)   # STATIC paint
+        # a bright 'player' that moves every frame and is NOT boxed here
+        cv2.rectangle(img, (20 + i * 40, 40), (60 + i * 40, 90), (255, 255, 255), -1)
+        frames[i], boxes[i], H_by[i] = img, [], np.eye(3)
+    acc = em.accumulate_field_paint(frames, H_by, boxes, ref_shape=(h, w))
+    line_vote = acc[150, w // 2]
+    mover_vote = acc[65, 40]
+    assert line_vote > 0.9, f"static paint should reinforce, got {line_vote}"
+    assert mover_vote < 0.4, f"mover should wash out, got {mover_vote}"
+
+
+def test_accumulate_recovers_line_occluded_in_some_frames():
+    """A SkyCam cable breaks the line in a few frames; accumulation must heal it."""
+    h, w = 200, 300
+    frames, boxes, H_by = {}, {}, {}
+    for i in range(10):
+        img = np.full((h, w, 3), (40, 90, 40), np.uint8)
+        cv2.line(img, (0, 100), (w, 100), (250, 250, 250), 3)
+        if i < 3:                                   # cable occludes mid-span
+            cv2.line(img, (140, 90), (140, 110), (20, 20, 20), 9)
+        frames[i], boxes[i], H_by[i] = img, [], np.eye(3)
+    acc = em.accumulate_field_paint(frames, H_by, boxes, ref_shape=(h, w))
+    assert acc[100, 140] > 0.6      # healed: unoccluded in 7/10 frames

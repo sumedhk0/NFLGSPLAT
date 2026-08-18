@@ -108,3 +108,38 @@ def register_to_reference(frames, *, ref_idx, min_inliers: int = 25):
             f"(e.g. {pending[:5]}) — too little static field visible; sample "
             "different frames or lower the frame stride.")
     return H_by, inl_by
+
+
+def _white_mask(img_bgr, lo, hi) -> np.ndarray:
+    """Painted lines: bright and low-saturation. Cables are DARK, so they are
+    excluded here by construction; their only effect is occlusion, which
+    accumulating over many frames heals."""
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    return cv2.inRange(hsv, np.array(lo, np.uint8), np.array(hi, np.uint8))
+
+
+def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
+                           white_lo=(0, 0, 165), white_hi=(180, 70, 255)):
+    """Votes-per-pixel image of STATIC paint in the reference frame (0..1).
+
+    Each frame's player-masked white mask is warped into the reference and
+    summed, then divided by how often each pixel was actually observed. Static
+    paint reinforces; movers and per-frame junk wash out."""
+    h, w = ref_shape[:2]
+    votes = np.zeros((h, w), np.float32)
+    seen = np.zeros((h, w), np.float32)
+    for i, img in frames.items():
+        H = H_by_frame.get(i)
+        if H is None:
+            continue
+        paint = _white_mask(img, white_lo, white_hi)
+        paint = cv2.bitwise_and(paint, keep_mask(img.shape, boxes_by_frame.get(i)))
+        votes += cv2.warpPerspective(
+            (paint > 0).astype(np.float32), H, (w, h), flags=cv2.INTER_NEAREST)
+        seen += cv2.warpPerspective(
+            np.ones(img.shape[:2], np.float32), H, (w, h), flags=cv2.INTER_NEAREST)
+    if not seen.any():
+        raise CalibrationError(
+            "endzone mosaic: no frames contributed coverage — check the "
+            "homographies and that the videos decoded.")
+    return np.divide(votes, seen, out=np.zeros_like(votes), where=seen > 0)
