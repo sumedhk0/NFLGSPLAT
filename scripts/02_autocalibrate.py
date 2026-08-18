@@ -69,6 +69,11 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
                   "the sampled frame with the largest field extent (mosaic-endzone "
                   "mode) — the operator's recovery lever if auto-pick clips yard "
                   "lines at the image border."),
+         propagate_stride: int | None = typer.Option(None, "--propagate-stride",
+             help="Frame stride for the OUTPUT camera track (mosaic-endzone "
+                  "mode). Defaults to --stride. Set 1 for a camera on every "
+                  "frame, which is what compositing needs; it adds coverage, "
+                  "not accuracy, since a tripod's frames share one centre."),
          max_gap: int | None = typer.Option(None, "--max-gap",
              help="Longest run of consecutive uncalibrated frames tolerated "
                   "inside the mosaic-endzone track (default: 3x --stride). "
@@ -120,7 +125,8 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
             fps=meta.fps, anchors=anchors, stride=stride, ref_frame=ref_frame,
-            max_gap=max_gap, diag_dir=diag_dir,
+            max_gap=max_gap, propagate_stride=propagate_stride,
+            diag_dir=diag_dir,
             prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
                                tuple(ep["z_range"]), tuple(ep["focal_range"])))
     elif mode is CalibMode.cross_endzone:

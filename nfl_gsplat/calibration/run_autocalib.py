@@ -625,6 +625,7 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
                          ref_frame=None, sideline_cam: str = "sideline",
                          endzone_cam: str = "endzone",
                          max_gap: int | None = None,
+                         propagate_stride: int | None = None,
                          vote_thresh: float = 0.5, min_len_frac: float = 0.25,
                          merge_tol_px: float = 12.0,
                          diag_dir: str | None = None):
@@ -918,7 +919,39 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     # window derived from wherever the reference happened to land -- a
     # +-20%-of-reference window was measured too narrow for a real play's
     # zoom span (acceptance band s in [0.85, 1.25]).
-    results = em.propagate(H_by, ref_cam, n_frames=meta.num_frames,
+    # The mosaic only needs a SPARSE sample to accumulate paint, but the output
+    # track wants a camera per frame to composite against. Those are different
+    # requirements, so they get different strides: measured on play_001, stride
+    # 12 solved 88 of 1302 frames, and 1193 of the misses were simply never
+    # SAMPLED rather than failed (88 of the 109 attempted, 81%, succeeded).
+    # Denser propagation registers each extra frame against the same reference
+    # by streaming, so memory stays flat -- holding 1302 frames of 1920x1080 to
+    # do it the sparse way would cost about 8 GB.
+    #
+    # Note this buys COVERAGE, not accuracy: both feeds are tripods, so every
+    # frame shares one camera centre and extra frames add no parallax.
+    prop_stride = stride if propagate_stride is None else int(propagate_stride)
+    if prop_stride < 1:
+        raise SetupError(f"--propagate-stride must be >= 1, got {prop_stride}")
+    H_prop = H_by
+    if prop_stride != stride:
+        ref_img = frames[ref]
+        def _stream():
+            for idx, rgb in iter_frames(endzone_video, stride=prop_stride):
+                yield idx, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        dense_boxes = {}
+        for idx in range(0, meta.num_frames, prop_stride):
+            g = ez_boxes[ez_boxes["frame"] == idx]
+            dense_boxes[idx] = list(zip(g["bbox_x1"], g["bbox_y1"],
+                                        g["bbox_x2"], g["bbox_y2"]))
+        H_prop = em.register_dense_to_reference(
+            _stream(), ref_img, ref_boxes=boxes.get(ref),
+            boxes_by_frame=dense_boxes)
+        _LOG.info("endzone mosaic: dense registration placed %d frames at "
+                  "stride %d (mosaic used %d at stride %d)",
+                  len(H_prop), prop_stride, len(H_by), stride)
+
+    results = em.propagate(H_prop, ref_cam, n_frames=meta.num_frames,
                            focal_range=prior.focal_range)
     # A fast pan can break the pure-rotation model outright -- during one on
     # play_001 the propagated frames failed the unit-aspect gate over ~95
