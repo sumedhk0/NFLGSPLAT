@@ -752,3 +752,144 @@ def test_build_endzone_missing_tracks_fails_loud(tmp_path):
     with pytest.raises(SetupError, match="tracks"):
         build_endzone_from_sideline(play_dir=str(tmp_path), tracks_path=str(tmp_path / "nonexistent.parquet"),
                                     cameras_npz=str(npz), endzone_video="e.mp4", fps=30.0)
+
+
+def test_build_endzone_mosaic_writes_endzone_track(tmp_path, monkeypatch):
+    """Synthetic endzone clip of a textured, painted field (9 real yard lines,
+    5-yd/4.572m spacing) viewed by a genuine pinhole camera on a fixed tripod
+    that only zooms. Frames (field paint + background texture) are rendered by
+    warping one world-plane texture through each frame's true planar
+    homography, so the scene is actually perspective-consistent -- required
+    both for SIFT to register frames via a real homography (a pure 2D affine
+    "zoom" would also work for registration, but would leave nothing for
+    decompose_homography to recover a focal from: an orthographic/affine plane
+    view is exactly the degenerate case solve_reference_camera guards
+    against). The driver must register, accumulate, detect+label lines, solve
+    a reference camera, propagate, and write an endzone track that preserves
+    the sideline, recovering close to the true tripod centre."""
+    from types import SimpleNamespace
+
+    import cv2
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.calibration.cameras_io import CameraTrack, load_camera_track, write_camera_track
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.field_landmarks import HALF_WIDTH_M
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+    from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    pdir = tmp_path / "play_x"; pdir.mkdir()
+    wh_sl = (640, 360)
+    # sideline track (identity-ish) so the driver can read a yard prior
+    K_sl = CameraIntrinsics(900.0, 900.0, wh_sl[0] / 2, wh_sl[1] / 2, *wh_sl).K()
+    R_sl = np.eye(3); t_sl = np.array([0.0, 0.0, 30.0])
+    sl = CameraTrack(K=np.repeat(K_sl[None], 12, 0), R=np.repeat(R_sl[None], 12, 0),
+                     t=np.repeat(t_sl[None], 12, 0), conf=np.ones(12),
+                     width=wh_sl[0], height=wh_sl[1])
+    write_camera_track(pdir / "cameras.npz", {"sideline": sl}, fps=30.0)
+
+    # tracks.parquet: sideline players spanning a known yard window
+    rows = []
+    for fr in range(12):
+        for k in range(6):
+            rows.append({"frame": fr, "cam": "sideline", "track_id": k,
+                         "player_uid": f"u{k}", "foot_u": 100 + 60 * k,
+                         "foot_v": 300, "bbox_x1": 0, "bbox_y1": 0,
+                         "bbox_x2": 1, "bbox_y2": 1, "conf": 1})
+    df = pd.DataFrame(rows)
+    for c in TRACK_COLUMNS:
+        if c not in df.columns:
+            df[c] = -1 if c != "cam" else ""
+    df.to_parquet(pdir / "tracks.parquet", index=False)
+
+    # --- real perspective endzone camera on a tripod: fixed centre, zooms ---
+    def look_at(C, target):
+        fwd = np.asarray(target, float) - np.asarray(C, float); fwd /= np.linalg.norm(fwd)
+        right = np.cross(fwd, [0.0, 0.0, 1.0]); right /= np.linalg.norm(right)
+        down = np.cross(fwd, right)
+        return np.stack([right, down, fwd])
+
+    N = 12
+    wh = (1200, 675)
+    C_true = np.array([-130.0, 0.0, 50.0])           # inside the prior box below
+    R = look_at(C_true, [-27.0, 0.0, 0.0])
+    t = -R @ C_true
+    ref_frame = 6
+
+    def fx_at(fr):
+        return 1050.0 + (150.0 / (N - 1)) * fr        # gentle zoom, stays in prior.focal_range
+
+    X_lines = [-45.72 + 4.572 * k for k in range(9)]  # 9 real yard lines, 5 yd/4.572m apart
+
+    # World-plane texture: green field + noise + scattered blobs (SIFT needs
+    # real corner features -- pure lines alone are an aperture-problem trap)
+    # + the painted yard lines, at a fixed meters-per-pixel resolution. Each
+    # frame is rendered by warping this ONE texture through that frame's true
+    # world(z=0)->image homography, so every frame (including the background
+    # texture, not just the lines) is exactly consistent with a single
+    # tripod camera -- exactly what register_to_reference assumes.
+    rng = np.random.default_rng(0)
+    mpp = 0.1
+    Xmin, Xmax, Ymin, Ymax = -60.0, 5.0, -32.0, 32.0
+    Wpx, Hpx = int((Xmax - Xmin) / mpp), int((Ymax - Ymin) / mpp)
+    world_tex = np.full((Hpx, Wpx, 3), (40, 90, 40), np.uint8)
+    noise = rng.normal(0, 12, size=world_tex.shape).astype(np.int16)
+    world_tex = np.clip(world_tex.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    for _ in range(400):
+        cx_, cy_ = int(rng.integers(0, Wpx)), int(rng.integers(0, Hpx))
+        shade = int(rng.integers(-30, 30))
+        color = tuple(int(np.clip(c + shade, 0, 255)) for c in (40, 90, 40))
+        cv2.circle(world_tex, (cx_, cy_), int(rng.integers(2, 6)), color, -1)
+
+    def w2px(X, Y):
+        return ((X - Xmin) / mpp, (Y - Ymin) / mpp)
+    for X in X_lines:
+        px, _ = w2px(X, 0.0)
+        _, py0 = w2px(X, -HALF_WIDTH_M); _, py1 = w2px(X, HALF_WIDTH_M)
+        cv2.line(world_tex, (int(px), int(py0)), (int(px), int(py1)), (255, 255, 255), 4)
+
+    M_px_to_world = np.array([[mpp, 0, Xmin], [0, mpp, Ymin], [0, 0, 1]])
+
+    vid = pdir / "endzone.mp4"
+    vw = cv2.VideoWriter(str(vid), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, wh)
+    K_ref = None
+    for fr in range(N):
+        K = CameraIntrinsics(fx_at(fr), fx_at(fr), wh[0] / 2, wh[1] / 2, *wh).K()
+        if fr == ref_frame:
+            K_ref = K
+        Hwi = K @ np.column_stack([R[:, 0], R[:, 1], t])       # world(z=0) -> frame fr
+        vw.write(cv2.warpPerspective(world_tex, Hwi @ M_px_to_world, wh, flags=cv2.INTER_LINEAR))
+    vw.release()
+
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda p: SimpleNamespace(width=wh[0], height=wh[1],
+                                                  num_frames=N, fps=30.0))
+
+    # Anchors: true pixel projection (at the reference frame) of the two
+    # OUTERMOST yard lines' midpoints -- an operator would read the equivalent
+    # off the accumulated mosaic PNG on a real first run.
+    anchor_uv = project_points(
+        np.array([[X_lines[0], 0.0, 0.0], [X_lines[-1], 0.0, 0.0]]), K_ref, R, t)
+    anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), X_lines[0]),
+              ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), X_lines[-1]))
+
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(400, 2000))
+    out = build_endzone_mosaic(
+        play_dir=pdir, tracks_path=pdir / "tracks.parquet",
+        cameras_npz=pdir / "cameras.npz", endzone_video=vid, fps=30.0,
+        prior=prior, anchors=anchors, stride=2, ref_frame=ref_frame)
+
+    cams = load_camera_track(out)
+    assert "sideline" in cams and "endzone" in cams          # merged, sideline preserved
+    ez = cams["endzone"]
+    assert (ez.conf > 0).sum() >= 1
+    centers = np.array([ez.at(f)[1].center_world() for f in range(ez.num_frames)])
+    valid = ez.conf > 0
+    mean_center = centers[valid].mean(axis=0)
+    # recovered close to the true fixed tripod centre -- proves the chain
+    # (register -> accumulate -> detect -> label -> solve -> propagate)
+    # actually recovered real geometry, not just "ran without crashing"
+    assert np.linalg.norm(mean_center - C_true) < 5.0

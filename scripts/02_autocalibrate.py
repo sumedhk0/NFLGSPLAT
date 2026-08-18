@@ -33,6 +33,7 @@ class CalibMode(str, Enum):
     pretrained = "pretrained"
     cross_endzone = "cross-endzone"
     identity_endzone = "identity-endzone"
+    mosaic_endzone = "mosaic-endzone"
 
 
 @app.command()
@@ -88,6 +89,24 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
         dirs = [PlayDir.from_dir(Path(p.strip()), cameras=pd.cameras).dir
                 for p in play_dirs.split(",") if p.strip()] if play_dirs else [pd.dir]
         out = build_endzone_identity_from_plays(play_dirs=dirs, prior=prior, fps=meta.fps)
+    elif mode is CalibMode.mosaic_endzone:
+        from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+        from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+        ep = meta.endzone_prior
+        if ep is None:
+            raise SetupError(
+                f"{pd.meta_yaml}: --mode mosaic-endzone needs an 'endzone_prior:' "
+                "block (x_range/y_range/z_range/focal_range). See SETUP.md §3."
+            )
+        ea = meta.endzone_anchor
+        anchors = tuple(((float(a["point_px"][0]), float(a["point_px"][1])),
+                         float(a["world_x_m"])) for a in ea["lines"]) if ea else None
+        out = build_endzone_mosaic(
+            play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
+            cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
+            fps=meta.fps, anchors=anchors,
+            prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
+                               tuple(ep["z_range"]), tuple(ep["focal_range"])))
     elif mode is CalibMode.cross_endzone:
         from nfl_gsplat.calibration.run_autocalib import build_endzone_from_sideline
         out = build_endzone_from_sideline(
