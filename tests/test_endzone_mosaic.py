@@ -142,3 +142,29 @@ def test_accumulate_recovers_line_occluded_in_some_frames():
         frames[i], boxes[i], H_by[i] = img, [], np.eye(3)
     acc = em.accumulate_field_paint(frames, H_by, boxes, ref_shape=(h, w))
     assert acc[100, 140] > 0.6      # healed: unoccluded in 7/10 frames
+
+
+def test_accumulate_masks_stationary_bright_box_via_boxes():
+    """Coverage normalisation alone cannot suppress a STATIONARY bright box --
+    it sits at the same pixels every frame and would otherwise rack up votes
+    near 1.0, indistinguishable from paint. It must be suppressed ONLY
+    because it is passed in boxes_by_frame and excluded by keep_mask. This
+    guards the masking path itself: a swapped/inverted mask, a wrong shape
+    argument, or a silently dropped boxes_by_frame parameter would let the
+    box_vote assertion below fail even though the other accumulate tests
+    (which pass empty boxes) would still pass."""
+    h, w = 300, 400
+    frames, boxes, H_by = {}, {}, {}
+    box = (180, 40, 220, 90)                       # a player standing still
+    for i in range(8):
+        img = np.full((h, w, 3), (40, 90, 40), np.uint8)   # green field (BGR)
+        cv2.line(img, (0, 150), (w, 150), (250, 250, 250), 3)   # STATIC paint
+        cv2.rectangle(img, box[:2], box[2:], (255, 255, 255), -1)  # STATIONARY player
+        frames[i] = img
+        boxes[i] = [box]
+        H_by[i] = np.eye(3)
+    acc = em.accumulate_field_paint(frames, H_by, boxes, ref_shape=(h, w))
+    line_vote = acc[150, w // 2]
+    box_vote = acc[65, 200]
+    assert line_vote > 0.9, f"static paint should still reinforce, got {line_vote}"
+    assert box_vote < 0.1, f"boxed stationary player should be masked out, got {box_vote}"
