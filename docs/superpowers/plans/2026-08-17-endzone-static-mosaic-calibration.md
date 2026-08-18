@@ -356,23 +356,26 @@ git commit -m "feat(calibration): accumulate static field paint in the reference
 
 ---
 
-## Task 3: Fit the metric field model (anchored labeling)
+## Task 3: Fit the metric field model (two-anchor labeling)
 
-**REVISED after review — read this note first.** The original Task 3 was wrong in two ways, both found by review, both the plan author's fault:
+**REVISED TWICE after review. Read this history — it is why the contract looks the way it does.**
 
-1. `label_yard_lines` never consulted the detected line positions, so its output was a pure function of `(count, yard_range, tol)`. A *shifted* prior returned a unique but **silently wrong** labeling (measured: off by one and two full yard lines). Task 5 derives that window from player positions, which cluster asymmetrically about the line of scrimmage, so a shifted window is the EXPECTED case — i.e. the 67–210 px failure that killed the earlier field-markings approach, reachable by design.
-   **Root cause: equally-spaced parallel lines are translation-invariant along the field.** The offset is NOT determinable from line geometry alone; it needs an absolute anchor. The human supplies one **once per game** (the tripod shares C across the whole first half, so once is genuinely enough).
-2. The `(a, b)` convention `x = a*y + b` is degenerate for NEAR-HORIZONTAL lines, which is exactly what endzone yard lines are. Integer Hough endpoints either hit the `|dy| < 1e-6` drop guard or produce meaningless intercepts. Replaced by the repo's existing `YardLineSeg` (two endpoints) — no degeneracy, and it is what `field_detect` already returns.
+Labeling is the step that killed this project's earlier field-markings approach (labels 67–210 px wrong, producing a plausible camera that fit nothing). Three defects have been found here, each by review, each in the plan rather than the implementation:
+
+1. **v1 — the prior chose the labels.** `label_yard_lines` never consulted the detected lines; its output was a pure function of `(count, yard_range, tol)`. A *shifted* prior returned a unique but silently WRONG labeling (measured: off by one and two full yard lines), and Task 5 feeds it a window derived from player positions, which are asymmetric about the line of scrimmage — so shifted is the NORMAL case.
+   Root cause: equally-spaced parallel lines are **translation-invariant** along the field.
+2. **v1 — `x = a*y + b` is degenerate for NEAR-HORIZONTAL lines**, which is what endzone yard lines are. Fixed by using the repo's `YardLineSeg` (two endpoints).
+3. **v2 — one anchor is not enough.** It pins translation but not **direction**: `ref_n` inherits an arbitrary endpoint order (ultimately an SVD sign), so the identical physical lines label either `[-18.288 … 0.0]` or mirrored `[0.0 … -18.288]`. The yard-range validator provably cannot catch this, because a mirror about the anchor leaves `min`/`max` unchanged. Separately, labels assigned by **rank** mean one missing or over-merged line shifts every later label by a full 4.572 m, and a loose gap-ratio gate cannot see it.
+
+**v3 contract: TWO anchors.** Two anchored lines pin translation, direction, AND spacing consistency in one stroke — the step implied by the two anchors must come out to exactly ±`YARD_LINE_SPACING_M`, which is violated precisely when a line is missing, spurious, or over-merged. This is still "one-time per game" for the human (the tripod shares one camera centre across the half); they name two lines instead of one.
 
 **Files:**
-- Create: `nfl_gsplat/calibration/field_model_fit.py` (replaces the first attempt)
-- Test: `tests/test_field_model_fit.py` (replaces the first attempt)
+- Modify: `nfl_gsplat/calibration/field_model_fit.py`
+- Test: `tests/test_field_model_fit.py`
 
 **Interfaces:**
-- Consumes: the accumulated votes image from Task 2; `field_landmarks.YARD_LINE_SPACING_M` (4.572) and `GOAL_LINE_X_M` (45.720); `field_features.YardLineSeg`.
-- Produces:
-  - `detect_accumulated_lines(votes, *, vote_thresh=0.5, min_len_frac=0.25, merge_tol_px=12.0) -> list[YardLineSeg]` — one segment per PHYSICAL line (multi-fragment Hough output merged), sorted by perpendicular offset, orientation-agnostic.
-  - `label_yard_lines(lines, *, anchor, yard_range_m=None, max_spacing_ratio=6.0) -> list[float]` — world X per line, in the caller's input order. `anchor` is `((x, y), world_x_m)`: the detected line nearest that image point IS the yard line at `world_x_m`.
+- `detect_accumulated_lines(votes, *, vote_thresh=0.5, min_len_frac=0.25, merge_tol_px=12.0) -> list[YardLineSeg]` — unchanged in signature. Two changes inside: offsets are projected from the segment **midpoint** (not `p0`, whose identity depends on an arbitrary SVD sign and injects a perspective artifact into the measured gaps), and after merging it raises if the smallest surviving gap is not comfortably larger than `merge_tol_px` (over-merging is how a "missing line" appears).
+- `label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]` — `anchors` is a pair `(((x1,y1), world_x1), ((x2,y2), world_x2))` naming two DISTINCT detected lines. Returns world X per line in the caller's input order. Raises `CalibrationError` when: `anchors` is None or not two entries; either anchor matches no line within a clear margin; both anchors match the same line; either `world_x` is not on the 5-yard grid; the implied step is not ±`YARD_LINE_SPACING_M` (missing/spurious/over-merged line); any label leaves the painted field; or a supplied `yard_range_m` contradicts the result (validator only).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -388,235 +391,238 @@ from nfl_gsplat.calibration.field_features import YardLineSeg
 from nfl_gsplat.calibration.field_landmarks import YARD_LINE_SPACING_M
 from nfl_gsplat.errors import CalibrationError
 
-
-def _horiz_lines(ys, w=400):
-    """Near-horizontal yard lines — the real endzone orientation."""
-    return [YardLineSeg((0.0, float(y)), (float(w), float(y) + 1.0)) for y in ys]
+S = YARD_LINE_SPACING_M
 
 
-def test_anchor_determines_labels():
-    lines = _horiz_lines([100, 150, 200, 250, 300])
-    xs = fmf.label_yard_lines(lines, anchor=((200.0, 200.0), -9.144))
-    assert np.isclose(xs[2], -9.144, atol=1e-6)
-    assert np.allclose(np.abs(np.diff(xs)), YARD_LINE_SPACING_M, atol=1e-6)
+def _horiz(ys, w=400, flip=()):
+    """Near-horizontal yard lines. `flip` reverses endpoint order for those
+    indices, mimicking the arbitrary ordering real detections come back with."""
+    out = []
+    for i, y in enumerate(ys):
+        p0, p1 = (0.0, float(y)), (float(w), float(y) + 1.0)
+        out.append(YardLineSeg(p1, p0) if i in flip else YardLineSeg(p0, p1))
+    return out
 
 
-def test_shifted_prior_cannot_move_the_labels():
-    """The bug this task exists to prevent: the prior must not relabel."""
-    lines = _horiz_lines([100, 150, 200, 250, 300])
-    a = fmf.label_yard_lines(lines, anchor=((200.0, 200.0), -9.144))
-    b = fmf.label_yard_lines(lines, anchor=((200.0, 200.0), -9.144),
-                             yard_range_m=(-30.0, 10.0))
-    assert np.allclose(a, b), "labels must come from the anchor, not the prior"
+def _anchors(y_a, x_a, y_b, x_b, w=400):
+    return (((w / 2, float(y_a)), float(x_a)), ((w / 2, float(y_b)), float(x_b)))
 
 
-def test_missing_anchor_fails_loud():
+def test_two_anchors_give_signed_labels():
+    lines = _horiz([100, 150, 200, 250, 300])
+    xs = fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
+    # SIGNED equality — not abs(); the sign is what v2 got wrong
+    assert np.allclose(xs, [-18.288, -13.716, -9.144, -4.572, 0.0], atol=1e-6)
+
+
+def test_labels_are_invariant_to_endpoint_order():
+    """The v2 mirror bug: flipping some segments' endpoint order must not
+    mirror the labeling."""
+    ys = [100, 150, 200, 250, 300]
+    a = fmf.label_yard_lines(_horiz(ys), anchors=_anchors(100, -18.288, 300, 0.0))
+    b = fmf.label_yard_lines(_horiz(ys, flip=(0, 3)),
+                             anchors=_anchors(100, -18.288, 300, 0.0))
+    assert np.allclose(a, b), "endpoint order must not change the labeling"
+
+
+def test_missing_line_fails_loud():
+    """A dropped line would shift every later label by a full spacing."""
+    lines = _horiz([100, 150, 200, 300])          # the y=250 line is absent
+    with pytest.raises(CalibrationError, match="spacing|missing"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
+
+
+def test_anchor_far_from_every_line_fails_loud():
+    lines = _horiz([100, 150, 200])
     with pytest.raises(CalibrationError, match="anchor"):
-        fmf.label_yard_lines(_horiz_lines([100, 150, 200]), anchor=None)
+        fmf.label_yard_lines(lines, anchors=_anchors(9e5, -9.144, 150, -4.572))
 
 
-def test_prior_contradiction_fails_loud():
-    """The prior is a validator: if it disagrees with the anchor, raise."""
+def test_both_anchors_on_same_line_fails_loud():
+    lines = _horiz([100, 150, 200])
+    with pytest.raises(CalibrationError, match="distinct"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -9.144, 102, -4.572))
+
+
+def test_anchor_off_the_yard_grid_fails_loud():
+    lines = _horiz([100, 150, 200])
+    with pytest.raises(CalibrationError, match="grid"):
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -7.3, 200, -7.3 + 2 * S))
+
+
+def test_missing_anchors_fails_loud():
+    with pytest.raises(CalibrationError, match="anchor"):
+        fmf.label_yard_lines(_horiz([100, 150]), anchors=None)
+
+
+def test_prior_is_validator_only():
+    lines = _horiz([100, 150, 200, 250, 300])
+    a = fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0))
+    b = fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0),
+                             yard_range_m=(-30.0, 10.0))
+    assert np.allclose(a, b)
     with pytest.raises(CalibrationError, match="contradict"):
-        fmf.label_yard_lines(_horiz_lines([100, 150, 200]),
-                             anchor=((200.0, 100.0), -9.144),
+        fmf.label_yard_lines(lines, anchors=_anchors(100, -18.288, 300, 0.0),
                              yard_range_m=(30.0, 45.0))
 
 
-def test_labels_outside_painted_field_fail_loud():
-    lines = _horiz_lines([100 + 50 * k for k in range(8)])
-    with pytest.raises(CalibrationError, match="painted field"):
-        fmf.label_yard_lines(lines, anchor=((200.0, 100.0), 44.0))
+def test_nonfinite_prior_fails_loud_either_slot():
+    """min()/max() silently drop a NaN that is not first — check both slots."""
+    lines = _horiz([100, 150, 200])
+    for rng in ((float("nan"), 10.0), (10.0, float("nan"))):
+        with pytest.raises(CalibrationError, match="finite"):
+            fmf.label_yard_lines(lines, anchors=_anchors(100, -9.144, 200, 0.0),
+                                 yard_range_m=rng)
 
 
-def test_nonfinite_prior_fails_loud_and_does_not_hang():
-    with pytest.raises(CalibrationError, match="finite"):
-        fmf.label_yard_lines(_horiz_lines([100, 150, 200]),
-                             anchor=((200.0, 100.0), -9.144),
-                             yard_range_m=(float("nan"), 10.0))
+def test_near_vertical_lines_also_label():
+    lines = [YardLineSeg((float(x), 0.0), (float(x) + 1.0, 300.0))
+             for x in (100, 150, 200)]
+    xs = fmf.label_yard_lines(
+        lines, anchors=(((100.0, 150.0), -9.144), ((200.0, 150.0), 0.0)))
+    assert np.allclose(xs, [-9.144, -4.572, 0.0], atol=1e-6)
 
 
-def test_detect_merges_multi_segment_hough_output():
-    """One physical line must yield ONE segment, not many fragments."""
+def test_detect_merges_fragments_and_rejects_over_merge():
     votes = np.zeros((300, 400), np.float32)
     for y in (80, 160, 240):
         cv2.line(votes, (10, y), (390, y), 1.0, 3)
-        cv2.line(votes, (200, y), (240, y), 0.0, 5)   # cable gap mid-span
-    lines = fmf.detect_accumulated_lines(votes)
-    assert len(lines) == 3, f"expected 3 merged lines, got {len(lines)}"
+        cv2.line(votes, (200, y), (240, y), 0.0, 5)      # cable gap
+    assert len(fmf.detect_accumulated_lines(votes)) == 3
+    # two lines closer than the merge tolerance must fail loud, not silently fuse
+    tight = np.zeros((300, 400), np.float32)
+    for y in (80, 86, 240):
+        cv2.line(tight, (10, y), (390, y), 1.0, 1)
+    with pytest.raises(CalibrationError, match="merge"):
+        fmf.detect_accumulated_lines(tight)
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `C:\venvs\nflgsplat\Scripts\python.exe -m pytest tests/test_field_model_fit.py -v`
-Expected: FAIL — the previous module has a different signature (`anchor` is new).
+Expected: FAIL — `label_yard_lines` still takes `anchor=`, not `anchors=`.
 
 - [ ] **Step 3: Implement**
 
-Replace `nfl_gsplat/calibration/field_model_fit.py` with:
+Rewrite the two public functions in `nfl_gsplat/calibration/field_model_fit.py` (keep the module docstring, extend it with the v3 reasoning). `_line_normal` stays; replace `_offset` and both public functions:
 
 ```python
-"""Fit the metric NFL field model to accumulated endzone paint.
-
-Labeling — deciding WHICH yard line each detected line is — is the step that
-defeated single-frame field-marking calibration. It cannot be solved from line
-geometry alone: equally-spaced parallel lines are TRANSLATION-INVARIANT along
-the field, so sliding the whole set by one spacing gives an identical image. An
-earlier version of this module inferred the offset from a yard-range prior and
-returned a confident, wrong answer whenever that prior was shifted — which is
-the normal case, since the prior comes from where players happen to stand.
-
-The offset therefore comes from an explicit ANCHOR supplied once per game (the
-camera is a fixed tripod, so one anchor covers the whole first half). The
-yard-range prior is kept only as a VALIDATOR: it can reject a labeling, never
-choose one.
-"""
-from __future__ import annotations
-
-import cv2
-import numpy as np
-
-from nfl_gsplat.calibration.field_features import YardLineSeg
-from nfl_gsplat.calibration.field_landmarks import (
-    GOAL_LINE_X_M,
-    YARD_LINE_SPACING_M,
-)
-from nfl_gsplat.errors import CalibrationError
-
-
-def _line_normal(seg: YardLineSeg) -> np.ndarray:
-    """Unit normal of a segment's line (orientation-agnostic)."""
-    p0 = np.asarray(seg.p0, float)
-    p1 = np.asarray(seg.p1, float)
-    d = p1 - p0
-    n = float(np.linalg.norm(d))
-    if n < 1e-9:
-        raise CalibrationError("endzone field fit: zero-length line segment.")
-    d = d / n
-    return np.array([-d[1], d[0]])
-
-
 def _offset(seg: YardLineSeg, normal: np.ndarray) -> float:
-    return float(normal @ np.asarray(seg.p0, float))
+    """Perpendicular offset of a segment, measured at its MIDPOINT.
+
+    Projecting from p0 makes the measured gaps depend on which endpoint the
+    detector happened to emit first, which under perspective injects an
+    artifact large enough to swamp the real spacing (measured: true gap ratio
+    1.23 read as 4.15)."""
+    mid = 0.5 * (np.asarray(seg.p0, float) + np.asarray(seg.p1, float))
+    return float(normal @ mid)
 
 
-def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
-                             min_len_frac: float = 0.25,
-                             merge_tol_px: float = 12.0) -> list[YardLineSeg]:
-    """Yard lines from the accumulated votes image — ONE segment per line.
-
-    HoughLinesP returns many collinear fragments per painted line (more so where
-    a cable breaks it), so fragments are grouped by orientation + perpendicular
-    offset and each group is refit to a single spanning segment."""
-    mask = (np.asarray(votes) >= vote_thresh).astype(np.uint8) * 255
-    h, w = mask.shape[:2]
-    segs = cv2.HoughLinesP(mask, 1, np.pi / 360, threshold=50,
-                           minLineLength=int(min_len_frac * max(h, w)),
-                           maxLineGap=40)
-    if segs is None:
-        return []
-    raw = [YardLineSeg((float(a), float(b)), (float(c), float(d)))
-           for a, b, c, d in np.asarray(segs).reshape(-1, 4)]
-
-    groups: list[list[YardLineSeg]] = []
-    keys: list[tuple[np.ndarray, float]] = []
-    for s in raw:
-        nrm = _line_normal(s)
-        off = _offset(s, nrm)
-        placed = False
-        for gi, (gn, go) in enumerate(keys):
-            align = float(gn @ nrm)
-            if abs(align) < 0.985:                  # not parallel: different line
-                continue
-            if abs(go - _offset(s, gn)) <= merge_tol_px:
-                groups[gi].append(s)
-                placed = True
-                break
-        if not placed:
-            groups.append([s])
-            keys.append((nrm, off))
-
-    merged: list[YardLineSeg] = []
-    for g in groups:
-        pts = np.array([p for s in g for p in (s.p0, s.p1)], float)
-        mean = pts.mean(axis=0)
-        direction = np.linalg.svd(pts - mean)[2][0]
-        ts = (pts - mean) @ direction
-        merged.append(YardLineSeg(tuple(mean + ts.min() * direction),
-                                  tuple(mean + ts.max() * direction)))
-    if not merged:
-        return []
-    ref_n = _line_normal(merged[0])
-    merged.sort(key=lambda s: _offset(s, ref_n))
-    return merged
+def _on_yard_grid(x: float, tol_m: float = 0.05) -> bool:
+    return abs(x / YARD_LINE_SPACING_M - round(x / YARD_LINE_SPACING_M)) \
+        * YARD_LINE_SPACING_M <= tol_m
 
 
-def label_yard_lines(lines, *, anchor, yard_range_m=None,
-                     max_spacing_ratio: float = 6.0) -> list[float]:
-    """World X (metres) per detected line, in the caller's input order.
+def label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]:
+    """World X per detected line, from TWO anchored lines.
 
-    ``anchor`` is ``((x, y), world_x_m)``: the detected line nearest that image
-    point IS the yard line at ``world_x_m``. Without it the offset is
-    undeterminable, so we raise rather than guess."""
-    if anchor is None:
+    Two anchors pin translation, DIRECTION, and spacing consistency at once.
+    One anchor cannot: it leaves the sign free (the identical lines then label
+    mirrored), and rank-based labeling silently absorbs a missing line. The
+    step implied by the two anchors must come out to exactly +-spacing, which
+    is violated precisely when a line is missing, spurious or over-merged."""
+    if anchors is None or len(anchors) != 2:
         raise CalibrationError(
-            "endzone field fit: no yard-line anchor supplied. Equally-spaced "
-            "yard lines are translation-invariant, so the offset cannot be "
-            "inferred from the image — add an 'endzone_anchor' block to "
-            "meta.yaml naming one line's world X (once per game).")
+            "endzone field fit: need TWO yard-line anchors "
+            "(((x1,y1), world_x1), ((x2,y2), world_x2)). One anchor leaves the "
+            "labeling direction free and cannot detect a missing line. Add an "
+            "'endzone_anchor' block naming two lines (once per game).")
     if len(lines) < 2:
         raise CalibrationError(
-            f"endzone field fit: need >= 2 yard lines to label, got {len(lines)}"
-            " — accumulated paint too sparse.")
+            f"endzone field fit: need >= 2 yard lines, got {len(lines)}.")
 
-    (ax, ay), anchor_x = anchor
-    if not np.isfinite(np.array([ax, ay, anchor_x], float)).all():
-        raise CalibrationError("endzone field fit: anchor must be finite.")
+    for (pt, wx) in anchors:
+        if not np.isfinite(np.asarray([pt[0], pt[1], wx], float)).all():
+            raise CalibrationError("endzone field fit: anchors must be finite.")
+        if not _on_yard_grid(wx):
+            raise CalibrationError(
+                f"endzone field fit: anchor world_x {wx} is not on the 5-yard "
+                f"grid (multiples of {YARD_LINE_SPACING_M:.3f} m) — check the "
+                "value read off the mosaic.")
 
     ref_n = _line_normal(lines[0])
     offs = np.array([_offset(s, ref_n) for s in lines], float)
     order = np.argsort(offs)
-    sorted_offs = offs[order]
-    if np.any(np.diff(sorted_offs) <= 0):
+    rank_of = {int(idx): pos for pos, idx in enumerate(order)}
+    gaps = np.diff(offs[order])
+    if np.any(gaps <= 0):
         raise CalibrationError(
-            "endzone field fit: duplicate/coincident line offsets — merging "
-            "failed; raise merge_tol_px or vote_thresh.")
+            "endzone field fit: coincident line offsets — merging failed.")
 
-    gaps = np.diff(sorted_offs)
-    if gaps.max() / gaps.min() > max_spacing_ratio:
+    idxs = []
+    for (pt, _wx) in anchors:
+        d = np.abs(offs - float(ref_n @ np.asarray(pt, float)))
+        k = int(np.argmin(d))
+        # the match must be clearly nearer than the next line, else a slightly
+        # misplaced human click silently yields an off-by-one labeling
+        if d[k] > 0.4 * float(gaps.min()):
+            raise CalibrationError(
+                f"endzone field fit: anchor at {pt} is {d[k]:.1f} px from the "
+                f"nearest line, more than 40% of the smallest line gap "
+                f"({gaps.min():.1f} px) — click closer to a line.")
+        idxs.append(k)
+    if idxs[0] == idxs[1]:
         raise CalibrationError(
-            "endzone field fit: yard-line spacing inconsistent with one pencil "
-            f"of lines (gap ratio {gaps.max() / gaps.min():.2f} > "
-            f"{max_spacing_ratio}) — a line is probably missing or spurious.")
+            "endzone field fit: both anchors matched the SAME line; they must "
+            "name two distinct yard lines.")
 
-    a_off = float(ref_n @ np.array([ax, ay], float))
-    k = int(np.argmin(np.abs(offs - a_off)))
-    rank = int(np.where(order == k)[0][0])
+    r0, r1 = rank_of[idxs[0]], rank_of[idxs[1]]
+    x0, x1 = float(anchors[0][1]), float(anchors[1][1])
+    step = (x1 - x0) / (r1 - r0)
+    if abs(abs(step) - YARD_LINE_SPACING_M) > 0.05:
+        raise CalibrationError(
+            f"endzone field fit: the two anchors imply a step of {step:.3f} m "
+            f"per detected line, not +-{YARD_LINE_SPACING_M:.3f} m — a yard "
+            "line is missing, spurious, or two lines were merged into one.")
 
-    xs_sorted = [anchor_x + (i - rank) * YARD_LINE_SPACING_M
-                 for i in range(len(lines))]
-    worst = max(abs(x) for x in xs_sorted)
+    xs_by_rank = [x0 + (pos - r0) * step for pos in range(len(lines))]
+    worst = max(abs(x) for x in xs_by_rank)
     if worst > GOAL_LINE_X_M + 1e-6:
         raise CalibrationError(
             f"endzone field fit: labeling runs off the painted field (|X| up to "
-            f"{worst:.1f} m > {GOAL_LINE_X_M:.1f} m) — check the anchor's world X.")
+            f"{worst:.1f} m > {GOAL_LINE_X_M:.1f} m) — check the anchors.")
 
     if yard_range_m is not None:
-        arr = np.array([min(yard_range_m), max(yard_range_m)], float)
-        if not np.isfinite(arr).all():
-            raise CalibrationError("endzone field fit: yard_range_m must be finite.")
-        lo, hi = float(arr[0]), float(arr[1])
-        # VALIDATOR only — it may reject a labeling, never choose one.
-        if max(xs_sorted) < lo - 15.0 or min(xs_sorted) > hi + 15.0:
+        arr = np.asarray(yard_range_m, float)
+        if arr.size != 2 or not np.isfinite(arr).all():
             raise CalibrationError(
-                f"endzone field fit: anchored labels {min(xs_sorted):.1f}.."
-                f"{max(xs_sorted):.1f} m contradict the sideline yard range "
-                f"{yard_range_m} — the anchor is probably wrong.")
+                "endzone field fit: yard_range_m must be two finite values.")
+        lo, hi = float(arr.min()), float(arr.max())
+        if max(xs_by_rank) < lo - 15.0 or min(xs_by_rank) > hi + 15.0:
+            raise CalibrationError(
+                f"endzone field fit: anchored labels {min(xs_by_rank):.1f}.."
+                f"{max(xs_by_rank):.1f} m contradict the sideline yard range "
+                f"{yard_range_m} — the anchors are probably wrong.")
 
     out = [0.0] * len(lines)
     for pos, idx in enumerate(order):
-        out[int(idx)] = xs_sorted[pos]
+        out[int(idx)] = xs_by_rank[pos]
     return out
+```
+
+In `detect_accumulated_lines`, after building `merged`, add the over-merge guard before returning:
+
+```python
+    if len(merged) >= 2:
+        ref_n = _line_normal(merged[0])
+        offs = sorted(_offset(s, ref_n) for s in merged)
+        min_gap = min(np.diff(offs))
+        if min_gap < 3.0 * merge_tol_px:
+            raise CalibrationError(
+                f"endzone field fit: smallest line gap {min_gap:.1f} px is not "
+                f"safely above merge_tol_px={merge_tol_px} — distinct lines may "
+                "have been merged, which silently shifts every later label. "
+                "Lower merge_tol_px or raise vote_thresh.")
 ```
 
 - [ ] **Step 4: Run to verify they pass**
@@ -629,7 +635,7 @@ Then: `C:\venvs\nflgsplat\Scripts\python.exe -m pytest -m "not gpu and not slow"
 ```bash
 C:\venvs\nflgsplat\Scripts\python.exe -m ruff check nfl_gsplat/calibration/field_model_fit.py tests/test_field_model_fit.py
 git add nfl_gsplat/calibration/field_model_fit.py tests/test_field_model_fit.py
-git commit -m "fix(calibration): anchor yard-line labeling instead of inferring it"
+git commit -m "fix(calibration): two-anchor labeling pins direction and catches a missing line"
 ```
 
 ---
@@ -880,7 +886,7 @@ Add to `run_autocalib.py`:
 
 ```python
 def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
-                         fps, prior, anchor=None, stride: int = 6,
+                         fps, prior, anchors=None, stride: int = 6,
                          ref_frame=None, sideline_cam: str = "sideline",
                          endzone_cam: str = "endzone"):
     """Calibrate the endzone camera from an accumulated static-paint mosaic."""
@@ -925,8 +931,8 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
 
     lines = detect_accumulated_lines(votes)
     yard_range = _sideline_yard_range(df, cams[sideline_cam], cam=sideline_cam)
-    if anchor is None:
-        # No anchor yet: save the mosaic so the human can read one off it ONCE
+    if anchors is None:
+        # No anchors yet: save the mosaic so the human can read one off it ONCE
         # per game, then fail loud. Guessing the offset is exactly the failure
         # this design exists to prevent.
         diag = Path(r"C:/Users/sumedh/diag") / f"{Path(play_dir).name}_mosaic.png"
@@ -937,7 +943,7 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
             f"{diag} — identify one yard line in it and add:\n"
             "endzone_anchor:\n  point_px: [x, y]\n  world_x_m: -9.144\n"
             "(once per game: the tripod shares one camera centre all half).")
-    xs = label_yard_lines(lines, anchor=anchor, yard_range_m=yard_range)
+    xs = label_yard_lines(lines, anchors=anchors, yard_range_m=yard_range)
 
     # Each merged line already spans the visible paint, so its two endpoints are
     # the correspondences; they sit at the field's edges in world Y.
@@ -988,7 +994,7 @@ In `scripts/02_autocalibrate.py` add `mosaic_endzone = "mosaic-endzone"` to `Cal
         out = build_endzone_mosaic(
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
-            fps=meta.fps, anchor=anchor,
+            fps=meta.fps, anchors=anchors,
             prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
                                tuple(ep["z_range"]), tuple(ep["focal_range"])))
         _LOG.info(f"wrote endzone mosaic calibration → {out}")
