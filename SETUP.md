@@ -117,6 +117,146 @@ Writes `<play-dir>/cameras.npz`. **Fails loudly** if a long run of consecutive f
 
 > **Note:** number-OCR was replaced by the hint because painted numbers are not reliably OCR-able on this footage. The keyframe+tracking path (`02_calibrate_cameras.py` + `02b_track_calibration.py`) remains as a fallback. The YOLO player-mask wiring for line de-cluttering is finalized at bring-up.
 
+### Endzone camera — the static-mosaic route (`--mode mosaic-endzone`)
+
+**Use this for the endzone camera.** The earlier routes are superseded: field
+markings alone mislabel yard lines by 67-210 px from that angle, per-frame
+geometric cross-camera matching mispairs ~85% of feet, and the jersey-identity
+route needs >=4 shared player IDs in a single frame, which real footage did not
+supply (measured: 0 frames out of 327).
+
+The mosaic route works because a broadcast endzone camera sits on a **tripod**:
+it pans and zooms but never translates, so every frame is related to every other
+by a pure homography. Register them all into one reference frame, accumulate the
+white paint with players masked out (paint reinforces, movers wash out), then
+solve one camera against the field model and propagate to every frame.
+
+**Prerequisites**
+
+* the **sideline** camera already solved in `cameras.npz`
+* `tracks.parquet` with `cam=="endzone"` rows (from `03b_detect_players.py`) —
+  without player boxes, white jerseys are indistinguishable from paint
+* an `endzone_prior:` block in `meta.yaml`
+
+```yaml
+endzone_prior:
+  x_range: [60, 200]        # camera centre bounds, METRES. Get the SIGN right:
+  y_range: [-20, 20]        #   it is which end zone the camera is behind.
+  z_range: [10, 60]         # must exclude negatives -- this is what rejects the
+                            #   mirror solution, and nothing else does
+  focal_range: [1200, 30000]  # a long telephoto that zooms OUT to follow the
+                              #   play; measured span on one play was 1532..23200
+```
+
+**First run per game — read two anchors off the mosaic**
+
+Run it once with no `endzone_anchor:`. It writes `<play>_mosaic.png` (detected
+lines in red, midpoints in green) and fails loud. Equally spaced parallel lines
+are translation-invariant, so which yard line is which cannot be recovered from
+geometry — it needs one absolute reference. Identify the **outermost two** lines
+and add:
+
+```yaml
+endzone_anchor:
+  lines:
+    - {point_px: [962.5, 2.9],   world_x_m: -45.720}   # goal line
+    - {point_px: [956.5, 982.8], world_x_m:  -9.144}   # the 40
+```
+
+This is **once per game, not per play** — the tripod holds one centre all half.
+The anchors must be the outermost detected lines, so the spacing check spans
+every line rather than just the interval between them.
+
+```bash
+python scripts/02_autocalibrate.py --play-dir <play> --mode mosaic-endzone \
+    --stride 12 --propagate-stride 1 --max-gap 120
+```
+
+* `--stride` — frames used to BUILD the mosaic. Coarse is fine; 12 works.
+* `--propagate-stride` — frames in the OUTPUT track. Defaults to `--stride`;
+  set `1` for a camera on every frame, which is what compositing needs. It adds
+  coverage, **not** accuracy: a tripod's frames all share one centre, so extra
+  frames add no parallax.
+* `--max-gap` — longest run of uncalibrated frames tolerated. Raise it only
+  when you have looked at the span: a fast pan can break the pure-rotation model
+  outright (rolling shutter shears the frame mid-slew).
+
+**Accepting the result.** Project the metric field model with the solved camera
+and measure how far it lands from the accumulated paint. On the reference play
+that is 0.00 px median with 76.6% of model points within 3 px, and yard lines
+reproject at 1.04 px mean / 2.71 px max. Shifting the model one yard scores
+14.39 px — if your controls do not separate like that, the labelling is wrong.
+
+### Endzone camera — the static-mosaic route (`--mode mosaic-endzone`)
+
+**Use this for the endzone camera.** The earlier routes are superseded: field
+markings alone mislabel yard lines by 67-210 px from that angle, per-frame
+geometric cross-camera matching mispairs ~85% of feet, and the jersey-identity
+route needs >=4 shared player IDs in a single frame, which real footage did not
+supply (measured: 0 frames out of 327).
+
+The mosaic route works because a broadcast endzone camera sits on a **tripod**:
+it pans and zooms but never translates, so every frame is related to every other
+by a pure homography. Register them all into one reference frame, accumulate the
+white paint with players masked out (paint reinforces, movers wash out), then
+solve one camera against the field model and propagate to every frame.
+
+**Prerequisites**
+
+* the **sideline** camera already solved in `cameras.npz`
+* `tracks.parquet` with `cam=="endzone"` rows (from `03b_detect_players.py`) —
+  without player boxes, white jerseys are indistinguishable from paint
+* an `endzone_prior:` block in `meta.yaml`
+
+```yaml
+endzone_prior:
+  x_range: [60, 200]        # camera centre bounds, METRES. Get the SIGN right:
+  y_range: [-20, 20]        #   it is which end zone the camera is behind.
+  z_range: [10, 60]         # must exclude negatives -- this is what rejects the
+                            #   mirror solution, and nothing else does
+  focal_range: [1200, 30000]  # a long telephoto that zooms OUT to follow the
+                              #   play; measured span on one play was 1532..23200
+```
+
+**First run per game — read two anchors off the mosaic**
+
+Run it once with no `endzone_anchor:`. It writes `<play>_mosaic.png` (detected
+lines in red, midpoints in green) and fails loud. Equally spaced parallel lines
+are translation-invariant, so which yard line is which cannot be recovered from
+geometry — it needs one absolute reference. Identify the **outermost two** lines
+and add:
+
+```yaml
+endzone_anchor:
+  lines:
+    - {point_px: [962.5, 2.9],   world_x_m: -45.720}   # goal line
+    - {point_px: [956.5, 982.8], world_x_m:  -9.144}   # the 40
+```
+
+This is **once per game, not per play** — the tripod holds one centre all half.
+The anchors must be the outermost detected lines, so the spacing check spans
+every line rather than just the interval between them.
+
+```bash
+python scripts/02_autocalibrate.py --play-dir <play> --mode mosaic-endzone \
+    --stride 12 --propagate-stride 1 --max-gap 120
+```
+
+* `--stride` — frames used to BUILD the mosaic. Coarse is fine; 12 works.
+* `--propagate-stride` — frames in the OUTPUT track. Defaults to `--stride`;
+  set `1` for a camera on every frame, which is what compositing needs. It adds
+  coverage, **not** accuracy: a tripod's frames all share one centre, so extra
+  frames add no parallax.
+* `--max-gap` — longest run of uncalibrated frames tolerated. Raise it only
+  when you have looked at the span: a fast pan can break the pure-rotation model
+  outright (rolling shutter shears the frame mid-slew).
+
+**Accepting the result.** Project the metric field model with the solved camera
+and measure how far it lands from the accumulated paint. On the reference play
+that is 0.00 px median with 76.6% of model points within 3 px, and yard lines
+reproject at 1.04 px mean / 2.71 px max. Shifting the model one yard scores
+14.39 px — if your controls do not separate like that, the labelling is wrong.
+
 ### Learned calibration (field-landmark detector)
 
 If you have labelled training data and a trained `LandmarkNet`, the learned path
@@ -347,6 +487,70 @@ reserved uids: `__referee__` (a striped-shirt avatar for officials) and
 Force a rebuild with `avatars.library.rebuild=true`. `data/{season}/_library/` is
 gitignored (derived data). Author the one-time generic referee avatar before
 processing plays, or referee tracks raise a `SetupError`.
+
+## §9b — Quickstart: one field splat on PACE
+
+Before committing to the full season DAG, train ONE play and look at it. This is
+the first honest test of whether the reconstruction is worth scaling.
+
+```bash
+# on PACE, from the repo root
+module load anaconda3
+bash scripts/00_setup_environments.sh --only nfl_gsplat   # ~20 min, once
+conda activate nfl_gsplat && ns-train --help              # sanity: nerfstudio present
+```
+
+The play needs `sideline.mp4`, `endzone.mp4`, `cameras.npz` and `meta.yaml`.
+Calibration itself runs fine on a laptop — only the splat needs the GPU — so the
+usual flow is calibrate locally, then copy the play directory up.
+
+```bash
+sbatch scripts/slurm/field_recon.sbatch data/2025/week_04/SEA_at_AZ/play_001
+```
+
+The argument is a play **directory**, not a game id. Output is
+`<play>/field.ply`; the job runs on `--qos=embers` (free, preemptible,
+auto-requeued) and logs to `logs/nfl-field-<jobid>.out`.
+
+**Set expectations before you look at it.** Both feeds are tripods, so the whole
+capture has exactly **two camera centres** (130 m apart). Gaussian Splatting
+infers depth from parallax, and two viewpoints is the bare minimum. The field is
+planar and should come out clean; anything with real depth — stands, goalposts,
+crowd — is under-constrained, and the optimiser will place blobs that look right
+from both cameras and wrong from anywhere between them. Players are deliberately
+not splatted at all; they are posed avatars composited later.
+
+## §9b — Quickstart: one field splat on PACE
+
+Before committing to the full season DAG, train ONE play and look at it. This is
+the first honest test of whether the reconstruction is worth scaling.
+
+```bash
+# on PACE, from the repo root
+module load anaconda3
+bash scripts/00_setup_environments.sh --only nfl_gsplat   # ~20 min, once
+conda activate nfl_gsplat && ns-train --help              # sanity: nerfstudio present
+```
+
+The play needs `sideline.mp4`, `endzone.mp4`, `cameras.npz` and `meta.yaml`.
+Calibration itself runs fine on a laptop — only the splat needs the GPU — so the
+usual flow is calibrate locally, then copy the play directory up.
+
+```bash
+sbatch scripts/slurm/field_recon.sbatch data/2025/week_04/SEA_at_AZ/play_001
+```
+
+The argument is a play **directory**, not a game id. Output is
+`<play>/field.ply`; the job runs on `--qos=embers` (free, preemptible,
+auto-requeued) and logs to `logs/nfl-field-<jobid>.out`.
+
+**Set expectations before you look at it.** Both feeds are tripods, so the whole
+capture has exactly **two camera centres** (130 m apart). Gaussian Splatting
+infers depth from parallax, and two viewpoints is the bare minimum. The field is
+planar and should come out clean; anything with real depth — stands, goalposts,
+crowd — is under-constrained, and the optimiser will place blobs that look right
+from both cameras and wrong from anywhere between them. Players are deliberately
+not splatted at all; they are posed avatars composited later.
 
 ## §10 — Running the full season on a GPU cluster (PACE)
 
