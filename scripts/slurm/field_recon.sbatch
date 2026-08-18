@@ -9,16 +9,22 @@
 #SBATCH --requeue
 #SBATCH --output=logs/%x-%j.out
 
-# Reconstruct the static field for one game.
-# Submit with:  sbatch scripts/slurm/field_recon.sbatch game_001
+# Reconstruct the static field for one PLAY.
+#
+# The argument is a play DIRECTORY, not a game id: it is forwarded verbatim to
+# 03_reconstruct_field.sh, which takes a play dir. Submitting a bare game id
+# fails there, not here.
+#
+# Submit with:
+#   sbatch scripts/slurm/field_recon.sbatch data/2025/week_04/SEA_at_AZ/play_001
 
 set -euo pipefail
 
-GAME="${1:-}"
-if [[ -z "$GAME" ]]; then
-    echo "usage: sbatch $0 <game_id>" >&2
+PLAY_DIR="${1:-}"
+if [[ -z "$PLAY_DIR" ]]; then
+    echo "usage: sbatch $0 <play-dir>" >&2
     exit 2
 fi
 
 cd "$SLURM_SUBMIT_DIR"
-bash scripts/03_reconstruct_field.sh "$GAME"
+bash scripts/03_reconstruct_field.sh "$PLAY_DIR"
