@@ -257,3 +257,144 @@ def test_solve_reference_camera_rejects_a_centre_outside_the_prior():
                          z_range=(10, 60), focal_range=(1500, 3500))
     with pytest.raises(CalibrationError, match="prior box"):
         em.solve_reference_camera(world, uv, wh, wrong)
+
+
+def test_propagate_sign_normalises_before_rq_when_det_m_is_negative():
+    """H is only defined up to an arbitrary nonzero homogeneous scale, so
+    `M = inv(H) @ M_ref` can come out with a negative determinant purely
+    from that scale ambiguity -- not because the frame camera is a
+    reflection. propagate() must normalise the sign BEFORE decomposing:
+    multiplying K by diag(-1,-1,1) AFTER decomposition cannot fix a wrong
+    det(R) (det(diag(-1,-1,1)) = +1) and instead corrupts K's focal signs."""
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd])
+    ref = CalibrationResult(
+        intrinsics=CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh),
+        pose=CameraPose(R=R, t=-R @ C), rms_px=0.0, num_correspondences=0,
+        refined_with_ba=False)
+
+    s = 1.15
+    cx, cy = wh[0] / 2, wh[1] / 2
+    H_t = np.array([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)], [0, 0, 1.0]])
+    H_neg = -H_t          # the SAME homography -- homogeneous scale is arbitrary
+
+    M_ref = ref.intrinsics.K() @ ref.pose.R
+    M = np.linalg.inv(H_neg) @ M_ref
+    assert np.linalg.det(M) < 0        # actually drives the sign-flip branch
+
+    out = em.propagate({7: H_neg}, ref, n_frames=8)
+    cam = out[7]
+    assert cam is not None
+    assert np.linalg.det(cam.pose.R) > 0
+
+    M_signed = -M if np.linalg.det(M) < 0 else M
+    M_rec = cam.intrinsics.K() @ cam.pose.R
+    assert np.allclose(M_rec / M_rec[2, 2], M_signed / M_signed[2, 2])
+
+
+def test_solve_reference_camera_wraps_degenerate_focal_as_calibration_error(monkeypatch):
+    """homography_to_krt (via _solve_focal) raises a bare ValueError on a
+    degenerate view; solve_reference_camera must not let that escape -- the
+    binding constraint is fail loud with CalibrationError + a pointer."""
+    import pytest
+
+    from nfl_gsplat.calibration import decompose_homography
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.errors import CalibrationError
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            q = project_points(np.array([[X, Y, 0.0]]), K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+
+    def _boom(H, *, width, height):
+        raise ValueError("cannot recover focal from homography (degenerate view)")
+
+    monkeypatch.setattr(decompose_homography, "homography_to_krt", _boom)
+    with pytest.raises(CalibrationError, match="degenerate"):
+        em.solve_reference_camera(world, uv, wh, prior)
+
+
+def _labelled_field_correspondences(wh, C, fwd_xz_only=True):
+    """Shared helper: project the standard 10-point field grid through a
+    known camera and return (world, uv)."""
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, project_points
+
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd]); t = -R @ C
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+    world, uv = [], []
+    for X in (-18.288, -13.716, -9.144, -4.572, 0.0):
+        for Y in (-20.0, 20.0):
+            q = project_points(np.array([[X, Y, 0.0]]), K, R, t)[0]
+            if np.isfinite(q).all():
+                world.append([X, Y, 0.0]); uv.append(q)
+    return world, uv
+
+
+def test_solve_reference_camera_rejects_high_rms_from_one_bad_line():
+    """One yard line labelled a gridline off keeps its true pixel location
+    but gets assigned the WRONG world X. RANSAC correctly excludes it from
+    the homography fit (9/10 inliers, above the inlier-fraction gate), so
+    only the rms gate catches it: reprojected against ALL 10 supplied
+    points (including the one RANSAC excluded), rms comes out at ~11.9 px
+    -- well above the 3.0 px gate tied to the RANSAC fit threshold used
+    above. Measured previously: this labeling was silently ACCEPTED before
+    this gate existed."""
+    import pytest
+
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.errors import CalibrationError
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    world, uv = _labelled_field_correspondences(wh, C)
+    world[0] = [world[0][0] + 4.572, world[0][1], world[0][2]]   # one line off by 5 yd
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    with pytest.raises(CalibrationError, match="rms"):
+        em.solve_reference_camera(world, uv, wh, prior)
+
+
+def test_solve_reference_camera_rejects_a_low_inlier_fraction():
+    """4 of the 10 labelled points are off by 5-10 yards each: RANSAC keeps
+    only 6/10 as inliers (60%), below the 70% clear-majority gate -- too
+    much of the input disagrees with itself to trust whatever fit RANSAC
+    happens to settle on, independent of what its rms would report."""
+    import pytest
+
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.errors import CalibrationError
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    world, uv = _labelled_field_correspondences(wh, C)
+    for i in range(4):
+        off_yd = (5 + 5 * (i % 2)) * (1 if i % 2 == 0 else -1)
+        world[i] = [world[i][0] + off_yd * 0.9144, world[i][1], world[i][2]]
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(1500, 3500))
+    with pytest.raises(CalibrationError, match="inlier"):
+        em.solve_reference_camera(world, uv, wh, prior)

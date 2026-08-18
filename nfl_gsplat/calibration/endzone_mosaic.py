@@ -166,18 +166,46 @@ def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
             "reference frame (need >= 4 for a homography) — accumulated paint "
             "too sparse; lower vote_thresh or sample more frames.")
 
-    H, _mask = cv2.findHomography(world[:, :2].astype(np.float64),
-                                  uv.astype(np.float64), cv2.RANSAC, 3.0)
+    H, mask = cv2.findHomography(world[:, :2].astype(np.float64),
+                                 uv.astype(np.float64), cv2.RANSAC, 3.0)
     if H is None:
         raise CalibrationError(
             "endzone mosaic: field->reference homography did not fit — the "
             "yard-line labeling is probably wrong (check the anchors).")
 
+    # Gate on the evidence findHomography already computed instead of
+    # discarding it. RANSAC quietly excludes disagreeing points from the fit,
+    # so a HIGH inlier fraction does not by itself mean the labeling is right
+    # -- it only means most points AGREE with each other. This gate requires
+    # a clear majority (>=70%) of the labelled points to be self-consistent
+    # under a single planar homography; below that, too much of the input
+    # disagrees to trust any fit RANSAC happens to settle on.
+    inliers = int(mask.sum()) if mask is not None else 0
+    inlier_frac = inliers / len(world)
+    if inlier_frac < 0.7:
+        raise CalibrationError(
+            f"endzone mosaic: field->reference homography kept only "
+            f"{inliers}/{len(world)} points as inliers ({inlier_frac:.0%}) — "
+            "too many field correspondences disagree to trust this fit; "
+            "check the yard-line labeling.")
+
     w, h = int(image_size[0]), int(image_size[1])
-    K, R, t = homography_to_krt(H, width=w, height=h)
+    try:
+        K, R, t = homography_to_krt(H, width=w, height=h)
+    except ValueError as e:
+        raise CalibrationError(
+            f"endzone mosaic: reference view is degenerate for focal recovery "
+            f"({e}) — the accumulated lines are nearly all parallel in the "
+            "image; sample frames with more pan/zoom spread.") from e
     C = -R.T @ t
 
     (xlo, xhi), (ylo, yhi), (zlo, zhi) = prior.center_bounds
+    # NOTE: this box is structurally blind to a CONSTANT yard offset -- an
+    # off-by-one/two/five mislabeling of every line shifts C along the field
+    # axis but can still land inside the box with rms ~0 (it does catch
+    # mirrors and scale errors, which move C off-axis or change its
+    # magnitude). Catching a constant offset is Task 3's two-anchor
+    # invariant, not this function's job.
     if not (xlo <= C[0] <= xhi and ylo <= C[1] <= yhi and zlo <= C[2] <= zhi):
         raise CalibrationError(
             f"endzone mosaic: solved camera centre {C.round(1)} is outside the "
@@ -192,11 +220,22 @@ def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
     proj = project_points(world, K, R, t)
     ok = np.isfinite(proj).all(axis=1)
     rms = float(np.sqrt(np.mean(np.sum((proj[ok] - uv[ok]) ** 2, axis=1))))
+    # This average is over ALL supplied points, not just RANSAC's inliers --
+    # a mislabeled line RANSAC correctly excluded from the fit still shows up
+    # here as a large residual (measured: one wrong yard line, kept at 9/10
+    # inliers by RANSAC, still reprojected at 11.9 px rms). 3.0 px matches the
+    # RANSAC inlier threshold used to fit H above: a genuinely single planar
+    # camera should reproject every consistent point about that tightly.
+    if rms > 3.0:
+        raise CalibrationError(
+            f"endzone mosaic: reference camera reprojection rms {rms:.2f} px "
+            "exceeds 3.0 px — the field correspondences are inconsistent "
+            "with a single planar camera; check the yard-line labeling.")
     return CalibrationResult(
         intrinsics=CameraIntrinsics(float(K[0, 0]), float(K[1, 1]),
                                     float(K[0, 2]), float(K[1, 2]), w, h),
         pose=CameraPose(R=R, t=t), rms_px=rms,
-        num_correspondences=len(world), refined_with_ba=False)
+        num_correspondences=inliers, refined_with_ba=False)
 
 
 def propagate(H_by_frame, ref_cam, n_frames: int):
@@ -215,14 +254,28 @@ def propagate(H_by_frame, ref_cam, n_frames: int):
         if not (0 <= t < n_frames):
             continue
         M = np.linalg.inv(H) @ M_ref                 # = K_t R_t
+        # H (and so M) is only defined up to an arbitrary nonzero homogeneous
+        # scale, so det(M) < 0 just means that scale came out negative here --
+        # NOT that the frame camera is a reflection. Normalise BEFORE
+        # decomposing: negating a 3x3 flips its determinant, so this picks the
+        # positive-scale representative and _rq3 (which always returns a
+        # positive-diagonal K) is then guaranteed det(R) > 0. multiplying K by
+        # diag(-1,-1,1) AFTER decomposition cannot fix a wrong det(R) --
+        # det(diag(-1,-1,1)) = +1, so it cannot flip sign(det(R)); it can only
+        # corrupt K's focal signs, which is the bug this replaces.
+        if np.linalg.det(M) < 0:
+            M = -M
         # RQ-decompose M into upper-triangular K and rotation R.
         K, R = _rq3(M)
         if K[2, 2] == 0:
             continue
         K = K / K[2, 2]
-        if np.linalg.det(R) < 0:                     # keep a right-handed frame
-            K, R = K @ np.diag([-1.0, -1.0, 1.0]), np.diag([-1.0, -1.0, 1.0]) @ R
-        fx, fy = float(abs(K[0, 0])), float(abs(K[1, 1]))
+        if np.linalg.det(R) < 0:
+            raise CalibrationError(
+                f"endzone mosaic: frame {t} decomposed to a reflection "
+                "(det R < 0) — the homography or the reference camera is "
+                "inconsistent; this must not be silently accepted.")
+        fx, fy = float(K[0, 0]), float(K[1, 1])
         out[t] = CalibrationResult(
             intrinsics=CameraIntrinsics(fx, fy, float(K[0, 2]), float(K[1, 2]), w, h),
             pose=CameraPose(R=R, t=-R @ C),
