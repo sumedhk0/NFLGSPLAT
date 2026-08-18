@@ -374,7 +374,7 @@ Labeling is the step that killed this project's earlier field-markings approach 
 - Test: `tests/test_field_model_fit.py`
 
 **Interfaces:**
-- `detect_accumulated_lines(votes, *, vote_thresh=0.5, min_len_frac=0.25, merge_tol_px=12.0) -> list[YardLineSeg]` — unchanged in signature. Two changes inside: offsets are projected from the segment **midpoint** (not `p0`, whose identity depends on an arbitrary SVD sign and injects a perspective artifact into the measured gaps), and after merging it raises if the smallest surviving gap is not comfortably larger than `merge_tol_px` (over-merging is how a "missing line" appears).
+- `detect_accumulated_lines(votes, *, vote_thresh=0.5, min_len_frac=0.25, merge_tol_px=12.0) -> list[YardLineSeg]` — unchanged in signature. Two changes inside: offsets are projected from the segment **midpoint** (not `p0`, whose identity depends on an arbitrary SVD sign and injects a perspective artifact into the measured gaps), and there is deliberately NO over-merge guard inside it (both candidate guards were measured unsound; the outermost-anchor step check in `label_yard_lines` catches over-merging as a count violation instead).
 - `label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]` — `anchors` is a pair `(((x1,y1), world_x1), ((x2,y2), world_x2))` naming two DISTINCT detected lines. Returns world X per line in the caller's input order. Raises `CalibrationError` when: `anchors` is None or not two entries; either anchor matches no line within a clear margin; both anchors match the same line; either `world_x` is not on the 5-yard grid; the implied step is not ±`YARD_LINE_SPACING_M` (missing/spurious/over-merged line); any label leaves the painted field; or a supplied `yard_range_m` contradicts the result (validator only).
 
 - [ ] **Step 1: Write the failing tests**
@@ -577,6 +577,17 @@ def label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]:
             "name two distinct yard lines.")
 
     r0, r1 = rank_of[idxs[0]], rank_of[idxs[1]]
+    # The anchors MUST be the outermost detected lines. The step check below
+    # only constrains the span BETWEEN them, so anchoring inner lines leaves a
+    # missing/spurious/over-merged line outside that span silently mislabelled
+    # by a full spacing. Spanning every line makes the check global — and makes
+    # a separate over-merge guard unnecessary, since a merge changes the count.
+    if abs(r1 - r0) != len(lines) - 1:
+        raise CalibrationError(
+            f"endzone field fit: the two anchors span {abs(r1 - r0) + 1} of "
+            f"{len(lines)} detected lines. Anchor the OUTERMOST two lines, so "
+            "the spacing check covers every line; otherwise a missing or "
+            "spurious line outside the span is silently mislabelled.")
     x0, x1 = float(anchors[0][1]), float(anchors[1][1])
     step = (x1 - x0) / (r1 - r0)
     if abs(abs(step) - YARD_LINE_SPACING_M) > 0.05:
@@ -610,20 +621,19 @@ def label_yard_lines(lines, *, anchors, yard_range_m=None) -> list[float]:
     return out
 ```
 
-In `detect_accumulated_lines`, after building `merged`, add the over-merge guard before returning:
+**No separate over-merge guard.** An earlier draft added one; both variants were
+measured to be unsound. A between-group gap check is structurally blind to the
+case it targets (two lines closer than `merge_tol_px` fuse during clustering, so
+no small between-group gap ever exists), and a within-group residual-spread
+check has no safe threshold — calibrated at `merge_tol_px/5` it false-positives
+on legitimate paint ≥7 px thick (std 2.46) while silently missing over-merges of
+lines ≤4 px apart (std 2.00), which are exactly the distant, compressed lines
+that actually over-merge in an endzone view.
 
-```python
-    if len(merged) >= 2:
-        ref_n = _line_normal(merged[0])
-        offs = sorted(_offset(s, ref_n) for s in merged)
-        min_gap = min(np.diff(offs))
-        if min_gap < 3.0 * merge_tol_px:
-            raise CalibrationError(
-                f"endzone field fit: smallest line gap {min_gap:.1f} px is not "
-                f"safely above merge_tol_px={merge_tol_px} — distinct lines may "
-                "have been merged, which silently shifts every later label. "
-                "Lower merge_tol_px or raise vote_thresh.")
-```
+The outermost-anchor rule above subsumes it: over-merging two lines reduces the
+count by one, so the implied step becomes `(N)/(N-1)` of a spacing and the
+±0.05 m step check fires. That is a *count* invariant, independent of paint
+thickness and line separation, so it has neither failure mode.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -804,8 +814,8 @@ git commit -m "feat(calibration): solve reference camera and propagate through h
 
 **Interfaces:**
 - Consumes: everything above; `player_masks.boxes_provider_from_tracks`; `cameras_io.load_camera_track/write_camera_track`; `utils.video.ffprobe_meta/iter_frames`; `endzone_multiplay.EndzonePrior`; `run_autocalib.assemble_track_from_results`. `detect_accumulated_lines` returns `list[YardLineSeg]` (two endpoints each) — the `(a, b)` convention was removed in Task 3 because it is degenerate for near-horizontal lines.
-- Produces: `build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video, fps, prior, anchor=None, stride=6, ref_frame=None, sideline_cam="sideline", endzone_cam="endzone") -> Path`.
-- **Also add `endzone_anchor` to the meta loader** (`nfl_gsplat/utils/meta.py`), alongside the existing optional `endzone_prior`: an optional mapping `{point_px: [x, y], world_x_m: float}`, parsed to `PlayMeta.endzone_anchor: dict | None = None`. The CLI converts it to the `((x, y), world_x_m)` tuple `label_yard_lines` expects. Absent → `None` (the driver then saves the mosaic and fails loud, which is the intended first-run flow).
+- Produces: `build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video, fps, prior, anchors=None, stride=6, ref_frame=None, sideline_cam="sideline", endzone_cam="endzone") -> Path`.
+- **Also add `endzone_anchor` to the meta loader** (`nfl_gsplat/utils/meta.py`), alongside the existing optional `endzone_prior`: an optional mapping `{lines: [{point_px: [x, y], world_x_m: float}, {point_px: [x, y], world_x_m: float}]}` — exactly TWO entries, naming the OUTERMOST two detected lines — parsed to `PlayMeta.endzone_anchor: dict | None = None`. Raise `SetupError` if present but not exactly two entries. The CLI converts it to the pair `(((x1,y1), world_x1), ((x2,y2), world_x2))` that `label_yard_lines` expects. Absent → `None` (the driver then saves the mosaic and fails loud, which is the intended first-run flow).
 
 - [ ] **Step 1: Write the failing wiring test**
 
@@ -940,9 +950,13 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
         cv2.imwrite(str(diag), (np.clip(votes, 0, 1) * 255).astype(np.uint8))
         raise SetupError(
             f"no endzone_anchor in meta.yaml. Wrote the accumulated mosaic to "
-            f"{diag} — identify one yard line in it and add:\n"
-            "endzone_anchor:\n  point_px: [x, y]\n  world_x_m: -9.144\n"
-            "(once per game: the tripod shares one camera centre all half).")
+            f"{diag} — identify the OUTERMOST TWO yard lines in it and add:\n"
+            "endzone_anchor:\n  lines:\n"
+            "    - {point_px: [x1, y1], world_x_m: -18.288}\n"
+            "    - {point_px: [x2, y2], world_x_m: 0.0}\n"
+            "(once per game: the tripod shares one camera centre all half). "
+            "Two anchors are required: one fixes only the offset, leaving the "
+            "labeling direction free and a missing line undetectable.")
     xs = label_yard_lines(lines, anchors=anchors, yard_range_m=yard_range)
 
     # Each merged line already spans the visible paint, so its two endpoints are
@@ -989,8 +1003,8 @@ In `scripts/02_autocalibrate.py` add `mosaic_endzone = "mosaic-endzone"` to `Cal
                 f"{pd.meta_yaml}: --mode mosaic-endzone needs an 'endzone_prior:' "
                 "block (x_range/y_range/z_range/focal_range).")
         ea = meta.endzone_anchor
-        anchor = ((float(ea["point_px"][0]), float(ea["point_px"][1])),
-                  float(ea["world_x_m"])) if ea else None
+        anchors = tuple(((float(a["point_px"][0]), float(a["point_px"][1])),
+                         float(a["world_x_m"])) for a in ea["lines"]) if ea else None
         out = build_endzone_mosaic(
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
