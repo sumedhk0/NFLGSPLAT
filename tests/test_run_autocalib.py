@@ -1081,25 +1081,37 @@ def test_build_endzone_mosaic_works_without_player_uid(tmp_path, monkeypatch):
     assert "endzone" in cams and (cams["endzone"].conf > 0).sum() >= 1
 
 
-def test_build_endzone_mosaic_picks_largest_field_extent_as_reference(tmp_path, monkeypatch):
-    """I3: the mosaic is clipped to the reference frame's FOV, so an
-    arbitrary median-index pick can select a more-zoomed-in frame than
-    necessary and clip yard lines at the image border. build_endzone_mosaic
-    (ref_frame=None) must instead pick the SAMPLED frame with the largest
-    field-extent score -- computed independently here from the decoded
-    frames, not assumed."""
+def _spy_ref_idx(monkeypatch, em_mod):
+    """Spy on register_to_reference's ref_idx kwarg without altering its
+    behaviour, returning the dict the caller should read after the run."""
+    captured = {}
+    real_register = em_mod.register_to_reference
+
+    def spy_register(frames, *, ref_idx, **kw):
+        captured["ref_idx"] = ref_idx
+        return real_register(frames, ref_idx=ref_idx, **kw)
+    monkeypatch.setattr(em_mod, "register_to_reference", spy_register)
+    return captured
+
+
+def test_build_endzone_mosaic_honours_explicit_ref_frame(tmp_path, monkeypatch):
+    """I3 (reverted): a field-extent heuristic was tried and measured to
+    select the OPPOSITE of what's needed -- it rewards MORE-zoomed-in frames
+    (paint pixel count stays roughly invariant under zoom while fx rises), so
+    it systematically clips yard lines rather than avoiding it. Deleted.
+    ``--ref-frame`` is the durable, explicit recovery lever instead: when
+    given, build_endzone_mosaic must use exactly that sampled frame as the
+    mosaic reference, not any heuristic."""
     from types import SimpleNamespace
 
-    import cv2
     import numpy as np
 
     import nfl_gsplat.calibration.endzone_mosaic as em_mod
     from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
     from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
     from nfl_gsplat.utils.geometry import project_points
-    from nfl_gsplat.utils.video import iter_frames
 
-    pdir = tmp_path / "play_ref"
+    pdir = tmp_path / "play_ref_explicit"
     scene = _build_synthetic_endzone_clip(pdir)
     wh, N = scene.wh, scene.N
     K_by_frame, R, t, X_lines = scene.K_by_frame, scene.R, scene.t, scene.X_lines
@@ -1108,19 +1120,9 @@ def test_build_endzone_mosaic_picks_largest_field_extent_as_reference(tmp_path, 
                         lambda p: SimpleNamespace(width=wh[0], height=wh[1],
                                                   num_frames=N, fps=30.0))
 
-    # Independently compute the field-extent score for every stride=2 sampled
-    # frame, exactly as the driver will decode them, to know in advance which
-    # frame SHOULD be picked (and to build valid anchors for it -- anchors
-    # are pixel coordinates in the reference frame).
-    scores = {}
-    for idx, rgb in iter_frames(scene.vid, stride=2):
-        scores[idx] = em_mod.field_extent_score(cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-    expected_ref = max(scores, key=scores.get)
-    median_idx = sorted(scores)[len(scores) // 2]
-    assert expected_ref != median_idx, \
-        "test scene must actually distinguish largest-extent from median-index"
-
-    K_ref = K_by_frame[expected_ref]
+    explicit_ref = 0                      # NOT the median sampled index (6)
+    assert explicit_ref != sorted(range(0, N, 2))[len(range(0, N, 2)) // 2]
+    K_ref = K_by_frame[explicit_ref]
     anchor_uv = project_points(
         np.array([[X_lines[0], 0.0, 0.0], [X_lines[-1], 0.0, 0.0]]), K_ref, R, t)
     anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), X_lines[0]),
@@ -1128,20 +1130,59 @@ def test_build_endzone_mosaic_picks_largest_field_extent_as_reference(tmp_path, 
     prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
                          z_range=(10, 60), focal_range=(400, 2000))
 
-    captured = {}
-    real_register = em_mod.register_to_reference
-
-    def spy_register(frames, *, ref_idx, **kw):
-        captured["ref_idx"] = ref_idx
-        return real_register(frames, ref_idx=ref_idx, **kw)
-    monkeypatch.setattr(em_mod, "register_to_reference", spy_register)
+    captured = _spy_ref_idx(monkeypatch, em_mod)
 
     build_endzone_mosaic(
         play_dir=pdir, tracks_path=pdir / "tracks.parquet",
         cameras_npz=pdir / "cameras.npz", endzone_video=scene.vid, fps=30.0,
-        prior=prior, anchors=anchors, stride=2)          # ref_frame NOT forced
+        prior=prior, anchors=anchors, stride=2, ref_frame=explicit_ref)
 
-    assert captured["ref_idx"] == expected_ref
+    assert captured["ref_idx"] == explicit_ref
+
+
+def test_build_endzone_mosaic_defaults_to_median_sampled_index(tmp_path, monkeypatch):
+    """Without an explicit ref_frame, build_endzone_mosaic falls back to the
+    median of the sorted sampled frame indices (restored default -- see
+    test_build_endzone_mosaic_honours_explicit_ref_frame)."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    import nfl_gsplat.calibration.endzone_mosaic as em_mod
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+    from nfl_gsplat.utils.geometry import project_points
+
+    pdir = tmp_path / "play_ref_default"
+    scene = _build_synthetic_endzone_clip(pdir)
+    wh, N, ref_frame = scene.wh, scene.N, scene.ref_frame
+    K_by_frame, R, t, X_lines = scene.K_by_frame, scene.R, scene.t, scene.X_lines
+
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda p: SimpleNamespace(width=wh[0], height=wh[1],
+                                                  num_frames=N, fps=30.0))
+
+    sampled = sorted(range(0, N, 2))
+    median_idx = sampled[len(sampled) // 2]
+    assert median_idx == ref_frame, \
+        "scene fixture's ref_frame is expected to equal the median sampled index"
+
+    K_ref = K_by_frame[median_idx]
+    anchor_uv = project_points(
+        np.array([[X_lines[0], 0.0, 0.0], [X_lines[-1], 0.0, 0.0]]), K_ref, R, t)
+    anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), X_lines[0]),
+              ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), X_lines[-1]))
+    prior = EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                         z_range=(10, 60), focal_range=(400, 2000))
+
+    captured = _spy_ref_idx(monkeypatch, em_mod)
+
+    build_endzone_mosaic(
+        play_dir=pdir, tracks_path=pdir / "tracks.parquet",
+        cameras_npz=pdir / "cameras.npz", endzone_video=scene.vid, fps=30.0,
+        prior=prior, anchors=anchors, stride=2)          # ref_frame NOT given
+
+    assert captured["ref_idx"] == median_idx
 
 
 def test_build_endzone_mosaic_rejects_z_range_spanning_zero(tmp_path, monkeypatch):

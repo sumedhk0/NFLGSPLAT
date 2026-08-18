@@ -685,12 +685,18 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
         boxes[idx] = list(zip(g["bbox_x1"], g["bbox_y1"], g["bbox_x2"], g["bbox_y2"]))
     if not frames:
         raise SetupError(f"no frames decoded from {endzone_video}")
-    # Prefer the frame with the largest field extent over an arbitrary median
-    # index: the mosaic is clipped to the reference frame's FOV, so a
-    # zoomed-in reference silently clips yard lines at the image border (see
-    # field_extent_score's docstring).
-    ref = ref_frame if ref_frame is not None else max(
-        frames, key=lambda idx: em.field_extent_score(frames[idx], boxes.get(idx)))
+    # Median sampled index by default. A field-extent heuristic was tried and
+    # measured to select the OPPOSITE of what's needed here: a digital zoom
+    # about the principal point raises fx while painted-pixel COUNT stays
+    # roughly invariant (lines thicken as fewer stay visible), so a
+    # paint-pixel-count score is dominated by how much of the FRAME the field
+    # fills, not how much of the FIELD is in frame -- it systematically
+    # preferred more-zoomed-in frames, exactly the failure this mosaic is
+    # trying to avoid (measured: picked the 2nd-most-zoomed of 6 candidate
+    # frames while losing a third of the visible yard lines). ``--ref-frame``
+    # is the durable, explicit recovery lever if the median clips a line; a
+    # wrong heuristic default is worse than an obvious one.
+    ref = ref_frame if ref_frame is not None else sorted(frames)[len(frames) // 2]
 
     H_by, _inl = em.register_to_reference(frames, ref_idx=ref, boxes_by_frame=boxes)
     votes = em.accumulate_field_paint(
@@ -776,7 +782,12 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
         except CalibrationError:
             raise e_first from None
 
-    results = em.propagate(H_by, ref_cam, n_frames=meta.num_frames)
+    # focal_range is the OPERATOR's own declared prior, not an arbitrary
+    # window derived from wherever the reference happened to land -- a
+    # +-20%-of-reference window was measured too narrow for a real play's
+    # zoom span (acceptance band s in [0.85, 1.25]).
+    results = em.propagate(H_by, ref_cam, n_frames=meta.num_frames,
+                           focal_range=prior.focal_range)
     cams[endzone_cam] = assemble_track_from_results(
         results, width=meta.width, height=meta.height, max_gap=stride * 3)
     return write_camera_track(Path(cameras_npz), cams, fps=fps)

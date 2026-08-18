@@ -13,10 +13,14 @@ direct link is too weak.
 """
 from __future__ import annotations
 
+import logging
+
 import cv2
 import numpy as np
 
 from nfl_gsplat.errors import CalibrationError
+
+_LOG = logging.getLogger(__name__)
 
 _RATIO = 0.78          # Lowe ratio for descriptor matching
 _RANSAC_PX = 2.5
@@ -125,21 +129,6 @@ def _white_mask(img_bgr, lo, hi) -> np.ndarray:
     return cv2.inRange(hsv, np.array(lo, np.uint8), np.array(hi, np.uint8))
 
 
-def field_extent_score(img_bgr, boxes=None, *,
-                       white_lo=(0, 0, 165), white_hi=(180, 70, 255)) -> int:
-    """Cheap proxy for how much of the field is in view: count of
-    player-masked white/paint pixels in one frame.
-
-    Used to pick the mosaic's reference frame. The mosaic is clipped to the
-    reference frame's FOV, so a zoomed-in reference silently clips yard lines
-    at the image border (the ``+-HALF_WIDTH_M`` endpoint assumption then
-    becomes wrong) -- preferring the frame with the most visible field paint
-    over an arbitrary median-index pick avoids that."""
-    mask = cv2.bitwise_and(_white_mask(img_bgr, white_lo, white_hi),
-                           keep_mask(img_bgr.shape, boxes))
-    return int(np.count_nonzero(mask))
-
-
 def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
                            white_lo=(0, 0, 165), white_hi=(180, 70, 255)):
     """Votes-per-pixel image of STATIC paint in the reference frame (0..1).
@@ -153,14 +142,26 @@ def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
     much of the play (e.g. a lineman on the line of scrimmage) below the
     survival threshold even though every frame that COULD see paint there
     agreed it was paint. Static paint reinforces; movers and per-frame junk
-    wash out."""
+    wash out.
+
+    A pixel eligible in very few frames is a separate failure mode, the
+    mirror image of the one above: with only 1-2 observations, ``votes/seen``
+    has no statistical weight behind it, so a single-frame bright non-paint
+    artifact (glare, a towel, a jersey) at a pixel a player box happens to
+    occlude everywhere else votes a confident 1.0 despite being paint in
+    exactly one frame. Pixels with fewer eligible observations than
+    ``max(2.0, 0.2 * n_contributing_frames)`` (``n_contributing_frames`` =
+    frames that actually had a homography to accumulate through) are treated
+    as unobserved (vote 0) rather than divided."""
     h, w = ref_shape[:2]
     votes = np.zeros((h, w), np.float32)
     seen = np.zeros((h, w), np.float32)
+    n_contributing = 0
     for i, img in frames.items():
         H = H_by_frame.get(i)
         if H is None:
             continue
+        n_contributing += 1
         keep = keep_mask(img.shape, boxes_by_frame.get(i))
         paint = cv2.bitwise_and(_white_mask(img, white_lo, white_hi), keep)
         votes += cv2.warpPerspective(
@@ -171,7 +172,9 @@ def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
         raise CalibrationError(
             "endzone mosaic: no frames contributed coverage — check the "
             "homographies and that the videos decoded.")
-    return np.divide(votes, seen, out=np.zeros_like(votes), where=seen > 0)
+    min_support = max(2.0, 0.2 * n_contributing)
+    ratio = np.divide(votes, seen, out=np.zeros_like(votes), where=seen > 0)
+    return np.where(seen >= min_support, ratio, 0.0).astype(np.float32)
 
 
 def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
@@ -268,7 +271,7 @@ def solve_reference_camera(world_xyz, ref_uv, image_size, prior):
 
 
 def propagate(H_by_frame, ref_cam, n_frames: int, *,
-             aspect_range=(0.95, 1.05), ref_focal_tol: float = 0.20):
+             aspect_range=(0.95, 1.05), focal_range=None):
     """Per-frame cameras from the reference camera and each frame's homography.
 
     H_t maps frame t's pixels INTO the reference, so K_t R_t = H_t^-1 K_ref R_ref.
@@ -279,22 +282,40 @@ def propagate(H_by_frame, ref_cam, n_frames: int, *,
     models nothing else in this repo accepts (measured: fx=1300, fy=5200, a
     4:1 anisotropic K, from a frame resolved via the one-hop registration
     fallback or matched on weak texture). A frame whose fx/fy falls outside
-    ``aspect_range`` (the pinhole/unit-aspect model used everywhere else) or
-    whose fx strays more than ``ref_focal_tol`` from the reference camera's
-    focal is dropped (``out[t] = None``) rather than emitted with unearned
-    confidence. Accepted frames carry rms_px=0.0/num_correspondences=0 -- NOT
-    the reference camera's, since propagate never re-measures reprojection
-    error and copying the reference's numbers would let a consumer read a
-    propagated frame's confidence as if it had been independently verified."""
+    ``aspect_range`` (the pinhole/unit-aspect model used everywhere else) is
+    dropped (``out[t] = None``) rather than emitted with unearned confidence.
+
+    ``focal_range``, if given (pass the operator's own
+    ``endzone_prior.focal_range``), additionally drops a frame whose fx falls
+    outside it. An earlier version instead compared fx to +-20% of the
+    REFERENCE camera's own focal; measured too narrow for a real play's zoom
+    span (acceptance band s in [0.85, 1.25], barely 1.5x total zoom) and only
+    tolerable because the reference happened to sit mid-range. When
+    ``focal_range`` is None (the default), no focal gate applies -- the
+    aspect gate alone still catches gross anisotropy (e.g. the measured
+    4:1 case).
+
+    Accepted frames carry rms_px=0.0/num_correspondences=0 -- NOT the
+    reference camera's, since propagate never re-measures reprojection error
+    and copying the reference's numbers would let a consumer read a
+    propagated frame's confidence as if it had been independently verified.
+
+    Drops are counted and logged (never silent: a couple of dropped frames
+    get interpolated invisibly by assemble_track_from_results, and a longer
+    dropped tail becomes a clamp-extrapolated conf=0 gap -- both
+    indistinguishable from a healthy run unless the count is surfaced). If
+    more than half the sampled frames are dropped, raises CalibrationError
+    naming the count."""
     from nfl_gsplat.calibration.solve_pnp import CalibrationResult
     from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
 
     C = np.asarray(ref_cam.pose.center_world(), np.float64)
     M_ref = ref_cam.intrinsics.K() @ ref_cam.pose.R
     w, h = ref_cam.intrinsics.width, ref_cam.intrinsics.height
-    ref_fx = float(ref_cam.intrinsics.fx)
     alo, ahi = aspect_range
     out: list = [None] * n_frames
+    n_sampled = len(H_by_frame)
+    dropped = 0
     for t, H in H_by_frame.items():
         if not (0 <= t < n_frames):
             continue
@@ -313,6 +334,7 @@ def propagate(H_by_frame, ref_cam, n_frames: int, *,
         # RQ-decompose M into upper-triangular K and rotation R.
         K, R = _rq3(M)
         if K[2, 2] == 0:
+            dropped += 1
             continue
         K = K / K[2, 2]
         if np.linalg.det(R) < 0:
@@ -322,17 +344,32 @@ def propagate(H_by_frame, ref_cam, n_frames: int, *,
                 "inconsistent; this must not be silently accepted.")
         fx, fy = float(K[0, 0]), float(K[1, 1])
         # Sanity gate -- see the docstring. Anything outside the unit-aspect
-        # pinhole model used everywhere else in this repo, or too far from
-        # the reference camera's own focal, is dropped rather than emitted.
+        # pinhole model used everywhere else in this repo, or (if the
+        # operator supplied a focal_range) outside their own declared focal
+        # range, is dropped rather than emitted.
         if fy == 0 or not (alo <= fx / fy <= ahi):
+            dropped += 1
             continue
-        if ref_fx == 0 or abs(fx - ref_fx) > ref_focal_tol * ref_fx:
-            continue
+        if focal_range is not None:
+            flo, fhi = focal_range
+            if not (flo <= fx <= fhi):
+                dropped += 1
+                continue
         out[t] = CalibrationResult(
             intrinsics=CameraIntrinsics(fx, fy, float(K[0, 2]), float(K[1, 2]), w, h),
             pose=CameraPose(R=R, t=-R @ C),
             rms_px=0.0, num_correspondences=0,
             refined_with_ba=False)
+    if dropped:
+        _LOG.warning(
+            "endzone mosaic: propagate dropped %d/%d sampled frames "
+            "(failed the aspect/focal sanity gate)", dropped, n_sampled)
+    if n_sampled and dropped > 0.5 * n_sampled:
+        raise CalibrationError(
+            f"endzone mosaic: propagate dropped {dropped}/{n_sampled} sampled "
+            "frames — more than half failed the aspect/focal sanity gate; "
+            "check the mosaic's registration homographies and "
+            "endzone_prior.focal_range.")
     return out
 
 

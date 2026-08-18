@@ -220,27 +220,41 @@ def test_accumulate_survives_player_parked_on_the_line_of_scrimmage():
         f"vote threshold, got {under_player_vote}")
 
 
-def test_field_extent_score_prefers_more_visible_paint():
-    """I3: field_extent_score is the proxy build_endzone_mosaic uses to pick
-    the mosaic's reference frame over an arbitrary median-index pick -- a
-    frame showing more of the field's painted lines must score higher than a
-    zoomed-in frame showing only a small patch."""
-    h, w = 200, 300
-    zoomed = np.full((h, w, 3), (40, 90, 40), np.uint8)
-    cv2.rectangle(zoomed, (100, 80), (200, 120), (250, 250, 250), -1)
-    wide = np.full((h, w, 3), (40, 90, 40), np.uint8)
-    for y in range(20, 180, 30):
-        cv2.line(wide, (0, y), (w, y), (250, 250, 250), 3)
-    assert em.field_extent_score(wide) > em.field_extent_score(zoomed)
+def test_accumulate_floors_low_support_single_frame_artifact():
+    """Item 2 RED/GREEN: the mirror image of C1. A pixel eligible (keep=1)
+    in only 1 of 10 frames, where that one frame happens to show a bright
+    non-paint artifact (glare/towel/jersey), must NOT be accepted as static
+    paint just because votes/seen = 1/1 = 1.0 -- that ratio carries no
+    statistical weight. A genuinely static line present in 6/10 frames (the
+    C1 case) must still survive alongside it."""
+    h, w = 300, 400
+    frames, boxes, H_by = {}, {}, {}
+    line_y = 150
+    player_box = (180, 140, 220, 160)      # C1 case: line occluded 6/10 frames
+    artifact_box = (280, 40, 320, 60)      # mirror case: occluded 9/10 frames
+    artifact_px = (50, 300)                # (y, x) inside artifact_box
 
+    for i in range(10):
+        img = np.full((h, w, 3), (40, 90, 40), np.uint8)
+        cv2.line(img, (0, line_y), (w, line_y), (250, 250, 250), 3)   # static paint
+        boxes_i = []
+        if i < 6:
+            boxes_i.append(player_box)          # C1: line occluded 6/10 frames
+        if i != 0:
+            boxes_i.append(artifact_box)        # artifact region occluded 9/10 frames
+        else:
+            # the ONE frame where the artifact region is visible: a bright
+            # non-paint artifact (glare/towel/jersey), not real paint
+            cv2.rectangle(img, artifact_box[:2], artifact_box[2:], (250, 250, 250), -1)
+        frames[i], boxes[i], H_by[i] = img, boxes_i, np.eye(3)
 
-def test_field_extent_score_excludes_player_boxes():
-    h, w = 200, 300
-    img = np.full((h, w, 3), (40, 90, 40), np.uint8)
-    cv2.rectangle(img, (50, 50), (150, 150), (250, 250, 250), -1)
-    unmasked = em.field_extent_score(img)
-    masked = em.field_extent_score(img, boxes=[(50, 50, 150, 150)])
-    assert masked < unmasked
+    acc = em.accumulate_field_paint(frames, H_by, boxes, ref_shape=(h, w))
+    line_vote = acc[line_y, 200]
+    artifact_vote = acc[artifact_px]
+    assert line_vote >= 0.5, f"C1 line must still survive, got {line_vote}"
+    assert artifact_vote == 0.0, (
+        f"single-frame artifact with 1/10 support must be floored to 0, "
+        f"got {artifact_vote}")
 
 
 def test_propagate_matches_a_directly_rendered_camera():
@@ -400,7 +414,14 @@ def test_propagate_drops_a_frame_that_decomposes_anisotropic():
     sx, sy = 1.15, 4.0          # anisotropic scale -- not a pure zoom
     H_aniso = np.array([[sx, 0, cx * (1 - sx)], [0, sy, cy * (1 - sy)], [0, 0, 1.0]])
 
-    out = em.propagate({7: H_aniso}, ref, n_frames=8)
+    # Padded with several identity-homography frames (each trivially matches
+    # the reference exactly, always accepted) so this single anisotropic drop
+    # stays well under the item-3 "more than half the sampled frames dropped"
+    # aggregate gate -- isolating the PER-FRAME gate under test here from that
+    # separate aggregate check (covered on its own below).
+    H_by = {i: np.eye(3) for i in range(6)}
+    H_by[7] = H_aniso
+    out = em.propagate(H_by, ref, n_frames=8)
     assert out[7] is None, "anisotropic frame must be dropped, not emitted"
 
     # A genuine isotropic zoom must still be accepted -- but never wearing
@@ -414,6 +435,77 @@ def test_propagate_drops_a_frame_that_decomposes_anisotropic():
     assert abs(cam.intrinsics.fx / cam.intrinsics.fy - 1.0) < 0.05
     assert cam.rms_px == 0.0
     assert cam.num_correspondences == 0
+
+
+def _ref_cam_2600():
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd])
+    return wh, CalibrationResult(
+        intrinsics=CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh),
+        pose=CameraPose(R=R, t=-R @ C), rms_px=0.0, num_correspondences=0,
+        refined_with_ba=False)
+
+
+def test_propagate_no_focal_gate_when_focal_range_omitted():
+    """Item 3: the removed +-20%-of-reference focal window was measured too
+    narrow for real zoom spans (acceptance band s in [0.85, 1.25], barely
+    1.5x total zoom). With focal_range=None (the default), only the aspect
+    gate applies -- a big but ISOTROPIC zoom that lands fx far outside any
+    +-20% window must still be accepted."""
+    wh, ref = _ref_cam_2600()
+    cx, cy = wh[0] / 2, wh[1] / 2
+    s = 2.5                                    # fx ends up at 2600/2.5=1040
+    H_big_zoom = np.array([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)], [0, 0, 1.0]])
+
+    out = em.propagate({7: H_big_zoom}, ref, n_frames=8)
+    cam = out[7]
+    assert cam is not None
+    assert abs(cam.intrinsics.fx / cam.intrinsics.fy - 1.0) < 0.05
+    assert abs(cam.intrinsics.fx / 2600.0 - 1.0) > 0.20, \
+        "test must actually exercise fx outside the old +-20% window"
+
+
+def test_propagate_focal_range_gate_when_provided():
+    """When the driver passes the operator's own endzone_prior.focal_range,
+    a frame whose fx falls outside it is dropped even though its aspect is
+    perfectly isotropic."""
+    wh, ref = _ref_cam_2600()
+    cx, cy = wh[0] / 2, wh[1] / 2
+    s = 2.5                                    # fx ends up at 1040, outside (1500,3500)
+    H_big_zoom = np.array([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)], [0, 0, 1.0]])
+
+    # Padded with identity-homography frames -- see the note in
+    # test_propagate_drops_a_frame_that_decomposes_anisotropic.
+    H_by = {i: np.eye(3) for i in range(6)}
+    H_by[7] = H_big_zoom
+    out = em.propagate(H_by, ref, n_frames=8, focal_range=(1500.0, 3500.0))
+    assert out[7] is None
+
+
+def test_propagate_raises_when_more_than_half_sampled_frames_dropped():
+    """Drops must never be silent: if more than half the sampled frames fail
+    the sanity gate, propagate must raise loud naming the count, rather than
+    handing assemble_track_from_results a mostly-empty track that silently
+    interpolates or clamp-extrapolates over the gap."""
+    import pytest
+
+    from nfl_gsplat.errors import CalibrationError
+
+    wh, ref = _ref_cam_2600()
+    cx, cy = wh[0] / 2, wh[1] / 2
+    H_bad = np.array([[1.15, 0, cx * (1 - 1.15)], [0, 4.0, cy * (1 - 4.0)], [0, 0, 1.0]])
+    s = 1.15
+    H_good = np.array([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)], [0, 0, 1.0]])
+
+    with pytest.raises(CalibrationError, match=r"3/4"):
+        em.propagate({0: H_bad, 1: H_bad, 2: H_bad, 3: H_good}, ref, n_frames=4)
 
 
 def test_solve_reference_camera_wraps_degenerate_focal_as_calibration_error(monkeypatch):
