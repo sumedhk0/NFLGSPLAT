@@ -168,3 +168,38 @@ def test_accumulate_masks_stationary_bright_box_via_boxes():
     box_vote = acc[65, 200]
     assert line_vote > 0.9, f"static paint should still reinforce, got {line_vote}"
     assert box_vote < 0.1, f"boxed stationary player should be masked out, got {box_vote}"
+
+
+def test_propagate_matches_a_directly_rendered_camera():
+    """Build a reference camera, warp by a known H, and check propagate()
+    reproduces the camera that actually took the warped image."""
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose, project_points
+
+    wh = (1920, 1080)
+    C = np.array([-112.0, 0.0, 24.0])
+    fwd = np.array([1.0, 0.0, -0.2]); fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1.0]); right /= np.linalg.norm(right)
+    down = np.cross(fwd, right)
+    R = np.stack([right, down, fwd])
+    K = CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh).K()
+    ref = CalibrationResult(
+        intrinsics=CameraIntrinsics(2600.0, 2600.0, wh[0] / 2, wh[1] / 2, *wh),
+        pose=CameraPose(R=R, t=-R @ C), rms_px=0.0, num_correspondences=0,
+        refined_with_ba=False)
+
+    # a pure zoom about the principal point: frame t -> reference
+    s = 1.15
+    cx, cy = wh[0] / 2, wh[1] / 2
+    H_t = np.array([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)], [0, 0, 1.0]])
+
+    out = em.propagate({7: H_t}, ref, n_frames=8)
+    cam = out[7]
+    assert cam is not None
+    # a world point must land where H_t would have put it
+    X = np.array([[-30.0, 6.0, 0.0]])
+    uv_ref = project_points(X, K, R, -R @ C)
+    uv_t = project_points(X, cam.intrinsics.K(), cam.pose.R, cam.pose.t)
+    back = cv2.perspectiveTransform(uv_t.reshape(-1, 1, 2).astype(np.float32), H_t)
+    assert np.abs(back.reshape(-1, 2) - uv_ref).max() < 1.0
+    assert np.allclose(cam.pose.center_world(), C, atol=1e-6)   # shared centre

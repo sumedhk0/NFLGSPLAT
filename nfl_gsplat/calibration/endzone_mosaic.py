@@ -143,3 +143,84 @@ def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
             "endzone mosaic: no frames contributed coverage — check the "
             "homographies and that the videos decoded.")
     return np.divide(votes, seen, out=np.zeros_like(votes), where=seen > 0)
+
+
+def solve_reference_camera(world_xyz, ref_uv, image_size, prior,
+                           *, audit_drop_px: float = 4.0):
+    """One camera for the reference frame from accumulated field correspondences.
+
+    These are arbitrary field points, so we use solve_fixed_center's
+    _frame_data_override path (never the named-landmark path)."""
+    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+
+    world = np.asarray(world_xyz, np.float64).reshape(-1, 3)
+    uv = np.asarray(ref_uv, np.float64).reshape(-1, 2)
+    if len(world) < 6:
+        raise CalibrationError(
+            f"endzone mosaic: only {len(world)} field correspondences in the "
+            "reference frame (need >= 6) — accumulated paint too sparse.")
+    f0 = float(sum(prior.focal_range)) / 2.0
+    anchor = CalibrationResult(
+        intrinsics=CameraIntrinsics(f0, f0, 0.0, 0.0, 1, 1),
+        pose=CameraPose(R=np.eye(3), t=-prior.center0),
+        rms_px=0.0, num_correspondences=0, refined_with_ba=False)
+    # Repeat the single reference view so the solver's anchor threshold is met.
+    frame_data = {i: (world, uv) for i in range(3)}
+    results, _mirrored = solve_fixed_center(
+        corrs_by_frame=None, image_size=image_size,
+        init_results=[anchor, anchor, anchor], _frame_data_override=frame_data,
+        view_deg=0, center_bounds=prior.center_bounds,
+        audit_drop_px=audit_drop_px)
+    solved = [r for r in results if r is not None]
+    if not solved:
+        raise CalibrationError(
+            "endzone mosaic: reference camera solve kept no frames — the "
+            "field labeling or the accumulated lines are inconsistent.")
+    return solved[0]
+
+
+def propagate(H_by_frame, ref_cam, n_frames: int):
+    """Per-frame cameras from the reference camera and each frame's homography.
+
+    H_t maps frame t's pixels INTO the reference, so K_t R_t = H_t^-1 K_ref R_ref.
+    The centre is shared (tripod), so t_t = -R_t C."""
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+
+    C = np.asarray(ref_cam.pose.center_world(), np.float64)
+    M_ref = ref_cam.intrinsics.K() @ ref_cam.pose.R
+    w, h = ref_cam.intrinsics.width, ref_cam.intrinsics.height
+    out: list = [None] * n_frames
+    for t, H in H_by_frame.items():
+        if not (0 <= t < n_frames):
+            continue
+        M = np.linalg.inv(H) @ M_ref                 # = K_t R_t
+        # RQ-decompose M into upper-triangular K and rotation R.
+        K, R = _rq3(M)
+        if K[2, 2] == 0:
+            continue
+        K = K / K[2, 2]
+        if np.linalg.det(R) < 0:                     # keep a right-handed frame
+            K, R = K @ np.diag([-1.0, -1.0, 1.0]), np.diag([-1.0, -1.0, 1.0]) @ R
+        fx, fy = float(abs(K[0, 0])), float(abs(K[1, 1]))
+        out[t] = CalibrationResult(
+            intrinsics=CameraIntrinsics(fx, fy, float(K[0, 2]), float(K[1, 2]), w, h),
+            pose=CameraPose(R=R, t=-R @ C),
+            rms_px=ref_cam.rms_px, num_correspondences=ref_cam.num_correspondences,
+            refined_with_ba=False)
+    return out
+
+
+def _rq3(M):
+    """RQ decomposition of a 3x3 matrix into (upper-triangular, rotation)."""
+    P = np.flipud(np.eye(3))
+    Q_, R_ = np.linalg.qr((P @ M).T)
+    K = P @ R_.T @ P
+    R = P @ Q_.T
+    for i in range(3):                                # make K's diagonal positive
+        if K[i, i] < 0:
+            K[:, i] *= -1.0
+            R[i, :] *= -1.0
+    return K, R
