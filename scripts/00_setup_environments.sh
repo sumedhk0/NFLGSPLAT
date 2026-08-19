@@ -33,10 +33,24 @@ for env in "${ENVS[@]}"; do
         exit 1
     fi
     echo "=== building $env from $yaml ==="
-    if conda env list | awk '{print $1}' | grep -Fxq "$env"; then
-        conda env update -n "$env" -f "$yaml" --prune
+    # Find the env by PREFIX PATH, not by name. When envs live outside conda's
+    # default envs_dirs -- normal on a cluster, where they go on scratch --
+    # `conda env list` prints them with an EMPTY name column, just the path. A
+    # name match then finds nothing, the script takes the create branch, and
+    # conda refuses with "prefix already exists" for an env that is right there.
+    # Matching the directory's basename works in both layouts, and updating by
+    # -p works even when the env was never registered under a name.
+    prefix=""
+    while read -r p; do
+        [[ -n "$p" && "$(basename "$p")" == "$env" ]] && { prefix="$p"; break; }
+    done < <(conda env list | awk '!/^#/ && NF {print $NF}')
+
+    if [[ -n "$prefix" ]]; then
+        echo "--- updating existing env at $prefix ---"
+        conda env update -p "$prefix" -f "$yaml" --prune
     else
         conda env create -n "$env" -f "$yaml"
+        prefix="$(conda env list | awk '!/^#/ && NF {print $NF}'                   | while read -r p; do                       [[ "$(basename "$p")" == "$env" ]] && echo "$p" && break;                     done)"
     fi
 
     # chumpy 0.70's setup.py imports `pip`, which is absent in pip's isolated
@@ -44,8 +58,9 @@ for env in "${ENVS[@]}"; do
     # against the env's real pip, after the wheel for mmcv etc. is in place.
     if [[ "$env" == "nfl_smplx" ]]; then
         echo "--- post-build: chumpy (no-build-isolation) ---"
-        conda run -n nfl_smplx python -m pip install -U pip setuptools wheel
-        conda run -n nfl_smplx python -m pip install --no-build-isolation chumpy==0.70
+        # -p for the same reason as above: the name may not be registered.
+        conda run -p "$prefix" python -m pip install -U pip setuptools wheel
+        conda run -p "$prefix" python -m pip install --no-build-isolation chumpy==0.70
     fi
 done
 
