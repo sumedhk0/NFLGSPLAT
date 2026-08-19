@@ -45,6 +45,12 @@ def opencv_pose_to_opengl_c2w(R_w2c: np.ndarray, t_w2c: np.ndarray) -> np.ndarra
     return c2w @ flip
 
 
+from nfl_gsplat.errors import SetupError  # noqa: E402
+from nfl_gsplat.utils.logging import get_logger  # noqa: E402
+
+_LOG = get_logger(__name__)
+
+
 def build_transforms_json(
     tracks: Mapping,
     frames_by_cam: Mapping[str, Sequence[tuple[int, "str | Path"]]],
@@ -52,6 +58,7 @@ def build_transforms_json(
     *,
     camera_model: str = "OPENCV",
     root_dir: "Path | str | None" = None,
+    min_conf: float | None = 1e-9,
 ) -> Path:
     """Write a nerfstudio-style ``transforms.json``.
 
@@ -64,6 +71,14 @@ def build_transforms_json(
     Paths are stored **relative to ``root_dir``** (default: parent of
     ``out_path``) since nerfstudio resolves ``file_path`` relative to the
     transforms.json directory.
+
+    Frames whose track confidence is at or below ``min_conf`` are DROPPED. A
+    zero-confidence frame does not carry "a slightly worse camera" -- it carries
+    a camera interpolated from its nearest valid neighbour, which during an
+    endzone pan was measured 8 px off the paint. Training on those teaches the
+    splat a field that is not there, and nothing downstream would flag it,
+    because the pose is present and well-formed. Pass ``min_conf=None`` to keep
+    every frame regardless.
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,11 +102,17 @@ def build_transforms_json(
         "frames": [],
     }
 
+    dropped: dict[str, list[int]] = {}
     for cam_name, frame_list in frames_by_cam.items():
         if cam_name not in tracks:
             continue
         track = tracks[cam_name]
         for frame_index, img in frame_list:
+            if min_conf is not None:
+                idx = max(0, min(int(frame_index), track.num_frames - 1))
+                if float(track.conf[idx]) <= min_conf:
+                    dropped.setdefault(cam_name, []).append(int(frame_index))
+                    continue
             intr, pose = track.at(int(frame_index))
             K = intr.K()
             c2w = opencv_pose_to_opengl_c2w(pose.R, pose.t)
@@ -112,6 +133,21 @@ def build_transforms_json(
                 "camera": cam_name,
             })
 
+    if dropped:
+        for cam_name, idxs in sorted(dropped.items()):
+            _LOG.warning(
+                "build_transforms: dropped %d/%d %s frame(s) whose camera is "
+                "unverified (conf <= %g); they would have trained on a pose "
+                "interpolated from a neighbour. First few: %s",
+                len(idxs), len(frames_by_cam[cam_name]), cam_name, min_conf,
+                idxs[:5])
+    if not out["frames"]:
+        raise SetupError(
+            "build_transforms: every extracted frame was dropped as "
+            "unverified, so there is nothing to train on. Re-run the endzone "
+            "calibration (02_autocalibrate --mode mosaic-endzone "
+            "--refine-stride N) and extract frames at indices it verified, or "
+            "pass min_conf=None to train on unverified poses deliberately.")
     write_json(out_path, out)
     return out_path
 
@@ -157,8 +193,14 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
 
         out_json = field_dir / "transforms.json"
         build_transforms_json(tracks, frames_by_cam, out_json, root_dir=field_dir)
-        total = sum(len(v) for v in frames_by_cam.values())
-        _log.info(f"build_transforms: {total} frames → {out_json}")
+        # Count what was WRITTEN, not what was offered: unverified frames are
+        # dropped inside, and reporting the offered total read as though every
+        # extracted frame had made it into the training set.
+        import json as _json
+        written = len(_json.loads(out_json.read_text())["frames"])
+        offered = sum(len(v) for v in frames_by_cam.values())
+        _log.info("build_transforms: %d/%d frames -> %s",
+                  written, offered, out_json)
 
     app()
 
