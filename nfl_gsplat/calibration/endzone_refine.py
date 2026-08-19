@@ -197,23 +197,11 @@ def refine_frame(focal, rot, centre, pairs, *, cx, cy, max_shift_px=None,
             out.append(np.where(vis, d, _OFF_SENSOR_COST))
         return np.concatenate(out)
 
-    def _median_live(vec):
-        """Median |residual| over entries that carry information.
-
-        Anchor rows for off-sensor samples are structurally zero -- a line
-        sampled across the full field width has most of its samples outside a
-        zoomed frame. Including them made the reported median 0.00 px both
-        before and after the solve, which says nothing about the fit and hid
-        whether the bundle had done anything at all.
-        """
-        live = np.abs(vec[np.abs(vec) > 1e-12])
-        return float(np.median(live)) if live.size else 0.0
-
-    before = _median_live(residual(p0))
+    before = float(np.median(np.abs(residual(p0))))
     sol = least_squares(residual, p0, loss="soft_l1", f_scale=2.0, max_nfev=150)
     if not np.isfinite(sol.x).all() or sol.x[0] <= 100.0:
         return None
-    after = _median_live(residual(sol.x))
+    after = float(np.median(np.abs(residual(sol.x))))
     if after > before:
         return None
     rot_new, _ = cv2.Rodrigues(sol.x[1:4])
@@ -417,15 +405,37 @@ def bundle_adjust(pair_homographies, anchors, centre, initial, *, cx, cy,
     lo = np.tile([4.0e3, -np.inf, -np.inf, -np.inf], n_nodes)
     hi = np.tile([3.0e4, np.inf, np.inf, np.inf], n_nodes)
 
-    before = float(np.median(np.abs(residual(p0))))
+    n_chain_rows = 2 * len(grid) * len(pairs)
+
+    def _split(vec):
+        """Median |residual| for the chain and anchor families SEPARATELY.
+
+        One pooled median is uninformative here, and misleadingly so. Anchor
+        rows for off-sensor samples are structurally zero -- a line sampled
+        across the full field width has most of its samples outside a zoomed
+        frame -- and the anchored nodes usually START satisfied, so the pooled
+        figure read 0.00 px before and after regardless of what the solve did.
+
+        The families answer different questions: chain, does the network agree
+        with the measured homographies; anchor, do the anchored nodes sit on the
+        field. Neither is recoverable from their average.
+        """
+        chain = np.abs(vec[:n_chain_rows])
+        anchor = np.abs(vec[n_chain_rows:])
+        anchor = anchor[anchor != 0.0]      # structural off-sensor rows
+        return (float(np.median(chain)) if chain.size else float("nan"),
+                float(np.median(anchor)) if anchor.size else float("nan"))
+
+    before = _split(residual(p0))
     sol = least_squares(residual, np.clip(p0, lo, hi), jac_sparsity=sparsity,
                         loss="soft_l1", f_scale=3.0, x_scale=x_scale,
                         bounds=(lo, hi), max_nfev=max_nfev,
                         xtol=1e-10, ftol=1e-10)
-    after = float(np.median(np.abs(residual(sol.x))))
-    _LOG.info("endzone bundle: %d nodes, %d chain pairs, %d anchors; "
-              "median |residual| %.2f -> %.2f px",
-              n_nodes, len(pairs), len(anchors), before, after)
+    after = _split(residual(sol.x))
+    _LOG.info("endzone bundle: %d nodes, %d chain pairs, %d anchors; median "
+              "|residual| chain %.3f -> %.3f px, anchor %.3f -> %.3f px",
+              n_nodes, len(pairs), len(anchors),
+              before[0], after[0], before[1], after[1])
     return {node: (float(unpack(sol.x, node)[0]), unpack(sol.x, node)[1])
             for node in nodes}
 
