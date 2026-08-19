@@ -197,3 +197,67 @@ def test_extracted_filename_names_the_true_source_frame(tmp_path: Path):
     assert max(int(p.stem.split("_")[-1]) for p in paths) > len(paths), (
         "source indices must outrun the output count when subsampling"
     )
+
+
+def test_extraction_can_be_restricted_to_verified_frames(tmp_path: Path):
+    """keep_frames must select exactly those source indices, ignoring the clock.
+
+    Sampling on a fixed clock keeps whatever frames the clock lands on, which is
+    unrelated to which frames have a camera worth training against: on play_001
+    a 2 fps clock kept 44 endzone frames of which 16 were verified, while 103
+    verified cameras existed in the same play.
+    """
+    import cv2
+    import numpy as np
+
+    from nfl_gsplat.field.extract_static_frames import (PreSnapRange,
+                                                        StaticFrameConfig,
+                                                        extract_static_frames)
+
+    vid = tmp_path / "cam.mp4"
+    vw = cv2.VideoWriter(str(vid), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (64, 64))
+    for i in range(60):
+        vw.write(np.full((64, 64, 3), i * 4, np.uint8))
+    vw.release()
+
+    want = {7, 23, 41}                      # deliberately off any 2 fps grid
+    out = extract_static_frames(
+        {"cam": vid}, [PreSnapRange(start_sec=0.0, duration_sec=2.0)],
+        tmp_path, StaticFrameConfig(fps_sample=2.0, max_frames_per_cam=99),
+        keep_frames={"cam": want})
+
+    got = {int(p.stem.split("_")[-1]) for p in out["cam"]}
+    assert got == want, f"expected exactly the verified frames {want}, got {got}"
+
+
+def test_reextraction_clears_the_previous_sampling(tmp_path: Path):
+    """A re-run must not leave the old sampling behind.
+
+    Frames are named by SOURCE INDEX, so a second run with different sampling
+    writes different filenames and the stale images survive -- build_transforms
+    then trains on the union of two samplings, including frames the current
+    calibration never verified.
+    """
+    import cv2
+    import numpy as np
+
+    from nfl_gsplat.field.extract_static_frames import (PreSnapRange,
+                                                        StaticFrameConfig,
+                                                        extract_static_frames)
+
+    vid = tmp_path / "cam.mp4"
+    vw = cv2.VideoWriter(str(vid), cv2.VideoWriter_fourcc(*"mp4v"), 30.0, (64, 64))
+    for i in range(60):
+        vw.write(np.full((64, 64, 3), i * 4, np.uint8))
+    vw.release()
+
+    rng = [PreSnapRange(start_sec=0.0, duration_sec=2.0)]
+    cfg = StaticFrameConfig(fps_sample=2.0, max_frames_per_cam=99)
+    extract_static_frames({"cam": vid}, rng, tmp_path, cfg,
+                          keep_frames={"cam": {5, 10}})
+    extract_static_frames({"cam": vid}, rng, tmp_path, cfg,
+                          keep_frames={"cam": {20, 25}})
+
+    on_disk = {int(p.stem.split("_")[-1])
+               for p in (tmp_path / "frames" / "cam").glob("*.png")}
+    assert on_disk == {20, 25}, f"stale frames survived re-extraction: {on_disk}"

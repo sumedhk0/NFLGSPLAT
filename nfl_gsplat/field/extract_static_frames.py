@@ -47,6 +47,7 @@ def _extract_range(
     duration_sec: float,
     fps_sample: float,
     name_prefix: str,
+    keep_frames: "set[int] | None" = None,
 ) -> list[Path]:
     """Extract frames in ``[start_sec, start_sec+duration_sec]`` at
     ``fps_sample`` fps, named by their TRUE SOURCE FRAME INDEX as
@@ -64,7 +65,13 @@ def _extract_range(
     Decoding here rather than in ffmpeg also sidesteps ``-ss`` fast seek, whose
     keyframe rounding is what made the true index 314 instead of the nominal
     300 -- there is no arithmetic that recovers it, so the index has to come
-    from the decoder that actually produced the frame."""
+    from the decoder that actually produced the frame.
+
+    With ``keep_frames``, only those source indices are written, and the fps
+    step is ignored. Sampling on a clock keeps whatever frames the clock lands
+    on, which is unrelated to which frames have a camera worth training against:
+    on play_001 a 2 fps clock kept 44 endzone frames of which 16 were verified,
+    while 103 verified cameras existed in the same play."""
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = ffprobe_meta(video)
     step = max(1, int(round(meta.fps / float(fps_sample))))
@@ -78,7 +85,10 @@ def _extract_range(
             continue
         if idx > last:
             break
-        if (idx - first) % step:
+        if keep_frames is not None:
+            if idx not in keep_frames:
+                continue
+        elif (idx - first) % step:
             continue
         path = out_dir / f"{name_prefix}_{idx:06d}.png"
         cv2.imwrite(str(path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
@@ -91,12 +101,18 @@ def extract_static_frames(
     pre_snap_ranges: Iterable[PreSnapRange],
     out_dir: Path | str,
     cfg: StaticFrameConfig,
+    keep_frames: "Mapping[str, set[int]] | None" = None,
 ) -> dict[str, list[Path]]:
     """Extract pre-snap frames for each camera into ``out_dir/frames/{cam}``.
 
     ``videos`` maps camera name to source video path. The same ``pre_snap_ranges``
     are applied to every camera — broadcast feeds are synchronized, so the
     time windows are shared.
+
+    ``keep_frames[cam]`` restricts extraction to those source frame indices --
+    normally the frames whose camera VERIFIED, so the per-camera budget is spent
+    on views that can actually be trained against instead of on whatever a fixed
+    sampling clock happened to land on.
 
     Returns ``{cam: [frame_paths...]}`` sorted by filename.
     """
@@ -120,6 +136,18 @@ def extract_static_frames(
         clip_duration = meta.num_frames / meta.fps
         cam_dir = frames_root / cam
         cam_dir.mkdir(parents=True, exist_ok=True)
+        # Clear this camera's previous extraction. Frames are named by SOURCE
+        # INDEX, so a re-run with different sampling leaves the old images in
+        # place under different names and build_transforms picks up the union of
+        # two samplings -- including frames the current calibration never
+        # verified. The directory is this function's own output, nothing else
+        # writes here.
+        stale = sorted(cam_dir.glob("*.png"))
+        for old_png in stale:
+            old_png.unlink()
+        if stale:
+            _LOG.info("extract_static_frames(%s): cleared %d frame(s) from a "
+                      "previous extraction", cam, len(stale))
 
         written: list[Path] = []
         for i, rng in enumerate(ranges):
@@ -131,7 +159,10 @@ def extract_static_frames(
             duration = min(rng.duration_sec, clip_duration - rng.start_sec)
             name_prefix = f"r{i:02d}"
             paths = _extract_range(
-                video, cam_dir, rng.start_sec, duration, cfg.fps_sample, name_prefix
+                video, cam_dir, rng.start_sec, duration, cfg.fps_sample,
+                name_prefix,
+                keep_frames=None if keep_frames is None else set(
+                    keep_frames.get(cam, ())),
             )
             written.extend(paths)
 
@@ -144,8 +175,15 @@ def extract_static_frames(
                 p.unlink()
             written = keep
 
-        _LOG.info(f"extract_static_frames({cam}): {len(written)} frames "
-                  f"across {len(ranges)} pre-snap window(s)")
+        if keep_frames is not None and not written:
+            raise SetupError(
+                f"extract_static_frames({cam}): none of the "
+                f"{len(keep_frames.get(cam, ()))} verified frame(s) fall inside "
+                "the pre-snap window(s). Widen the windows in meta.yaml, or "
+                "re-run the calibration so it verifies frames in them.")
+        _LOG.info("extract_static_frames(%s): %d frames across %d pre-snap "
+                  "window(s)%s", cam, len(written), len(ranges),
+                  "" if keep_frames is None else " (verified only)")
         per_cam[cam] = written
 
     return per_cam
@@ -162,6 +200,13 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
     @app.command()
     def main(
         play_dir: Path = typer.Option(..., "--play-dir"),
+        verified_only: bool = typer.Option(
+            True, "--verified-only/--all-frames",
+            help="Extract only frames whose camera VERIFIED in cameras.npz "
+                 "(conf > 0). A fixed sampling clock lands on frames unrelated "
+                 "to which ones have a trustworthy camera; on play_001 it kept "
+                 "16 usable endzone frames while 103 verified cameras existed. "
+                 "--all-frames restores clock sampling."),
         config=CONFIG_OPT, config_override=CONFIG_OVERRIDE_OPT, set_=SET_OPT,
     ) -> None:
         cfg = load_cli_config(config, config_override, set_)
@@ -181,7 +226,18 @@ def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE
             fps_sample=float(cfg.field.fps_sample),
             max_frames_per_cam=int(cfg.field.pre_snap_frames_per_cam),
         )
-        per_cam = extract_static_frames(videos, ranges, out_dir, frame_cfg)
+        keep = None
+        if verified_only:
+            import numpy as np
+
+            from nfl_gsplat.calibration.cameras_io import load_camera_track
+            tracks = load_camera_track(pdir.cameras_npz)
+            keep = {cam: set(np.flatnonzero(tr.conf > 0).tolist())
+                    for cam, tr in tracks.items()}
+            _LOG.info("extract_static_frames: verified cameras per feed: %s",
+                      {c: len(v) for c, v in sorted(keep.items())})
+        per_cam = extract_static_frames(videos, ranges, out_dir, frame_cfg,
+                                        keep_frames=keep)
         total = sum(len(v) for v in per_cam.values())
         _LOG.info(f"extract_static_frames: {total} frames total → {out_dir / 'frames'}")
 
