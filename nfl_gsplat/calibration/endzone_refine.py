@@ -40,7 +40,8 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from nfl_gsplat.calibration.field_landmarks import YARD_LINE_SPACING_M
+from nfl_gsplat.calibration.field_landmarks import (HALF_WIDTH_M,
+                                                    YARD_LINE_SPACING_M)
 from nfl_gsplat.calibration.field_model_fit import detect_accumulated_lines
 from nfl_gsplat.errors import CalibrationError
 from nfl_gsplat.utils.logging import get_logger
@@ -49,7 +50,13 @@ _LOG = get_logger(__name__)
 
 #: Sample count along a projected line. Fixed, because least_squares needs a
 #: fixed-length residual and visibility changes as the camera moves.
-_N_SAMPLES = 30
+#:
+#: Sized so the samples stay DENSE across the full field width. Visibility is
+#: tested by counting on-sensor samples, so density and span are coupled: at 30
+#: samples, widening the span from 18 m to 49 m quietly tripled how much of a
+#: line had to be visible to qualify (8 samples went from ~5 m of line to ~13 m)
+#: and cost more frames than the wider span gained.
+_N_SAMPLES = 80
 #: Cost charged to a sample that projects off-sensor or behind the camera.
 #: NOT zero: zeroing them let the optimiser push every point out of frame for a
 #: free residual of 0 and destroy the camera (measured: focal ran away, error
@@ -76,11 +83,24 @@ def detect_frame_lines(paint, *, min_len_frac: float = 0.15,
         mask = mask.astype(np.float32)
     if mask.max() > 1.5:
         mask = mask / 255.0
-    try:
-        segs = detect_accumulated_lines(mask, vote_thresh=0.5,
-                                        min_len_frac=min_len_frac,
-                                        merge_tol_px=merge_tol_px)
-    except CalibrationError:
+    # detect_accumulated_lines refuses when two parallel families tie in size,
+    # since it cannot tell which is the yard-line pencil. On a single frame that
+    # tie is an artefact of the length threshold, not a real ambiguity: measured
+    # on play_001, frames 450/690/750 tied at 10-11 lines and resolved to 13-18
+    # as soon as shorter segments were admitted. Swallowing the error instead
+    # silently discarded those frames.
+    segs = None
+    for frac in (min_len_frac, 0.10, 0.07):
+        if frac > min_len_frac:
+            continue
+        try:
+            segs = detect_accumulated_lines(mask, vote_thresh=0.5,
+                                            min_len_frac=frac,
+                                            merge_tol_px=merge_tol_px)
+            break
+        except CalibrationError:
+            continue
+    if segs is None:
         return []
     out = []
     for sg in segs:
@@ -91,9 +111,20 @@ def detect_frame_lines(paint, *, min_len_frac: float = 0.15,
     return out
 
 
-def project_line(focal, rot, centre, world_x, *, cx, cy, y_span=(-8.0, 10.0),
+def project_line(focal, rot, centre, world_x, *, cx, cy,
+                 y_span=(-HALF_WIDTH_M, HALF_WIDTH_M),
                  width=1920, height=1080):
-    """Sample a world yard line into the image. Returns ``(uv, visible)``."""
+    """Sample a world yard line into the image. Returns ``(uv, visible)``.
+
+    ``y_span`` covers the FULL field width by default. A narrow window centred on
+    midfield looks reasonable and quietly breaks whenever the camera pans across
+    the field to follow a play: every sample lands off-sensor, the line reports
+    "not visible", and there is nothing left to associate. Measured on play_001,
+    a +-8 m window left frames 570 and 600 with no visible world lines at all
+    despite ten clean detections in each, and cut frames 540 and 720 to two
+    matches. Sampling wider costs only resolution along the line, and a line is
+    fitted from its samples rather than measured at their endpoints.
+    """
     ys = np.linspace(y_span[0], y_span[1], _N_SAMPLES)
     t = -rot @ centre
     k = np.array([[focal, 0.0, cx], [0.0, focal, cy], [0.0, 0.0, 1.0]])
@@ -219,12 +250,32 @@ def verify_frame(focal, rot, centre, dets, world_xs, *, cx, cy,
                 vals.append(min(d))
         return float(np.median(vals)) if len(vals) >= 3 else None
 
+    shift_m = YARD_LINE_SPACING_M / 5.0             # one yard
     offset = score(0.0)
-    control = score(YARD_LINE_SPACING_M / 5.0)      # one yard
+    control = score(shift_m)
     if offset is None or control is None:
         return offset, control, False
-    return offset, control, (offset <= max_offset_px
-                             and control >= min_ratio * offset)
+
+    # Judge the control against how far the model ACTUALLY MOVED on this frame,
+    # not against a fixed ratio. A fixed ratio is not scale-aware: a camera off
+    # by e, with the control shifted s px, reads about s - e, so demanding
+    # control >= 3*offset silently also demands e <= s/4 -- on the endzone, where
+    # a yard is only ~21 px, that quietly contradicted the 6 px accuracy gate and
+    # rejected frames for being 5.45 px off. What actually indicates a saturated
+    # metric is the control failing to move when the model does.
+    moved = []
+    for world_x in world_xs:
+        ua, va = project_line(focal, rot, centre, world_x, cx=cx, cy=cy)
+        ub, vb = project_line(focal, rot, centre, world_x + shift_m,
+                              cx=cx, cy=cy)
+        m = va & vb
+        if m.sum() >= 8:
+            moved.append(float(np.median(np.linalg.norm(ua[m] - ub[m], axis=1))))
+    if not moved:
+        return offset, control, False
+    moved_px = float(np.median(moved))
+    discriminates = (control - offset) >= 0.4 * moved_px
+    return offset, control, (offset <= max_offset_px and discriminates)
 
 
 def bundle_adjust(pair_homographies, anchors, centre, initial, *, cx, cy,
