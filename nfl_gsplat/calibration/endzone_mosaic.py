@@ -146,52 +146,6 @@ def register_to_reference(frames, *, ref_idx, min_inliers: int = 25,
     return H_by, inl_by
 
 
-def register_dense_to_reference(frame_iter, ref_img, *, ref_boxes=None,
-                                min_inliers: int = 25,
-                                boxes_by_frame=None):
-    """Stream frames past the reference, returning {frame: H into reference}.
-
-    Same job as :func:`register_to_reference`, but it never holds more than one
-    frame at a time. That matters because the mosaic only needs a SPARSE sample
-    to accumulate paint, while the output camera track wants one camera per
-    frame to composite against -- and holding 1302 frames of 1920x1080 to get
-    that would cost about 8 GB. Here the reference's features are computed once
-    and each frame is matched and dropped.
-
-    The one-hop fallback is kept, but the hop target is the most recently
-    registered frame rather than the nearest of all of them: it is the closest
-    in time to whatever is failing now, and it is the only one still in memory.
-    A fallback still never chains through another fallback -- ``hop`` is only
-    ever replaced by a DIRECT registration -- so drift stays bounded by
-    construction, which is what the sparse path relies on too (chaining was
-    measured at 6 px -> 282 px).
-
-    Frames that register neither way are simply absent from the result, exactly
-    as in the sparse path; propagate leaves them as gaps.
-    """
-    boxes_by_frame = boxes_by_frame or {}
-    ref_feats = _features(ref_img, keep_mask(ref_img.shape, ref_boxes))
-    h_by, hop = {}, None
-    failed = 0
-    for idx, img in frame_iter:
-        feats = _features(img, keep_mask(img.shape, boxes_by_frame.get(idx)))
-        h_mat, n = _homography(feats, ref_feats, min_inliers)
-        if h_mat is not None and n >= min_inliers:
-            h_by[idx] = h_mat
-            hop = (feats, h_mat)          # only DIRECT results become hops
-            continue
-        if hop is not None:
-            h_rel, n2 = _homography(feats, hop[0], min_inliers)
-            if h_rel is not None and n2 >= min_inliers:
-                h_by[idx] = hop[1] @ h_rel
-                continue
-        failed += 1
-    if failed:
-        _LOG.warning("endzone mosaic: dense registration could not place "
-                     "%d frame(s); they become gaps in the camera track",
-                     failed)
-    return h_by
-
 
 def register_dense_to_reference(frame_iter, ref_img, *, ref_boxes=None,
                                 min_inliers: int = 25,
