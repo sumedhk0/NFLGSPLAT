@@ -204,3 +204,85 @@ def test_bundle_pulls_a_drifted_chain_back():
         for n in nodes)
     assert worst_after < worst_before / 3.0, (
         f"bundle did not converge: {worst_before:.2f} -> {worst_after:.2f} px")
+
+
+def _homography_between(f_a, rot_a, f_b, rot_b):
+    """The tripod identity: scene-independent, exact for a rotating camera."""
+    k_a = np.array([[f_a, 0, CX], [0, f_a, CY], [0, 0, 1.0]])
+    k_b = np.array([[f_b, 0, CX], [0, f_b, CY], [0, 0, 1.0]])
+    return k_b @ rot_b @ rot_a.T @ np.linalg.inv(k_a)
+
+
+def test_collect_anchors_skips_frames_it_cannot_pin_down():
+    """Only frames with an unambiguous field association may anchor the bundle.
+
+    A wrong anchor is worse than no anchor: it drags the whole chain onto the
+    neighbouring yard line, and every residual still looks small afterwards.
+    """
+    from nfl_gsplat.calibration.endzone_refine import collect_anchors
+
+    focal, rot = _truth()
+    dets = _lines_from(focal, rot)
+    initial = {0: (focal, rot), 5: (focal, rot)}
+    # node 5 sees only two lines -- below min_lines, so it cannot anchor
+    got = collect_anchors({0: dets, 5: dets[:2]}, initial, CENTRE, WORLD_X,
+                          cx=CX, cy=CY)
+    assert 0 in got and len(got[0]) >= 4
+    assert 5 not in got, "a frame with too few lines was allowed to anchor"
+
+
+def test_solve_frames_ships_only_what_verifies():
+    """A frame carrying no field evidence must come back UNSHIPPED, not guessed.
+
+    Measured on play_001, most unrecoverable frames are zoomed onto the line of
+    scrimmage with no painted yard line in view. There is nothing to check a
+    camera against there, so the honest output is to withhold it -- the whole
+    point of the verification gate.
+    """
+    from nfl_gsplat.calibration.endzone_refine import solve_frames
+
+    focal, rot = _truth()
+    nodes = [0, 5, 10]
+    truth = {n: (focal, _perturb(rot, 0.02 * i)) for i, n in enumerate(nodes)}
+
+    def render(cam):
+        """A frame whose white paint is exactly this camera's yard lines."""
+        img = np.zeros((1080, 1920, 3), np.uint8)
+        img[:] = (40, 90, 40)                       # grass: dark, saturated
+        for world_x in WORLD_X:
+            uv, vis = project_line(cam[0], cam[1], CENTRE, world_x, cx=CX, cy=CY)
+            pts = uv[vis]
+            for i in range(len(pts) - 1):
+                cv2.line(img, tuple(pts[i].astype(int)),
+                         tuple(pts[i + 1].astype(int)), (255, 255, 255), 5)
+        return img
+
+    blank = np.zeros((1080, 1920, 3), np.uint8)
+    blank[:] = (40, 90, 40)                         # grass only: no paint
+    frames = [(n, render(truth[n])) for n in nodes] + [(15, blank)]
+    initial = {n: truth[n] for n in nodes}
+    initial[15] = truth[10]
+
+    cameras, report = solve_frames(iter(frames), initial, CENTRE, WORLD_X,
+                                   cx=CX, cy=CY, max_nfev=60)
+    assert 15 not in cameras, "a frame with no visible paint was shipped"
+    assert cameras, f"nothing verified at all: {report}"
+    assert report["verified"] == len(cameras)
+
+
+def test_bundle_names_chain_nodes_it_cannot_place():
+    """A chain pair touching an unsolved frame must fail loud, not KeyError.
+
+    Found on real footage: the chain pass registers every decoded frame, but
+    propagation solves only some, so pairs legitimately reference frames with no
+    initial camera. The bare KeyError that produced said nothing about which
+    frame or why.
+    """
+    from nfl_gsplat.calibration.endzone_refine import bundle_adjust
+
+    focal, rot = _truth()
+    initial = {5: (focal, rot), 10: (focal, _perturb(rot, 0.02))}
+    chain = {(0, 5): _homography_between(focal, rot, focal, rot)}
+    anchors = {5: [(x, ln) for x, ln in zip(WORLD_X, _lines_from(focal, rot))]}
+    with pytest.raises(CalibrationError, match="no initial camera"):
+        bundle_adjust(chain, anchors, CENTRE, initial, cx=CX, cy=CY)

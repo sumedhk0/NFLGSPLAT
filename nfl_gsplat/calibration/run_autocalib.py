@@ -626,6 +626,7 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
                          endzone_cam: str = "endzone",
                          max_gap: int | None = None,
                          propagate_stride: int | None = None,
+                         refine_stride: int | None = None,
                          vote_thresh: float = 0.5, min_len_frac: float = 0.25,
                          merge_tol_px: float = 12.0,
                          diag_dir: str | None = None):
@@ -637,6 +638,11 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     reference camera is solved from the labelled lines, and every sampled
     frame's camera is propagated from the reference through its homography.
     ``sideline`` is preserved; ``endzone_*`` is written/overwritten.
+
+    ``refine_stride`` opts into the bundle-adjusted refinement pass: frames are
+    re-solved jointly against consecutive-frame homographies plus field anchors,
+    and only those that VERIFY against paint they can see keep ``conf > 0``.
+    It trades coverage for correctness and is what the splat should consume.
 
     ``vote_thresh``/``min_len_frac``/``merge_tol_px`` are
     :func:`~nfl_gsplat.calibration.field_model_fit.detect_accumulated_lines`
@@ -966,7 +972,86 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     cams[endzone_cam] = assemble_track_from_results(
         results, width=meta.width, height=meta.height, smooth=False,
         max_gap=stride * 3 if max_gap is None else int(max_gap))
+
+    if refine_stride is not None:
+        cams[endzone_cam] = _refine_endzone_track(
+            cams[endzone_cam], endzone_video=endzone_video,
+            ref_cam=ref_cam, ez_boxes=ez_boxes, num_frames=meta.num_frames,
+            refine_stride=int(refine_stride), xs=xs)
     return write_camera_track(Path(cameras_npz), cams, fps=fps)
+
+
+def _refine_endzone_track(track, *, endzone_video, ref_cam, ez_boxes,
+                          num_frames, refine_stride, xs):
+    """Bundle-adjust the propagated endzone track and keep only verified frames.
+
+    Propagation carries every frame's camera through ONE homography onto the
+    reference, so error accumulates with distance from it. This re-solves each
+    sampled frame's focal and rotation jointly, tied to its neighbours by
+    directly measured homographies and to the field by yard-line anchors.
+
+    ``conf`` is the output that matters. A frame whose camera cannot be checked
+    against paint it can see gets ``conf = 0`` -- the existing "invalid, filled
+    from a neighbour" state -- rather than being shipped on the strength of a
+    plausible-looking residual. Measured on play_001 this keeps 11 of 44 splat
+    frames at a median 0.99 px; most of the rest are zoomed onto the line of
+    scrimmage with no painted yard line in view, which no amount of tuning
+    recovers because the frame carries no evidence to check against.
+    """
+    import cv2
+    import numpy as np
+
+    from nfl_gsplat.calibration import endzone_refine as er
+    from nfl_gsplat.errors import SetupError
+    from nfl_gsplat.utils.video import iter_frames
+
+    if refine_stride < 1:
+        raise SetupError(f"--refine-stride must be >= 1, got {refine_stride}")
+
+    centre = -ref_cam.pose.R.T @ ref_cam.pose.t
+    cx, cy = ref_cam.intrinsics.cx, ref_cam.intrinsics.cy
+    initial = {}
+    for idx in range(0, num_frames, refine_stride):
+        if track.conf[idx] > 0:
+            intr, pose = track.at(idx)
+            initial[idx] = (float(intr.fx), pose.R)
+    if not initial:
+        raise CalibrationError(
+            "endzone refine: propagation produced no valid camera at stride "
+            f"{refine_stride} — nothing to refine. Lower --refine-stride or "
+            "check the propagation warnings above.")
+
+    boxes = {}
+    for idx in range(0, num_frames, refine_stride):
+        g = ez_boxes[ez_boxes["frame"] == idx]
+        boxes[idx] = list(zip(g["bbox_x1"], g["bbox_y1"],
+                              g["bbox_x2"], g["bbox_y2"]))
+
+    def _stream():
+        for idx, rgb in iter_frames(endzone_video, stride=refine_stride):
+            yield idx, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+    cameras, report = er.solve_frames(
+        _stream(), initial, centre, [float(x) for x in xs], cx=cx, cy=cy,
+        boxes_by_frame=boxes)
+    if not cameras:
+        raise CalibrationError(
+            "endzone refine: not one frame verified against its own paint "
+            f"(stages: {report}). The reference camera itself is suspect — "
+            "check the mosaic diagnostic before trusting any endzone pose.")
+
+    k_arr, r_arr = track.K.copy(), track.R.copy()
+    t_arr, conf = track.t.copy(), np.zeros_like(track.conf)
+    for idx, (focal, rot) in cameras.items():
+        k_arr[idx] = np.array([[focal, 0.0, cx], [0.0, focal, cy],
+                               [0.0, 0.0, 1.0]])
+        r_arr[idx] = rot
+        t_arr[idx] = -rot @ centre
+        conf[idx] = 1.0
+    _LOG.info("endzone refine: %d/%d frames verified at stride %d (%s)",
+              int(conf.sum()), len(initial), refine_stride, report)
+    return CameraTrack(K=k_arr, R=r_arr, t=t_arr, conf=conf,
+                       width=track.width, height=track.height)
 
 
 def _sideline_yard_range(df, sideline_track, *, cam, pad_m: float = 8.0):

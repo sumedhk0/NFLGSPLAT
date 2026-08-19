@@ -74,6 +74,14 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
                   "mode). Defaults to --stride. Set 1 for a camera on every "
                   "frame, which is what compositing needs; it adds coverage, "
                   "not accuracy, since a tripod's frames share one centre."),
+         refine_stride: int | None = typer.Option(None, "--refine-stride",
+             help="Enable the bundle-adjusted refinement pass (mosaic-endzone "
+                  "mode) at this frame stride. Frames are re-solved jointly "
+                  "against consecutive-frame homographies plus field anchors, "
+                  "and every frame that cannot be VERIFIED against paint it can "
+                  "see is left at conf=0 rather than shipped. Use a stride that "
+                  "divides the splat's frame sampling so every exported frame "
+                  "is a node. Trades coverage for correctness."),
          max_gap: int | None = typer.Option(None, "--max-gap",
              help="Longest run of consecutive uncalibrated frames tolerated "
                   "inside the mosaic-endzone track (default: 3x --stride). "
@@ -126,7 +134,7 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
             fps=meta.fps, anchors=anchors, stride=stride, ref_frame=ref_frame,
             max_gap=max_gap, propagate_stride=propagate_stride,
-            diag_dir=diag_dir,
+            refine_stride=refine_stride, diag_dir=diag_dir,
             prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
                                tuple(ep["z_range"]), tuple(ep["focal_range"])))
     elif mode is CalibMode.cross_endzone:

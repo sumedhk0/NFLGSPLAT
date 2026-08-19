@@ -15,34 +15,47 @@ from typing import Any, Callable, Iterator
 
 from rich.logging import RichHandler
 
-_CONFIGURED = False
+# Logger names whose top-level package already owns handlers. This is a SET,
+# not a bool: a single global flag meant the first module to call get_logger
+# configured itself and every later module got a logger with no handler and no
+# level, so only WARNING+ escaped (via logging.lastResort) and every INFO
+# diagnostic in the package was silently discarded. That hid the endzone
+# mosaic's own reprojection numbers during bring-up.
+_CONFIGURED: set[str] = set()
+_HANDLERS: list[logging.Handler] | None = None
 
 
 def get_logger(name: str, level: str = "INFO", json_file: Path | str | None = None) -> logging.Logger:
-    """Return a logger configured with rich console output and optional JSON sink."""
-    global _CONFIGURED
-    logger = logging.getLogger(name)
-    if _CONFIGURED:
-        return logger
+    """Return a logger that actually emits, whichever module asks first.
 
-    logger.setLevel(level)
-    logger.handlers.clear()
+    Handlers are attached once per top-level package; module loggers below it
+    propagate up to them, which is the standard logging arrangement and the
+    only one that works when many modules each call this with ``__name__``.
+    """
+    global _HANDLERS
+    if _HANDLERS is None:
+        handlers: list[logging.Handler] = [
+            RichHandler(rich_tracebacks=True, markup=False, show_path=False)]
+        if json_file is not None:
+            json_path = Path(json_file)
+            json_path.parent.mkdir(parents=True, exist_ok=True)
+            file_h = logging.FileHandler(json_path)
+            file_h.setFormatter(_JSONFormatter())
+            handlers.append(file_h)
+        for handler in handlers:
+            handler.setLevel(level)
+        _HANDLERS = handlers
 
-    console = RichHandler(rich_tracebacks=True, markup=False, show_path=False)
-    console.setLevel(level)
-    logger.addHandler(console)
-
-    if json_file is not None:
-        json_path = Path(json_file)
-        json_path.parent.mkdir(parents=True, exist_ok=True)
-        file_h = logging.FileHandler(json_path)
-        file_h.setLevel(level)
-        file_h.setFormatter(_JSONFormatter())
-        logger.addHandler(file_h)
-
-    logger.propagate = False
-    _CONFIGURED = True
-    return logger
+    owner_name = (name or "nfl_gsplat").split(".")[0]
+    if owner_name not in _CONFIGURED:
+        owner = logging.getLogger(owner_name)
+        owner.setLevel(level)
+        owner.handlers.clear()
+        for handler in _HANDLERS:
+            owner.addHandler(handler)
+        owner.propagate = False
+        _CONFIGURED.add(owner_name)
+    return logging.getLogger(name)
 
 
 class _JSONFormatter(logging.Formatter):

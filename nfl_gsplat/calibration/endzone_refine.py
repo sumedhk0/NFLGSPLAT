@@ -318,6 +318,20 @@ def bundle_adjust(pair_homographies, anchors, centre, initial, *, cx, cy,
             "satisfied by a solution that is rigidly wrong, so the result "
             "would be self-consistent and unusable.")
 
+    unknown = sorted({n for pair in pair_homographies for n in pair}
+                     - set(index))
+    if unknown:
+        raise CalibrationError(
+            "endzone bundle: chain references node(s) with no initial camera: "
+            f"{unknown[:8]}{'...' if len(unknown) > 8 else ''}. A homography "
+            "was measured between frames the propagation could not solve, so "
+            "there is nothing for it to constrain. Drop those pairs before "
+            "calling, or supply an initial camera for them.")
+    if not anchors.keys() <= set(index):
+        raise CalibrationError(
+            "endzone bundle: anchor node(s) with no initial camera: "
+            f"{sorted(set(anchors) - set(index))[:8]}.")
+
     grid = np.array([[u, v, 1.0] for u in (200.0, 700.0, 1200.0, 1700.0)
                      for v in (150.0, 500.0, 900.0)])
     pairs = sorted(pair_homographies)
@@ -395,3 +409,163 @@ def bundle_adjust(pair_homographies, anchors, centre, initial, *, cx, cy,
               n_nodes, len(pairs), len(anchors), before, after)
     return {node: (float(unpack(sol.x, node)[0]), unpack(sol.x, node)[1])
             for node in nodes}
+
+
+def paint_mask(img_bgr, boxes=None, *, lo=(0, 0, 165), hi=(180, 70, 255)):
+    """White field paint with player pixels removed.
+
+    Masking players is not cosmetic. White jerseys are bright and
+    low-saturation, which is the definition this threshold uses, so an unmasked
+    frame hands the line detector a row of torsos and it fits lines through
+    them.
+    """
+    from nfl_gsplat.calibration.endzone_mosaic import keep_mask
+
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    white = cv2.inRange(hsv, np.array(lo, np.uint8), np.array(hi, np.uint8))
+    return cv2.bitwise_and(white, keep_mask(img_bgr.shape, boxes))
+
+
+def collect_anchors(dets_by_frame, initial, centre, world_xs, *, cx, cy,
+                    min_lines: int = 4, min_pairs: int = 4):
+    """``{node: [(world_x, image_line)]}`` for nodes that can be tied to the field.
+
+    A node earns an anchor only when at least ``min_pairs`` of its detected
+    lines match a world yard line UNAMBIGUOUSLY. A wrong anchor is worse than no
+    anchor: it drags the whole chain onto the neighbouring yard line and every
+    residual still looks small afterwards, which is how an earlier sweep
+    reported 1.59 px while sitting a yard out.
+    """
+    anchors = {}
+    for node, dets in dets_by_frame.items():
+        if node not in initial or len(dets) < min_lines:
+            continue
+        focal, rot = initial[node]
+        pairs = associate(focal, rot, centre, world_xs, dets, cx=cx, cy=cy,
+                          require_unambiguous=True)
+        if len(pairs) >= min_pairs:
+            anchors[node] = pairs
+    return anchors
+
+
+def solve_frames(frame_iter, initial, centre, world_xs, *, cx, cy,
+                 boxes_by_frame=None, min_inliers: int = 25,
+                 max_shift_px: float = 55.0, max_nfev: int = 1200,
+                 min_lines: int = 3):
+    """Bundle-adjust a set of frames, then keep only those that verify.
+
+    ``frame_iter`` yields ``(index, bgr)`` in increasing index order and is
+    consumed ONCE -- decoding dominates the runtime, so the chain homographies
+    and the per-frame line detections are gathered in the same pass. Only the
+    previous frame's features are retained, so memory does not grow with the
+    clip.
+
+    ``initial`` maps frame index to the propagated ``(focal, rot)`` starting
+    guess; ``centre`` is the shared tripod camera centre, held FIXED (both feeds
+    are tripods, so every frame has the same centre and a node costs 4
+    parameters rather than 7).
+
+    Returns ``(cameras, report)``. ``cameras`` holds only frames whose camera
+    survived :func:`verify_frame` -- a camera that cannot be checked against
+    painted lines it can see is not shipped, because during bring-up four
+    separate per-frame metrics reported plausible small numbers on cameras that
+    were wrong. ``report`` carries the per-stage counts for the operator.
+    """
+    dets_by_frame, chain = {}, {}
+    boxes_by_frame = boxes_by_frame or {}
+    prev_idx, prev_feats = None, None
+    from nfl_gsplat.calibration.endzone_mosaic import (_features, _homography,
+                                                       keep_mask)
+
+    n_seen = 0
+    for idx, bgr in frame_iter:
+        n_seen += 1
+        boxes = boxes_by_frame.get(idx)
+        mask = keep_mask(bgr.shape, boxes)
+        feats = _features(bgr, mask)
+        if prev_feats is not None:
+            hom, n_inl = _homography(prev_feats, feats, min_inliers)
+            if hom is not None and n_inl >= min_inliers:
+                chain[(prev_idx, idx)] = hom
+        prev_idx, prev_feats = idx, feats
+        # CONSECUTIVE pairs above, not long-range fits onto one reference.
+        # Adjacent frames share most of their field of view so the homography
+        # is well conditioned; registering everything onto a single distant
+        # reference is exactly what drifts once the camera has panned away from
+        # it (measured 26-55 px by the ends of play_001).
+        dets = detect_frame_lines(paint_mask(bgr, boxes))
+        if len(dets) >= min_lines:
+            dets_by_frame[idx] = dets
+
+    nodes = dict(sorted(initial.items()))
+    # The chain pass sees every decoded frame, but propagation only solved
+    # some of them. A pair with an unsolved endpoint has no node to constrain,
+    # so drop it here rather than letting the bundle fail on a bare KeyError.
+    orphans = {k: h for k, h in chain.items()
+               if k[0] not in nodes or k[1] not in nodes}
+    for key in orphans:
+        del chain[key]
+    if orphans:
+        _LOG.info("endzone refine: dropped %d chain pair(s) touching frames "
+                  "the mosaic could not propagate (e.g. %s)", len(orphans),
+                  sorted(orphans)[:3])
+    if not nodes:
+        raise CalibrationError(
+            "endzone refine: no starting cameras. The mosaic must propagate "
+            "before frames can be refined.")
+    anchors = collect_anchors(dets_by_frame, nodes, centre, world_xs,
+                              cx=cx, cy=cy)
+    _LOG.info("endzone refine: %d frames read, %d with lines, %d chain pairs, "
+              "%d anchor nodes", n_seen, len(dets_by_frame), len(chain),
+              len(anchors))
+    solved = bundle_adjust(chain, anchors, centre, nodes, cx=cx, cy=cy,
+                           max_nfev=max_nfev)
+
+    cameras, stages = {}, {"detection": 0, "association": 0, "unverified": 0,
+                           "verified": 0}
+    offsets = []
+    for node, (focal, rot) in solved.items():
+        dets = dets_by_frame.get(node)
+        if not dets:
+            stages["detection"] += 1
+            continue
+        pairs = associate(focal, rot, centre, world_xs, dets, cx=cx, cy=cy)
+        best = None
+        # Try the bundled camera AND its per-frame refinement, keeping whichever
+        # verifies with the smaller offset. The bundle optimises the network;
+        # a single frame can still be improved by its own lines, but that solve
+        # is also the one that can slip onto a neighbouring line, so it has to
+        # earn its place rather than being trusted by default.
+        candidates = [(focal, rot)]
+        if len(pairs) >= 3:
+            got = refine_frame(focal, rot, centre, pairs, cx=cx, cy=cy,
+                               max_shift_px=max_shift_px, anchor=(focal, rot))
+            if got is not None:
+                candidates.append(got)
+        else:
+            stages["association"] += 1
+        for cam in candidates:
+            offset, _control, ok = verify_frame(cam[0], cam[1], centre, dets,
+                                                world_xs, cx=cx, cy=cy)
+            if ok and (best is None or offset < best[0]):
+                best = (offset, cam)
+        if best is None:
+            stages["unverified"] += 1
+            continue
+        stages["verified"] += 1
+        offsets.append(best[0])
+        cameras[node] = best[1]
+
+    report = dict(stages)
+    report["nodes"] = len(solved)
+    report["chain_pairs"] = len(chain)
+    report["anchor_nodes"] = len(anchors)
+    if offsets:
+        report["median_offset_px"] = float(np.median(offsets))
+        report["worst_offset_px"] = float(np.max(offsets))
+    _LOG.info("endzone refine: verified %d/%d frames%s", len(cameras),
+              len(solved),
+              "" if not offsets else
+              f" (median {report['median_offset_px']:.2f} px, "
+              f"worst {report['worst_offset_px']:.2f} px)")
+    return cameras, report
