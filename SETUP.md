@@ -169,93 +169,91 @@ every line rather than just the interval between them.
 
 ```bash
 python scripts/02_autocalibrate.py --play-dir <play> --mode mosaic-endzone \
-    --stride 12 --propagate-stride 1 --max-gap 120
+    --stride 6 --ref-frame 648 --propagate-stride 5 --refine-stride 5 \
+    --max-gap 120
 ```
 
-* `--stride` — frames used to BUILD the mosaic. Coarse is fine; 12 works.
+* `--stride` — frames used to BUILD the mosaic. Coarse is fine; 6-12 works.
+* `--ref-frame` — the frame everything registers into. It is added to the
+  propagation and refinement grids explicitly, so it need not be a multiple of
+  any stride.
 * `--propagate-stride` — frames in the OUTPUT track. Defaults to `--stride`;
   set `1` for a camera on every frame, which is what compositing needs. It adds
   coverage, **not** accuracy: a tripod's frames all share one centre, so extra
   frames add no parallax.
+* `--refine-stride` — turns on the bundle-adjusted refinement pass (below). Use
+  a stride that divides whatever stride the splat samples at, so every frame you
+  intend to train on is a node.
 * `--max-gap` — longest run of uncalibrated frames tolerated. Raise it only
   when you have looked at the span: a fast pan can break the pure-rotation model
-  outright (rolling shutter shears the frame mid-slew).
+  outright (rolling shutter shears the frame mid-slew). play_001 has a real
+  94-frame uncovered pan, hence `120` here.
 
-**Accepting the result.** Project the metric field model with the solved camera
-and measure how far it lands from the accumulated paint. On the reference play
-that is 0.00 px median with 76.6% of model points within 3 px, and yard lines
-reproject at 1.04 px mean / 2.71 px max. Shifting the model one yard scores
-14.39 px — if your controls do not separate like that, the labelling is wrong.
+**The refinement pass (`--refine-stride`).** Propagation carries every frame's
+camera through ONE homography onto the reference, so error grows with distance
+from it. The refinement re-solves every node's focal and rotation jointly — tied
+to its neighbours by directly measured consecutive homographies, and to the field
+by yard-line anchors — then checks each result against paint that frame can
+actually see. The camera centre is shared and held fixed, so a node costs 4
+parameters rather than 7.
 
-### Endzone camera — the static-mosaic route (`--mode mosaic-endzone`)
+Both residual families are required. The chain alone is satisfied by a solution
+that is rigidly wrong: the whole network can rotate or zoom as one, and every
+chain residual stays perfect while the model sits a yard line out. An earlier
+sweep did exactly that and reported a flattering 1.59 px.
 
-**Use this for the endzone camera.** The earlier routes are superseded: field
-markings alone mislabel yard lines by 67-210 px from that angle, per-frame
-geometric cross-camera matching mispairs ~85% of feet, and the jersey-identity
-route needs >=4 shared player IDs in a single frame, which real footage did not
-supply (measured: 0 frames out of 327).
+**Accepting the result.** The run prints what it did; these are play_001's
+numbers:
 
-The mosaic route works because a broadcast endzone camera sits on a **tripod**:
-it pans and zooms but never translates, so every frame is related to every other
-by a pure homography. Register them all into one reference frame, accumulate the
-white paint with players masked out (paint reinforces, movers wash out), then
-solve one camera against the field model and propagate to every frame.
-
-**Prerequisites**
-
-* the **sideline** camera already solved in `cameras.npz`
-* `tracks.parquet` with `cam=="endzone"` rows (from `03b_detect_players.py`) —
-  without player boxes, white jerseys are indistinguishable from paint
-* an `endzone_prior:` block in `meta.yaml`
-
-```yaml
-endzone_prior:
-  x_range: [60, 200]        # camera centre bounds, METRES. Get the SIGN right:
-  y_range: [-20, 20]        #   it is which end zone the camera is behind.
-  z_range: [10, 60]         # must exclude negatives -- this is what rejects the
-                            #   mirror solution, and nothing else does
-  focal_range: [1200, 30000]  # a long telephoto that zooms OUT to follow the
-                              #   play; measured span on one play was 1532..23200
+```
+endzone mosaic: hash rows mirrored; yard-line reprojection 1.46 px
+endzone refine: 214 frames read, 213 chain pairs, 56 anchor nodes
+endzone bundle: median |residual| chain 92.606 -> 2.929 px, anchor 40.713 -> 1.758 px
+endzone refine: verified 104/214 frames (median 0.96 px, worst 5.66 px)
 ```
 
-**First run per game — read two anchors off the mosaic**
+Read them in this order:
 
-Run it once with no `endzone_anchor:`. It writes `<play>_mosaic.png` (detected
-lines in red, midpoints in green) and fails loud. Equally spaced parallel lines
-are translation-invariant, so which yard line is which cannot be recovered from
-geometry — it needs one absolute reference. Identify the **outermost two** lines
-and add:
+1. **yard-line reprojection** — the reference camera against the accumulated
+   paint. Want under ~3 px. If this is wrong, nothing downstream can be right.
+2. **bundle chain / anchor** — reported separately on purpose: they answer
+   different questions (does the network agree with the measured homographies /
+   do the anchored nodes sit on the field). One pooled median reads ~0.00 px
+   regardless of the fit, because most anchor rows are structurally zero.
+3. **verified N/M** — frames whose camera was checked against paint they can
+   see. Everything else is left at `conf = 0`.
 
-```yaml
-endzone_anchor:
-  lines:
-    - {point_px: [962.5, 2.9],   world_x_m: -45.720}   # goal line
-    - {point_px: [956.5, 982.8], world_x_m:  -9.144}   # the 40
-```
+**Roughly half the frames not verifying is expected, not a failure.** The endzone
+camera zooms tight on the line of scrimmage for much of a play, leaving frames
+with no painted yard line in view at all. There is no evidence in such a frame to
+check a camera against, and a camera that cannot be checked is not shipped.
+Overlay the model on a few rejects before assuming the gate is too strict — that
+check is what showed the rejects were genuinely paint-poor rather than badly
+calibrated.
 
-This is **once per game, not per play** — the tripod holds one centre all half.
-The anchors must be the outermost detected lines, so the spacing check spans
-every line rather than just the interval between them.
+**`conf = 0` does not mean "no camera".** `CameraTrack.at()` returns a
+well-formed pose for every index; unsolved ones are filled from the nearest valid
+neighbour. Nothing about the returned pose says "interpolated" — one measured
+8 px off the paint — so always filter on `conf > 0` before using a camera for
+anything that matters. `build_transforms` and `extract_static_frames` now do this
+by default.
+
+**Then extract and build transforms:**
 
 ```bash
-python scripts/02_autocalibrate.py --play-dir <play> --mode mosaic-endzone \
-    --stride 12 --propagate-stride 1 --max-gap 120
+python -m nfl_gsplat.field.extract_static_frames --play-dir <play>
+python -m nfl_gsplat.field.build_transforms      --play-dir <play>
 ```
 
-* `--stride` — frames used to BUILD the mosaic. Coarse is fine; 12 works.
-* `--propagate-stride` — frames in the OUTPUT track. Defaults to `--stride`;
-  set `1` for a camera on every frame, which is what compositing needs. It adds
-  coverage, **not** accuracy: a tripod's frames all share one centre, so extra
-  frames add no parallax.
-* `--max-gap` — longest run of uncalibrated frames tolerated. Raise it only
-  when you have looked at the span: a fast pan can break the pure-rotation model
-  outright (rolling shutter shears the frame mid-slew).
+`extract_static_frames` defaults to `--verified-only`, spending the per-camera
+frame budget on frames that have a trustworthy camera rather than on whatever a
+fixed sampling clock lands on. On play_001 the clock kept 44 endzone frames of
+which 16 verified, while 104 verified cameras existed. Pass `--all-frames` to
+restore clock sampling. `build_transforms` drops any frame still at `conf = 0`
+and reports the count.
 
-**Accepting the result.** Project the metric field model with the solved camera
-and measure how far it lands from the accumulated paint. On the reference play
-that is 0.00 px median with 76.6% of model points within 3 px, and yard lines
-reproject at 1.04 px mean / 2.71 px max. Shifting the model one yard scores
-14.39 px — if your controls do not separate like that, the labelling is wrong.
+play_001 end to end: **120 training views (60 sideline + 60 endzone), all
+verified**, against 43 before.
 
 ### Learned calibration (field-landmark detector)
 
