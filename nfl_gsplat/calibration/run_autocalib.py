@@ -1053,8 +1053,36 @@ def _refine_endzone_track(track, *, endzone_video, ref_cam, ref_frame,
             if idx in wanted:
                 yield idx, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
+    # Associate against the FULL yard ladder spanning the labelled lines, not
+    # just the lines this mosaic happened to detect. The field carries a line
+    # every YARD_LINE_SPACING_M whether or not the accumulation found it, and on
+    # play_001 the labelled set has a two-line hole in the middle (-32.004 to
+    # -18.288). A frame zoomed onto that hole can see paint the model has no
+    # world line for, so it cannot reach three matches and is discarded for a
+    # reason that is an artefact of the mosaic rather than of the frame.
+    # Associate against the full yard ladder ACROSS THE LABELLED SPAN, not just
+    # the lines this mosaic happened to detect. The field carries a line every
+    # YARD_LINE_SPACING_M whether or not the accumulation found it, and on
+    # play_001 the labelled set has a two-line hole in the middle (-32.004 to
+    # -18.288); a frame zoomed onto that hole sees paint the model has no world
+    # line for and cannot reach three matches.
+    #
+    # The span stops at the labelled lines deliberately. Extending it across the
+    # whole field is arithmetically valid -- the anchors fix every line's world X
+    # -- but was measured WORSE: 21 lines gave 99 verified frames against 104
+    # from 9, because each extra candidate is another chance for two world lines
+    # to claim one detection, and beyond the labelled span nothing ever
+    # confirmed the ladder continues as assumed.
+    from nfl_gsplat.calibration.field_model_fit import YARD_LINE_SPACING_M
+    lo_x, hi_x = min(float(x) for x in xs), max(float(x) for x in xs)
+    n_steps = int(round((hi_x - lo_x) / YARD_LINE_SPACING_M))
+    ladder = [lo_x + k * YARD_LINE_SPACING_M for k in range(n_steps + 1)]
+    _LOG.info("endzone refine: associating against %d ladder line(s) spanning "
+              "%.3f..%.3f m (mosaic labelled %d)", len(ladder), ladder[0],
+              ladder[-1], len(xs))
+
     cameras, report = er.solve_frames(
-        _stream(), initial, centre, [float(x) for x in xs], cx=cx, cy=cy,
+        _stream(), initial, centre, ladder, cx=cx, cy=cy,
         boxes_by_frame=boxes)
     if not cameras:
         raise CalibrationError(

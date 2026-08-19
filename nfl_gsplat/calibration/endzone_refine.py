@@ -154,7 +154,7 @@ def associate(focal, rot, centre, world_xs, dets, *, cx, cy, tol_px=70.0,
     weak constraint -- it is a confident pull toward the WRONG line, and it
     survives every downstream check because the result stays self-consistent.
     """
-    pairs = []
+    claimed = {}
     for world_x in world_xs:
         uv, vis = project_line(focal, rot, centre, world_x, cx=cx, cy=cy)
         if vis.sum() < 8:
@@ -164,10 +164,20 @@ def associate(focal, rot, centre, world_xs, dets, *, cx, cy, tol_px=70.0,
                         for i, ln in enumerate(dets))
         if not scored or scored[0][0] >= tol_px:
             continue
-        if require_unambiguous and len(scored) > 1 \
-                and scored[1][0] <= ratio * scored[0][0] + margin:
+        if require_unambiguous and len(scored) > 1                 and scored[1][0] <= ratio * scored[0][0] + margin:
             continue
-        pairs.append((float(world_x), dets[scored[0][1]]))
+        claimed.setdefault(scored[0][1], []).append(float(world_x))
+    # A detection claimed by TWO world lines identifies neither. This cannot
+    # arise while the world set is exactly the lines one mosaic detected, but it
+    # can as soon as the caller supplies the full yard ladder -- which it should,
+    # since the field carries a line every YARD_LINE_SPACING_M whether or not the
+    # mosaic found it. Dropping both is the runner-up rule applied in the other
+    # direction.
+    pairs = []
+    for det_i, world in claimed.items():
+        if require_unambiguous and len(world) > 1:
+            continue
+        pairs.append((world[0], dets[det_i]))
     return pairs
 
 
