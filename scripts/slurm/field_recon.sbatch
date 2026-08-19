@@ -10,6 +10,12 @@
 #SBATCH --output=logs/%x-%j.out
 
 # Reconstruct the static field for one PLAY.
+# WARNING: this runs the FULL pipeline, and its middle stage
+# (build_transforms) REGENERATES field/transforms.json from cameras.npz.
+# If transforms.json was curated beforehand -- frames dropped because their
+# pose could not be verified, say -- that work is silently discarded here.
+# Use field_train_only.sbatch in that case.
+#
 #
 # The argument is a play DIRECTORY, not a game id: it is forwarded verbatim to
 # 03_reconstruct_field.sh, which takes a play dir. Submitting a bare game id
