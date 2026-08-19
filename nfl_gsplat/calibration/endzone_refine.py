@@ -65,7 +65,8 @@ _OFF_SENSOR_COST = 200.0
 
 
 def detect_frame_lines(paint, *, min_len_frac: float = 0.15,
-                       merge_tol_px: float = 14.0) -> list[np.ndarray]:
+                       merge_tol_px: float = 14.0,
+                       expect_normal=None) -> list[np.ndarray]:
     """Merged field lines in ONE frame, as normalised homogeneous lines.
 
     Delegates to detect_accumulated_lines rather than running a bare Hough pass.
@@ -77,6 +78,11 @@ def detect_frame_lines(paint, *, min_len_frac: float = 0.15,
     ``min_len_frac`` is below the mosaic default because a single frame's lines
     are broken by players and shadows, so they run shorter than in an
     accumulated mosaic.
+
+    Pass ``expect_normal`` whenever a camera guess exists. Without it the
+    detector returns the LARGEST parallel family, which in a single frame is
+    frequently not the yard lines at all -- on play_001 frame 648 it returned
+    eleven near-vertical lines and every association missed by ~470 px.
     """
     mask = np.asarray(paint)
     if mask.dtype != np.float32:
@@ -96,7 +102,8 @@ def detect_frame_lines(paint, *, min_len_frac: float = 0.15,
         try:
             segs = detect_accumulated_lines(mask, vote_thresh=0.5,
                                             min_len_frac=frac,
-                                            merge_tol_px=merge_tol_px)
+                                            merge_tol_px=merge_tol_px,
+                                            expect_normal=expect_normal)
             break
         except CalibrationError:
             continue
@@ -190,11 +197,23 @@ def refine_frame(focal, rot, centre, pairs, *, cx, cy, max_shift_px=None,
             out.append(np.where(vis, d, _OFF_SENSOR_COST))
         return np.concatenate(out)
 
-    before = float(np.median(np.abs(residual(p0))))
+    def _median_live(vec):
+        """Median |residual| over entries that carry information.
+
+        Anchor rows for off-sensor samples are structurally zero -- a line
+        sampled across the full field width has most of its samples outside a
+        zoomed frame. Including them made the reported median 0.00 px both
+        before and after the solve, which says nothing about the fit and hid
+        whether the bundle had done anything at all.
+        """
+        live = np.abs(vec[np.abs(vec) > 1e-12])
+        return float(np.median(live)) if live.size else 0.0
+
+    before = _median_live(residual(p0))
     sol = least_squares(residual, p0, loss="soft_l1", f_scale=2.0, max_nfev=150)
     if not np.isfinite(sol.x).all() or sol.x[0] <= 100.0:
         return None
-    after = float(np.median(np.abs(residual(sol.x))))
+    after = _median_live(residual(sol.x))
     if after > before:
         return None
     rot_new, _ = cv2.Rodrigues(sol.x[1:4])
@@ -411,6 +430,27 @@ def bundle_adjust(pair_homographies, anchors, centre, initial, *, cx, cy,
             for node in nodes}
 
 
+def _expected_normal(cam, centre, world_xs, *, cx, cy):
+    """Image-space normal of a yard line as this camera would see it.
+
+    Returns None when there is no camera to ask, or when no world line lands on
+    the sensor -- the detector then falls back to its largest-family rule.
+    """
+    if cam is None:
+        return None
+    focal, rot = cam
+    for world_x in world_xs:
+        uv, vis = project_line(focal, rot, centre, world_x, cx=cx, cy=cy)
+        if int(vis.sum()) < 8:
+            continue
+        pts = uv[vis]
+        direction = pts[-1] - pts[0]
+        length = float(np.hypot(direction[0], direction[1]))
+        if length > 1e-9:
+            return np.array([-direction[1], direction[0]]) / length
+    return None
+
+
 def paint_mask(img_bgr, boxes=None, *, lo=(0, 0, 165), hi=(180, 70, 255)):
     """White field paint with player pixels removed.
 
@@ -493,7 +533,10 @@ def solve_frames(frame_iter, initial, centre, world_xs, *, cx, cy,
         # is well conditioned; registering everything onto a single distant
         # reference is exactly what drifts once the camera has panned away from
         # it (measured 26-55 px by the ends of play_001).
-        dets = detect_frame_lines(paint_mask(bgr, boxes))
+        dets = detect_frame_lines(paint_mask(bgr, boxes),
+                                  expect_normal=_expected_normal(
+                                      initial.get(idx), centre, world_xs,
+                                      cx=cx, cy=cy))
         if len(dets) >= min_lines:
             dets_by_frame[idx] = dets
 
@@ -530,6 +573,12 @@ def solve_frames(frame_iter, initial, centre, world_xs, *, cx, cy,
             stages["detection"] += 1
             continue
         pairs = associate(focal, rot, centre, world_xs, dets, cx=cx, cy=cy)
+        if len(pairs) < 3:
+            # Too few confident matches to refine OR to check against. Counted
+            # separately from "unverified": nothing was measured here, whereas
+            # an unverified frame was measured and failed.
+            stages["association"] += 1
+            continue
         best = None
         # Try the bundled camera AND its per-frame refinement, keeping whichever
         # verifies with the smaller offset. The bundle optimises the network;
@@ -537,13 +586,10 @@ def solve_frames(frame_iter, initial, centre, world_xs, *, cx, cy,
         # is also the one that can slip onto a neighbouring line, so it has to
         # earn its place rather than being trusted by default.
         candidates = [(focal, rot)]
-        if len(pairs) >= 3:
-            got = refine_frame(focal, rot, centre, pairs, cx=cx, cy=cy,
-                               max_shift_px=max_shift_px, anchor=(focal, rot))
-            if got is not None:
-                candidates.append(got)
-        else:
-            stages["association"] += 1
+        got = refine_frame(focal, rot, centre, pairs, cx=cx, cy=cy,
+                           max_shift_px=max_shift_px, anchor=(focal, rot))
+        if got is not None:
+            candidates.append(got)
         for cam in candidates:
             offset, _control, ok = verify_frame(cam[0], cam[1], centre, dets,
                                                 world_xs, cx=cx, cy=cy)

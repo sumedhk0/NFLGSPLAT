@@ -794,6 +794,8 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     # those endpoints sit at |Y| ~ 4-10 m. Since yard lines are mutually
     # parallel, they leave 3 DOF of the homography unobservable and the
     # endpoints were the only thing supplying them -- wrongly.
+    _LOG.info("endzone mosaic: labelled %d yard line(s) at world X = %s m",
+              len(xs), [round(float(x), 3) for x in xs])
     hash_rows = detect_hash_columns(votes, lines)
     to_x = yard_x_mapper(lines, ladder_idx, xs)
 
@@ -942,11 +944,21 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     H_prop = H_by
     if prop_stride != stride:
         ref_img = frames[ref]
+        # The grid keeps phase 0 -- downstream consumers sample the splat's
+        # frames at multiples of a stride, and re-phasing the grid onto the
+        # reference (648, i.e. 3 mod 5) shares NO frame with them at all. The
+        # reference is added as an extra node instead: it is the one frame whose
+        # camera was solved directly against the field, so leaving it off the
+        # grid meant it was never propagated, never refined and never verified.
+        # iter_frames decodes every frame whatever the stride, so this is free.
+        wanted_prop = set(range(0, meta.num_frames, prop_stride)) | {ref}
+
         def _stream():
-            for idx, rgb in iter_frames(endzone_video, stride=prop_stride):
-                yield idx, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            for idx, rgb in iter_frames(endzone_video, stride=1):
+                if idx in wanted_prop:
+                    yield idx, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
         dense_boxes = {}
-        for idx in range(0, meta.num_frames, prop_stride):
+        for idx in sorted(wanted_prop):
             g = ez_boxes[ez_boxes["frame"] == idx]
             dense_boxes[idx] = list(zip(g["bbox_x1"], g["bbox_y1"],
                                         g["bbox_x2"], g["bbox_y2"]))
@@ -976,13 +988,14 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     if refine_stride is not None:
         cams[endzone_cam] = _refine_endzone_track(
             cams[endzone_cam], endzone_video=endzone_video,
-            ref_cam=ref_cam, ez_boxes=ez_boxes, num_frames=meta.num_frames,
-            refine_stride=int(refine_stride), xs=xs)
+            ref_cam=ref_cam, ref_frame=ref, ez_boxes=ez_boxes,
+            num_frames=meta.num_frames, refine_stride=int(refine_stride),
+            xs=xs)
     return write_camera_track(Path(cameras_npz), cams, fps=fps)
 
 
-def _refine_endzone_track(track, *, endzone_video, ref_cam, ez_boxes,
-                          num_frames, refine_stride, xs):
+def _refine_endzone_track(track, *, endzone_video, ref_cam, ref_frame,
+                          ez_boxes, num_frames, refine_stride, xs):
     """Bundle-adjust the propagated endzone track and keep only verified frames.
 
     Propagation carries every frame's camera through ONE homography onto the
@@ -1010,11 +1023,17 @@ def _refine_endzone_track(track, *, endzone_video, ref_cam, ez_boxes,
 
     centre = -ref_cam.pose.R.T @ ref_cam.pose.t
     cx, cy = ref_cam.intrinsics.cx, ref_cam.intrinsics.cy
+    # Grid phase 0 (so it meets whatever stride the splat samples at), plus the
+    # reference frame as an extra node: it is not generally a multiple of the
+    # stride, and it is the only frame with a camera solved directly against the
+    # field rather than propagated onto it.
     initial = {}
     for idx in range(0, num_frames, refine_stride):
         if track.conf[idx] > 0:
             intr, pose = track.at(idx)
             initial[idx] = (float(intr.fx), pose.R)
+    # Seed the reference with the camera SOLVED for it, not a propagated copy.
+    initial[ref_frame] = (float(ref_cam.intrinsics.fx), ref_cam.pose.R)
     if not initial:
         raise CalibrationError(
             "endzone refine: propagation produced no valid camera at stride "
@@ -1022,14 +1041,17 @@ def _refine_endzone_track(track, *, endzone_video, ref_cam, ez_boxes,
             "check the propagation warnings above.")
 
     boxes = {}
-    for idx in range(0, num_frames, refine_stride):
+    for idx in sorted(initial):
         g = ez_boxes[ez_boxes["frame"] == idx]
         boxes[idx] = list(zip(g["bbox_x1"], g["bbox_y1"],
                               g["bbox_x2"], g["bbox_y2"]))
 
+    wanted = set(initial)
+
     def _stream():
-        for idx, rgb in iter_frames(endzone_video, stride=refine_stride):
-            yield idx, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+        for idx, rgb in iter_frames(endzone_video, stride=1):
+            if idx in wanted:
+                yield idx, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
     cameras, report = er.solve_frames(
         _stream(), initial, centre, [float(x) for x in xs], cx=cx, cy=cy,

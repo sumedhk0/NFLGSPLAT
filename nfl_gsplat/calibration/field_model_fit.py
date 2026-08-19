@@ -103,7 +103,8 @@ def _on_yard_grid(x: float, tol_m: float = 0.05) -> bool:
 
 
 def _largest_parallel_cluster(lines: list[YardLineSeg],
-                              align_tol: float = 0.9) -> list[YardLineSeg]:
+                              align_tol: float = 0.9,
+                              expect_normal=None) -> list[YardLineSeg]:
     """Partition merged lines into components of mutually near-parallel
     normals (|n_i . n_j| >= align_tol) and return only the largest.
 
@@ -116,7 +117,20 @@ def _largest_parallel_cluster(lines: list[YardLineSeg],
     reference normal (measured: gaps.min() collapses to ~0, which then makes
     the anchor-margin check reject a pixel-perfect anchor click). ``align_tol``
     is looser than the 0.985 used to merge raw Hough fragments into one line,
-    to tolerate the perspective fan of a real pencil of parallel field lines."""
+    to tolerate the perspective fan of a real pencil of parallel field lines.
+
+    With ``expect_normal`` the cluster ALIGNED with that normal is returned
+    instead of the biggest one. Size is a good proxy for "these are the yard
+    lines" in an accumulated mosaic, where the yard-line pencil dominates
+    everything else; it is a bad one in a SINGLE frame, where a tight zoom can
+    leave more fragments along the hash columns, the numbers, or a sideline
+    than along the two or three yard lines actually in view. Measured on
+    play_001 frame 648 -- the very frame the reference camera was solved on --
+    size returned eleven near-VERTICAL lines while the yard lines run
+    horizontally, so every association failed at ~470 px and the best camera in
+    the play could not verify itself. The caller knows where yard lines should
+    point, because it has a camera; that is strictly better evidence than
+    counting fragments."""
     n = len(lines)
     normals = [_line_normal(s) for s in lines]
     parent = list(range(n))
@@ -140,6 +154,22 @@ def _largest_parallel_cluster(lines: list[YardLineSeg],
     clusters: dict[int, list[int]] = {}
     for i in range(n):
         clusters.setdefault(find(i), []).append(i)
+    if expect_normal is not None:
+        want = np.asarray(expect_normal, float)
+        want = want / max(float(np.hypot(want[0], want[1])), 1e-12)
+
+        def _alignment(idxs):
+            """How parallel this cluster is to the expected direction."""
+            return max(abs(float(normals[i] @ want)) for i in idxs)
+
+        best = max(clusters.values(), key=lambda idxs: (_alignment(idxs),
+                                                        len(idxs)))
+        if _alignment(best) < align_tol:
+            raise CalibrationError(
+                "no detected line family points the way the camera says yard "
+                f"lines should ({len(clusters)} family/families, best "
+                f"alignment {_alignment(best):.3f} < {align_tol}).")
+        return [lines[i] for i in sorted(best)]
     sizes = sorted((len(idxs) for idxs in clusters.values()), reverse=True)
     if sizes[0] < 2:
         raise CalibrationError(
@@ -159,7 +189,8 @@ def _largest_parallel_cluster(lines: list[YardLineSeg],
 
 def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
                              min_len_frac: float = 0.25,
-                             merge_tol_px: float = 12.0) -> list[YardLineSeg]:
+                             merge_tol_px: float = 12.0,
+                             expect_normal=None) -> list[YardLineSeg]:
     """Yard lines from the accumulated votes image — ONE segment per line.
 
     HoughLinesP returns many collinear fragments per painted line (more so where
@@ -222,7 +253,8 @@ def detect_accumulated_lines(votes, *, vote_thresh: float = 0.5,
     # gap math runs (see _largest_parallel_cluster docstring): real footage
     # always shows both sidelines, which are not part of the yard-line
     # pencil the rest of this function (and label_yard_lines) assumes.
-    merged = _largest_parallel_cluster(merged)
+    merged = _largest_parallel_cluster(merged,
+                                       expect_normal=expect_normal)
     ref_n = _line_normal(merged[0])
     merged.sort(key=lambda s: _offset(s, ref_n))
     return merged
