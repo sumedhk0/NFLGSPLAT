@@ -154,3 +154,46 @@ def test_mock_field_ply_header_has_required_gs_fields(tmp_path: Path):
         "property float rot_0", "property float rot_1", "property float rot_2", "property float rot_3",
     ):
         assert prop in header, f"PLY header missing: {prop}"
+
+
+def test_extracted_filename_names_the_true_source_frame(tmp_path: Path):
+    """The stem must be the SOURCE frame index, because build_transforms parses
+    it and calls track.at() on it to pair a pose with the image.
+
+    Regression: extraction used ffmpeg's `-vf fps=` with `-start_number 0`,
+    which numbers the OUTPUT sequentially. Sampling a 30 fps clip at 2 fps then
+    wrote `..._000010.png` for source frame ~150 while the pose lookup used 10,
+    so every image in transforms.json carried a camera from a different moment.
+    Each frame here is a distinct solid grey, so the mapping is checkable by
+    pixel value alone.
+    """
+    import cv2
+    import numpy as np
+
+    from nfl_gsplat.field.extract_static_frames import (PreSnapRange,
+                                                        StaticFrameConfig,
+                                                        extract_static_frames)
+
+    vid = tmp_path / "cam.mp4"
+    n_frames, fps = 60, 30.0
+    vw = cv2.VideoWriter(str(vid), cv2.VideoWriter_fourcc(*"mp4v"), fps, (64, 64))
+    for i in range(n_frames):
+        vw.write(np.full((64, 64, 3), i * 4, np.uint8))   # frame i -> grey 4i
+    vw.release()
+
+    out = extract_static_frames(
+        {"cam": vid}, [PreSnapRange(start_sec=0.0, duration_sec=2.0)],
+        tmp_path, StaticFrameConfig(fps_sample=2.0, max_frames_per_cam=99))
+
+    paths = sorted(out["cam"])
+    assert paths, "no frames extracted"
+    for p in paths:
+        src = int(p.stem.split("_")[-1])
+        grey = int(round(float(cv2.imread(str(p)).mean())))
+        # the image really is the frame its NAME claims, not the Nth output
+        assert abs(grey - src * 4) <= 6, (
+            f"{p.name} claims source frame {src} (grey {src*4}) but holds grey {grey}"
+        )
+    assert max(int(p.stem.split("_")[-1]) for p in paths) > len(paths), (
+        "source indices must outrun the output count when subsampling"
+    )

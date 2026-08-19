@@ -15,14 +15,15 @@ windows are sampled from the same camera.
 """
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+import cv2
 from typing import Iterable, Mapping
 
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.utils.logging import get_logger
-from nfl_gsplat.utils.video import ffprobe_meta
+from nfl_gsplat.utils.video import ffprobe_meta, iter_frames
 
 _LOG = get_logger(__name__)
 
@@ -47,22 +48,42 @@ def _extract_range(
     fps_sample: float,
     name_prefix: str,
 ) -> list[Path]:
-    """Run ffmpeg to extract frames in ``[start_sec, start_sec+duration_sec]``
-    at ``fps_sample`` fps. Writes ``{out_dir}/{name_prefix}_{i:06d}.png``."""
+    """Extract frames in ``[start_sec, start_sec+duration_sec]`` at
+    ``fps_sample`` fps, named by their TRUE SOURCE FRAME INDEX as
+    ``{out_dir}/{name_prefix}_{source_frame:06d}.png``.
+
+    The name carries the source index because build_transforms pairs each image
+    with a camera pose by parsing that number and calling ``track.at()`` on it.
+    This used to shell out to ffmpeg with ``-vf fps=`` and ``-start_number 0``,
+    which numbers the OUTPUT sequentially: on a 59.94 fps clip sampled at 2 fps,
+    ``..._000010.png`` is source frame ~314, but the pose lookup used 10.
+    Every image in transforms.json was therefore paired with a camera from a
+    completely different moment of the play (verified: that file matches source
+    frame 314 with mean abs difference 0.00, and frame 10 with 22.29).
+
+    Decoding here rather than in ffmpeg also sidesteps ``-ss`` fast seek, whose
+    keyframe rounding is what made the true index 314 instead of the nominal
+    300 -- there is no arithmetic that recovers it, so the index has to come
+    from the decoder that actually produced the frame."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    pattern = str(out_dir / f"{name_prefix}_%06d.png")
-    # ``-ss`` before ``-i`` is fast seek (keyframe-accurate-enough for 2 fps sampling).
-    cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-ss", f"{start_sec}",
-        "-i", str(video),
-        "-t", f"{duration_sec}",
-        "-vf", f"fps={fps_sample}",
-        "-start_number", "0",
-        pattern,
-    ]
-    subprocess.check_call(cmd)
-    return sorted(out_dir.glob(f"{name_prefix}_*.png"))
+    meta = ffprobe_meta(video)
+    step = max(1, int(round(meta.fps / float(fps_sample))))
+    first = int(round(start_sec * meta.fps))
+    last = min(meta.num_frames - 1,
+               int(round((start_sec + duration_sec) * meta.fps)))
+
+    written: list[Path] = []
+    for idx, rgb in iter_frames(video, stride=1):
+        if idx < first:
+            continue
+        if idx > last:
+            break
+        if (idx - first) % step:
+            continue
+        path = out_dir / f"{name_prefix}_{idx:06d}.png"
+        cv2.imwrite(str(path), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+        written.append(path)
+    return sorted(written)
 
 
 def extract_static_frames(
