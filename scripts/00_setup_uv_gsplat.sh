@@ -31,6 +31,24 @@ if [[ ! -f "$LOCK" ]]; then
     exit 2
 fi
 
+# Keep uv's cache OFF $HOME. It defaults to ~/.cache/uv, and on PACE home is
+# quota-capped -- the first run died there with
+#   failed to create directory .../awscli/botocore/data/...: Disk quota exceeded
+# after resolving fine. That is the same root cause as the conda failure this
+# script exists to avoid (conda's package cache also defaults into $HOME), so
+# fixing it in one place and not the other would have been pointless.
+#
+# awscli alone unpacks thousands of tiny botocore data files, so this is an
+# INODE problem as much as a byte problem; a home directory can be well under
+# its size quota and still fail.
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$(dirname "$VENV")/.uv-cache}"
+mkdir -p "$UV_CACHE_DIR" 2>/dev/null || {
+    echo "cannot create UV_CACHE_DIR=$UV_CACHE_DIR" >&2
+    echo "set it somewhere writable with room, e.g. ~/scratch/uv-cache" >&2
+    exit 2
+}
+echo "uv cache: $UV_CACHE_DIR"
+
 # uv installs to ~/.local/bin and needs no root, which is what makes this
 # usable on a cluster login node.
 if ! command -v uv >/dev/null 2>&1; then
@@ -72,6 +90,7 @@ done
 echo "  ns-train/ns-export present"
 echo
 echo "use it with:  export NFL_GSPLAT_PREFIX=$VENV"
+echo "              export UV_CACHE_DIR=$UV_CACHE_DIR"
 echo
 echo "NOTE: gsplat JIT-compiles its CUDA kernels on first use, so the JOB needs"
 echo "nvcc on PATH (module load cuda/12.1.1 or similar). No wheel ships nvcc,"

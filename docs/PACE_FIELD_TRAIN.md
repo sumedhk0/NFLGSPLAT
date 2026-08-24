@@ -69,6 +69,27 @@ CPython 3.10, and installs the locked stack from
 `envs/requirements-gsplat-linux-py310.txt`. It prints its own verification —
 torch/gsplat/nerfstudio versions and that `ns-train`/`ns-export` exist.
 
+**Home quota is the thing that bites here, on either path.** uv's cache defaults
+to `~/.cache/uv` and PACE home is quota-capped, so the first attempt resolved in
+5 s and then died:
+
+```
+failed to create directory `~/.cache/uv/.tmpXXXX/awscli/botocore/data/...`:
+Disk quota exceeded (os error 122)
+```
+
+The script now puts the cache next to the venv (`.uv-cache`, i.e. on scratch)
+and prints where. If home is already full from that partial attempt, reclaim it:
+
+```bash
+rm -rf ~/.cache/uv          # partial cache from a failed run
+pace-quota                  # confirm home has room AND inodes
+```
+
+`awscli` — a direct nerfstudio dependency, not optional — unpacks thousands of
+tiny `botocore` data files, so this is an **inode** problem as much as a byte
+one. Home can sit well under its size quota and still fail.
+
 Why this is the recommended path: the conda route below took 30-60 minutes and
 **failed twice** in package extraction (`CondaVerificationError: libabseil ...
 appears to be corrupted` — a full or inode-capped filesystem, not a bad
