@@ -52,11 +52,33 @@ mkdir -p logs                     # REQUIRED: Slurm opens --output BEFORE the
 
 ---
 
-## 3. PACE — build the conda env (first time only, ~30-60 min)
+## 3. PACE — build the environment (first time only)
 
-This previously failed twice with `CondaVerificationError: ... libabseil ...
-appears to be corrupted`. That is a **full or inode-capped filesystem**, not a
-bad package. Put conda's package cache and envs on scratch first:
+Two ways. **Use uv** unless you have a reason not to.
+
+### uv (recommended, ~1-2 min)
+
+```bash
+cd ~/scratch/NFLGSPLAT
+bash scripts/00_setup_uv_gsplat.sh
+export NFL_GSPLAT_PREFIX=~/scratch/NFLGSPLAT/.venv-gsplat
+```
+
+Installs uv to `~/.local/bin` if absent (no root needed), fetches a standalone
+CPython 3.10, and installs the locked stack from
+`envs/requirements-gsplat-linux-py310.txt`. It prints its own verification —
+torch/gsplat/nerfstudio versions and that `ns-train`/`ns-export` exist.
+
+Why this is the recommended path: the conda route below took 30-60 minutes and
+**failed twice** in package extraction (`CondaVerificationError: libabseil ...
+appears to be corrupted` — a full or inode-capped filesystem, not a bad
+package). uv resolves the identical pin set in ~23 s and installs **only
+wheels**; nothing in the lock needs a compiler at install time, so it cannot
+fail that way. The venv is also one directory, cheap to `rm -rf` and rebuild.
+
+Put the `export` in `~/.bashrc` so later sessions and the job agree.
+
+### conda (original path, still supported)
 
 ```bash
 pace-quota                        # check home is not full, and inodes
@@ -69,19 +91,36 @@ conda clean -a -y                 # drop any half-extracted packages
 bash scripts/00_setup_environments.sh --only nfl_gsplat
 ```
 
-Put the two `export` lines in `~/.bashrc` so later sessions agree with this one.
+Putting the package cache and envs on scratch is what avoids the extraction
+failure. Keep both `export` lines in `~/.bashrc`.
 
-Verify before burning GPU time:
+Verify either env before burning GPU time:
 
 ```bash
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate ~/scratch/conda/envs/nfl_gsplat
-python -c "import torch, gsplat, nerfstudio; print(torch.__version__, torch.cuda.is_available())"
-command -v ns-train ns-export
+"${NFL_GSPLAT_PREFIX:-~/scratch/conda/envs/nfl_gsplat}/bin/python" \
+    -c "import torch, gsplat, nerfstudio; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-`torch.cuda.is_available()` prints `False` on a login node — that is expected
-and fine. `ns-train` and `ns-export` must both resolve.
+`torch.cuda.is_available()` prints `False` on a login node — expected, the login
+node has no GPU. What matters is that the imports succeed.
+
+### nvcc
+
+gsplat **JIT-compiles its CUDA kernels on first use**, so the job needs `nvcc`
+on PATH, not just a CUDA runtime. No Python wheel ships nvcc, and neither did
+conda's `pytorch-cuda`, so it comes from the module system on either path. The
+sbatch loads `cuda/12.1.1` by default and warns if that fails:
+
+```bash
+module avail cuda                        # if 12.1.1 is not there
+export NFL_CUDA_MODULE=cuda/<version>    # then pass the right one
+```
+
+Match the CUDA major version to torch's (12.x here).
+
+The other three envs (`nfl_smplx`, `nfl_lhm`, `nfl_avatar`) stay on conda —
+`nfl_smplx` needs chumpy built with `--no-build-isolation` and a PaddleOCR stack
+conda already resolves. None of them are needed for field training.
 
 ---
 
@@ -109,7 +148,8 @@ cd ~/scratch/NFLGSPLAT
 sbatch scripts/slurm/field_train_only.sbatch data/2025/week_04/SEA_at_AZ/play_001
 ```
 
-The job checks, in order: `transforms.json` exists, the conda env resolves,
+The job checks, in order: `transforms.json` exists, a CUDA module is loaded and
+`nvcc` resolves, an environment resolves (uv venv or conda, whichever you built),
 `ns-train`/`ns-export` are on PATH, and **every image the poses reference is
 actually present** — all before requesting real work. Add `-A <account>` to
 override the default `paceship-pso`.
@@ -122,12 +162,14 @@ tail -f logs/nfl-field-train-<jobid>.out       # live
 Early in the log you want:
 
 ```
-env: /storage/.../scratch/conda/envs/nfl_gsplat
+env: /storage/.../NFLGSPLAT/.venv-gsplat (uv venv)
 torch 2.3.1 cuda True
 transforms.json: 120 poses, all images present
 ```
 
-`cuda True` here is on the compute node, and matters.
+`cuda True` here is on the compute node, and matters — it is `False` on the
+login node by design. Any `WARNING: nvcc not on PATH` line means gsplat will
+fail once it reaches the rasterizer; fix the module before letting it run.
 
 ---
 
