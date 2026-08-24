@@ -77,10 +77,17 @@ uv pip install --python "$VENV" \
 echo
 echo "installed. verifying:"
 "$VENV/bin/python" - <<'PY'
-import torch, gsplat, nerfstudio
-print("  torch      ", torch.__version__)
-print("  gsplat     ", gsplat.__version__)
-print("  nerfstudio ", nerfstudio.__version__)
+# Import first -- that is the check that matters; then read versions from
+# package METADATA. nerfstudio exposes no __version__ attribute, and asking for
+# one failed the whole script after a completely successful install.
+from importlib.metadata import version
+
+import gsplat  # noqa: F401
+import nerfstudio  # noqa: F401
+import torch
+
+for pkg in ("torch", "gsplat", "nerfstudio"):
+    print(f"  {pkg:11s}{version(pkg)}")
 print("  cuda avail ", torch.cuda.is_available(), "(False on a login node is expected)")
 PY
 
