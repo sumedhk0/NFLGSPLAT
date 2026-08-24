@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=nfl-field-train
 #SBATCH --account=paceship-pso
-#SBATCH --partition=gpu-h100
-#SBATCH --gres=gpu:h100:1
+#SBATCH --partition=gpu-rtx6000,gpu-v100,gpu-a100,gpu-h100,gpu-h200
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=02:00:00
@@ -27,7 +27,24 @@
 # nothing in this job re-derives a pose. play_001 is ~257 MB of frames plus a
 # 92 KB transforms.json, against ~2 GB for the full play directory.
 #
+# GPU: any of several partitions, whichever frees first. This job is small by
+# splat standards -- 30k splatfacto iterations over 120 images at 1920x1080 --
+# and VRAM scales with gaussian count, not GPU class, so a 24 GB RTX 6000 has
+# ample headroom. Pinning gpu-h100 put it behind the scarcest queue on the
+# cluster (4 H100 nodes, one of them drained) for no benefit, which matters on
+# embers where you are backfilling anyway. gpu-rtx6000 (30 nodes) and gpu-v100
+# (40) are the deep pools.
+#
+# DELIBERATELY EXCLUDED:
+#   gpu-rtxpro-blackwell -- RTX PRO 6000 Blackwell is sm_120, and torch
+#     2.3.1+cu121 only builds sm_50..sm_90. Landing there fails with "no kernel
+#     image available for execution on the device", and gsplat's JIT would try
+#     to compile sm_120 with a CUDA 12.1 nvcc that does not know it. Adding this
+#     partition requires a newer torch/CUDA first.
+#   gpu-l40s -- drained/draining at time of writing; sm_89 is fine otherwise.
+#
 # --account defaults to paceship-pso; override per-submission with `sbatch -A`.
+# Override the GPU choice per-submission with `sbatch -p <parts> --gres=gpu:1`.
 #
 # Submit with:
 #   sbatch scripts/slurm/field_train_only.sbatch data/2025/week_04/SEA_at_AZ/play_001
