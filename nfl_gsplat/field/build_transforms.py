@@ -59,6 +59,8 @@ def build_transforms_json(
     camera_model: str = "OPENCV",
     root_dir: "Path | str | None" = None,
     min_conf: float | None = 1e-9,
+    seed_ply_name: str | None = 'field_seed.ply',
+    seed_spacing_m: float = 0.25,
 ) -> Path:
     """Write a nerfstudio-style ``transforms.json``.
 
@@ -101,6 +103,18 @@ def build_transforms_json(
         "k1": 0.0, "k2": 0.0, "p1": 0.0, "p2": 0.0,
         "frames": [],
     }
+
+    # Seed point cloud. splatfacto has no COLMAP output to initialise from --
+    # both feeds are tripods, so there are only two camera centres in the whole
+    # play and SfM has no parallax to work with -- and its random fallback seeds
+    # a +-10 unit cube at the origin, which in a metric field scene is a small
+    # box floating near midfield while the cameras sit 100+ m out. Measured on
+    # play_001 that culled 38148 of 50000 gaussians at the first densification
+    # step and finished 30k iterations with 11580 gaussians and no field.
+    if seed_ply_name:
+        from nfl_gsplat.field.seed_points import write_seed_ply
+        write_seed_ply(out_path.parent / seed_ply_name, seed_spacing_m)
+        out["ply_file_path"] = seed_ply_name
 
     dropped: dict[str, list[int]] = {}
     for cam_name, frame_list in frames_by_cam.items():
