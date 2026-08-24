@@ -1,0 +1,33 @@
+# Line endings.
+#
+# This repo is authored on Windows and RUN on Linux (PACE). A shell script or
+# Slurm batch file that reaches the cluster with CRLF fails in a way that reads
+# as nonsense -- `$'\r': command not found`, or `bad interpreter: /bin/bash^M`
+# -- and the job dies before doing anything.
+#
+# Nothing is currently broken: every script is stored LF in the repository, and
+# core.autocrlf=true is already normalising on commit. This file makes that
+# guarantee explicit rather than dependent on each clone's config, and pins the
+# WORKING copy of shell scripts to LF (eol=lf) so an editor cannot put CRs back.
+#
+# Note when checking this yourself: piping `git cat-file` through Git Bash can
+# introduce CRLF into the pipe, so `git cat-file blob X | grep -c $'\r'` reports
+# CRLF for files that are pure LF in the object store. Read the bytes with
+# something that does not decode -- e.g. Python's read_bytes()/subprocess with
+# capture_output -- before concluding anything.
+
+* text=auto
+
+*.sh      text eol=lf
+*.sbatch  text eol=lf
+*.bash    text eol=lf
+
+# Binary assets git should never line-ending-convert or try to diff.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.mp4     binary
+*.npz     binary
+*.ply     binary
+*.parquet binary
+*.pkl     binary
