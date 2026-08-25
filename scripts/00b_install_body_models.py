@@ -49,6 +49,35 @@ _SMPL_WANTED = {
 _REQUIRED_ARRAYS = ("v_template", "shapedirs", "J_regressor")
 
 
+
+class _Stub:
+    """Stands in for a class the reader does not have installed."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __setstate__(self, state):
+        pass
+
+
+class _StubUnpickler(pickle.Unpickler):
+    """Read a pickle without importing the classes it references.
+
+    The SMPL .pkl files are built on chumpy, an unmaintained package that does
+    not install on current Pythons. Requiring it just to CHECK a download would
+    trade one gated obstacle for another, and installing an old package to
+    execute its constructors on a freshly downloaded file is the wrong trade.
+    Stubbing every unresolvable class lets the container structure -- which is
+    all this check needs -- be read safely.
+    """
+
+    def find_class(self, module, name):
+        try:
+            return super().find_class(module, name)
+        except (ImportError, AttributeError):
+            return _Stub
+
+
 def _members(zf: zipfile.ZipFile):
     return [m for m in zf.namelist() if not m.endswith("/")]
 
@@ -76,7 +105,7 @@ def validate(path: Path) -> str:
             keys = set(handle.files)
     else:
         with open(path, "rb") as handle:
-            obj = pickle.load(handle, encoding="latin1")
+            obj = _StubUnpickler(handle, encoding="latin1").load()
         keys = set(obj.keys()) if isinstance(obj, dict) else set(dir(obj))
 
     missing = [k for k in _REQUIRED_ARRAYS if k not in keys]

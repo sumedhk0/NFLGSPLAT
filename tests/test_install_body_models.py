@@ -95,3 +95,36 @@ def test_non_zip_input_is_skipped_not_fatal(tmp_path):
     notes, done = mod.install([junk], tmp_path / "body_models")
     assert done == {}
     assert any("skip" in n for n in notes)
+
+
+def test_validate_reads_a_pickle_referencing_a_missing_module(tmp_path):
+    """SMPL's .pkl files are built on chumpy, which does not install on current
+    Pythons. Requiring it just to CHECK a download would trade one gated
+    obstacle for another, so unresolvable classes are stubbed instead.
+    """
+    import sys
+    import types
+
+    # Pickle against a module, then remove it, so loading genuinely cannot
+    # resolve the class -- exactly the chumpy situation.
+    fake = types.ModuleType("fake_chumpy")
+
+    class Ch:
+        pass
+
+    Ch.__module__ = "fake_chumpy"
+    Ch.__qualname__ = "Ch"        # pickle refuses to pin a <locals> class
+    fake.Ch = Ch
+    sys.modules["fake_chumpy"] = fake
+    try:
+        payload = pickle.dumps({"v_template": Ch(), "shapedirs": Ch(),
+                                "J_regressor": Ch()})
+    finally:
+        del sys.modules["fake_chumpy"]
+
+    path = tmp_path / "SMPL_NEUTRAL.pkl"
+    path.write_bytes(payload)
+
+    with pytest.raises(ModuleNotFoundError):
+        pickle.loads(payload)          # the failure this works around
+    assert "ok" in mod.validate(path)  # ... and the workaround
