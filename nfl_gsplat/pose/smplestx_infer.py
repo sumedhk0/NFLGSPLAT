@@ -12,6 +12,18 @@ Output cache schema (one NPZ per ``(cam, frame, global_player_id)``)::
     transl          [3]
     joints3d_cam    [J, 3]        SMPL-X all-joints in camera coords
     joints2d        [J, 2]        pixel coords in the *original frame*
+                                  ** BROKEN as of 2026-08-26 -- DO NOT USE. **
+                                  Overlaying these on play_001 frame 570 puts
+                                  almost every joint far off its player, with
+                                  only a scattered handful landing anywhere
+                                  near a detection box. The patch->crop->frame
+                                  mapping below is wrong somewhere. joints3d_cam
+                                  is unaffected and IS trustworthy: reprojected
+                                  through the calibrated camera it fills 81% of
+                                  its detection box with a 0.16 box-height
+                                  centre offset.
+                                  Anything comparing against joints2d is
+                                  measuring the bug, not the thing under test.
     confidence      [J]           see note below
 
 Only the first 22 joints are used by triangulation; the rest (hands/face)
