@@ -151,13 +151,28 @@ def _load_smplestx_model(cfg: SMPLestXConfig):
         ) from e
 
     log_dir = Path(tempfile.mkdtemp(prefix="smplestx_log_"))
+    # Resolve OUTSIDE the chdir. config_path is relative to the project root and
+    # SMPLest-X opens it relative to CWD, so resolving once inside the context
+    # would just re-anchor it on the repo and yield
+    # third_party/SMPLest-X/third_party/SMPLest-X/... -- a path that looks almost
+    # right in the traceback. Path.resolve() is cwd-dependent; that is the trap.
+    config_abs = str(cfg.config_path.resolve())
+    weights_abs = str(cfg.weights_path.resolve())
     with _chdir(repo):
-        smplestx_cfg = Config.load_config(str(cfg.config_path))
+        smplestx_cfg = Config.load_config(config_abs)
         smplestx_cfg.update_config({
-            "model": {"pretrained_model_path": str(cfg.weights_path.resolve())},
+            "model": {"pretrained_model_path": weights_abs},
             "log": {"exp_name": "nfl_infer", "log_dir": str(log_dir)},
         })
         smplestx_cfg.prepare_log()
+        # Prime the SMPLX singleton before the model is built. SMPLest-X's own
+        # entry points (main/inference.py, test.py, train.py) all do this first;
+        # models/module.py then calls a bare SMPLX() and relies on the instance
+        # already existing. Skipping it fails deep inside graph construction
+        # with "SMPLX requires human model path", which reads like a missing
+        # file rather than an initialisation-order problem.
+        from human_models.human_models import SMPLX as _SMPLXSingleton
+        _SMPLXSingleton(smplestx_cfg.model.human_model_path)
         tester = Tester(smplestx_cfg)
         tester._make_model()      # builds DataParallel model, loads ckpt, .eval()
 

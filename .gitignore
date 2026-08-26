@@ -98,3 +98,5 @@ data/
 # agent tooling scratch
 .claude/
 .claude-flow/
+.venv-smplx/
+third_party/
