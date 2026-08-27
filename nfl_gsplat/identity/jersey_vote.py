@@ -46,6 +46,22 @@ MIN_MARGIN: float = 1.5      # winner must beat the runner-up by this factor
 # for.
 CROSS_TEAM_PENALTY: float = 5.0
 
+# Formation position -> the coarse group a roster lists. The roster says "OL",
+# alignment says "left guard"; they have to meet somewhere.
+POSITION_GROUP = {
+    "C": "OL", "G": "OL", "T": "OL", "OL": "OL",
+    "QB": "QB", "RB": "RB", "FB": "RB", "TE": "TE", "WR": "WR",
+    "DE": "DL", "DT": "DL", "NT": "DL", "DL": "DL",
+    "ILB": "LB", "OLB": "LB", "MLB": "LB", "LB": "LB",
+    "CB": "DB", "FS": "DB", "SS": "DB", "S": "DB", "DB": "DB",
+}
+
+# Weight of an alignment agreement, in votes. Deliberately larger than
+# CROSS_TEAM_PENALTY: where a jersey read is a tenth-of-the-time guess at a
+# number, alignment is a geometric fact about where a body stood, and on
+# play_001 it labelled every one of the 22 while OCR reached 9.
+POSITION_BONUS: float = 6.0
+
 
 @dataclass(frozen=True)
 class TrackIdentity:
@@ -89,8 +105,9 @@ def row_team(on_field, jersey):
 
 def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
            min_margin: float = MIN_MARGIN,
-           team_of_track=None,
-           cross_team_penalty: float = CROSS_TEAM_PENALTY) -> list[TrackIdentity]:
+           team_of_track=None, position_of_track=None,
+           cross_team_penalty: float = CROSS_TEAM_PENALTY,
+           position_bonus: float = POSITION_BONUS) -> list[TrackIdentity]:
     """One-to-one assignment of tracks to players, by vote weight.
 
     ``on_field`` is the frame returned by
@@ -99,6 +116,15 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
     ``team_of_track`` optionally maps track -> team. Cross-team pairings are
     PENALISED by ``cross_team_penalty`` votes, not forbidden -- see that
     constant for the measurement that settled it.
+
+    ``position_of_track`` optionally maps track -> a formation position ("C",
+    "CB", ...). Agreeing with the player's roster position is rewarded by
+    ``position_bonus``. This is the stronger of the two signals: alignment is a
+    geometric fact about where a body stood and covers every player on the
+    field, whereas a jersey read is a low-probability guess that covered 9 of
+    22. It is still a bonus rather than a veto -- a back can motion out and a
+    lineman can report eligible, and a hard rule would turn those into losses
+    the way the team veto did.
     """
     from scipy.optimize import linear_sum_assignment
 
@@ -117,10 +143,14 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
     # Measured: it handed a track that read #70 eighteen times the jersey #0
     # on two votes, to spare another track from going unmatched.
     teams = [str(t) for t in on_field["team"]]
+    groups = [POSITION_GROUP.get(str(p).upper(), str(p).upper())
+              for p in on_field["position"]]
     cost = np.zeros((len(tracks), len(jerseys)))
     blocked = 0
     for i, track_id in enumerate(tracks):
         track_team = None if team_of_track is None else team_of_track.get(track_id)
+        track_pos = (None if position_of_track is None
+                     else position_of_track.get(track_id))
         for j, jersey in enumerate(jerseys):
             count = votes[track_id].get(jersey, 0)
             penalty = (cross_team_penalty
@@ -128,7 +158,12 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
                        else 0.0)
             if penalty:
                 blocked += 1
-            cost[i, j] = -float(count) + penalty
+            bonus = 0.0
+            if track_pos is not None:
+                want = POSITION_GROUP.get(str(track_pos).upper())
+                if want is not None and groups[j] == want:
+                    bonus = position_bonus
+            cost[i, j] = -float(count) + penalty - bonus
     if blocked:
         _LOG.info("team colour penalised %d of %d track/player pairings",
                   blocked, len(tracks) * len(jerseys))
@@ -139,6 +174,28 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
         track_id, jersey = tracks[i], jerseys[j]
         counter = votes[track_id]
         got = counter.get(jersey, 0)
+
+        # Alignment alone is DECISIVE when only one player on the field plays
+        # that spot. Arizona fields one quarterback, one back and one tight end,
+        # so a track the formation calls "QB" can only be Kyler Murray -- no
+        # jersey read required, and demanding one would discard the strongest
+        # evidence available. Where several players share a group (five linemen,
+        # five defensive backs) alignment narrows but cannot decide, and the
+        # vote thresholds still apply.
+        sole_candidate = False
+        if track_pos is not None:
+            want = POSITION_GROUP.get(str(track_pos).upper())
+            if want is not None and groups[j] == want:
+                sole_candidate = sum(1 for g in groups if g == want) == 1
+        if sole_candidate:
+            out.append(TrackIdentity(
+                track_id=int(track_id), jersey=int(jersey),
+                player=str(on_field.iloc[j]["full_name"]),
+                team=str(on_field.iloc[j]["team"]),
+                height_m=float(on_field.iloc[j]["height_m"]),
+                votes=int(got), margin=float("inf")))
+            continue
+
         if got < min_votes:
             continue
         # The runner-up competes on the same terms the solver used: a read for
