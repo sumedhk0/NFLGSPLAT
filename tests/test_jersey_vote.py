@@ -73,3 +73,28 @@ def test_more_tracks_than_players_does_not_crash():
     got = assign(votes, _on_field())
     assert len(got) <= 3
     assert len({t.jersey for t in got}) == len(got)
+
+
+def test_team_constraint_forbids_cross_team_matches():
+    """A track wearing Arizona white is not a Seattle player, whatever the OCR
+    read. Forbidden outright rather than penalised: letting the solver trade it
+    away for a better total is exactly the confident-wrong answer to avoid."""
+    votes = {5: collections.Counter({21: 9})}          # 21 is SEA
+    got = assign(votes, _on_field(), team_of_track={5: "ARI"})
+    assert got == [], "a Seattle player was assigned to an Arizona track"
+
+
+def test_team_constraint_breaks_a_tie_votes_cannot():
+    """18 (ARI) vs 21 (SEA) tied on votes; colour decides."""
+    votes = {5: collections.Counter({18: 4, 21: 4})}
+    assert assign(votes, _on_field()) == [], "tie should be refused without team"
+    got = assign(votes, _on_field(), team_of_track={5: "ARI"})
+    assert len(got) == 1 and got[0].jersey == 18
+
+
+def test_unknown_team_for_a_track_is_not_constrained():
+    """Colour clustering does not always label every track; those must still be
+    assignable rather than silently dropped."""
+    votes = {5: collections.Counter({18: 6})}
+    got = assign(votes, _on_field(), team_of_track={})
+    assert len(got) == 1 and got[0].jersey == 18
