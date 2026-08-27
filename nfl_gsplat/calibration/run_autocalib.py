@@ -629,6 +629,7 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
                          refine_stride: int | None = None,
                          vote_thresh: float = 0.5, min_len_frac: float = 0.25,
                          merge_tol_px: float = 12.0,
+                         reference_camera=None,
                          diag_dir: str | None = None):
     """Calibrate the endzone camera from an accumulated static-paint mosaic.
 
@@ -643,6 +644,18 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     re-solved jointly against consecutive-frame homographies plus field anchors,
     and only those that VERIFY against paint they can see keep ``conf > 0``.
     It trades coverage for correctness and is what the splat should consume.
+
+    ``reference_camera`` skips solving the reference camera and uses the one
+    supplied. That solve is a ONCE-PER-GAME step (the tripod holds one centre
+    all half), and it is the most environment-sensitive stage in the pipeline:
+    it fits a 19,000 px focal from hash-mark centroids in accumulated paint, so
+    a 15 cm shift in the accumulation is 25 px at the reference and the solve
+    fails its own gates. Upgrading OpenCV 4 -> 5.0 moved it by exactly that
+    much, with no code change, and every downstream stage still worked. Reusing
+    a validated camera is therefore the normal path for re-running a play, not
+    a workaround -- and it is safe because everything after it is self-checking:
+    a frame that cannot be verified against paint it can see keeps ``conf = 0``,
+    so a bad camera costs coverage rather than correctness.
 
     ``vote_thresh``/``min_len_frac``/``merge_tol_px`` are
     :func:`~nfl_gsplat.calibration.field_model_fit.detect_accumulated_lines`
@@ -796,132 +809,142 @@ def build_endzone_mosaic(*, play_dir, tracks_path, cameras_npz, endzone_video,
     # endpoints were the only thing supplying them -- wrongly.
     _LOG.info("endzone mosaic: labelled %d yard line(s) at world X = %s m",
               len(xs), [round(float(x), 3) for x in xs])
-    hash_rows = detect_hash_columns(votes, lines)
-    to_x = yard_x_mapper(lines, ladder_idx, xs)
+    if reference_camera is not None:
+        # The supplied camera was solved and verified once; re-deriving it
+        # per run buys nothing and is the one stage that does not survive a
+        # toolchain change.
+        ref_cam = reference_camera
+        _LOG.info("endzone mosaic: reusing the supplied reference camera "
+                  "(f=%.0f, centre=%s) instead of re-solving it from hash "
+                  "marks", ref_cam.intrinsics.fx,
+                  (-ref_cam.pose.R.T @ ref_cam.pose.t).round(2))
+    else:
+        hash_rows = detect_hash_columns(votes, lines)
+        to_x = yard_x_mapper(lines, ladder_idx, xs)
 
-    def _world_uv(swap: bool):
-        """Correspondences from the hash marks plus yard-line intersections.
+        def _world_uv(swap: bool):
+            """Correspondences from the hash marks plus yard-line intersections.
 
-        Each hash mark is a POINT of known world position: its row fixes Y, and
-        its world X snaps to the 1-yard grid the marks are painted on. They also
-        sample the full visible depth every 0.9144 m, which is what separates
-        focal length from camera distance -- the seven yard lines alone leave
-        that pair nearly degenerate at this field of view.
+            Each hash mark is a POINT of known world position: its row fixes Y, and
+            its world X snaps to the 1-yard grid the marks are painted on. They also
+            sample the full visible depth every 0.9144 m, which is what separates
+            focal length from camera distance -- the seven yard lines alone leave
+            that pair nearly degenerate at this field of view.
 
-        Which row is +Y and which is -Y is not knowable here (it depends on the
-        broadcast mount), so both assignments are tried, exactly as the caller
-        already does for the fused-hash left/right ambiguity."""
-        ys = (HASH_OFFSET_M, -HASH_OFFSET_M) if swap else (-HASH_OFFSET_M, HASH_OFFSET_M)
-        w, u = [], []
-        for row, world_y in zip(hash_rows, ys):
-            pts = np.asarray(row.dashes, float).reshape(-1, 2)
-            # Project each centroid onto its own row line: a mark broken by the
-            # vote threshold leaves a centroid displaced along the mark, which
-            # is pure noise across the row.
-            homo = np.column_stack([pts, np.ones(len(pts))])
-            pts = pts - (homo @ row.line)[:, None] * row.line[:2][None, :]
-            # Snap each mark to the 1-yard grid it is painted on. Round about
-            # ZERO, not about the set's own phase: the yard-line labels are
-            # multiples of YARD_LINE_SPACING_M and so already sit on this grid,
-            # and rounding about a fitted phase silently slid the whole dash set
-            # one yard off them -- which fits the marks BETTER on their own
-            # (rms 1.68 px against 2.06) while reprojecting every yard line
-            # 99 px out. The ladder is tied to the operator's anchors and is the
-            # authority for absolute position; the marks must share its grid.
-            raw_x = to_x(pts)
-            gx = np.round(raw_x / HASH_MARK_PITCH_M) * HASH_MARK_PITCH_M
-            # Keep only marks whose YARD is unambiguous. Far down the field the
-            # projected 1-yard pitch shrinks below the accumulation blur, so
-            # neighbouring marks merge and a centroid can land halfway between
-            # two grid positions -- assigning it either way is a coin flip that
-            # injects a half-yard of world error. A residual past a quarter of
-            # the pitch means the assignment is not trustworthy, so the mark is
-            # dropped rather than guessed.
-            trust = np.abs(raw_x - gx) <= 0.25 * HASH_MARK_PITCH_M
-            for keep_it, (px, py), world_x in zip(trust, pts, gx):
-                if not keep_it:
+            Which row is +Y and which is -Y is not knowable here (it depends on the
+            broadcast mount), so both assignments are tried, exactly as the caller
+            already does for the fused-hash left/right ambiguity."""
+            ys = (HASH_OFFSET_M, -HASH_OFFSET_M) if swap else (-HASH_OFFSET_M, HASH_OFFSET_M)
+            w, u = [], []
+            for row, world_y in zip(hash_rows, ys):
+                pts = np.asarray(row.dashes, float).reshape(-1, 2)
+                # Project each centroid onto its own row line: a mark broken by the
+                # vote threshold leaves a centroid displaced along the mark, which
+                # is pure noise across the row.
+                homo = np.column_stack([pts, np.ones(len(pts))])
+                pts = pts - (homo @ row.line)[:, None] * row.line[:2][None, :]
+                # Snap each mark to the 1-yard grid it is painted on. Round about
+                # ZERO, not about the set's own phase: the yard-line labels are
+                # multiples of YARD_LINE_SPACING_M and so already sit on this grid,
+                # and rounding about a fitted phase silently slid the whole dash set
+                # one yard off them -- which fits the marks BETTER on their own
+                # (rms 1.68 px against 2.06) while reprojecting every yard line
+                # 99 px out. The ladder is tied to the operator's anchors and is the
+                # authority for absolute position; the marks must share its grid.
+                raw_x = to_x(pts)
+                gx = np.round(raw_x / HASH_MARK_PITCH_M) * HASH_MARK_PITCH_M
+                # Keep only marks whose YARD is unambiguous. Far down the field the
+                # projected 1-yard pitch shrinks below the accumulation blur, so
+                # neighbouring marks merge and a centroid can land halfway between
+                # two grid positions -- assigning it either way is a coin flip that
+                # injects a half-yard of world error. A residual past a quarter of
+                # the pitch means the assignment is not trustworthy, so the mark is
+                # dropped rather than guessed.
+                trust = np.abs(raw_x - gx) <= 0.25 * HASH_MARK_PITCH_M
+                for keep_it, (px, py), world_x in zip(trust, pts, gx):
+                    if not keep_it:
+                        continue
+                    w.append([float(world_x), world_y, 0.0])
+                    u.append([float(px), float(py)])
+            # Deliberately NOT adding yard-line x hash-row intersections. They look
+            # like free correspondences but they inherit the yard lines' TILT, which
+            # is the least-determined thing in this view: the lines are so nearly
+            # parallel in the image that their vanishing point sits at x ~ 358,000,
+            # so a sub-0.1-degree tilt error swings the intersection far along the
+            # row. Measured on play_001: dashes alone solve to f=19006 and reproject
+            # every yard line within 2.72 px, while adding the 14 intersections
+            # pulls it to f=17864 and 97 px. The yard lines still enter through the
+            # ladder that gives each dash its world X, and are then free to serve as
+            # an independent check.
+            return w, u
+
+        # each labelled yard line, as a normalised image line, for the refinement
+        yard_constraints = []
+        for seg, world_x in zip(lines, xs):
+            ln = np.cross([seg.p0[0], seg.p0[1], 1.0], [seg.p1[0], seg.p1[1], 1.0])
+            n = float(np.hypot(ln[0], ln[1]))
+            if n > 1e-9:
+                yard_constraints.append((float(world_x), ln / n))
+
+        def _yard_line_error(cam):
+            """Mean distance from each labelled yard line to where it reprojects.
+
+            The hash marks alone cannot choose between the two orientations -- they
+            are symmetric about the field's centre line, so the mirror fits them
+            just as well and lands inside a symmetric y_range prior. The yard lines
+            are NOT symmetric in the frame, so they separate the two decisively
+            (measured on play_001: 2.7 px for the true orientation against 99 px
+            for its mirror)."""
+            k = cam.intrinsics.K()
+            rot, tvec = cam.pose.R, cam.pose.t
+            errs = []
+            for (world_x, line) in yard_constraints:
+                ys = np.linspace(-3.0 * HASH_OFFSET_M, 3.0 * HASH_OFFSET_M, 25)
+                pts = np.column_stack([np.full_like(ys, world_x), ys,
+                                       np.zeros_like(ys)])
+                cam_pts = (rot @ pts.T + tvec[:, None]).T
+                ok = cam_pts[:, 2] > 1e-6
+                if not ok.any():
                     continue
-                w.append([float(world_x), world_y, 0.0])
-                u.append([float(px), float(py)])
-        # Deliberately NOT adding yard-line x hash-row intersections. They look
-        # like free correspondences but they inherit the yard lines' TILT, which
-        # is the least-determined thing in this view: the lines are so nearly
-        # parallel in the image that their vanishing point sits at x ~ 358,000,
-        # so a sub-0.1-degree tilt error swings the intersection far along the
-        # row. Measured on play_001: dashes alone solve to f=19006 and reproject
-        # every yard line within 2.72 px, while adding the 14 intersections
-        # pulls it to f=17864 and 97 px. The yard lines still enter through the
-        # ladder that gives each dash its world X, and are then free to serve as
-        # an independent check.
-        return w, u
+                uvw = (k @ cam_pts[ok].T).T
+                uv2 = uvw[:, :2] / uvw[:, 2:3]
+                errs.append(np.abs(uv2 @ line[:2] + line[2]))
+            return float(np.mean(np.concatenate(errs))) if errs else float("inf")
 
-    # each labelled yard line, as a normalised image line, for the refinement
-    yard_constraints = []
-    for seg, world_x in zip(lines, xs):
-        ln = np.cross([seg.p0[0], seg.p0[1], 1.0], [seg.p1[0], seg.p1[1], 1.0])
-        n = float(np.hypot(ln[0], ln[1]))
-        if n > 1e-9:
-            yard_constraints.append((float(world_x), ln / n))
-
-    def _yard_line_error(cam):
-        """Mean distance from each labelled yard line to where it reprojects.
-
-        The hash marks alone cannot choose between the two orientations -- they
-        are symmetric about the field's centre line, so the mirror fits them
-        just as well and lands inside a symmetric y_range prior. The yard lines
-        are NOT symmetric in the frame, so they separate the two decisively
-        (measured on play_001: 2.7 px for the true orientation against 99 px
-        for its mirror)."""
-        k = cam.intrinsics.K()
-        rot, tvec = cam.pose.R, cam.pose.t
-        errs = []
-        for (world_x, line) in yard_constraints:
-            ys = np.linspace(-3.0 * HASH_OFFSET_M, 3.0 * HASH_OFFSET_M, 25)
-            pts = np.column_stack([np.full_like(ys, world_x), ys,
-                                   np.zeros_like(ys)])
-            cam_pts = (rot @ pts.T + tvec[:, None]).T
-            ok = cam_pts[:, 2] > 1e-6
-            if not ok.any():
+        # Solve BOTH orientations and keep the better one, rather than the first
+        # that happens to satisfy the prior box: the box cannot tell them apart,
+        # since mirroring the hash rows mirrors the camera in Y and a y_range
+        # centred on the field admits both.
+        candidates, failures = [], []
+        for swap in (False, True):
+            try:
+                # yard_constraints are used to SCORE the two orientations below,
+                # not to drive the fit. Folding them into the refinement was
+                # measured to make things worse, not better: they contribute ~175
+                # residuals against the marks' 72, so they dominate the objective
+                # and dragged a solve that reprojects the yard lines at 2.7 px out
+                # to 99 px. The marks alone fit well; the lines are the referee.
+                cand = em.solve_reference_camera(*_world_uv(swap), image_size, prior)
+            except CalibrationError as exc:
+                failures.append(f"  rows {'mirrored' if swap else 'as detected'}: {exc}")
                 continue
-            uvw = (k @ cam_pts[ok].T).T
-            uv2 = uvw[:, :2] / uvw[:, 2:3]
-            errs.append(np.abs(uv2 @ line[:2] + line[2]))
-        return float(np.mean(np.concatenate(errs))) if errs else float("inf")
-
-    # Solve BOTH orientations and keep the better one, rather than the first
-    # that happens to satisfy the prior box: the box cannot tell them apart,
-    # since mirroring the hash rows mirrors the camera in Y and a y_range
-    # centred on the field admits both.
-    candidates, failures = [], []
-    for swap in (False, True):
-        try:
-            # yard_constraints are used to SCORE the two orientations below,
-            # not to drive the fit. Folding them into the refinement was
-            # measured to make things worse, not better: they contribute ~175
-            # residuals against the marks' 72, so they dominate the objective
-            # and dragged a solve that reprojects the yard lines at 2.7 px out
-            # to 99 px. The marks alone fit well; the lines are the referee.
-            cand = em.solve_reference_camera(*_world_uv(swap), image_size, prior)
-        except CalibrationError as exc:
-            failures.append(f"  rows {'mirrored' if swap else 'as detected'}: {exc}")
-            continue
-        candidates.append((_yard_line_error(cand), swap, cand))
-    if not candidates:
-        raise CalibrationError(
-            "endzone mosaic: neither hash-row orientation solved.\n"
-            + "\n".join(failures))
-    candidates.sort(key=lambda c: c[0])
-    best_err, best_swap, ref_cam = candidates[0]
-    if len(candidates) == 2 and candidates[1][0] < 3.0 * best_err:
-        raise CalibrationError(
-            "endzone mosaic: the two hash-row orientations fit the yard lines "
-            f"almost equally ({candidates[0][0]:.1f} px vs "
-            f"{candidates[1][0]:.1f} px), so which sideline is +Y cannot be "
-            "decided from this mosaic. Too few yard lines survived to break "
-            "the symmetry.")
-    _LOG.info("endzone mosaic: hash rows %s; yard-line reprojection %.2f px "
-              "(mirror %.2f px)", "mirrored" if best_swap else "as detected",
-              best_err, candidates[1][0] if len(candidates) == 2 else float("nan"))
+            candidates.append((_yard_line_error(cand), swap, cand))
+        if not candidates:
+            raise CalibrationError(
+                "endzone mosaic: neither hash-row orientation solved.\n"
+                + "\n".join(failures))
+        candidates.sort(key=lambda c: c[0])
+        best_err, best_swap, ref_cam = candidates[0]
+        if len(candidates) == 2 and candidates[1][0] < 3.0 * best_err:
+            raise CalibrationError(
+                "endzone mosaic: the two hash-row orientations fit the yard lines "
+                f"almost equally ({candidates[0][0]:.1f} px vs "
+                f"{candidates[1][0]:.1f} px), so which sideline is +Y cannot be "
+                "decided from this mosaic. Too few yard lines survived to break "
+                "the symmetry.")
+        _LOG.info("endzone mosaic: hash rows %s; yard-line reprojection %.2f px "
+                  "(mirror %.2f px)", "mirrored" if best_swap else "as detected",
+                  best_err, candidates[1][0] if len(candidates) == 2 else float("nan"))
 
     # focal_range is the OPERATOR's own declared prior, not an arbitrary
     # window derived from wherever the reference happened to land -- a

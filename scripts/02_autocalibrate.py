@@ -36,6 +36,43 @@ class CalibMode(str, Enum):
     mosaic_endzone = "mosaic-endzone"
 
 
+
+def _stored_reference_camera(cameras_npz, ref_frame: int, cam: str = "endzone"):
+    """The endzone camera already stored at ``ref_frame``, as a CalibrationResult.
+
+    Raises rather than returning a filled-from-a-neighbour pose: ``conf == 0``
+    means the frame's camera was INTERPOLATED, not solved, and reusing one as
+    the reference would silently anchor the whole play to a guess.
+    """
+    import numpy as np
+
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+
+    cams = load_camera_track(cameras_npz)
+    track = cams.get(cam)
+    if track is None:
+        raise SetupError(
+            f"--reuse-reference: no {cam!r} camera in {cameras_npz}. There is "
+            "nothing to reuse; run once without the flag to solve one.")
+    if not 0 <= int(ref_frame) < len(track.conf):
+        raise SetupError(
+            f"--reuse-reference: frame {ref_frame} is outside the stored track "
+            f"(0..{len(track.conf) - 1}).")
+    if float(np.asarray(track.conf)[int(ref_frame)]) <= 0:
+        raise SetupError(
+            f"--reuse-reference: frame {ref_frame} has conf=0 in {cameras_npz}, "
+            "which means its pose was filled in from a neighbour rather than "
+            "solved. Pick a --ref-frame that verified.")
+    intr, pose = track.at(int(ref_frame))
+    return CalibrationResult(
+        intrinsics=CameraIntrinsics(intr.fx, intr.fy, intr.cx, intr.cy,
+                                    track.width, track.height),
+        pose=CameraPose(R=pose.R, t=pose.t), rms_px=0.0,
+        num_correspondences=0, refined_with_ba=False)
+
+
 @app.command()
 def main(play_dir: Path = typer.Option(..., "--play-dir"),
          mode: CalibMode = typer.Option(CalibMode.hint, "--mode",
@@ -82,6 +119,13 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
                   "see is left at conf=0 rather than shipped. Use a stride that "
                   "divides the splat's frame sampling so every exported frame "
                   "is a node. Trades coverage for correctness."),
+         reuse_reference: bool = typer.Option(False, "--reuse-reference",
+             help="Reuse the endzone reference camera already in cameras.npz at "
+                  "--ref-frame instead of re-solving it from hash marks "
+                  "(mosaic-endzone mode). The reference solve is a "
+                  "once-per-game step and is the most environment-sensitive "
+                  "stage in the pipeline; reusing a validated camera is the "
+                  "normal path for re-running a play. Requires --ref-frame."),
          max_gap: int | None = typer.Option(None, "--max-gap",
              help="Longest run of consecutive uncalibrated frames tolerated "
                   "inside the mosaic-endzone track (default: 3x --stride). "
@@ -129,12 +173,22 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
         ea = meta.endzone_anchor
         anchors = tuple(((float(a["point_px"][0]), float(a["point_px"][1])),
                          float(a["world_x_m"])) for a in ea["lines"]) if ea else None
+        reference_camera = None
+        if reuse_reference:
+            if ref_frame is None:
+                raise SetupError(
+                    "--reuse-reference needs --ref-frame: it names the frame "
+                    "whose stored camera is reused, and the auto-picked "
+                    "reference is not recorded in cameras.npz.")
+            reference_camera = _stored_reference_camera(
+                pd.dir / "cameras.npz", ref_frame)
         out = build_endzone_mosaic(
             play_dir=pd.dir, tracks_path=pd.dir / "tracks.parquet",
             cameras_npz=pd.dir / "cameras.npz", endzone_video=pd.video("endzone"),
             fps=meta.fps, anchors=anchors, stride=stride, ref_frame=ref_frame,
             max_gap=max_gap, propagate_stride=propagate_stride,
             refine_stride=refine_stride, diag_dir=diag_dir,
+            reference_camera=reference_camera,
             prior=EndzonePrior(tuple(ep["x_range"]), tuple(ep["y_range"]),
                                tuple(ep["z_range"]), tuple(ep["focal_range"])))
     elif mode is CalibMode.cross_endzone:

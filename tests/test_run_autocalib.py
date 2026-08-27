@@ -1343,3 +1343,148 @@ def test_build_endzone_mosaic_diag_dir_defaults_to_play_dir(tmp_path, monkeypatc
 
     png = pdir / f"{pdir.name}_mosaic.png"
     assert png.exists(), "diag PNG must land under play_dir by default"
+
+
+# --- reusing a solved reference camera ---------------------------------------
+# The reference solve is a once-per-game step that fits a very long focal from
+# hash-mark centroids in accumulated paint. It is the most environment-sensitive
+# stage in the pipeline: upgrading OpenCV 4 -> 5.0 moved the accumulation by
+# ~15 cm, which is 25 px at f=19187, and the solve failed its own gates with no
+# code change while every downstream stage still worked. Reuse is the normal
+# path for re-running a play, so it gets tests.
+
+def _true_reference_camera(scene):
+    """A CalibrationResult holding the synthetic scene's TRUE reference camera."""
+    from nfl_gsplat.calibration.solve_pnp import CalibrationResult
+    from nfl_gsplat.utils.geometry import CameraIntrinsics, CameraPose
+
+    k = scene.K_by_frame[scene.ref_frame]
+    return CalibrationResult(
+        intrinsics=CameraIntrinsics(float(k[0, 0]), float(k[1, 1]),
+                                    float(k[0, 2]), float(k[1, 2]),
+                                    scene.wh[0], scene.wh[1]),
+        pose=CameraPose(R=scene.R, t=scene.t), rms_px=0.0,
+        num_correspondences=0, refined_with_ba=False)
+
+
+def test_reference_camera_reuse_skips_the_hash_solve(tmp_path, monkeypatch):
+    """The load-bearing property: with a camera supplied, hash marks are never
+    detected. Proven by making that call explode -- if the driver still touches
+    it, the test fails rather than quietly passing on a fallback."""
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
+    from nfl_gsplat.calibration.endzone_multiplay import EndzonePrior
+    from nfl_gsplat.calibration.run_autocalib import build_endzone_mosaic
+    from nfl_gsplat.utils.geometry import project_points
+
+    pdir = tmp_path / "play_reuse"
+    scene = _build_synthetic_endzone_clip(pdir)
+    monkeypatch.setattr("nfl_gsplat.utils.video.ffprobe_meta",
+                        lambda p: SimpleNamespace(width=scene.wh[0],
+                                                  height=scene.wh[1],
+                                                  num_frames=scene.N, fps=30.0))
+
+    def _explode(*a, **k):
+        raise AssertionError("detect_hash_columns must not run when a "
+                             "reference camera is supplied")
+
+    monkeypatch.setattr(
+        "nfl_gsplat.calibration.field_model_fit.detect_hash_columns", _explode)
+
+    k_ref = scene.K_by_frame[scene.ref_frame]
+    anchor_uv = project_points(
+        np.array([[scene.X_lines[0], 0.0, 0.0], [scene.X_lines[-1], 0.0, 0.0]]),
+        k_ref, scene.R, scene.t)
+    anchors = (((float(anchor_uv[0][0]), float(anchor_uv[0][1])), scene.X_lines[0]),
+               ((float(anchor_uv[1][0]), float(anchor_uv[1][1])), scene.X_lines[-1]))
+
+    out = build_endzone_mosaic(
+        play_dir=pdir, tracks_path=pdir / "tracks.parquet",
+        cameras_npz=pdir / "cameras.npz", endzone_video=scene.vid, fps=30.0,
+        prior=EndzonePrior(x_range=(-150, -60), y_range=(-15, 15),
+                           z_range=(10, 60), focal_range=(400, 3000)),
+        anchors=anchors, stride=2, ref_frame=scene.ref_frame,
+        reference_camera=_true_reference_camera(scene))
+
+    cams = load_camera_track(out)
+    assert "sideline" in cams and "endzone" in cams     # sideline preserved
+    ez = cams["endzone"]
+    assert (ez.conf > 0).sum() >= 1
+    centres = np.array([ez.at(f)[1].center_world()
+                        for f in range(ez.num_frames)])[ez.conf > 0]
+    # The supplied camera really drove the solve: the recovered tripod centre
+    # is the true one, not something re-derived.
+    assert np.linalg.norm(centres.mean(axis=0) - scene.C_true) < 2.0
+
+
+def _load_cli_module():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "scripts" / "02_autocalibrate.py"
+    spec = importlib.util.spec_from_file_location("autocal_cli", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _write_track(path, n_frames=5, conf=None, cam="endzone"):
+    import numpy as np
+
+    from nfl_gsplat.calibration.cameras_io import CameraTrack, write_camera_track
+    k = np.tile(np.array([[900.0, 0, 320.0], [0, 900.0, 240.0], [0, 0, 1.0]]),
+                (n_frames, 1, 1))
+    r = np.tile(np.eye(3), (n_frames, 1, 1))
+    t = np.tile(np.array([0.0, 0.0, 50.0]), (n_frames, 1))
+    c = np.ones(n_frames) if conf is None else np.asarray(conf, float)
+    write_camera_track(path, {cam: CameraTrack(K=k, R=r, t=t, conf=c,
+                                               width=640, height=480)}, fps=30.0)
+
+
+def test_stored_reference_rejects_an_interpolated_frame(tmp_path):
+    """conf == 0 means the pose was filled in from a neighbour, not solved.
+    Anchoring a whole play to a guess is exactly the silent failure to avoid."""
+    import pytest
+
+    from nfl_gsplat.errors import SetupError
+
+    cli = _load_cli_module()
+    npz = tmp_path / "cameras.npz"
+    _write_track(npz, conf=[1, 0, 1, 1, 1])
+    with pytest.raises(SetupError, match="filled in from a neighbour"):
+        cli._stored_reference_camera(npz, 1)
+
+
+def test_stored_reference_returns_the_solved_camera(tmp_path):
+    cli = _load_cli_module()
+    npz = tmp_path / "cameras.npz"
+    _write_track(npz, conf=[1, 0, 1, 1, 1])
+    cam = cli._stored_reference_camera(npz, 2)
+    assert cam.intrinsics.fx == 900.0
+    assert cam.intrinsics.width == 640
+
+
+def test_stored_reference_missing_camera_fails_loud(tmp_path):
+    import pytest
+
+    from nfl_gsplat.errors import SetupError
+
+    cli = _load_cli_module()
+    npz = tmp_path / "cameras.npz"
+    _write_track(npz, cam="sideline")
+    with pytest.raises(SetupError, match="nothing to reuse"):
+        cli._stored_reference_camera(npz, 2)
+
+
+def test_stored_reference_out_of_range_frame_fails_loud(tmp_path):
+    import pytest
+
+    from nfl_gsplat.errors import SetupError
+
+    cli = _load_cli_module()
+    npz = tmp_path / "cameras.npz"
+    _write_track(npz)
+    with pytest.raises(SetupError, match="outside the stored track"):
+        cli._stored_reference_camera(npz, 99)
