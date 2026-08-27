@@ -16,9 +16,16 @@ where both are verified.
 Two cameras also cover for each other. The sideline sees numbers late, when
 players turn toward it; the endzone is zoomed far tighter and reads backs the
 sideline never sees. A player missed by one is often read easily by the other, so
-the union is substantially larger than either -- and the OVERLAP is a free
-correctness check nothing else in the pipeline provides, since the two cameras
-share no pixels, no tracker state and no calibration.
+the union is substantially larger than either -- 17 of 22 on play_001 against 10
+and 14 separately.
+
+The overlap is NOT the free correctness check it first appears to be, and this
+module originally claimed that it was. Two feeds agreeing on a number proves
+less than it looks, because each is forced to emit every jersey at most once
+regardless of evidence; measured on play_001, two of the four testable
+agreements were 11 m and 16 m apart. So geometry returns, in the only role it
+can actually play here: it cannot CREATE a correspondence, but it can REFUTE
+one. See :func:`check_separation`.
 """
 from __future__ import annotations
 
@@ -49,9 +56,15 @@ class PlayerIdentity:
     def corroborated(self) -> bool:
         """True when two or more cameras named this player independently.
 
-        This is the strongest identity claim the pipeline can make. The cameras
-        share no pixels, no tracker and no calibration, so agreement cannot come
-        from a common-mode error.
+        A HINT, not a proof, and the difference was measured rather than
+        reasoned about. Of the four corroborated pairs testable on play_001,
+        two turned out to be 11 m and 16 m apart on the field -- different
+        people wearing the same label. Each camera solves a FORCED one-to-one
+        assignment against the same 22 jerseys, so every number gets emitted at
+        most once whether or not the evidence supports it, and two feeds can
+        agree on a label with neither being right.
+
+        Use :func:`check_separation` before trusting this.
         """
         return len(self.tracks) > 1
 
@@ -118,3 +131,109 @@ def coverage(merged: dict[int, PlayerIdentity], on_field):
                for _, r in on_field.iterrows()
                if int(r["jersey_number"]) not in named]
     return len(named), missing
+
+
+# Two cameras agreeing on a NUMBER is much weaker evidence than it looks, and
+# measurement is what showed it. Of the 4 corroborated pairs testable on
+# play_001, two were 11 m and 16 m apart in field metres -- not a precision
+# problem, a different human being. Each camera solves a FORCED one-to-one
+# assignment against the same 22 jerseys, so both are compelled to emit every
+# number at most once; two feeds can therefore land on the same label with
+# neither being right. Agreement is a hint, not a proof.
+#
+# Geometry cannot CREATE correspondence (measured three ways, all negative) but
+# it can DESTROY a false one, and that asymmetry is the useful part: a claim
+# that two tracks are one player is refutable by a single well-grounded frame.
+MAX_SEPARATION_M: float = 4.0
+
+# Below this many shared frames the median is not meaningful and the pair is
+# reported as untestable rather than as passing. Silence is not a pass.
+MIN_SHARED_FRAMES: int = 20
+
+
+@dataclass(frozen=True)
+class Consistency:
+    jersey: int
+    separation_m: float | None      # None when untestable
+    n_frames: int
+
+    @property
+    def testable(self) -> bool:
+        return self.separation_m is not None
+
+    @property
+    def contradicted(self) -> bool:
+        return self.testable and self.separation_m > MAX_SEPARATION_M
+
+
+def check_separation(merged, positions, cam_a: str, cam_b: str, *,
+                     max_separation_m: float = MAX_SEPARATION_M,
+                     min_shared_frames: int = MIN_SHARED_FRAMES):
+    """Median field-metre gap between the two tracks each player was given.
+
+    ``positions`` is ``{camera: {track: {frame: (x, y)}}}`` in field metres.
+    Returns ``{jersey: Consistency}`` for players both cameras named.
+
+    Identity is derived from jersey pixels and formation alignment and never
+    compares the cameras' positions, so this is a genuinely independent test of
+    the identities AND of both calibrations at once.
+    """
+    import numpy as np
+
+    out: dict[int, Consistency] = {}
+    for jersey, player in merged.items():
+        if cam_a not in player.tracks or cam_b not in player.tracks:
+            continue
+        pa = positions.get(cam_a, {}).get(player.tracks[cam_a], {})
+        pb = positions.get(cam_b, {}).get(player.tracks[cam_b], {})
+        shared = sorted(set(pa) & set(pb))
+        if len(shared) < min_shared_frames:
+            out[jersey] = Consistency(jersey, None, len(shared))
+            continue
+        gaps = [float(np.hypot(*(np.asarray(pa[f]) - np.asarray(pb[f]))))
+                for f in shared]
+        out[jersey] = Consistency(jersey, float(np.median(gaps)), len(shared))
+
+    bad = [c.jersey for c in out.values() if c.contradicted]
+    if bad:
+        _LOG.warning("cross-camera geometry CONTRADICTS %d identities: %s "
+                     "(more than %.1f m apart)", len(bad),
+                     ", ".join(f"#{j}" for j in sorted(bad)), max_separation_m)
+    return out
+
+
+def drop_contradicted(merged, checks, votes_win_by: int = 3):
+    """Keep the better-evidenced camera for each contradicted player.
+
+    When geometry refutes a pairing at least one side is wrong, and the vote
+    count says which: on play_001 the sideline called a track Kyler Murray on
+    ZERO jersey votes -- from alignment alone, via the sole-candidate rule that
+    bypasses the vote thresholds -- while the endzone read #1 seventy-three
+    times on a different track eleven metres away.
+
+    If neither side wins by ``votes_win_by`` the player is dropped entirely. A
+    wrong identity is worse than a missing one: it silently attaches the wrong
+    body shape, the wrong avatar and the wrong correspondence, and nothing
+    downstream can detect it.
+    """
+    out, dropped = {}, []
+    for jersey, player in merged.items():
+        check = checks.get(jersey)
+        if check is None or not check.contradicted:
+            out[jersey] = player
+            continue
+        best = max(player.votes, key=lambda c: player.votes[c])
+        rest = max((v for c, v in player.votes.items() if c != best), default=0)
+        if player.votes[best] - rest < votes_win_by:
+            dropped.append(jersey)
+            continue
+        out[jersey] = PlayerIdentity(
+            jersey=player.jersey, player=player.player, team=player.team,
+            height_m=player.height_m,
+            tracks={best: player.tracks[best]},
+            votes={best: player.votes[best]})
+    if dropped:
+        _LOG.warning("dropped %d players whose cameras disagree with no clear "
+                     "winner: %s", len(dropped),
+                     ", ".join(f"#{j}" for j in sorted(dropped)))
+    return out

@@ -81,3 +81,85 @@ def test_coverage_names_who_is_missing():
 
 def test_empty_merge_is_empty_not_an_error():
     assert merge({"sideline": []}) == {}
+
+
+# --- geometry as a falsifier -------------------------------------------------
+# Agreement on a jersey number is not proof the two tracks are one player.
+# These cover the case that actually bit: 11 m and 16 m apart on play_001.
+
+from nfl_gsplat.identity.merge_cameras import (check_separation,
+                                               drop_contradicted)
+
+
+def walk(track, x0, y0, n=40, dx=0.0):
+    return {track: {f: (x0 + dx * f, y0) for f in range(n)}}
+
+
+def two_cams(sx, sy, ex, ey, n=40):
+    pos = {"sideline": {}, "endzone": {}}
+    pos["sideline"].update(walk(1, sx, sy, n))
+    pos["endzone"].update(walk(7, ex, ey, n))
+    return pos
+
+
+def merged_pair(sv=10, ev=10):
+    return merge({
+        "sideline": [ident(1, 85, "McBride", votes=sv)],
+        "endzone": [ident(7, 85, "McBride", votes=ev)],
+    })
+
+
+def test_agreeing_tracks_pass():
+    checks = check_separation(merged_pair(), two_cams(0, 0, 0.5, 0.5),
+                              "sideline", "endzone")
+    assert checks[85].testable
+    assert not checks[85].contradicted
+    assert checks[85].separation_m == pytest.approx(0.7071, abs=1e-3)
+
+
+def test_distant_tracks_are_contradicted():
+    """The real failure: same jersey, 16 m apart, different human beings."""
+    checks = check_separation(merged_pair(), two_cams(0, 0, 16.0, 0),
+                              "sideline", "endzone")
+    assert checks[85].contradicted
+
+
+def test_too_few_shared_frames_is_untestable_not_a_pass():
+    """Silence must not read as agreement."""
+    checks = check_separation(merged_pair(), two_cams(0, 0, 99.0, 0, n=3),
+                              "sideline", "endzone")
+    assert not checks[85].testable
+    assert not checks[85].contradicted     # untestable, so not an accusation
+    assert checks[85].n_frames == 3
+
+
+def test_players_only_one_camera_saw_are_not_checked():
+    merged = merge({"sideline": [ident(1, 85, "McBride")]})
+    assert check_separation(merged, two_cams(0, 0, 0, 0),
+                            "sideline", "endzone") == {}
+
+
+def test_contradiction_keeps_the_better_evidenced_camera():
+    """Kyler Murray: 0 votes on the sideline, 73 on the endzone."""
+    merged = merged_pair(sv=0, ev=73)
+    checks = check_separation(merged, two_cams(0, 0, 11.0, 0),
+                              "sideline", "endzone")
+    kept = drop_contradicted(merged, checks)
+    assert kept[85].cameras == ("endzone",)
+    assert kept[85].tracks == {"endzone": 7}
+
+
+def test_contradiction_with_no_clear_winner_drops_the_player():
+    """A wrong identity is worse than a missing one."""
+    merged = merged_pair(sv=10, ev=11)
+    checks = check_separation(merged, two_cams(0, 0, 11.0, 0),
+                              "sideline", "endzone")
+    assert drop_contradicted(merged, checks) == {}
+
+
+def test_uncontradicted_players_survive_untouched():
+    merged = merged_pair(sv=4, ev=44)
+    checks = check_separation(merged, two_cams(0, 0, 0.5, 0),
+                              "sideline", "endzone")
+    kept = drop_contradicted(merged, checks)
+    assert kept[85].cameras == ("endzone", "sideline")

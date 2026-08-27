@@ -91,3 +91,76 @@ identity, but identity produces correspondence for free: if the sideline feed
 names a track #85 and the endzone feed independently names one #85, they are the
 same player, with no geometric matching involved. Only 86 of 1302 frames have
 both cameras verified anyway, so geometry was never going to carry this.
+
+---
+
+## Identity across two cameras, and what checking it revealed
+
+Running the identity pipeline independently on the endzone feed and merging on
+jersey number takes play_001 from 10 identified players to **17 of 22**.
+
+| feed | identified | best vote counts |
+|---|---|---|
+| sideline | 10 | 51, 44, 15, 14 |
+| endzone | 14 | 73, 60, 53, 51, 50, 44, 43, 39 |
+| union | **17** | |
+
+The endzone reads numbers far better because it is zoomed much tighter
+(f ~19000 px against ~2000), so a jersey that is a dozen pixels tall on the
+sideline is legible there. The two feeds also miss *different* players, which is
+why the union beats either.
+
+### The overlap is not the free check it looks like
+
+Seven players were named by both cameras. That reads like corroboration -- the
+feeds share no pixels, no tracker state and no calibration -- and this document
+initially recorded it as such. Measuring it says otherwise:
+
+| jersey | separation | verdict |
+|---|---|---|
+| #20 Julian Love | 2.17 m over 86 frames | ok |
+| #1 Kyler Murray | **11.04 m** over 86 frames | contradicted |
+| #8 Coby Bryant | **16.13 m** over 81 frames | contradicted |
+| #18, #63, #85, #91 | 0-9 shared frames | untestable |
+
+Sixteen metres is not a precision problem; it is a different human being. The
+error in the reasoning was this: each camera solves a **forced** one-to-one
+assignment against the same 22 jerseys, so every number gets emitted at most
+once whether or not the evidence supports it. Two feeds can therefore agree on
+a label with neither being right, and agreement is a hint rather than a proof.
+
+Vote counts say which half fails. The sideline called a track Kyler Murray on
+**zero** jersey votes -- via the sole-candidate alignment rule, which bypasses
+the vote thresholds when only one player on the field plays that position --
+while the endzone read #1 seventy-three times on a different track 11 m away.
+For #8 the sideline track's nearest endzone track of any kind is 6.06 m away,
+against a measured 1.06/1.29 m nearest-neighbour scatter, so that track simply
+grounds badly.
+
+### Geometry's actual job
+
+Cross-camera geometry cannot CREATE correspondence -- measured three ways above,
+all negative -- but it can REFUTE one, and that asymmetry is what makes it
+useful. A claim that two tracks are the same player is falsifiable by a single
+well-grounded frame, even though no amount of position data can generate the
+claim in the first place.
+
+So the honest state of play_001 is not "17 confirmed":
+
+| | count |
+|---|---|
+| named | 17 of 22 |
+| geometrically verified | **1** (#20) |
+| contradicted, then repaired to the better-evidenced camera | 2 (#1, #8) |
+| unverifiable -- one camera only, or no shared verified frames | 14 |
+
+Only 86 of 1302 frames are verified in both cameras, which is why so little is
+testable. Raising that count is now the constraint on verification, not on
+identity.
+
+### Still missing
+
+ARI #4 Dortch, #14 Wilson, #70 Johnson Jr.; SEA #13 Jones, #27 Woolen. Three
+were read and lost on the margin test rather than for want of evidence -- #14
+took 53 votes against 36 for #4, #70 took 13 against 17 -- so the next lever is
+resolving those contests, not more OCR.
