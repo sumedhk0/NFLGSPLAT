@@ -24,6 +24,20 @@ Output cache schema (one NPZ per ``(cam, frame, global_player_id)``)::
                                   centre offset.
                                   Anything comparing against joints2d is
                                   measuring the bug, not the thing under test.
+
+RESOLVED 2026-08-26 -- the strict=False checkpoint-load warning is BENIGN.
+Diffed the checkpoint against the model: 519 checkpoint tensors, 0 unexpected,
+and all 17 "missing" keys are smplx_layer.* body-model CONSTANTS
+(J_regressor, shapedirs, lbs_weights, faces_tensor, parents, ...) supplied by
+the SMPL-X model files at construction rather than carried in the checkpoint.
+Verified they are populated, not empty: shapedirs (10475, 3, 10) absmean
+2.47e-03, J_regressor (55, 10475) absmean 9.55e-05.
+
+The consequence matters more than the finding: betas coming back near zero is
+therefore NOT a loading bug. The network genuinely regresses near-neutral shape
+from 60-180 px crops, so per-player body size cannot be recovered per frame and
+has to come from elsewhere -- aggregation over a track, roster stature, or
+multi-view fitting.
     confidence      [J]           see note below
 
 Only the first 22 joints are used by triangulation; the rest (hands/face)
