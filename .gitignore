@@ -100,3 +100,4 @@ data/
 .claude-flow/
 .venv-smplx/
 third_party/
+.uv-cache/
