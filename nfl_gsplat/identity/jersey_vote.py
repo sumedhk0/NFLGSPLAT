@@ -35,9 +35,16 @@ _LOG = get_logger(__name__)
 MIN_VOTES: int = 2
 MIN_MARGIN: float = 1.5      # winner must beat the runner-up by this factor
 
-# Large enough that the solver never prefers a cross-team pairing, but finite so
-# the assignment stays feasible when colour mislabels a track.
-_CROSS_TEAM_COST: float = 1e6
+# Cross-team pairings are PENALISED, not forbidden, in units of votes. Colour is
+# evidence, not ground truth: measured against the roster on play_001 it was
+# right for 8 of 9 identified tracks. Forbidding outright turned that 11% error
+# rate straight into lost identities -- the hard constraint scored 8 identities
+# against 9 with no constraint at all, and prevented no wrong assignment.
+#
+# At this value a track with a clear read (8+ votes) overrides a colour mistake,
+# while a 4-4 tie is still decided by colour, which is the case colour was added
+# for.
+CROSS_TEAM_PENALTY: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -82,18 +89,16 @@ def row_team(on_field, jersey):
 
 def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
            min_margin: float = MIN_MARGIN,
-           team_of_track=None) -> list[TrackIdentity]:
+           team_of_track=None,
+           cross_team_penalty: float = CROSS_TEAM_PENALTY) -> list[TrackIdentity]:
     """One-to-one assignment of tracks to players, by vote weight.
 
     ``on_field`` is the frame returned by
     :func:`~nfl_gsplat.identity.participation.players_on_play`.
 
     ``team_of_track`` optionally maps track -> team. Cross-team pairings are
-    then FORBIDDEN rather than merely penalised: a track wearing Arizona white
-    is not a Seattle player whatever the digits looked like, and letting the
-    solver trade that away for a better total is exactly the confident-wrong
-    answer this module exists to avoid. It also halves the candidate set, which
-    breaks ties that vote counts alone cannot.
+    PENALISED by ``cross_team_penalty`` votes, not forbidden -- see that
+    constant for the measurement that settled it.
     """
     from scipy.optimize import linear_sum_assignment
 
@@ -117,15 +122,15 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
     for i, track_id in enumerate(tracks):
         track_team = None if team_of_track is None else team_of_track.get(track_id)
         for j, jersey in enumerate(jerseys):
-            if track_team is not None and teams[j] != track_team:
-                cost[i, j] = _CROSS_TEAM_COST
-                blocked += 1
-                continue
             count = votes[track_id].get(jersey, 0)
-            if count:
-                cost[i, j] = -float(count)
+            penalty = (cross_team_penalty
+                       if track_team is not None and teams[j] != track_team
+                       else 0.0)
+            if penalty:
+                blocked += 1
+            cost[i, j] = -float(count) + penalty
     if blocked:
-        _LOG.info("team constraint blocked %d of %d track/player pairings",
+        _LOG.info("team colour penalised %d of %d track/player pairings",
                   blocked, len(tracks) * len(jerseys))
 
     rows, cols = linear_sum_assignment(cost)
@@ -136,20 +141,18 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
         got = counter.get(jersey, 0)
         if got < min_votes:
             continue
-        if team_of_track is not None:
-            track_team = team_of_track.get(track_id)
-            if track_team is not None and str(row_team(on_field, jersey)) != track_team:
+        # The runner-up competes on the same terms the solver used: a read for
+        # the other team is discounted by the colour penalty rather than
+        # ignored, so a colour mistake cannot silently manufacture a tie.
+        others = []
+        for other, count in counter.items():
+            if other == jersey or other not in set(jerseys):
                 continue
-        # The runner-up must be an ELIGIBLE alternative. A Seattle number read
-        # on an Arizona player is a misread, exactly like a number nobody is
-        # wearing, and letting it count as competition refuses identities the
-        # team constraint had already resolved.
-        eligible = set(jerseys)
-        if team_of_track is not None and team_of_track.get(track_id) is not None:
-            want = team_of_track[track_id]
-            eligible = {j for j in jerseys if str(row_team(on_field, j)) == want}
-        others = [c for k, c in counter.items()
-                  if k != jersey and k in eligible]
+            adj = count
+            if team_of_track is not None and team_of_track.get(track_id) is not None:
+                if str(row_team(on_field, other)) != team_of_track[track_id]:
+                    adj = max(0.0, count - cross_team_penalty)
+            others.append(adj)
         runner_up = max(others) if others else 0
         margin = got / runner_up if runner_up else float("inf")
         if margin < min_margin:

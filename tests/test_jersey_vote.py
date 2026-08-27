@@ -75,13 +75,21 @@ def test_more_tracks_than_players_does_not_crash():
     assert len({t.jersey for t in got}) == len(got)
 
 
-def test_team_constraint_forbids_cross_team_matches():
-    """A track wearing Arizona white is not a Seattle player, whatever the OCR
-    read. Forbidden outright rather than penalised: letting the solver trade it
-    away for a better total is exactly the confident-wrong answer to avoid."""
+def test_strong_reads_override_a_colour_mistake():
+    """Colour is evidence, not ground truth -- measured 8 of 9 correct on real
+    footage. A hard constraint turned that 11% error rate straight into lost
+    identities (8 identified against 9 with no constraint), so a clear read must
+    win over the colour label."""
     votes = {5: collections.Counter({21: 9})}          # 21 is SEA
     got = assign(votes, _on_field(), team_of_track={5: "ARI"})
-    assert got == [], "a Seattle player was assigned to an Arizona track"
+    assert len(got) == 1 and got[0].jersey == 21
+
+
+def test_colour_still_decides_a_weak_tie():
+    """The case colour was added for: votes cannot separate 18 from 21."""
+    votes = {5: collections.Counter({18: 4, 21: 4})}
+    got = assign(votes, _on_field(), team_of_track={5: "ARI"})
+    assert len(got) == 1 and got[0].jersey == 18, "colour failed to break a tie"
 
 
 def test_team_constraint_breaks_a_tie_votes_cannot():
