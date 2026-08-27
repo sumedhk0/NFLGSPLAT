@@ -67,3 +67,56 @@ def test_fit_is_deterministic():
     a = fit_beta0_to_height(model, 1.88)
     b = fit_beta0_to_height(model, 1.88)
     assert np.array_equal(a, b)
+
+
+def test_height_and_weight_fit_uses_multiple_starts():
+    """The objective is non-convex. A single solve from zeros lands in wildly
+    different local minima depending only on how many coefficients are free --
+    measured on real players, 10 betas gave a WORSE height than 6, and one swung
+    from +0.151 m to -0.209 m between dimensionalities.
+    """
+    import numpy as np
+
+    from nfl_gsplat.pose.fit_shape import fit_height_and_weight
+
+    class _Model:
+        """Height from beta0, volume from beta0 and beta1 -- coupled, as in
+        SMPL-X, so the two cannot be fitted one after the other."""
+
+        def __call__(self, betas=None, **_):
+            import torch
+
+            b = np.asarray(betas).reshape(-1)
+            h = 1.72 + 0.10 * b[0]
+            r = 0.16 + 0.03 * b[1] + 0.01 * b[0]
+            # a box whose volume the divergence-theorem helper can integrate
+            xs, zs = r, r
+            corners = np.array([[-xs, -h / 2, -zs], [xs, -h / 2, -zs],
+                                [xs, -h / 2, zs], [-xs, -h / 2, zs],
+                                [-xs, h / 2, -zs], [xs, h / 2, -zs],
+                                [xs, h / 2, zs], [-xs, h / 2, zs]], np.float32)
+            return type("O", (), {"vertices": torch.tensor(corners[None])})()
+
+    # A CLOSED box: all six faces, two triangles each. An open or
+    # self-overlapping surface makes the divergence-theorem volume meaningless,
+    # and the fit then chases a target it can never reach.
+    faces = np.array([
+        [0, 1, 2], [0, 2, 3],      # y = -h/2
+        [4, 6, 5], [4, 7, 6],      # y = +h/2
+        [3, 2, 6], [3, 6, 7],      # z = +r
+        [0, 5, 1], [0, 4, 5],      # z = -r
+        [0, 3, 7], [0, 7, 4],      # x = -r
+        [1, 5, 6], [1, 6, 2],      # x = +r
+    ])
+    betas, got_h, got_lb = fit_height_and_weight(
+        _Model(), faces, 1.90, 240.0, n_betas=2, n_starts=6)
+    assert got_h == pytest.approx(1.90, abs=0.02)
+    assert np.allclose(betas[2:], 0.0), "coefficients beyond n_betas moved"
+
+
+def test_weight_in_kilograms_is_rejected():
+    """Roster weights are POUNDS. Passing 95 (kg) would fit a child."""
+    from nfl_gsplat.pose.fit_shape import fit_height_and_weight
+
+    with pytest.raises(SetupError, match="POUNDS"):
+        fit_height_and_weight(_FakeModel(), np.zeros((1, 3), int), 1.90, 45.0)
