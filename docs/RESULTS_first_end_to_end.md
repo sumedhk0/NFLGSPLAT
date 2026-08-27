@@ -61,3 +61,33 @@ frames gives a median 4.5 m residual, 3.5% within 0.5 m. The sideline's rays
 graze at 80–100 m, so its weak axis is exactly the one the endzone measures
 best. This reproduces the earlier finding (~85% mispaired) and confirms
 per-frame geometric matching cannot carry identity.
+
+---
+
+## Cross-camera correspondence: measured three ways, all negative
+
+Recorded so it is not attempted a fourth time without new information.
+
+| primitive | result |
+|---|---|
+| per-frame foot points, Hungarian | median 4.5 m, 3.5% within 0.5 m |
+| **trajectory** distance over shared frames | median 3.31 m, 2 of 22 pairs within 1 m |
+| axis decomposition | bias X −0.23 m, Y +0.63 m; spread 2.27 / 3.50 m |
+
+The third row is the one that settles it. The **biases are small**, so the two
+calibrations do agree about where the field is — this is not a calibration bug.
+What defeats matching is that median nearest-neighbour disagreement is 1.06 m
+along the field and 1.29 m across it, while players in a formation stand roughly
+1–2 m apart. The positional precision is comparable to the player spacing, so
+the nearest track in the other camera is very often the wrong man, and no
+smarter assignment recovers information that was never there.
+
+Trajectory averaging barely helped (4.5 m → 3.3 m), which is itself diagnostic:
+averaging suppresses noise, so the residual is dominated by systematic
+per-player error rather than jitter.
+
+**The dependency therefore runs the other way.** Correspondence cannot produce
+identity, but identity produces correspondence for free: if the sideline feed
+names a track #85 and the endzone feed independently names one #85, they are the
+same player, with no geometric matching involved. Only 86 of 1302 frames have
+both cameras verified anyway, so geometry was never going to carry this.
