@@ -167,11 +167,28 @@ This is **once per game, not per play** — the tripod holds one centre all half
 The anchors must be the outermost detected lines, so the spacing check spans
 every line rather than just the interval between them.
 
+First run for a game (solves the reference camera from hash marks):
+
 ```bash
 python scripts/02_autocalibrate.py --play-dir <play> --mode mosaic-endzone \
     --stride 6 --ref-frame 648 --propagate-stride 5 --refine-stride 5 \
     --max-gap 120
 ```
+
+Every later run, once a reference camera has been solved and verified:
+
+```bash
+python scripts/02_autocalibrate.py --play-dir <play> --mode mosaic-endzone \
+    --stride 6 --ref-frame 648 --reuse-reference \
+    --propagate-stride 1 --refine-stride 1 --max-gap 200
+```
+
+Stride 1 is the coverage setting and it is worth a great deal: on play_001 it
+took the endzone from 104 verified frames to 473, and frames verified in BOTH
+cameras from 86 to 364, at the same accuracy (median 0.94 px against 0.96 px).
+At stride 5, four frames in five were never given a camera at all -- they were
+not rejected, they were never candidates. Chain homographies also improve,
+because adjacent frames genuinely are adjacent rather than five apart.
 
 * `--stride` — frames used to BUILD the mosaic. Coarse is fine; 6-12 works.
 * `--ref-frame` — the frame everything registers into. It is added to the
@@ -184,6 +201,17 @@ python scripts/02_autocalibrate.py --play-dir <play> --mode mosaic-endzone \
 * `--refine-stride` — turns on the bundle-adjusted refinement pass (below). Use
   a stride that divides whatever stride the splat samples at, so every frame you
   intend to train on is a node.
+* `--reuse-reference` — take the reference camera already in `cameras.npz` at
+  `--ref-frame` instead of re-solving it. **Use this for every run after the
+  first.** The reference solve fits a ~19,000 px focal from hash-mark centroids
+  in accumulated paint, which makes it by far the most environment-sensitive
+  stage in the pipeline: upgrading OpenCV 4 → 5.0 moved the accumulation by
+  about 15 cm, which is 25 px at that focal, and the solve then failed its own
+  gates with no code change while every stage after it still worked. Reuse is
+  safe because everything downstream is self-checking — a frame that cannot be
+  verified against paint it can see keeps `conf = 0`, so a bad reference costs
+  coverage, not correctness. It refuses a `--ref-frame` whose `conf` is 0, since
+  that pose was interpolated from a neighbour rather than solved.
 * `--max-gap` — longest run of uncalibrated frames tolerated. Raise it only
   when you have looked at the span: a fast pan can break the pure-rotation model
   outright (rolling shutter shears the frame mid-slew). play_001 has a real

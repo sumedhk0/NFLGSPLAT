@@ -164,3 +164,88 @@ ARI #4 Dortch, #14 Wilson, #70 Johnson Jr.; SEA #13 Jones, #27 Woolen. Three
 were read and lost on the margin test rather than for want of evidence -- #14
 took 53 votes against 36 for #4, #70 took 13 against 17 -- so the next lever is
 resolving those contests, not more OCR.
+
+---
+
+## Endzone frame coverage: 104 -> 473 verified
+
+The cross-camera identity check above could only test 4 of 7 overlapping
+players, because only 86 of 1302 frames were verified in BOTH cameras. Fixing
+that turned out to require fixing a separate, unrelated breakage first.
+
+### The endzone mosaic had stopped calibrating at all
+
+Re-running the recorded command failed at the reference-camera solve. It was not
+a code regression: no calibration commit landed after the good `cameras.npz` was
+written (2026-08-19 02:24 PDT; last prior commit 02:09), and the ORIGINAL
+command reproduces the failure exactly. What changed is the toolchain --
+**OpenCV 4.x -> 5.0.0, Python -> 3.14, numpy -> 2.4**.
+
+The evidence that localises it:
+
+| check | result |
+|---|---|
+| line detection + labelling | **identical** to the good run: same 7 lines, same two-line hole |
+| today's hash points through the **stored, validated** camera | median **25.3 px** (max 53) |
+| inlier support, both orientations | 64-69% against a 70% gate |
+| refine + verify on the stored camera | **104/104 frames, median 0.74 px** |
+
+At f=19187 -- a 6 degree telephoto -- 25 px is about 15 cm on the field. So the
+accumulated paint moved slightly and the reference solve failed its own gates,
+while every stage after it still worked perfectly.
+
+Two candidate causes were tested and **rejected**, rather than assumed: the
+regenerated `tracks.parquet` (imgsz 640 -> 1920 changes player masks) is not
+responsible -- old and new boxes fail identically; and OpenCV's inlier mask is
+not an artefact -- it agrees exactly with explicit reprojection counting.
+Relaxing the 70% gate would also not have helped, and would have been the wrong
+fix: the `rms > 3.0 px` check below it is strictly stronger, since it runs over
+ALL points rather than RANSAC's inliers, and rejects the same solve.
+
+### The fix, and why it is not a bypass
+
+The reference solve is a **once-per-game** step -- the tripod holds one centre
+all half -- and its result was already solved, checked against the yard lines
+and shipped in `cameras.npz`. `--reuse-reference` takes it instead of
+re-deriving it. Everything downstream is self-checking: a frame whose camera
+cannot be verified against paint it can see keeps `conf = 0`, so a stale
+reference costs coverage, never correctness.
+
+### What the coverage was actually limited by
+
+Nothing was failing verification. At `--refine-stride 5`, four frames in five
+were **never candidates** -- the refine pass zeroes every `conf` and re-sets
+only frames on its grid. The tell was in the data all along: 104 verified frames
+separated by 103 gaps, so no two adjacent frames were ever both verified.
+
+| | before | after |
+|---|---|---|
+| endzone verified | 104 | **473** |
+| verified in BOTH cameras | 86 | **364** |
+| median verification offset | 0.96 px | 0.94 px |
+| points landing on the field | 100% | 100% |
+| nearest-sideline-player agreement | 1.44 m | 1.77 m |
+
+Sideline is untouched at 816. Only 69 of the old 104 frames re-verify: the
+bundle now spans 1020 nodes rather than 104, so nodes shift and 35 fail their
+own check. Accuracy is preserved but not improved, which is expected -- extra
+frames on a tripod add coverage, not parallax.
+
+### What it bought, honestly
+
+The two contradicted identities are now measured over **364 frames instead of
+86**, which makes them far harder to dismiss: #1 Murray at 10.44 m and #8 Bryant
+at 16.50 m. It did **not** make more pairs testable. Those are limited by
+whether the two feeds' TRACKS span the same frames, not by calibration.
+
+It also revealed a real limit on the endzone formation path. Pre-snap verified
+frames went 27 -> 131, yet clean formations went 2 -> 0, and the cause is not
+calibration: in BOTH calibrations exactly **5** pre-snap frames have >= 20
+players detected at all, with a median of 18. The endzone is a tight telephoto
+and players occlude each other along its axis, so the detector rarely sees all
+22 while `assign_offense_roles` needs exactly 11 and 11.
+
+The one identity lost with it (#33 Benson) was assigned on **zero jersey votes**
+from alignment alone, across 2 frames -- the same sole-candidate rule that
+produced the wrong Kyler Murray. Losing it is a correctness gain, not a
+regression.
