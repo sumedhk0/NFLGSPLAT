@@ -86,11 +86,15 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
         _LOG.warning("jersey assignment: no track had a usable read")
         return []
 
-    # Cost is negative vote count, so the solver maximises agreement. Pairs with
-    # no votes at all get a large finite cost rather than inf: the solver must
-    # stay feasible, and those pairings are rejected afterwards by the
-    # thresholds instead of by making the problem unsolvable.
-    cost = np.full((len(tracks), len(jerseys)), 1e3)
+    # Cost is negative vote count, so the solver maximises total agreement.
+    # No-vote pairs cost ZERO, not a large penalty. A penalty looks like it
+    # discourages bad matches, but linear_sum_assignment must match
+    # min(tracks, jerseys) pairs regardless -- with 24 tracks against 22
+    # jerseys almost everything gets paired -- so a large constant makes the
+    # solver minimise the NUMBER of no-vote pairs instead of maximising votes.
+    # Measured: it handed a track that read #70 eighteen times the jersey #0
+    # on two votes, to spare another track from going unmatched.
+    cost = np.zeros((len(tracks), len(jerseys)))
     for i, track_id in enumerate(tracks):
         for j, jersey in enumerate(jerseys):
             count = votes[track_id].get(jersey, 0)
