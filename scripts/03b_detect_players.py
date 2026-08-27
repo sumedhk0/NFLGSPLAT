@@ -26,7 +26,12 @@ def main():
     ap.add_argument("--detect-only", action="store_true",
                     help="per-frame detection, no BoT-SORT (faster on CPU)")
     ap.add_argument("--weights", default="yolov8n.pt")
-    ap.add_argument("--conf", type=float, default=0.35)
+    ap.add_argument("--conf", type=float, default=0.25,
+                    help="detection confidence floor; 0.25 recovers small "
+                         "distant players that 0.35 drops")
+    ap.add_argument("--imgsz", type=int, default=1920,
+                    help="inference resolution; ultralytics defaults to 640, "
+                         "which downsamples broadcast frames 3x")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--cameras", default="sideline,endzone")
     args = ap.parse_args()
@@ -34,7 +39,7 @@ def main():
     cams = tuple(c.strip() for c in args.cameras.split(",") if c.strip())
     pd_ = PlayDir.from_dir(args.play_dir, cameras=cams)
     cfg = TrackingConfig(yolo_weights=args.weights, min_detection_conf=args.conf,
-                         device=args.device)
+                         device=args.device, imgsz=args.imgsz)
     dfs = []
     for cam in pd_.cameras:
         video = pd_.video(cam)

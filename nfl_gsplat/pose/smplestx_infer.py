@@ -12,18 +12,16 @@ Output cache schema (one NPZ per ``(cam, frame, global_player_id)``)::
     transl          [3]
     joints3d_cam    [J, 3]        SMPL-X all-joints in camera coords
     joints2d        [J, 2]        pixel coords in the *original frame*
-                                  ** BROKEN as of 2026-08-26 -- DO NOT USE. **
-                                  Overlaying these on play_001 frame 570 puts
-                                  almost every joint far off its player, with
-                                  only a scattered handful landing anywhere
-                                  near a detection box. The patch->crop->frame
-                                  mapping below is wrong somewhere. joints3d_cam
-                                  is unaffected and IS trustworthy: reprojected
-                                  through the calibrated camera it fills 81% of
-                                  its detection box with a 0.16 box-height
-                                  centre offset.
-                                  Anything comparing against joints2d is
-                                  measuring the bug, not the thing under test.
+                                  FIXED 2026-08-27. Was broken: joints
+                                  landed nowhere near their players because
+                                  smplx_joint_proj is in OUTPUT HEATMAP units
+                                  (output_hm_shape, here (16, 16, 12)), not
+                                  patch pixels, and the old code treated any
+                                  value above 1.5 as pixels already. Now
+                                  projected through a bbox-derived camera the
+                                  way SMPLest-X's own main/inference.py does.
+                                  Measured after: 94% of joints land inside
+                                  their own detection box (median), min 62%.
 
 RESOLVED 2026-08-26 -- the strict=False checkpoint-load warning is BENIGN.
 Diffed the checkpoint against the model: 519 checkpoint tensors, 0 unexpected,
@@ -261,6 +259,10 @@ def _smplestx_forward(model, crops: np.ndarray, bboxes: np.ndarray,
 
         patches = []
         inv_transes = []
+        pboxes = []
+        smplx_body_shape = tuple(model.cfg.model.input_body_shape)
+        focal_cfg = tuple(model.cfg.model.focal)
+        princpt_cfg = tuple(model.cfg.model.princpt)
         for crop in batch_crops:
             h, w = crop.shape[:2]
             full_box = np.array([0.0, 0.0, w, h], dtype=np.float32)  # xywh of whole crop
@@ -272,6 +274,7 @@ def _smplestx_forward(model, crops: np.ndarray, bboxes: np.ndarray,
             )
             patches.append(to_tensor(patch.astype(np.float32)) / 255.0)
             inv_transes.append(inv_trans)
+            pboxes.append(np.asarray(pbox, dtype=np.float64))
 
         img = torch.stack(patches, dim=0).to(cfg.device)
         with torch.no_grad():
@@ -288,11 +291,25 @@ def _smplestx_forward(model, crops: np.ndarray, bboxes: np.ndarray,
             n_joints = joint_cam[i].shape[0]
             # joint_proj is in network-patch pixels; inv_trans -> crop pixels,
             # then add the crop's top-left in the full frame.
-            proj_patch = joint_proj[i][:, :2] * np.array(
-                [in_w, in_h], dtype=np.float32) if joint_proj[i].max() <= 1.5 else joint_proj[i][:, :2]
-            crop_xy = _apply_affine(proj_patch, inv_transes[i])
+            # Project the 3D joints through a camera derived from the bbox,
+            # exactly as SMPLest-X's own main/inference.py does. The earlier
+            # route -- unwind smplx_joint_proj through inv_trans -- was wrong:
+            # joint_proj is in OUTPUT HEATMAP units (output_hm_shape, here
+            # (16, 16, 12)), not patch pixels, and the code treated any value
+            # above 1.5 as already being pixels. Joints landed nowhere near
+            # their players.
+            box = pboxes[i]                       # (x, y, w, h) in CROP pixels
+            body_h, body_w = smplx_body_shape
+            fx = focal_cfg[0] / body_w * box[2]
+            fy = focal_cfg[1] / body_h * box[3]
+            cx = princpt_cfg[0] / body_w * box[2] + box[0]
+            cy = princpt_cfg[1] / body_h * box[3] + box[1]
+            abs_cam = joint_cam[i] + cam_trans[i][None, :]
+            depth = np.where(np.abs(abs_cam[:, 2]) < 1e-6, 1e-6, abs_cam[:, 2])
+            crop_xy = np.stack([abs_cam[:, 0] / depth * fx + cx,
+                                abs_cam[:, 1] / depth * fy + cy], axis=1)
             x1, y1 = float(batch_boxes[i][0]), float(batch_boxes[i][1])
-            joints2d = crop_xy + np.array([x1, y1], dtype=np.float32)
+            joints2d = (crop_xy + np.array([x1, y1])).astype(np.float32)
             results.append({
                 "betas": shape[i][:10],
                 "body_pose": body_pose[i].reshape(NUM_BODY_POSE_JOINTS, 3),

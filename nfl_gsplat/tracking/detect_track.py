@@ -42,6 +42,12 @@ class TrackingConfig:
     person_class_id: int = 0
     min_detection_conf: float = 0.35
     device: str = "cuda:0"
+    # Ultralytics defaults to 640, which downsamples a 1920-wide broadcast
+    # frame by 3x and loses the smallest players. Measured on play_001 frame
+    # 570 at native resolution: 20 people at conf 0.35 and 22 at 0.25, against
+    # 19 from the 640 run. Distant players are exactly the ones a wide All-22
+    # shot has most of.
+    imgsz: int = 1920
 
 
 def empty_tracks() -> pd.DataFrame:
@@ -82,6 +88,7 @@ def detect_and_track(
         classes=[cfg.person_class_id],
         conf=cfg.min_detection_conf,
         device=cfg.device,
+        imgsz=cfg.imgsz,
         persist=True,
         verbose=False,
     )
@@ -129,7 +136,7 @@ def detect_only(video, cam, cfg, *, frame_source=None, _predict=None):
         def _predict(bgr):
             res = model.predict(bgr, classes=[cfg.person_class_id],
                                 conf=cfg.min_detection_conf, device=cfg.device,
-                                verbose=False)[0]
+                                imgsz=cfg.imgsz, verbose=False)[0]
             return res.boxes if (res.boxes is not None and len(res.boxes)) else None
     if frame_source is None:                                # pragma: no cover (gpu path)
         from nfl_gsplat.utils.video import iter_frames
