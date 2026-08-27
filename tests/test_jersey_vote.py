@@ -106,3 +106,35 @@ def test_unknown_team_for_a_track_is_not_constrained():
     votes = {5: collections.Counter({18: 6})}
     got = assign(votes, _on_field(), team_of_track={})
     assert len(got) == 1 and got[0].jersey == 18
+
+
+def test_alignment_alone_identifies_a_sole_candidate():
+    """A track the formation calls QB, with NO jersey reads at all, must still
+    be identified when only one player on the field plays that spot.
+
+    This is the case alignment exists for -- the quarterback on play_001 was
+    never read once -- and it was silently broken by a stale loop variable: the
+    sole-candidate test read the position of whichever track the cost loop
+    happened to finish on, not the track being decided.
+    """
+    votes = {5: collections.Counter(), 6: collections.Counter({18: 9})}
+    got = assign(votes, _on_field(), position_of_track={5: "QB", 6: "WR"})
+    by_track = {t.track_id: t.jersey for t in got}
+    assert by_track.get(5) == 1, "the quarterback was not identified by alignment"
+    assert by_track.get(6) == 18
+
+
+def test_a_shared_position_group_still_needs_votes():
+    """With TWO receivers on the field, alignment narrows but cannot decide, so
+    the vote thresholds must still apply. Otherwise the solver would pick one of
+    them arbitrarily and report it with full confidence."""
+    on = pd.DataFrame({
+        "team": ["ARI", "ARI", "SEA"],
+        "jersey_number": [18.0, 4.0, 21.0],
+        "full_name": ["Marvin Harrison Jr.", "Greg Dortch", "Devon Witherspoon"],
+        "position": ["WR", "WR", "DB"],
+        "height_m": [1.905, 1.702, 1.829],
+    })
+    votes = {5: collections.Counter()}
+    got = assign(votes, on, position_of_track={5: "WR"})
+    assert got == [], "a track with no votes was assigned to one of several WRs"

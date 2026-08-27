@@ -182,9 +182,15 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
         # evidence available. Where several players share a group (five linemen,
         # five defensive backs) alignment narrows but cannot decide, and the
         # vote thresholds still apply.
+        # Re-fetch, do NOT reuse the loop variable from the cost matrix above:
+        # that one holds whatever the LAST track happened to have, so every
+        # decision here was made against another player's alignment. It read
+        # correctly and silently did the wrong thing.
+        this_pos = (None if position_of_track is None
+                    else position_of_track.get(track_id))
         sole_candidate = False
-        if track_pos is not None:
-            want = POSITION_GROUP.get(str(track_pos).upper())
+        if this_pos is not None:
+            want = POSITION_GROUP.get(str(this_pos).upper())
             if want is not None and groups[j] == want:
                 sole_candidate = sum(1 for g in groups if g == want) == 1
         if sole_candidate:
