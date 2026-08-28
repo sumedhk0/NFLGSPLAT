@@ -424,3 +424,29 @@ right.
 **The stature check earned its place immediately.** Reprojection error and joint
 validity both looked healthy at the default gate; only the comparison against a
 height known independently to the inch showed the reconstruction was inverted.
+
+#### Root cause: the crops were stretched, so joints2d is unusable
+
+Traced, and it is upstream of the triangulation entirely:
+
+| | joints2d inside its own box | head above ankles in the image |
+|---|---|---|
+| sideline | **10%** | 0 of 1320 |
+| endzone | **31%** | 2 of 1078 |
+
+`smplestx_infer`'s docstring records **94%** inside-box for a correct run. The
+skeletons were already inverted in 2D before triangulation saw them, so the
+upside-down 3D result is downstream of this, not a bug in `triangulate.py`.
+
+`05c_pose_play.py` does `cv2.resize(crop, (192, 256))`, forcing every detection
+to a fixed 0.75 aspect whatever the box's true shape. `joints2d` is then
+back-projected through a camera DERIVED FROM THE BBOX, which assumes the crop
+preserved the box's geometry. Stretching breaks that mapping.
+
+The SMPL-X parameters survive the stretch -- which is why every render so far
+looks correct and why this went unnoticed -- but the 2D reprojection does not.
+The fix is to letterbox the crop, preserving aspect, rather than stretching it.
+
+That also revises the cost of the triangulation experiment: the two 25-minute
+pose caches have to be rebuilt once the cropping is fixed, since `joints2d` is
+the one output that depends on it.
