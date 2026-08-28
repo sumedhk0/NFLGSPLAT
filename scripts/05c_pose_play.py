@@ -107,6 +107,14 @@ def main() -> None:
                 "global_orient": np.asarray(out["global_orient"][i], np.float32),
                 "transl": np.asarray(out["transl"][i], np.float32),
                 "bbox": np.asarray(meta["bbox"], np.float32),
+                # The 2D joints, in ORIGINAL-frame pixels. Cached because
+                # placement from a single pixel -- the box's bottom-centre --
+                # throws away ~22 observations per view, and it is depth that
+                # a foot point cannot carry: measured on play_001, 2.2 m of the
+                # 2.9 m cross-camera error lies along the viewing rays, which
+                # is exactly what triangulating two views constrains.
+                "joints2d": np.asarray(out["joints2d"][i], np.float32),
+                "joints3d_cam": np.asarray(out["joints3d_cam"][i], np.float32),
             }
         pending_crops, pending_meta = [], []
 
