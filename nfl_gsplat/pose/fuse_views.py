@@ -40,6 +40,15 @@ SIGMA_ACROSS_M: float = 0.35
 # value once the ratio is large.
 SIGMA_ALONG_M: float = 2.5
 
+# Measured per-camera placement precision on play_001, as the median departure
+# of a track from its own locally smooth path -- which needs only one camera and
+# no correspondence. These are NOT interchangeable instruments:
+SIDELINE_JITTER_M: float = 0.01
+ENDZONE_JITTER_M: float = 1.08
+# The box edges are equally steady in both (0.3 px and 0.6 px), so the
+# difference is the CAMERA, not the detector. Anything fusing the two should
+# scale their sigmas by roughly this ratio rather than averaging them as peers.
+
 
 def ray_directions(points, camera_centre):
     """Unit vectors from the camera centre to each point. ``[N, 3]``."""
@@ -70,12 +79,24 @@ def _information(rays, sigma_along: float, sigma_across: float):
 
 def fuse_skeletons(joints_a, joints_b, centre_a, centre_b, *,
                    sigma_along_m: float = SIGMA_ALONG_M,
-                   sigma_across_m: float = SIGMA_ACROSS_M):
+                   sigma_across_m: float = SIGMA_ACROSS_M,
+                   scale_a: float = 1.0, scale_b: float = 1.0):
     """Inverse-variance fusion of two placed skeletons. Returns ``[J, 3]``.
 
     ``joints_a``/``joints_b`` are the SAME joints of the SAME player, already in
     field coordinates, one from each camera. ``centre_a``/``centre_b`` are the
     camera centres, which is all the geometry the weighting needs.
+
+    ``scale_a``/``scale_b`` multiply each camera's sigmas, for when the two are
+    not equally good. On play_001 they are not, by two orders of magnitude:
+    placement jitter measured 0.01 m on the sideline against 1.08 m on the
+    endzone, from box edges that move by 0.3 and 0.6 px respectively. The
+    endzone zooms across f = 1,532 to 23,200 and re-solves its focal and
+    rotation every frame, and its verification checks yard lines across the
+    view, which at an 11 degree grazing angle barely constrains depth. Passing
+    ``scale_b`` around 10 tells the fusion what the measurement already says:
+    believe the sideline about position, and the endzone about very little of
+    it. See :data:`SIDELINE_JITTER_M` / :data:`ENDZONE_JITTER_M`.
     """
     a = np.asarray(joints_a, float)
     b = np.asarray(joints_b, float)
@@ -92,9 +113,9 @@ def fuse_skeletons(joints_a, joints_b, centre_a, centre_b, *,
     # direction barely moves over the metre or two the estimates disagree by.
     reference = 0.5 * (a + b)
     info_a = _information(ray_directions(reference, centre_a),
-                          sigma_along_m, sigma_across_m)
+                          sigma_along_m * scale_a, sigma_across_m * scale_a)
     info_b = _information(ray_directions(reference, centre_b),
-                          sigma_along_m, sigma_across_m)
+                          sigma_along_m * scale_b, sigma_across_m * scale_b)
     total = info_a + info_b
     # Keep the right-hand side as a STACK OF COLUMN VECTORS, [J, 3, 1]. numpy 2
     # reads a [J, 3] operand as one matrix rather than J vectors and fails with

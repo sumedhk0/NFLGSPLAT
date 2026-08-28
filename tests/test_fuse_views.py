@@ -115,3 +115,25 @@ def test_fusion_is_symmetric_in_its_two_cameras():
     one = fuse_skeletons(a, b, SIDELINE_C, ENDZONE_C)
     two = fuse_skeletons(b, a, ENDZONE_C, SIDELINE_C)
     assert np.allclose(one, two, atol=1e-12)
+
+
+def test_a_less_precise_camera_is_believed_less():
+    """The two cameras are not peers: placement jitter measured 0.01 m on the
+    sideline against 1.08 m on the endzone, from box edges equally steady in
+    both. Scaling one camera's sigmas must pull the answer toward the other."""
+    truth = _skeleton()
+    good, bad = truth + 0.1, truth - 2.0
+    equal = fuse_skeletons(good, bad, SIDELINE_C, ENDZONE_C)
+    weighted = fuse_skeletons(good, bad, SIDELINE_C, ENDZONE_C, scale_b=10.0)
+    err_equal = float(np.median(np.linalg.norm(equal - truth, axis=1)))
+    err_weighted = float(np.median(np.linalg.norm(weighted - truth, axis=1)))
+    assert err_weighted < err_equal
+
+
+def test_scaling_both_cameras_equally_changes_nothing():
+    """Only the RATIO between the cameras can matter, as for the two sigmas."""
+    truth = _skeleton()
+    a, b = truth + 0.3, truth - 0.4
+    one = fuse_skeletons(a, b, SIDELINE_C, ENDZONE_C)
+    two = fuse_skeletons(a, b, SIDELINE_C, ENDZONE_C, scale_a=7.0, scale_b=7.0)
+    assert np.allclose(one, two, atol=1e-12)
