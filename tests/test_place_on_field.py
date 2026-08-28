@@ -118,3 +118,75 @@ def test_bad_shape_is_rejected():
     k, rot, tvec = _camera()
     with pytest.raises(ValueError, match=r"\[J, 3\]"):
         place_skeleton(np.zeros((10, 2)), np.array([960.0, 700.0]), k, rot, tvec)
+
+
+# --- placing a MESH, not just a skeleton --------------------------------------
+# The transform has to be derived from the JOINTS even when a mesh is what gets
+# moved: the foot quantile is meaningful on joints (the lowest are the ankles)
+# and ANKLE_HEIGHT_M is defined against the ankle. Deriving it from vertices
+# instead would pin the sole of the shoe at ankle height, floating every player
+# 8 cm off the turf.
+
+def _cam():
+    """A camera looking down the -X axis from 30 m up, 80 m back."""
+    k = np.array([[1200.0, 0.0, 960.0], [0.0, 1200.0, 540.0], [0.0, 0.0, 1.0]])
+    # world -> camera: x_world becomes depth
+    rot = np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]])
+    centre = np.array([-80.0, 0.0, 30.0])
+    return k, rot, -rot @ centre
+
+
+def test_placement_transform_matches_place_skeleton():
+    """One transform, two consumers -- they must not drift apart."""
+    from nfl_gsplat.pose.place_on_field import (place_skeleton,
+                                                placement_transform)
+    rng = np.random.default_rng(0)
+    joints = rng.normal(scale=0.4, size=(40, 3))
+    k, rot, tvec = _cam()
+    rot_w, offset = placement_transform(joints, (960.0, 700.0), k, rot, tvec)
+    direct = place_skeleton(joints, (960.0, 700.0), k, rot, tvec)
+    assert np.allclose((rot_w @ joints.T).T + offset, direct)
+
+
+def test_place_mesh_keeps_the_mesh_rigid_with_its_skeleton():
+    """A vertex coincident with a joint must land on that joint."""
+    from nfl_gsplat.pose.place_on_field import place_mesh, place_skeleton
+    rng = np.random.default_rng(1)
+    joints = rng.normal(scale=0.4, size=(30, 3))
+    verts = np.vstack([joints, rng.normal(scale=0.4, size=(50, 3))])
+    k, rot, tvec = _cam()
+    placed_j = place_skeleton(joints, (960.0, 700.0), k, rot, tvec)
+    placed_v = place_mesh(verts, joints, (960.0, 700.0), k, rot, tvec)
+    assert np.allclose(placed_v[:len(joints)], placed_j)
+
+
+def test_place_mesh_puts_the_soles_near_the_turf():
+    """Vertices extend BELOW the ankle joint, so the mesh should reach ~z=0."""
+    from nfl_gsplat.pose.place_on_field import ANKLE_HEIGHT_M, place_mesh
+    # Camera axes: +Y is DOWN, so the feet are at LARGE +Y, not negative Z.
+    # A realistic joint cloud: the _FOOT_QUANTILE is a 5% quantile, which only
+    # means "the feet" when several joints actually cluster there -- SMPL-X
+    # returns 137. Three joints would interpolate to somewhere up the shin.
+    ankles = np.array([[-0.1, 0.9, 0.0], [0.1, 0.9, 0.0],
+                       [-0.1, 0.88, 0.05], [0.1, 0.88, 0.05]])
+    spine = np.array([[0.0, y, 0.0] for y in np.linspace(-0.8, 0.7, 26)])
+    joints = np.vstack([ankles, spine])
+    # a sole vertex ANKLE_HEIGHT_M below the ankles
+    verts = np.vstack([joints, [[0.0, 0.9 + ANKLE_HEIGHT_M, 0.0]]])
+    k, rot, tvec = _cam()
+    placed = place_mesh(verts, joints, (960.0, 700.0), k, rot, tvec)
+    # Within a couple of centimetres of the turf, not exactly on it: the foot
+    # reference is a 5% QUANTILE over an ankle cluster that is not perfectly
+    # level, so the sole lands a few mm either side. Demanding exact contact
+    # would be testing the quantile's interpolation, not the placement.
+    assert abs(placed[:, 2].min()) < 0.02
+    # and the ankles really are at ankle height, which is the load-bearing part
+    assert abs(np.median(placed[:4, 2]) - ANKLE_HEIGHT_M) < 0.02
+
+
+def test_place_mesh_rejects_bad_shapes():
+    from nfl_gsplat.pose.place_on_field import place_mesh
+    k, rot, tvec = _cam()
+    joints = np.zeros((5, 3))
+    with pytest.raises(ValueError, match=r"\[V, 3\]"):
+        place_mesh(np.zeros((5, 2)), joints, (960.0, 700.0), k, rot, tvec)

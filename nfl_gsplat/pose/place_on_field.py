@@ -83,6 +83,21 @@ def place_skeleton(joints_cam, foot_uv, k_mat, rot, tvec, *,
     agree; the residual is the perspective difference between the crop centre
     and the principal point, which is small for a player-sized box.
     """
+    rot_world, offset = placement_transform(joints_cam, foot_uv, k_mat, rot,
+                                            tvec, ankle_height_m=ankle_height_m)
+    return (rot_world @ np.asarray(joints_cam, float).T).T + offset
+
+
+def placement_transform(joints_cam, foot_uv, k_mat, rot, tvec, *,
+                        ankle_height_m: float = ANKLE_HEIGHT_M):
+    """``(rot_world, offset)`` taking camera-axis points to field coordinates.
+
+    Exposed because a MESH has to move with its skeleton. The transform is
+    derived from the JOINTS in both cases: the lowest joints are the ankles, and
+    :data:`ANKLE_HEIGHT_M` is defined against the ankle. Deriving it from
+    vertices instead would pin the sole of the shoe at ankle height and float
+    every player 8 cm above the turf.
+    """
     joints_cam = np.asarray(joints_cam, float)
     if joints_cam.ndim != 2 or joints_cam.shape[1] != 3:
         raise ValueError(f"joints_cam must be [J, 3], got {joints_cam.shape}")
@@ -90,7 +105,8 @@ def place_skeleton(joints_cam, foot_uv, k_mat, rot, tvec, *,
     ground = ground_point(foot_uv, k_mat, rot, tvec)
 
     # camera axes -> world axes (rotation only; position comes from the ground)
-    world_rel = (np.asarray(rot, float).T @ joints_cam.T).T
+    rot_world = np.asarray(rot, float).T
+    world_rel = (rot_world @ joints_cam.T).T
 
     # Stand it up: the lowest joints are the feet, and the ankle sits
     # ankle_height_m above the turf rather than on it.
@@ -104,7 +120,22 @@ def place_skeleton(joints_cam, foot_uv, k_mat, rot, tvec, *,
     ])
     offset[0] -= foot_xy[0]
     offset[1] -= foot_xy[1]
-    return world_rel + offset
+    return rot_world, offset
+
+
+def place_mesh(vertices_cam, joints_cam, foot_uv, k_mat, rot, tvec, *,
+               ankle_height_m: float = ANKLE_HEIGHT_M):
+    """Same placement as :func:`place_skeleton`, applied to mesh vertices.
+
+    ``joints_cam`` still drives the transform, so the mesh stays rigidly
+    attached to the skeleton it came from and the soles reach the turf.
+    """
+    vertices_cam = np.asarray(vertices_cam, float)
+    if vertices_cam.ndim != 2 or vertices_cam.shape[1] != 3:
+        raise ValueError(f"vertices_cam must be [V, 3], got {vertices_cam.shape}")
+    rot_world, offset = placement_transform(joints_cam, foot_uv, k_mat, rot,
+                                            tvec, ankle_height_m=ankle_height_m)
+    return (rot_world @ vertices_cam.T).T + offset
 
 
 def stature(joints_world) -> float:
