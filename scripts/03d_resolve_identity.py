@@ -86,19 +86,20 @@ def main() -> None:
     cams = load_camera_track(args.play_dir / "cameras.npz")
     tracks_df = pd.read_parquet(args.play_dir / "tracks.parquet")
 
-    per_camera = {}
+    per_camera, stitch_maps = {}, {}
     for cam, path in vote_paths.items():
         if cams.get(cam) is None:
             raise SetupError(f"no {cam!r} camera in cameras.npz")
         saved = pickle.load(open(path, "rb"))
         votes = {int(k): collections.Counter(v)
                  for k, v in saved["votes"].items()}
-        identities, positions, _stitched = resolve_camera(
+        identities, positions, stitched = resolve_camera(
             cams[cam], tracks_df, cam, on_field, votes,
             team_by_track=saved.get("teams"), los_x=los_x, offense=offense,
             defense=defense, fps=fps,
             truncation_credit=args.truncation_credit)
         per_camera[cam] = (identities, positions)
+        stitch_maps[cam] = stitched
 
     merged, checks = resolve_play(per_camera)
     n_named, missing = coverage(merged, on_field)
@@ -131,7 +132,12 @@ def main() -> None:
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with open(args.out, "wb") as fh:
-        pickle.dump({"merged": merged, "checks": checks}, fh)
+        # The stitch map travels WITH the roster. Identities are keyed by
+        # stitched player id while every pose and detection cache downstream is
+        # keyed by the tracker's raw fragment id, so without this the renderer
+        # silently finds no identified players and draws everyone generic.
+        pickle.dump({"merged": merged, "checks": checks,
+                     "stitch": stitch_maps}, fh)
     _LOG.info("wrote %s", args.out)
 
 

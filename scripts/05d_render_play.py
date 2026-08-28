@@ -79,9 +79,18 @@ def main() -> None:
     _LOG.info("%d posed frames, %d..%d", len(frames), frames[0], frames[-1])
 
     track = load_camera_track(args.play_dir / "cameras.npz")[cam_name]
-    merged = pickle.load(open(args.identity, "rb"))["merged"]
-    player_of = {p.tracks[cam_name]: p for p in merged.values()
+    ident_blob = pickle.load(open(args.identity, "rb"))
+    merged = ident_blob["merged"]
+    # Identities are keyed by STITCHED player id; this cache is keyed by the
+    # tracker's raw fragment ids. Map every fragment of a player onto that
+    # player, or nothing here matches and every body is drawn generic.
+    stitched = (ident_blob.get("stitch") or {}).get(cam_name, {})
+    by_player = {p.tracks[cam_name]: p for p in merged.values()
                  if cam_name in p.tracks}
+    player_of = {frag: by_player[pid] for frag, pid in stitched.items()
+                 if pid in by_player}
+    for pid, p in by_player.items():          # unstitched ids map to themselves
+        player_of.setdefault(pid, p)
 
     # ---- gather each track's sequence ------------------------------------
     tracks: dict[int, list[int]] = {}

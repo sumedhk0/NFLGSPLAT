@@ -87,9 +87,18 @@ def main() -> None:
     if rows.empty:
         raise SetupError(f"no {args.cam} detections on frame {args.frame}")
 
-    merged = pickle.load(open(args.identity, "rb"))["merged"]
-    player_of = {p.tracks[args.cam]: p for p in merged.values()
+    ident_blob = pickle.load(open(args.identity, "rb"))
+    merged = ident_blob["merged"]
+    # Identities are keyed by STITCHED player id; this cache is keyed by the
+    # tracker's raw fragment ids. Map every fragment of a player onto that
+    # player, or nothing here matches and every body is drawn generic.
+    stitched = (ident_blob.get("stitch") or {}).get(args.cam, {})
+    by_player = {p.tracks[args.cam]: p for p in merged.values()
                  if args.cam in p.tracks}
+    player_of = {frag: by_player[pid] for frag, pid in stitched.items()
+                 if pid in by_player}
+    for pid, p in by_player.items():          # unstitched ids map to themselves
+        player_of.setdefault(pid, p)
     _LOG.info("%d identified players have a %s track", len(player_of), args.cam)
 
     image = None
