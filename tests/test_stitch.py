@@ -7,7 +7,7 @@ the joins.
 """
 from __future__ import annotations
 
-from nfl_gsplat.tracking.stitch import MAX_SPEED_M_S, stitch, track_endpoints
+from nfl_gsplat.tracking.stitch import stitch, track_endpoints
 
 FPS = 60.0
 

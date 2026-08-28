@@ -143,7 +143,7 @@ def split_by_team(colours, votes, on_field):
                      "colour is not separating these uniforms, so no team "
                      "constraint is applied", assignment)
         return {}
-    out = {t: assignment[int(l)] for t, l in zip(tracks, labels)
-           if int(l) in assignment}
+    out = {t: assignment[int(lab)] for t, lab in zip(tracks, labels)
+           if int(lab) in assignment}
     _LOG.info("team split: %s", collections.Counter(out.values()))
     return out

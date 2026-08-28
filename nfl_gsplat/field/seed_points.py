@@ -30,9 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-from nfl_gsplat.calibration.field_landmarks import (FIELD_LENGTH_M,
-                                                    FIELD_WIDTH_M,
-                                                    GOAL_LINE_X_M,
+from nfl_gsplat.calibration.field_landmarks import (GOAL_LINE_X_M,
                                                     HALF_LENGTH_M,
                                                     HALF_WIDTH_M,
                                                     HASH_OFFSET_M,

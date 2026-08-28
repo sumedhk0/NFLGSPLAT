@@ -1,9 +1,12 @@
 """Jersey OCR backend adapters + digit parsing. No OCR engine required:
 readers are plain callables returning [(text, conf), ...]."""
+import collections
+
 import numpy as np
 import pytest
 
 from nfl_gsplat.errors import SetupError
+from nfl_gsplat.identity.jersey_ocr import read_jerseys
 from nfl_gsplat.tracking import jersey_ocr as jo
 
 
@@ -12,24 +15,32 @@ def _crop():
 
 
 def test_ocr_crop_picks_highest_confidence_digits():
-    reader = lambda _c: [("58", 0.7), ("12", 0.9), ("3", 0.6)]
+    def reader(_c):
+        return [("58", 0.7), ("12", 0.9), ("3", 0.6)]
+
     assert jo._ocr_crop(reader, _crop(), min_conf=0.5) == 12
 
 
 def test_ocr_crop_rejects_below_min_conf():
-    reader = lambda _c: [("58", 0.3)]
+    def reader(_c):
+        return [("58", 0.3)]
+
     assert jo._ocr_crop(reader, _crop(), min_conf=0.5) is None
 
 
 def test_ocr_crop_rejects_non_two_digit_text():
     # 3+ digits (e.g. a scoreboard number) and pure letters are not jerseys
-    reader = lambda _c: [("123", 0.99), ("ABC", 0.99)]
+    def reader(_c):
+        return [("123", 0.99), ("ABC", 0.99)]
+
     assert jo._ocr_crop(reader, _crop(), min_conf=0.5) is None
 
 
 def test_ocr_crop_strips_surrounding_noise():
     # OCR often returns the number glued to stray glyphs
-    reader = lambda _c: [("#58", 0.9)]
+    def reader(_c):
+        return [("#58", 0.9)]
+
     assert jo._ocr_crop(reader, _crop(), min_conf=0.5) == 58
 
 
@@ -84,12 +95,6 @@ def test_auto_backend_uses_first_importable(monkeypatch):
 # zoomed ~10x tighter than the sideline and read jerseys 5-10x better on the same
 # play. A floor tuned for one feed silently discards the other's evidence, so
 # these are parameters and these tests hold them to it.
-
-import collections
-
-import numpy as np
-
-from nfl_gsplat.identity.jersey_ocr import read_jerseys
 
 
 class _StubReader:

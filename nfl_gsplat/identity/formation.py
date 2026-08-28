@@ -175,7 +175,6 @@ def assign_offense_roles(xy, personnel, los_x: float, *, driving: float = +1.0):
     # Along the line, order by cross-field position: T G C G T outward from the
     # centre, which is what "inside" and "outside" mean.
     on_line.sort(key=lambda i: xy[i, 1])
-    mid = len(on_line) // 2
     labels = (["T"] * (want["T"] // 2) + ["G"] * (want["G"] // 2) + ["C"] * want["C"]
               + ["G"] * (want["G"] - want["G"] // 2) + ["T"] * (want["T"] - want["T"] // 2))
     for i, label in zip(on_line, labels[:len(on_line)]):

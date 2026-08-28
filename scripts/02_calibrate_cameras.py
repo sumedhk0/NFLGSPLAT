@@ -39,7 +39,9 @@ app = typer.Typer(add_completion=False, help=__doc__)
 
 @app.command()
 def main(
-    play_dir: Path = typer.Option(..., help="path to the play folder, e.g. data/2024/week_01/NO_at_ATL/play_001"),
+    play_dir: Path = typer.Option(
+        ..., help="path to the play folder, "
+                  "e.g. data/2024/week_01/NO_at_ATL/play_001"),
     camera: list[str] = typer.Option(["sideline", "endzone"], "-c", "--camera"),
     keyframe: list[int] = typer.Option([0], "--keyframe", help="frame index(es) to annotate as anchors"),
 ) -> None:

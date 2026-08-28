@@ -56,11 +56,16 @@ def test_identity_correspondences_joins_on_uid():
     p_a = np.array([[-10.0, 4.0, 0.0]]); p_b = np.array([[-15.0, -6.0, 0.0]])
     ua = project_points(p_a, K, R, t)[0]; ub = project_points(p_b, K, R, t)[0]
     recs = [
-        {"frame": 0, "cam": "sideline", "player_uid": "2025_A_58", "foot_u": ua[0], "foot_v": ua[1], "conf": 1},
-        {"frame": 0, "cam": "sideline", "player_uid": "2025_A_20", "foot_u": ub[0], "foot_v": ub[1], "conf": 1},
-        {"frame": 0, "cam": "endzone",  "player_uid": "2025_A_58", "foot_u": 800.0, "foot_v": 500.0, "conf": 1},
-        {"frame": 0, "cam": "endzone",  "player_uid": "2025_A_20", "foot_u": 900.0, "foot_v": 520.0, "conf": 1},
-        {"frame": 0, "cam": "endzone",  "player_uid": "",          "foot_u": 10.0,  "foot_v": 10.0,  "conf": 1},  # OTHER: excluded
+        {"frame": 0, "cam": "sideline", "player_uid": "2025_A_58",
+         "foot_u": ua[0], "foot_v": ua[1], "conf": 1},
+        {"frame": 0, "cam": "sideline", "player_uid": "2025_A_20",
+         "foot_u": ub[0], "foot_v": ub[1], "conf": 1},
+        {"frame": 0, "cam": "endzone",  "player_uid": "2025_A_58",
+         "foot_u": 800.0, "foot_v": 500.0, "conf": 1},
+        {"frame": 0, "cam": "endzone",  "player_uid": "2025_A_20",
+         "foot_u": 900.0, "foot_v": 520.0, "conf": 1},
+        {"frame": 0, "cam": "endzone",  "player_uid": "",
+         "foot_u": 10.0,  "foot_v": 10.0,  "conf": 1},   # OTHER: excluded
     ]
     from nfl_gsplat.calibration.endzone_identity import identity_correspondences
     corr = identity_correspondences(_rows(recs), sl, smooth_window=1)
@@ -105,7 +110,8 @@ def test_excludes_non_players_and_requires_both_cams():
     from nfl_gsplat.calibration.endzone_identity import identity_correspondences
     sl = _sideline_track([-3.6, 80.0, 36.0], [0, 0, 0], n_frames=1)
     recs = [
-        {"frame": 0, "cam": "sideline", "player_uid": "2025_A_58", "foot_u": 960.0, "foot_v": 540.0, "conf": 1},
+        {"frame": 0, "cam": "sideline", "player_uid": "2025_A_58",
+         "foot_u": 960.0, "foot_v": 540.0, "conf": 1},
         {"frame": 0, "cam": "endzone",  "player_uid": "__referee__", "foot_u": 5.0, "foot_v": 5.0, "conf": 1},
     ]
     # #58 only seen in sideline; referee only in endzone -> no correspondences

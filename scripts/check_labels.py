@@ -44,7 +44,9 @@ def main():
     ap = argparse.ArgumentParser(description="Validate hand-labeled landmarks via homography + overlay")
     ap.add_argument("labels", help="labels.json from label_landmarks.py")
     ap.add_argument("frames_dir", help="directory with the labeled frame PNGs")
-    ap.add_argument("--out-dir", default=None, help="where to write overlays (default: <frames_dir>/../check)")
+    ap.add_argument("--out-dir", default=None,
+                    help="where to write overlays "
+                         "(default: <frames_dir>/../check)")
     args = ap.parse_args()
 
     frames_dir = Path(args.frames_dir)

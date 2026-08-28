@@ -164,7 +164,8 @@ def associate(focal, rot, centre, world_xs, dets, *, cx, cy, tol_px=70.0,
                         for i, ln in enumerate(dets))
         if not scored or scored[0][0] >= tol_px:
             continue
-        if require_unambiguous and len(scored) > 1                 and scored[1][0] <= ratio * scored[0][0] + margin:
+        if (require_unambiguous and len(scored) > 1
+                and scored[1][0] <= ratio * scored[0][0] + margin):
             continue
         claimed.setdefault(scored[0][1], []).append(float(world_x))
     # A detection claimed by TWO world lines identifies neither. This cannot

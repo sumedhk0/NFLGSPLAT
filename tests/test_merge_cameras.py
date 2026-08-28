@@ -4,8 +4,9 @@ import pytest
 
 from nfl_gsplat.errors import CalibrationError
 from nfl_gsplat.identity.jersey_vote import TrackIdentity
-from nfl_gsplat.identity.merge_cameras import (PlayerIdentity, correspondence,
-                                               coverage, merge)
+from nfl_gsplat.identity.merge_cameras import (check_separation,
+                                               correspondence, coverage,
+                                               drop_contradicted, merge)
 
 
 def ident(track_id, jersey, player="Someone", team="ARI", height=1.9, votes=10):
@@ -87,10 +88,6 @@ def test_empty_merge_is_empty_not_an_error():
 # Agreement on a jersey number is not proof the two tracks are one player.
 # These cover the case that actually bit: 11 m and 16 m apart on play_001.
 
-from nfl_gsplat.identity.merge_cameras import (check_separation,
-                                               drop_contradicted)
-
-
 def walk(track, x0, y0, n=40, dx=0.0):
     return {track: {f: (x0 + dx * f, y0) for f in range(n)}}
 
@@ -169,8 +166,6 @@ def test_weight_survives_the_merge_and_the_repair():
     """Shape fitting needs height AND weight; an identity carrying one is half
     an answer, and the failure would be silent -- every lineman rendered at a
     safety's build."""
-    from nfl_gsplat.identity.merge_cameras import (check_separation,
-                                                   drop_contradicted)
     a = TrackIdentity(track_id=1, jersey=85, player="McBride", team="ARI",
                       height_m=1.93, votes=4, margin=3.0, weight_lb=245.0)
     b = TrackIdentity(track_id=7, jersey=85, player="McBride", team="ARI",

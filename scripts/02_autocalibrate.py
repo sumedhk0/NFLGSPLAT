@@ -79,7 +79,8 @@ def main(play_dir: Path = typer.Option(..., "--play-dir"),
                                         help="'hint' (default), 'learned' (requires --model-ckpt), "
                                              "or 'pretrained' (requires --roboflow-kps)."),
          model_ckpt: Optional[Path] = typer.Option(None, "--model-ckpt",
-                                                    help="Path to LandmarkNet checkpoint (learned mode only)."),
+                                                    help="Path to LandmarkNet "
+                                                         "checkpoint (learned mode only)."),
          yard_min: float = typer.Option(-25.0, "--yard-min",
                                         help="World-X lower bound for landmark schema (learned mode)."),
          yard_max: float = typer.Option(25.0, "--yard-max",

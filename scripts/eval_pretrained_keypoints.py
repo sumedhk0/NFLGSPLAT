@@ -132,7 +132,9 @@ def main():
                     help="include the model's (unreliable) sideline keypoints in the fit")
     args = ap.parse_args()
     if not args.api_key:
-        raise SystemExit("Set ROBOFLOW_API_KEY (free at roboflow.com → Settings → API Keys) or pass --api-key")
+        raise SystemExit(
+            "Set ROBOFLOW_API_KEY (free at roboflow.com → Settings → "
+            "API Keys) or pass --api-key")
 
     from inference_sdk import InferenceHTTPClient
     client = InferenceHTTPClient(api_url=args.api_url, api_key=args.api_key)

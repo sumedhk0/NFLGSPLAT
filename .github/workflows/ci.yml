@@ -66,8 +66,11 @@ jobs:
           python-version: "3.11"
           cache: pip
 
+      # PINNED. Unpinned, this job adopts whatever ruff shipped that morning,
+      # and a linter release turns into a red build on a commit that never
+      # touched the code. Bump it deliberately, together with the diff it causes.
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.16.2
 
       - name: Lint
         run: ruff check nfl_gsplat tests scripts

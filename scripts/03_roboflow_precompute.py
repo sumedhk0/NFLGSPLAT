@@ -57,7 +57,8 @@ def main():
     try:
         from inference_sdk import InferenceHTTPClient
         client = InferenceHTTPClient(api_url=args.api_url, api_key=args.api_key)
-        _infer_one = lambda path: client.infer(path, model_id=args.model_id)
+        def _infer_one(path):
+            return client.infer(path, model_id=args.model_id)
     except ImportError:
         import base64
 

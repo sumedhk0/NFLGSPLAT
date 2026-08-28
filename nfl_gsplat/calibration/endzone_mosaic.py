@@ -16,6 +16,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
 from nfl_gsplat.errors import CalibrationError
 from nfl_gsplat.utils.logging import get_logger
 
@@ -248,9 +249,6 @@ def accumulate_field_paint(frames, H_by_frame, boxes_by_frame, *, ref_shape,
     min_support = max(2.0, 0.2 * n_contributing)
     ratio = np.divide(votes, seen, out=np.zeros_like(votes), where=seen > 0)
     return np.where(seen >= min_support, ratio, 0.0).astype(np.float32)
-
-
-from nfl_gsplat.calibration.field_landmarks import HASH_OFFSET_M
 
 
 def _refine_reference_camera(world, uv, K, R, t, line_constraints=None):

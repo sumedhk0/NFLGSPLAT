@@ -359,7 +359,10 @@ def _smplestx_forward(model, crops: np.ndarray, bboxes: np.ndarray,
         body_pose = out["smplx_body_pose"].detach().cpu().numpy()
         shape = out["smplx_shape"].detach().cpu().numpy()
         cam_trans = out["cam_trans"].detach().cpu().numpy()
-        joint_proj = out["smplx_joint_proj"].detach().cpu().numpy()   # patch space
+        # smplx_joint_proj is deliberately NOT read: it comes back in output
+        # HEATMAP units, and unwinding it through inv_trans is the wrong route
+        # this code once took (see the note below). Keeping it bound invited
+        # someone to reuse it.
         joint_cam = out["smplx_joint_cam"].detach().cpu().numpy()
 
         for i in range(len(batch_crops)):

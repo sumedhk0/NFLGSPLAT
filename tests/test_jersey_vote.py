@@ -10,7 +10,9 @@ import collections
 
 import pandas as pd
 
-from nfl_gsplat.identity.jersey_vote import (assign, restrict_to_known, tally)
+from nfl_gsplat.identity.jersey_vote import (assign, credit_truncations,
+                                            is_truncation_of,
+                                            restrict_to_known, tally)
 
 
 def _on_field():
@@ -174,10 +176,6 @@ def test_ambiguous_alignment_still_lets_a_read_track_win():
 # candidates are digit-related 24% (sideline) and 36% (endzone) of the time,
 # against 6% for random pairs of the jerseys on the field. The confusions are
 # what truncation predicts -- 14 vs 4, 85 vs 8, 13 vs 1, 70 vs 0.
-
-from nfl_gsplat.identity.jersey_vote import (credit_truncations,
-                                             is_truncation_of)
-
 
 def test_truncation_is_recognised_at_both_ends():
     assert is_truncation_of(4, 14)      # dropped LEADING digit

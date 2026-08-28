@@ -68,8 +68,8 @@ def test_ply_is_readable_and_matches_the_point_count(tmp_path):
     out = write_seed_ply(tmp_path / "field_seed.ply", 1.0)
     raw = out.read_bytes()
     head, _, payload = raw.partition(b"end_header\n")
-    declared = int([l.split()[-1] for l in head.split(b"\n")
-                    if l.startswith(b"element vertex")][0])
+    declared = int([line.split()[-1] for line in head.split(b"\n")
+                    if line.startswith(b"element vertex")][0])
     assert declared > 0
     assert len(payload) == declared * (3 * 4 + 3), "payload size disagrees with the header"
     assert b"property uchar red" in head, "nerfstudio expects uint8 colour"
