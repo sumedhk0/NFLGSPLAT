@@ -138,3 +138,32 @@ def test_a_shared_position_group_still_needs_votes():
     votes = {5: collections.Counter()}
     got = assign(votes, on, position_of_track={5: "WR"})
     assert got == [], "a track with no votes was assigned to one of several WRs"
+
+
+# --- the sole-candidate rule must be injective --------------------------------
+# Alignment alone is DECISIVE only when exactly one player on the field plays a
+# spot AND exactly one track claims it. Measured on play_001's sideline, tracks
+# 15 and 5 BOTH voted tight end (37/45 and 26/35 frames) while Arizona fielded
+# one; the rule fired anyway and let the assignment solver break the tie with no
+# evidence, on zero jersey votes.
+
+def test_two_tracks_claiming_one_sole_position_get_no_free_identity():
+    """Ambiguous alignment must fall back to the vote thresholds, not guess."""
+    votes = {10: collections.Counter(), 11: collections.Counter()}
+    got = assign(votes, _on_field(),
+                 position_of_track={10: "QB", 11: "QB"})
+    assert got == []
+
+
+def test_one_track_claiming_a_sole_position_still_wins_on_alignment():
+    """The rule's real case is preserved: one quarterback, one claimant."""
+    votes = {10: collections.Counter()}
+    got = assign(votes, _on_field(), position_of_track={10: "QB"})
+    assert [(t.track_id, t.jersey) for t in got] == [(10, 1)]
+
+
+def test_ambiguous_alignment_still_lets_a_read_track_win():
+    """Losing the free identity must not lose an EARNED one."""
+    votes = {10: collections.Counter({1: 9}), 11: collections.Counter()}
+    got = assign(votes, _on_field(), position_of_track={10: "QB", 11: "QB"})
+    assert [(t.track_id, t.jersey) for t in got] == [(10, 1)]

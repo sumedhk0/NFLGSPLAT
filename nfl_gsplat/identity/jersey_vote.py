@@ -145,6 +145,22 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
     teams = [str(t) for t in on_field["team"]]
     groups = [POSITION_GROUP.get(str(p).upper(), str(p).upper())
               for p in on_field["position"]]
+
+    # How many TRACKS claim each position group. The sole-candidate rule below
+    # needs this as well as the roster count: "only one man plays tight end"
+    # identifies nobody if two tracks both look like the tight end. Measured on
+    # play_001's sideline, tracks 15 and 5 both voted TE across 37/45 and 26/35
+    # pre-snap frames while Arizona fielded one, and the rule fired anyway --
+    # handing a zero-vote identity to whichever the solver happened to pick.
+    claimants: collections.Counter = collections.Counter()
+    if position_of_track is not None:
+        for track_id in tracks:
+            pos = position_of_track.get(track_id)
+            if pos is None:
+                continue
+            group = POSITION_GROUP.get(str(pos).upper())
+            if group is not None:
+                claimants[group] += 1
     cost = np.zeros((len(tracks), len(jerseys)))
     blocked = 0
     for i, track_id in enumerate(tracks):
@@ -192,7 +208,11 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
         if this_pos is not None:
             want = POSITION_GROUP.get(str(this_pos).upper())
             if want is not None and groups[j] == want:
-                sole_candidate = sum(1 for g in groups if g == want) == 1
+                # BOTH sides must be unique: one player on the field plays this
+                # spot, and one track claims it. Either alone is not an
+                # identification.
+                sole_candidate = (sum(1 for g in groups if g == want) == 1
+                                  and claimants[want] == 1)
         if sole_candidate:
             out.append(TrackIdentity(
                 track_id=int(track_id), jersey=int(jersey),
