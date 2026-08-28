@@ -44,6 +44,9 @@ def main() -> None:
                     help="sample every Nth VERIFIED frame")
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--end", type=int, default=10**9)
+    ap.add_argument("--match-frames", type=Path, default=None,
+                    help="restrict to frames already present in another pose "
+                         "cache, so the two cameras can be fused")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args()
 
@@ -58,14 +61,27 @@ def main() -> None:
     conf = np.asarray(track.conf)
     verified = [int(f) for f in np.flatnonzero(conf > 0)
                 if args.start <= f < args.end]
-    wanted = set(verified[::max(1, args.stride)])
+    if args.match_frames is not None:
+        # Fusing two views needs the SAME instants in both, and the two cameras
+        # verify on different frames -- 816 sideline against 473 endzone, with
+        # 364 in common. Striding each feed independently would land on almost
+        # no shared frames, so the second camera follows the first's list.
+        other = pickle.load(open(args.match_frames, "rb"))["frames"]
+        wanted = set(verified) & set(int(f) for f in other)
+        _LOG.info("%d verified frames; %d also posed in %s",
+                  len(verified), len(wanted), args.match_frames.name)
+    else:
+        wanted = set(verified[::max(1, args.stride)])
+        _LOG.info("%d verified frames in range; posing %d of them at stride %d",
+                  len(verified), len(wanted), args.stride)
     if not wanted:
         raise SetupError(
-            f"no verified {args.cam!r} frames in [{args.start}, {args.end}) "
-            f"at stride {args.stride}. Verified frames run "
-            f"{int(np.flatnonzero(conf > 0).min())}..{int(np.flatnonzero(conf > 0).max())}.")
-    _LOG.info("%d verified frames in range; posing %d of them at stride %d",
-              len(verified), len(wanted), args.stride)
+            f"no {args.cam!r} frames to pose in [{args.start}, {args.end}). "
+            f"Verified frames run "
+            f"{int(np.flatnonzero(conf > 0).min())}..{int(np.flatnonzero(conf > 0).max())}"
+            + (f", and none of them appear in {args.match_frames}."
+               if args.match_frames is not None
+               else f" and stride is {args.stride}."))
 
     df = pd.read_parquet(play / "tracks.parquet")
     df = df[(df["cam"] == args.cam) & (df["track_id"] >= 0)

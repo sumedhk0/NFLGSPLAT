@@ -167,3 +167,62 @@ def test_ambiguous_alignment_still_lets_a_read_track_win():
     votes = {10: collections.Counter({1: 9}), 11: collections.Counter()}
     got = assign(votes, _on_field(), position_of_track={10: "QB", 11: "QB"})
     assert [(t.track_id, t.jersey) for t in got] == [(10, 1)]
+
+
+# --- OCR drops digits, it rarely invents them ---------------------------------
+# Measured on play_001: among tracks with a contested read, the top two
+# candidates are digit-related 24% (sideline) and 36% (endzone) of the time,
+# against 6% for random pairs of the jerseys on the field. The confusions are
+# what truncation predicts -- 14 vs 4, 85 vs 8, 13 vs 1, 70 vs 0.
+
+from nfl_gsplat.identity.jersey_vote import (credit_truncations,
+                                             is_truncation_of)
+
+
+def test_truncation_is_recognised_at_both_ends():
+    assert is_truncation_of(4, 14)      # dropped LEADING digit
+    assert is_truncation_of(8, 85)      # dropped TRAILING digit
+    assert is_truncation_of(0, 70)
+    assert is_truncation_of(1, 13)
+
+
+def test_a_number_is_not_a_truncation_of_itself_or_of_a_shorter_one():
+    assert not is_truncation_of(14, 14)
+    assert not is_truncation_of(14, 4)      # inventing a digit, not dropping
+    assert not is_truncation_of(5, 14)      # unrelated digits
+
+
+def test_short_reads_credit_the_longer_jersey():
+    """The contest that motivated this: #14 read 53 times, #4 read 36."""
+    votes = collections.Counter({14: 53, 4: 36})
+    out = credit_truncations(votes, [14, 4, 20], weight=1.0)
+    assert out[14] == 53 + 36
+    assert out[4] == 36          # the short read stays, it may simply be right
+
+
+def test_credit_never_goes_to_a_jersey_nobody_wears():
+    votes = collections.Counter({4: 30})
+    out = credit_truncations(votes, [4, 20, 21], weight=1.0)
+    assert set(out) == {4}       # 14 is not on the field, so it gets nothing
+
+
+def test_zero_weight_changes_nothing():
+    votes = collections.Counter({14: 53, 4: 36})
+    assert credit_truncations(votes, [14, 4], weight=0.0) == votes
+
+
+def test_credited_votes_win_a_contest_the_margin_rule_would_have_lost():
+    """#14 took 53 against 36 -- a ratio of 1.47, just under MIN_MARGIN."""
+    on_field = pd.DataFrame({
+        "team": ["ARI", "ARI"],
+        "jersey_number": [14.0, 4.0],
+        "full_name": ["Michael Wilson", "Greg Dortch"],
+        "position": ["WR", "WR"],
+        "height_m": [1.91, 1.70],
+        "weight": [200.0, 173.0],
+    })
+    raw = {7: collections.Counter({14: 53, 4: 36})}
+    assert assign(raw, on_field) == []          # margin 1.47 < 1.5, refused
+    credited = {7: credit_truncations(raw[7], [14, 4], weight=1.0)}
+    got = assign(credited, on_field)
+    assert [(t.track_id, t.jersey) for t in got] == [(7, 14)]

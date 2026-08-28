@@ -108,6 +108,67 @@ def row_team(on_field, jersey):
     return on_field[on_field["jersey_number"] == jersey].iloc[0]["team"]
 
 
+# How much a read of a SHORTER number counts as evidence for a longer jersey it
+# could be a truncation of. OCR drops a digit far more readily than it invents
+# one, so "4" is real evidence for #14 while "14" is barely evidence for #4.
+#
+# The mechanism was measured before it was modelled. Among tracks with a
+# contested read, the top two candidates are digit-related in 24% of sideline
+# tracks and 36% of endzone ones, against 6% for random pairs of the jerseys
+# actually on the field -- a four- to sixfold enrichment. The confusions are
+# exactly what truncation predicts: 14 against 4, 85 against 8, 13 against 1,
+# 70 against 0.
+#
+# The weight was then swept against the one check that never sees a jersey
+# pixel -- whether the two cameras place a named player in the same spot:
+#
+#     weight   named   verified   contradicted
+#       0.0      17        2           3
+#       0.5      17        3           2
+#       1.0      16        4           1
+#
+# Full credit names one FEWER player but doubles the independently verified
+# ones and removes two thirds of the contradictions, which is the trade this
+# module already takes everywhere else: a wrong identity is worse than a
+# missing one. It recovers #70, who was missing entirely and then verified
+# geometrically, and it drops #8, whose two cameras disagreed by 16.5 m.
+#
+# Honest limit: the DIRECTION rests on the enrichment measurement and a
+# understood failure mode, but this exact value is fitted on one play with only
+# four testable pairs. Treat it as a knob, not a constant of nature.
+TRUNCATION_CREDIT: float = 1.0
+
+
+def is_truncation_of(short_jersey, long_jersey) -> bool:
+    """True when ``short_jersey``'s digits are a prefix or suffix of the other.
+
+    Both ends matter: a dropped leading digit turns 14 into 4, a dropped
+    trailing one turns 85 into 8, and both were observed on play_001.
+    """
+    short_s, long_s = str(int(short_jersey)), str(int(long_jersey))
+    if len(short_s) >= len(long_s):
+        return False
+    return long_s.startswith(short_s) or long_s.endswith(short_s)
+
+
+def credit_truncations(counter, jerseys, weight: float = TRUNCATION_CREDIT):
+    """Add truncated reads to the longer jerseys they could have come from.
+
+    ``jerseys`` is the set actually on the field, so credit is never given to a
+    number nobody is wearing. Returns a new counter; the original reads are
+    kept, because the short number may simply be correct.
+    """
+    if weight <= 0:
+        return collections.Counter(counter)
+    out = collections.Counter(counter)
+    for long_j in {int(j) for j in jerseys}:
+        extra = sum(n for short_j, n in counter.items()
+                    if is_truncation_of(short_j, long_j))
+        if extra:
+            out[long_j] = out.get(long_j, 0) + weight * extra
+    return out
+
+
 def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
            min_margin: float = MIN_MARGIN,
            team_of_track=None, position_of_track=None,
