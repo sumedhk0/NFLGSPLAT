@@ -239,3 +239,89 @@ def drop_contradicted(merged, checks, votes_win_by: int = 3):
                      "winner: %s", len(dropped),
                      ", ".join(f"#{j}" for j in sorted(dropped)))
     return out
+
+
+# An absolute distance threshold cannot verify a pairing once placement error
+# approaches the spacing between players, and on play_001 it has: the cameras
+# disagree by 2.9 m about where a named player stands while players line up
+# 1-2 m apart. At MAX_SEPARATION_M = 4.0 every pair passes, including two later
+# shown to be different people. The threshold was calibrated when nothing better
+# existed; it is a floor against absurdity, not evidence.
+#
+# RANK is the test that still works. Asking "is the claimed partner the NEAREST
+# track in the other camera, out of all of them?" is scale-free: it survives a
+# large common placement error, because that error moves every candidate
+# together. Measured on play_001 it separated cleanly where distance did not --
+# the two identities geometry later refuted ranked 24th of 28 and 26th of 28,
+# while the ones it confirmed ranked 1st.
+MAX_RANK_TO_CONFIRM: int = 1
+
+
+@dataclass(frozen=True)
+class RankCheck:
+    jersey: int
+    rank: int | None            # 1 = the claimed partner is the nearest
+    n_candidates: int
+    n_frames: int
+
+    @property
+    def testable(self) -> bool:
+        return self.rank is not None
+
+    @property
+    def confirmed(self) -> bool:
+        return self.testable and self.rank <= MAX_RANK_TO_CONFIRM
+
+    @property
+    def refuted(self) -> bool:
+        """Not merely 'not confirmed' -- clearly beaten by other candidates.
+
+        A pair ranked 2nd of 20 is ambiguous; one ranked 24th of 28 is wrong.
+        Leaving the middle unjudged keeps the verdict honest.
+        """
+        return self.testable and self.rank > max(3, self.n_candidates // 4)
+
+
+def check_rank(merged, positions, cam_a: str, cam_b: str, *,
+               min_shared_frames: int = MIN_SHARED_FRAMES):
+    """Rank each claimed partner against every other track in the other camera.
+
+    ``positions`` is ``{camera: {track: {frame: (x, y)}}}`` in field metres.
+    Returns ``{jersey: RankCheck}``.
+    """
+    import numpy as np
+
+    def median_gap(pa, pb):
+        shared = sorted(set(pa) & set(pb))
+        if len(shared) < min_shared_frames:
+            return None
+        return float(np.median([
+            float(np.hypot(*(np.asarray(pa[f]) - np.asarray(pb[f]))))
+            for f in shared]))
+
+    out: dict[int, RankCheck] = {}
+    for jersey, player in merged.items():
+        if cam_a not in player.tracks or cam_b not in player.tracks:
+            continue
+        pa = positions.get(cam_a, {}).get(player.tracks[cam_a], {})
+        claimed = player.tracks[cam_b]
+        gaps = []
+        for track_id, pb in positions.get(cam_b, {}).items():
+            gap = median_gap(pa, pb)
+            if gap is not None:
+                gaps.append((gap, track_id))
+        own = [g for g, t in gaps if t == claimed]
+        if not own:
+            out[jersey] = RankCheck(jersey, None, len(gaps), 0)
+            continue
+        gaps.sort()
+        rank = [t for _g, t in gaps].index(claimed) + 1
+        shared = len(set(pa) & set(positions[cam_b][claimed]))
+        out[jersey] = RankCheck(jersey, rank, len(gaps), shared)
+
+    confirmed = sum(1 for c in out.values() if c.confirmed)
+    refuted = sum(1 for c in out.values() if c.refuted)
+    _LOG.info("cross-camera rank: %d confirmed as nearest, %d refuted, "
+              "%d untestable", confirmed, refuted,
+              sum(1 for c in out.values() if not c.testable))
+    return out

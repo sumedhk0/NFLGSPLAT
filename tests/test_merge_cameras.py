@@ -4,7 +4,7 @@ import pytest
 
 from nfl_gsplat.errors import CalibrationError
 from nfl_gsplat.identity.jersey_vote import TrackIdentity
-from nfl_gsplat.identity.merge_cameras import (check_separation,
+from nfl_gsplat.identity.merge_cameras import (check_rank, check_separation,
                                                correspondence, coverage,
                                                drop_contradicted, merge)
 
@@ -175,3 +175,75 @@ def test_weight_survives_the_merge_and_the_repair():
     checks = check_separation(merged, two_cams(0, 0, 16.0, 0),
                               "sideline", "endzone")
     assert drop_contradicted(merged, checks)[85].weight_lb == 245.0
+
+
+# --- rank beats distance once placement error exceeds player spacing ----------
+# On play_001 the cameras disagree by 2.9 m about where a NAMED player stands,
+# while players line up 1-2 m apart. At MAX_SEPARATION_M = 4.0 every pair passes,
+# including two later shown to be different people. Rank survives that, because a
+# common placement error moves every candidate together.
+
+def _walk(x0, y0, n=40):
+    return {f: (x0, y0) for f in range(n)}
+
+
+def _merged_pair(track_b=7):
+    return merge({
+        "sideline": [ident(1, 85, "McBride")],
+        "endzone": [ident(track_b, 85, "McBride")],
+    })
+
+
+def test_the_nearest_partner_is_confirmed_even_when_far_away():
+    """A large SHARED offset must not defeat the check -- that is the point."""
+    pos = {
+        "sideline": {1: _walk(0.0, 0.0)},
+        # every endzone track is ~9 m away; the claimed one is nearest of them
+        "endzone": {7: _walk(9.0, 0.0), 8: _walk(11.0, 0.0), 9: _walk(13.0, 0.0)},
+    }
+    checks = check_rank(_merged_pair(), pos, "sideline", "endzone")
+    assert checks[85].rank == 1
+    assert checks[85].confirmed
+    assert not checks[85].refuted
+
+
+def test_a_partner_beaten_by_many_others_is_refuted():
+    """The #8 case: claimed partner ranked 26th of 28."""
+    pos = {"sideline": {1: _walk(0.0, 0.0)},
+           "endzone": {7: _walk(30.0, 0.0)}}
+    for k in range(2, 24):                       # 22 nearer candidates
+        pos["endzone"][100 + k] = _walk(float(k), 0.0)
+    checks = check_rank(_merged_pair(), pos, "sideline", "endzone")
+    assert checks[85].rank == len(pos["endzone"])
+    assert checks[85].refuted
+    assert not checks[85].confirmed
+
+
+def test_a_middling_rank_is_neither_confirmed_nor_refuted():
+    """2nd of 20 is ambiguous; judging it either way would be dishonest."""
+    pos = {"sideline": {1: _walk(0.0, 0.0)},
+           "endzone": {7: _walk(2.0, 0.0), 8: _walk(1.0, 0.0)}}
+    for k in range(18):
+        pos["endzone"][200 + k] = _walk(50.0 + k, 0.0)
+    checks = check_rank(_merged_pair(), pos, "sideline", "endzone")
+    assert checks[85].rank == 2
+    assert not checks[85].confirmed
+    assert not checks[85].refuted
+
+
+def test_too_few_shared_frames_is_untestable():
+    pos = {"sideline": {1: _walk(0.0, 0.0, n=5)},
+           "endzone": {7: _walk(0.5, 0.0, n=5)}}
+    checks = check_rank(_merged_pair(), pos, "sideline", "endzone")
+    assert not checks[85].testable
+    assert not checks[85].confirmed and not checks[85].refuted
+
+
+def test_rank_ignores_a_shared_offset_that_distance_would_flag():
+    """Distance and rank disagree exactly where distance is untrustworthy."""
+    from nfl_gsplat.identity.merge_cameras import check_separation
+    pos = {"sideline": {1: _walk(0.0, 0.0)},
+           "endzone": {7: _walk(9.0, 0.0), 8: _walk(20.0, 0.0)}}
+    merged = _merged_pair()
+    assert check_separation(merged, pos, "sideline", "endzone")[85].contradicted
+    assert check_rank(merged, pos, "sideline", "endzone")[85].confirmed
