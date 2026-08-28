@@ -392,3 +392,35 @@ so they float on the chain from a garbage initialisation.
 **The fix is to propagate through a chain of consecutive homographies rather
 than direct-to-reference**, giving the bundle a sane starting point where it
 currently gets one that points off the planet.
+
+### Triangulation: wired up, running, and WRONG
+
+Both feeds re-posed with `joints2d` cached (364 shared frames, 6,467 endzone and
+8,027 sideline poses), and the two-view triangulation that has sat unused in the
+tree since the PACE work finally run on real data. It does not work yet.
+
+| | valid joints | reprojection | jitter | recovered stature | roster | error |
+|---|---|---|---|---|---|---|
+| #20 Love | 95% | 38.5 px | 0.11 m | **−1.31 m** | 1.80 m | −3.12 |
+| #58 Hall | 96% | 36.0 px | 0.11 m | **−1.40 m** | 1.91 m | −3.31 |
+| #70 Johnson | 96% | 36.2 px | 0.08 m | **−1.61 m** | 1.98 m | −3.59 |
+| #91 Murphy | 99% | 33.0 px | 0.07 m | **−1.37 m** | 1.83 m | −3.20 |
+
+The recovered skeletons are UPSIDE DOWN — the head lands below the ankles — and
+the stature error is a consistent −3.25 m with only 0.18 m of spread across four
+players. An error that tight and that systematic is a coordinate-convention bug
+in the driver, not noise and not a data limitation. The 33-38 px reprojection
+says the solve is not converging either.
+
+At the default 20 px gate only 7-13% of joints survive, at 4.5 px. That looked
+like a clean result and is a selection effect: it keeps the handful of joints
+where the two cameras happen to agree and discards the rest. Reporting the
+loosened gate alongside it is what made the real behaviour visible.
+
+The one encouraging number is jitter, 0.07-0.11 m against the endzone's 1.08 m
+foot-ray placement, which suggests the geometry is close once the convention is
+right.
+
+**The stature check earned its place immediately.** Reprojection error and joint
+validity both looked healthy at the default gate; only the comparison against a
+height known independently to the inch showed the reconstruction was inverted.
