@@ -48,6 +48,9 @@ def main() -> None:
                     help="restrict to frames already present in another pose "
                          "cache, so the two cameras can be fused")
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--no-resume", dest="resume", action="store_false",
+                    help="ignore an existing checkpoint and pose every frame "
+                         "again (default: resume from it)")
     args = ap.parse_args()
 
     import cv2
@@ -89,6 +92,37 @@ def main() -> None:
 
     cfg = SMPLestXConfig()
     cache: dict[int, dict[int, dict]] = {}
+    # RESUME. This run checkpoints every batch precisely because it is long, but
+    # writing a checkpoint nobody reads is half a feature: an interruption still
+    # cost the whole run. Frames already in the file are skipped, so a restart
+    # picks up where it stopped.
+    if args.resume and args.out.exists():
+        try:
+            prior = pickle.load(open(args.out, "rb"))
+        except Exception as exc:  # noqa: BLE001 - see below
+            # A checkpoint written mid-flush is truncated, and pickle does not
+            # fail in one predictable way on those: a real truncated file here
+            # raised MemoryError, not EOFError or UnpicklingError, because the
+            # header promises a length the file does not contain. Catching the
+            # two obvious types would have let exactly the case this guard
+            # exists for crash the run. Any failure to read means start over.
+            _LOG.warning("checkpoint %s is unreadable (%s: %s); starting from "
+                         "scratch", args.out, type(exc).__name__, exc)
+            prior = None
+        if prior and prior.get("cam") == args.cam:
+            cache = {int(f): v for f, v in prior.get("frames", {}).items()}
+            done = set(cache) & wanted
+            wanted = wanted - done
+            _LOG.info("resuming: %d frames already cached, %d still to pose",
+                      len(done), len(wanted))
+            if not wanted:
+                _LOG.info("nothing left to do")
+                return
+        elif prior:
+            raise SetupError(
+                f"{args.out} holds {prior.get('cam')!r} frames but --cam is "
+                f"{args.cam!r}. Refusing to mix two cameras in one cache; "
+                "delete it or choose another --out.")
     pending_crops, pending_meta = [], []
     t0 = time.time()
     n_done = 0
