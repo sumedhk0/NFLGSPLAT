@@ -349,3 +349,46 @@ viewing rays.
 sideline is the placement instrument; the endzone is the identity instrument,
 where its tight zoom reads jerseys five to ten times better. Fusion should weight
 by measured precision rather than the assumed isotropic sigmas it ships with.
+
+### Why the back half of the play never verifies
+
+The endzone has a 449-frame unverified run (853-1301) and the sideline a
+270-frame one (1032-1301). Both cameras fail in the same place, which is a
+systematic cause rather than per-frame noise.
+
+A plausible story was that verification simply ran out of paint: the mosaic
+labelled 7 yard lines covering 36.6 m of a 109.7 m field, and ZERO verified
+frames in either camera look outside that span. **Measured, and it is wrong.**
+Extending the yard ladder does not recover a single downfield frame:
+
+| ladder | lines | verified | outside the labelled span | last verified frame |
+|---|---|---|---|---|
+| labelled span (current) | 9 | 473 | 0 | 852 |
+| extended 2 lines each way | 13 | **416** | 0 | 852 |
+
+Worse, and no reach gained. The real cause is upstream:
+
+| propagated frames | look-at X on the turf | inside labelled span |
+|---|---|---|
+| early (0-852) | −211 … 166 m | 86% |
+| late (853-1301) | **−25,656 … 28,006 m** | 13% |
+
+The late cameras point tens of kilometres off a 109.7 m field. Their optical
+axis is nearly parallel to the turf, so its intersection with z=0 runs away to
+infinity. Those frames are not unverifiable — **they are wrong, and verification
+is correctly rejecting them.**
+
+The mechanism is already written down one stage over, in `endzone_refine`:
+"registering everything onto a single distant reference is exactly what drifts
+once the camera has panned away from it." The refinement chain took that lesson;
+PROPAGATION did not. `register_dense_to_reference` still fits every frame
+directly onto frame 648, and by frame 853 the camera has panned so far that it
+shares almost no field of view with the reference.
+
+The bundle cannot rescue it. It does use consecutive homographies, but the late
+frames have no anchors — nothing associated, because their cameras are wrong —
+so they float on the chain from a garbage initialisation.
+
+**The fix is to propagate through a chain of consecutive homographies rather
+than direct-to-reference**, giving the bundle a sane starting point where it
+currently gets one that points off the planet.
