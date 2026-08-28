@@ -88,6 +88,33 @@ def smooth_param_sequence(
     return out
 
 
+def smooth_param_sequence_zero_phase(
+    params: np.ndarray,
+    cfg: OneEuroConfig,
+) -> np.ndarray:
+    """Smooth a ``[T, D]`` sequence with NO lag, by filtering in both directions.
+
+    Use this for anything OFFLINE, which is every recorded play. The 1-euro
+    filter is causal by design -- it exists for live input, where the future is
+    not available -- so on a recording it trails whatever it follows by an
+    amount that grows with speed. This project has already paid for that once:
+    the same filter applied to camera poses moved the endzone reference frame's
+    own camera, which is exact by construction, from 2.72 px of yard-line error
+    to 99.69 px, purely as pan lag. A lagging body lands behind where the player
+    actually was, and on a sprinting receiver that is metres.
+
+    Filtering forward and then over the reversed result cancels the phase shift,
+    because the two passes lag by the same amount in opposite directions. The
+    trade is that the magnitude response is applied twice, so the effective
+    smoothing is stronger than one pass at the same ``min_cutoff`` -- expect to
+    tune the cutoff UP, not down, when moving a stream over.
+    """
+    params = np.asarray(params, dtype=np.float64)
+    forward = smooth_param_sequence(params, cfg)
+    backward = smooth_param_sequence(forward[::-1], cfg)[::-1]
+    return np.ascontiguousarray(backward)
+
+
 def interpolate_short_gaps(
     values: np.ndarray,
     valid: np.ndarray,
