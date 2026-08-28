@@ -30,9 +30,14 @@ cache = pickle.load(open(CACHE, "rb"))["frames"]
 frame = sorted(cache)[len(cache) // 3]
 
 # SMPL-X body skeleton, for limbs that read as a person rather than a dot cloud.
-BONES = [(0, 1), (0, 2), (0, 3), (1, 4), (2, 5), (3, 6), (4, 7), (5, 8),
-         (6, 9), (7, 10), (8, 11), (9, 12), (12, 15), (12, 13), (12, 14),
-         (13, 16), (14, 17), (16, 18), (17, 19), (18, 20), (19, 21)]
+# SMPL-X body kinematic tree, joint -> parent, for joints 0..21. Getting this
+# wrong draws a tangle over correct joints, which is worse than useless: it
+# looks like broken data and hides the real thing this tool exists to show.
+# The collars hang off spine3 (9), NOT the neck (12).
+PARENT = {1: 0, 2: 0, 3: 0, 4: 1, 5: 2, 6: 3, 7: 4, 8: 5, 9: 6, 10: 7,
+          11: 8, 12: 9, 13: 9, 14: 9, 15: 12, 16: 13, 17: 14, 18: 16,
+          19: 17, 20: 18, 21: 19}
+BONES = [(child, parent) for child, parent in PARENT.items()]
 
 img = None
 for idx, rgb in iter_frames(PD_ + f"/{CAM}.mp4", stride=1):

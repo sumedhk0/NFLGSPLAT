@@ -382,7 +382,24 @@ def _smplestx_forward(model, crops: np.ndarray, bboxes: np.ndarray,
             fy = focal_cfg[1] / body_h * box[3]
             cx = princpt_cfg[0] / body_w * box[2] + box[0]
             cy = princpt_cfg[1] / body_h * box[3] + box[1]
-            abs_cam = joint_cam[i] + cam_trans[i][None, :]
+            # smplx_joint_cam comes back in SMPL-X's own Y-UP frame while the
+            # pinhole projection below is Y-DOWN like every image, so the JOINTS
+            # are flipped. cam_trans is already in the image convention and must
+            # NOT be: negating the sum moves the whole skeleton off the player.
+            #
+            # Scored against cached outputs rather than reasoned about, by the
+            # fraction of joints landing inside their own detection box and the
+            # fraction of players whose head sits above their ankles:
+            #
+            #     flip          inside box   head up   vertical offset
+            #     none (shipped)      69.4%       0%     +0.21 box-heights
+            #     joints + transl     69.4%     100%     -0.21
+            #     joints only         97.0%     100%     +0.08
+            #
+            # Without the flip the 3D reconstruction built on these comes out
+            # inverted, with a stature of -1.4 m against a roster 1.83 m.
+            abs_cam = (joint_cam[i] * np.array([1.0, -1.0, 1.0])
+                       + cam_trans[i][None, :])
             depth = np.where(np.abs(abs_cam[:, 2]) < 1e-6, 1e-6, abs_cam[:, 2])
             crop_xy = np.stack([abs_cam[:, 0] / depth * fx + cx,
                                 abs_cam[:, 1] / depth * fy + cy], axis=1)
