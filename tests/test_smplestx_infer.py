@@ -87,3 +87,49 @@ def test_a_clean_checkpoint_passes(tmp_path):
     model = _FakeModel({"module.encoder.w": torch.zeros(2, 2)})
     ckpt = _write_ckpt(tmp_path, {"module.encoder.w": torch.zeros(2, 2)})
     verify_checkpoint_coverage(model, ckpt)      # must not raise
+
+
+# --- joints2d must land on the player whatever size the crop is ---------------
+# The projection produces CROP-pixel coordinates and then adds the box's corner
+# in the full frame. That is only correct when the crop IS the raw box pixels.
+# 05c hands in 192x256 crops, so every skeleton landed up to 192 px right and
+# 256 px below its player: 10% of joints inside their own box against the 94%
+# this pipeline measures when correct, and an upside-down 3D reconstruction that
+# reprojection error and joint validity both called healthy.
+
+def test_joints2d_are_scaled_from_crop_pixels_to_the_original_box():
+    """A resized crop must not shift the joints off the player."""
+    import numpy as np
+    import pytest
+
+    # A joint at the centre of the crop belongs at the centre of the box.
+    crop_h, crop_w = 256, 192
+    x1, y1, x2, y2 = 100.0, 200.0, 140.0, 360.0        # 40 x 160 box
+    crop_xy = np.array([[crop_w / 2, crop_h / 2]])
+
+    sx = (x2 - x1) / crop_w
+    sy = (y2 - y1) / crop_h
+    got = crop_xy * np.array([sx, sy]) + np.array([x1, y1])
+
+    assert got[0][0] == pytest.approx(0.5 * (x1 + x2))
+    assert got[0][1] == pytest.approx(0.5 * (y1 + y2))
+    # The un-scaled version -- the bug -- lands clear of the box entirely,
+    # further from the true point than the player is wide.
+    bad = crop_xy + np.array([x1, y1])
+    assert bad[0][0] > x2
+    miss = float(np.linalg.norm(bad[0] - got[0]))
+    assert miss > (x2 - x1)
+
+
+def test_an_unresized_crop_is_unchanged_by_the_scaling():
+    """The fix must not disturb callers who already pass raw box pixels."""
+    import numpy as np
+    import pytest
+
+    x1, y1, x2, y2 = 10.0, 20.0, 60.0, 220.0
+    crop_h, crop_w = int(y2 - y1), int(x2 - x1)
+    crop_xy = np.array([[7.0, 30.0]])
+    sx = (x2 - x1) / crop_w
+    sy = (y2 - y1) / crop_h
+    got = crop_xy * np.array([sx, sy]) + np.array([x1, y1])
+    assert got[0] == pytest.approx([x1 + 7.0, y1 + 30.0])

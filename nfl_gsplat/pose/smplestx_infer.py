@@ -386,8 +386,25 @@ def _smplestx_forward(model, crops: np.ndarray, bboxes: np.ndarray,
             depth = np.where(np.abs(abs_cam[:, 2]) < 1e-6, 1e-6, abs_cam[:, 2])
             crop_xy = np.stack([abs_cam[:, 0] / depth * fx + cx,
                                 abs_cam[:, 1] / depth * fy + cy], axis=1)
-            x1, y1 = float(batch_boxes[i][0]), float(batch_boxes[i][1])
-            joints2d = (crop_xy + np.array([x1, y1])).astype(np.float32)
+            # crop_xy is in CROP pixels. Scale it back to the ORIGINAL box
+            # before adding the box's corner, because a caller is allowed to
+            # hand in a resized crop -- the signature takes crops and boxes
+            # separately and says nothing about them matching in size.
+            #
+            # Adding the corner directly is correct ONLY when the crop is the
+            # raw box pixels, and that unstated assumption produced a silent,
+            # expensive failure: 192x256 crops against a ~40x160 box put every
+            # skeleton up to 192 px right and 256 px below its player. Only 10%
+            # of joints landed inside their own box against the 94% this
+            # pipeline measures when it is right, and the 3D reconstruction
+            # came out UPSIDE DOWN while reprojection error and joint validity
+            # both still read healthy.
+            x1, y1, x2, y2 = (float(v) for v in batch_boxes[i][:4])
+            ch, cw = batch_crops[i].shape[:2]
+            sx = (x2 - x1) / max(cw, 1e-9)
+            sy = (y2 - y1) / max(ch, 1e-9)
+            joints2d = (crop_xy * np.array([sx, sy])
+                        + np.array([x1, y1])).astype(np.float32)
             results.append({
                 "betas": shape[i][:10],
                 "body_pose": body_pose[i].reshape(NUM_BODY_POSE_JOINTS, 3),
