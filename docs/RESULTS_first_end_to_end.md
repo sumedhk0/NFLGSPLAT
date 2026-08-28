@@ -249,3 +249,50 @@ The one identity lost with it (#33 Benson) was assigned on **zero jersey votes**
 from alignment alone, across 2 frames -- the same sole-candidate rule that
 produced the wrong Kyler Murray. Losing it is a correctness gain, not a
 regression.
+
+---
+
+## Two views of one player: the pose is fine, the placement is not
+
+With both feeds posed on the same 364 doubly-verified frames, and identity
+supplying the correspondence, four players are seen independently by both
+cameras. Nothing else in this pipeline has ever checked a POSE against anything
+outside the network that produced it; two cameras 131 m apart, sharing no
+pixels, no tracker and no calibration, are that check.
+
+| | whole-body offset | pose shape |
+|---|---|---|
+| #20 Julian Love | 2.92 m | **0.08 m** |
+| #58 Derick Hall | 2.88 m | **0.09 m** |
+| #91 Byron Murphy II | 3.15 m | **0.11 m** |
+| #70 Paris Johnson Jr. | 2.71 m | **0.13 m** |
+| median | 2.90 m | **0.10 m** |
+
+Separating the two was the point of reporting them separately. **The two cameras
+agree on the pose to 10 cm and disagree about where the player is standing by
+2.9 m.** The articulation is good; the placement is the weak link. That also
+explains the cross-camera correspondence failures recorded above — the 1.4-1.8 m
+nearest-player scatter was this same error seen from another angle.
+
+### The error is depth, not calibration
+
+Decomposing the offset along each camera's viewing ray:
+
+| | along sideline ray | along endzone ray | across BOTH | total |
+|---|---|---|---|---|
+| #20 | 0.73 m | 1.95 m | **0.78 m** | 2.92 m |
+| #58 | 1.27 m | 2.04 m | **0.74 m** | 2.88 m |
+| #70 | 1.56 m | 0.51 m | **0.75 m** | 2.71 m |
+| #91 | 1.33 m | 2.14 m | **0.64 m** | 3.15 m |
+
+Almost all of it lies ALONG the rays -- the depth each monocular estimate had to
+guess -- and only about **0.7 m** sits in the direction neither camera measures
+well. That is the irreducible part; the rest is exactly what a two-view fusion
+removes, because each camera's weak axis is the other's strong one.
+
+So fused placement should land near 0.7 m rather than 2.9 m, and 0.7 m is BELOW
+the 1-2 m spacing between players -- the threshold that defeated geometric
+correspondence three times over. That does not bootstrap correspondence for
+unidentified players, since fusing requires knowing the pairing first, but it
+does mean every identified player can be placed several times more accurately
+than either camera manages alone.
