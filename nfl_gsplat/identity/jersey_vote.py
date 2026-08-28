@@ -72,6 +72,11 @@ class TrackIdentity:
     height_m: float
     votes: int
     margin: float
+    # Height AND weight, because the pair is what pins a body. Shape fitting
+    # needs both -- height alone leaves a 315 lb tackle the same size as a
+    # 193 lb safety -- and the roster is the only place either comes from, so
+    # an identity that carries one and not the other is half an answer.
+    weight_lb: float = 0.0
 
 
 def tally(reads) -> dict[int, collections.Counter]:
@@ -219,6 +224,7 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
                 player=str(on_field.iloc[j]["full_name"]),
                 team=str(on_field.iloc[j]["team"]),
                 height_m=float(on_field.iloc[j]["height_m"]),
+                weight_lb=float(on_field.iloc[j].get("weight", 0.0) or 0.0),
                 votes=int(got), margin=float("inf")))
             continue
 
@@ -247,8 +253,9 @@ def assign(votes, on_field, *, min_votes: int = MIN_VOTES,
         out.append(TrackIdentity(
             track_id=int(track_id), jersey=int(jersey),
             player=str(row["full_name"]), team=str(row["team"]),
-            height_m=float(row["height_m"]), votes=int(got),
-            margin=float(margin)))
+            height_m=float(row["height_m"]),
+            weight_lb=float(row.get("weight", 0.0) or 0.0),
+            votes=int(got), margin=float(margin)))
 
     _LOG.info("jersey assignment: %d/%d tracks identified against %d players "
               "on the field", len(out), len(tracks), len(jerseys))

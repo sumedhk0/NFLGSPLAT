@@ -65,13 +65,24 @@ def render_gaussians_cpu(batch: GaussianBatch, k_mat, rot, tvec, *,
     uv, depth_f, radius = uv[on_screen], depth_f[on_screen], radius[on_screen]
     colour, alpha = colour[on_screen], alpha[on_screen]
 
-    # Painter's algorithm: far to near, so nearer gaussians composite last.
+    # Far to near, so that within a radius group the nearest gaussian is the
+    # last to write a given pixel.
     order = np.argsort(-depth_f)
-    uv, radius = uv[order], radius[order]
+    uv, radius, depth_f = uv[order], radius[order], depth_f[order]
     colour, alpha = colour[order], alpha[order]
 
     img = np.empty((height, width, 3), np.float64)
     img[:] = np.asarray(background, np.float64)[::-1]        # BGR
+    # A DEPTH BUFFER, not painter's order alone. The splat loop below groups by
+    # integer radius to stay vectorised, and that grouping reorders compositing
+    # by SIZE: every gaussian of radius 1 is drawn before every gaussian of
+    # radius 6, whatever their depths. On the first scene to mix sizes -- the
+    # procedural field at sigma 0.075 m with SMPL-X bodies at sigma 0.009 m --
+    # the turf fell in a later group than the players and painted over all 21
+    # of them. Field-only and joints-only scenes never showed it, because their
+    # gaussians are all one size. Testing depth per pixel makes the result
+    # independent of the order the groups happen to run in.
+    zbuf = np.full(height * width, np.inf)
 
     cols = np.round(uv[:, 0]).astype(np.int64)
     rows = np.round(uv[:, 1]).astype(np.int64)
@@ -79,12 +90,15 @@ def render_gaussians_cpu(batch: GaussianBatch, k_mat, rot, tvec, *,
 
     # Splat as square footprints. Grouping by integer radius keeps this
     # vectorised -- a per-gaussian Python loop over ~1e6 points is minutes.
-    for rad in np.unique(np.round(radius).astype(np.int64)):
-        sel = np.round(radius).astype(np.int64) == rad
+    radius_i = np.round(radius).astype(np.int64)
+    flat_img = img.reshape(-1, 3)
+    for rad in np.unique(radius_i):
+        sel = radius_i == rad
         if not sel.any():
             continue
         c_sel, r_sel = cols[sel], rows[sel]
         a_sel, col_sel = alpha[sel][:, None], bgr[sel]
+        d_sel = depth_f[sel]
         for d_r in range(-rad, rad + 1):
             for d_c in range(-rad, rad + 1):
                 rr, cc = r_sel + d_r, c_sel + d_c
@@ -92,12 +106,21 @@ def render_gaussians_cpu(batch: GaussianBatch, k_mat, rot, tvec, *,
                 if not ok.any():
                     continue
                 flat = rr[ok] * width + cc[ok]
-                flat_img = img.reshape(-1, 3)
-                # Later writes win, which is the painter's algorithm; the alpha
-                # blend against what is already there keeps semi-transparent
-                # gaussians from reading as opaque.
-                flat_img[flat] = (a_sel[ok] * col_sel[ok]
-                                  + (1.0 - a_sel[ok]) * flat_img[flat])
+                depth_ok = d_sel[ok]
+                # Anything already recorded as nearer wins, whichever group
+                # drew it. Ties pass so a surface splatted from many gaussians
+                # at one depth still blends rather than showing only the first.
+                keep = depth_ok <= zbuf[flat]
+                if not keep.any():
+                    continue
+                flat, depth_ok = flat[keep], depth_ok[keep]
+                a_k, col_k = a_sel[ok][keep], col_sel[ok][keep]
+                # Later writes win among the survivors, and the group is sorted
+                # far to near, so the nearest is last. The alpha blend against
+                # what is already there keeps semi-transparent gaussians from
+                # reading as opaque.
+                flat_img[flat] = a_k * col_k + (1.0 - a_k) * flat_img[flat]
+                zbuf[flat] = depth_ok
 
     return (255 * np.clip(img, 0, 1)).astype(np.uint8)
 

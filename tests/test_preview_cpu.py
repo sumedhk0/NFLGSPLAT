@@ -76,3 +76,50 @@ def test_empty_view_returns_the_background_not_a_crash():
 def test_degenerate_up_vector_fails_loud():
     with pytest.raises(ValueError, match="parallel"):
         look_at((0.0, 0.0, 10.0), (0.0, 0.0, 0.0), up=(0.0, 0.0, 1.0))
+
+
+# --- depth order must not depend on gaussian SIZE -----------------------------
+# The splat loop groups by integer radius for vectorisation. That silently
+# reordered compositing by SIZE rather than depth: on the first real scene
+# (procedural field at sigma 0.075 m plus SMPL-X bodies at sigma 0.009 m) every
+# player was painted over by the turf behind them, because the field's larger
+# radius put it in a later group. Field-only and joints-only scenes never
+# exposed it, since their gaussians are all one size.
+
+def _one(xyz, sigma, rgb, opacity=0.995):
+    from nfl_gsplat.compositing.merge_ply import GaussianBatch
+    n = len(xyz)
+    a = float(np.clip(opacity, 1e-4, 1 - 1e-4))
+    return GaussianBatch(
+        xyz=np.asarray(xyz, np.float32),
+        rot=np.tile(np.array([1.0, 0, 0, 0], np.float32), (n, 1)),
+        scale=np.tile(np.log(np.full(3, sigma, np.float32)), (n, 1)),
+        opacity=np.full(n, np.log(a / (1 - a)), np.float32),
+        sh=np.tile((np.asarray(rgb, np.float32) - 0.5) / 0.28209479177387814,
+                   (n, 1))[:, :, None],
+        sh_degree=0)
+
+
+def test_a_small_near_gaussian_occludes_a_large_far_one():
+    from nfl_gsplat.compositing.merge_ply import GaussianBatch
+    from nfl_gsplat.compositing.preview_cpu import (intrinsics, look_at,
+                                                    render_gaussians_cpu)
+    # far + LARGE (like turf), near + SMALL (like a body vertex), same ray
+    # Same ray through the image centre, different depths -- otherwise they
+    # project to different pixels and the test proves nothing.
+    far = _one([[0.0, 6.0, 3.0]], 0.60, (0.0, 1.0, 0.0))
+    near = _one([[0.0, 0.0, 3.0]], 0.05, (1.0, 0.0, 0.0))
+    both = GaussianBatch(
+        xyz=np.vstack([far.xyz, near.xyz]),
+        rot=np.vstack([far.rot, near.rot]),
+        scale=np.vstack([far.scale, near.scale]),
+        opacity=np.concatenate([far.opacity, near.opacity]),
+        sh=np.vstack([far.sh, near.sh]), sh_degree=0)
+    eye = np.array([0.0, -12.0, 3.0])
+    rot, tvec = look_at(eye, np.array([0.0, 12.0, 3.0]))
+    img = render_gaussians_cpu(both, intrinsics(160, 120, 50.0), rot, tvec,
+                               width=160, height=120)
+    centre = img[60, 80]          # BGR
+    assert centre[2] > centre[1], (
+        f"centre pixel {centre} is not red: the far, LARGER gaussian was "
+        "composited over the near, smaller one")

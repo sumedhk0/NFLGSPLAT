@@ -45,6 +45,7 @@ class PlayerIdentity:
     player: str
     team: str
     height_m: float
+    weight_lb: float = 0.0
     tracks: dict[str, int] = field(default_factory=dict)   # camera -> track id
     votes: dict[str, int] = field(default_factory=dict)    # camera -> jersey votes
 
@@ -89,6 +90,7 @@ def merge(per_camera: dict[str, list]) -> dict[int, PlayerIdentity]:
                 out[jersey] = PlayerIdentity(
                     jersey=jersey, player=str(ident.player),
                     team=str(ident.team), height_m=float(ident.height_m),
+                    weight_lb=float(getattr(ident, "weight_lb", 0.0)),
                     tracks={camera: int(ident.track_id)},
                     votes={camera: int(ident.votes)})
                 continue
@@ -229,7 +231,7 @@ def drop_contradicted(merged, checks, votes_win_by: int = 3):
             continue
         out[jersey] = PlayerIdentity(
             jersey=player.jersey, player=player.player, team=player.team,
-            height_m=player.height_m,
+            height_m=player.height_m, weight_lb=player.weight_lb,
             tracks={best: player.tracks[best]},
             votes={best: player.votes[best]})
     if dropped:

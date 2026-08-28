@@ -163,3 +163,20 @@ def test_uncontradicted_players_survive_untouched():
                               "sideline", "endzone")
     kept = drop_contradicted(merged, checks)
     assert kept[85].cameras == ("endzone", "sideline")
+
+
+def test_weight_survives_the_merge_and_the_repair():
+    """Shape fitting needs height AND weight; an identity carrying one is half
+    an answer, and the failure would be silent -- every lineman rendered at a
+    safety's build."""
+    from nfl_gsplat.identity.merge_cameras import (check_separation,
+                                                   drop_contradicted)
+    a = TrackIdentity(track_id=1, jersey=85, player="McBride", team="ARI",
+                      height_m=1.93, votes=4, margin=3.0, weight_lb=245.0)
+    b = TrackIdentity(track_id=7, jersey=85, player="McBride", team="ARI",
+                      height_m=1.93, votes=44, margin=3.0, weight_lb=245.0)
+    merged = merge({"sideline": [a], "endzone": [b]})
+    assert merged[85].weight_lb == 245.0
+    checks = check_separation(merged, two_cams(0, 0, 16.0, 0),
+                              "sideline", "endzone")
+    assert drop_contradicted(merged, checks)[85].weight_lb == 245.0
