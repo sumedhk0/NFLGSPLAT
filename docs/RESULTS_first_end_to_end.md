@@ -296,3 +296,56 @@ correspondence three times over. That does not bootstrap correspondence for
 unidentified players, since fusing requires knowing the pairing first, but it
 does mean every identified player can be placed several times more accurately
 than either camera manages alone.
+
+### Placement is not broken — the ENDZONE's placement is
+
+Chasing the 2.9 m, measured per camera rather than between them. A player moves
+smoothly, so departure from a locally smooth path is placement noise, and it can
+be measured on one camera alone:
+
+| | ground jitter | box-bottom jitter |
+|---|---|---|
+| sideline | **0.01 m** | 0.3 px |
+| endzone | **1.08 m** | 0.6 px |
+
+The sideline places players to a centimetre. The endzone turns 0.6 px of box
+movement into 1.08 m on the ground — about 1.8 m per pixel, against the 0.03 m
+per pixel a static camera at that geometry gives. The boxes are not moving; the
+endzone's per-frame camera is. It zooms across f = 1,532 to 23,200, each frame
+solves its own focal and rotation, and verification checks yard lines ACROSS the
+view, which at an 11 degree grazing angle barely constrains depth — the one
+direction placement needs.
+
+**Box-bottom error was ruled out first.** At this geometry 20 px of error moves
+the ground point 0.53 m (sideline) or 0.67 m (endzone); explaining 2.9 m would
+need ~100 px, which no detector box is off by.
+
+### Smoothing the endzone camera: helps precision, not accuracy
+
+The camera is a tripod panning smoothly, so frame-to-frame pose jumps are
+estimation noise. Zero-phase smoothing (never causal — that filter moved this
+very camera by 97 px of pan lag) collapses the jitter, but the cross-camera
+agreement barely moves:
+
+| min_cutoff | ground jitter | cross-camera offset | reference frame moved |
+|---|---|---|---|
+| as solved | 1.08 m | 2.93 m | — |
+| 6.0 | 0.44 m | 2.49 m | 13 px |
+| 3.0 | 0.25 m | 2.46 m | 40 px |
+| 1.5 | 0.11 m | 2.44 m | 74 px |
+| 0.8 | 0.05 m | 2.41 m | 91 px |
+
+An 18% improvement in the thing that matters, bought by displacing the reference
+frame's own camera — which is exact by construction — by up to 91 px. That is
+the same magnitude as the pan-lag bug, arrived at from the other direction:
+zero-phase smoothing has no lag, but it still pulls an exact sample toward noisy
+neighbours. **Not shipped.**
+
+So the 2.9 m is not jitter and not smoothable: it is slowly-varying endzone
+DEPTH error, which matches the earlier finding that the offset lies along the
+viewing rays.
+
+**The practical conclusion is to stop treating the two cameras as equals.** The
+sideline is the placement instrument; the endzone is the identity instrument,
+where its tight zoom reads jerseys five to ten times better. Fusion should weight
+by measured precision rather than the assumed isotropic sigmas it ships with.
