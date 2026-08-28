@@ -57,11 +57,26 @@ def plan_samples(tracks_df, *, min_track_len: int = 100, per_track: int = 120):
     return dict(wanted), keep
 
 
-def read_jerseys(frame_iter, wanted, *, reader=None, gpu: bool = True):
+def read_jerseys(frame_iter, wanted, *, reader=None, gpu: bool = True,
+                 min_conf: float = _MIN_CONF, min_box_h: int = _MIN_BOX_H,
+                 upscale: float = _UPSCALE):
     """One pass over the video. Returns ``(votes, colours)`` per track.
 
     ``votes`` maps track -> Counter(jersey -> count); ``colours`` maps track ->
     mean torso HSV, used downstream to split the two teams.
+
+    ``min_conf``, ``min_box_h`` and ``upscale`` are the yield knobs. They are
+    parameters rather than constants because the right values differ per feed by
+    an order of magnitude: the endzone camera is zoomed roughly ten times
+    tighter than the sideline, and read jerseys five to ten times better on the
+    same play. A floor tuned for one feed throws away the other's evidence.
+
+    Lowering ``min_conf`` is safer than it looks. Downstream,
+    :func:`~nfl_gsplat.identity.jersey_vote.restrict_to_known` discards any read
+    of a number nobody on the field is wearing, and
+    :func:`~nfl_gsplat.identity.jersey_vote.credit_truncations` absorbs the
+    commonest remaining error, so extra low-confidence reads mostly land as
+    noise that is filtered rather than as wrong identities.
     """
     if reader is None:
         import easyocr
@@ -76,7 +91,7 @@ def read_jerseys(frame_iter, wanted, *, reader=None, gpu: bool = True):
             x1, y1 = int(max(0, row.bbox_x1)), int(max(0, row.bbox_y1))
             x2 = int(min(bgr.shape[1], row.bbox_x2))
             y2 = int(min(bgr.shape[0], row.bbox_y2))
-            if y2 - y1 < _MIN_BOX_H or x2 - x1 < 10:
+            if y2 - y1 < min_box_h or x2 - x1 < 10:
                 continue
             body = bgr[y1:y2, x1:x2]
             if body.size:
@@ -87,11 +102,11 @@ def read_jerseys(frame_iter, wanted, *, reader=None, gpu: bool = True):
                        x1:x2]
             if crop.size == 0:
                 continue
-            crop = cv2.resize(crop, None, fx=_UPSCALE, fy=_UPSCALE,
+            crop = cv2.resize(crop, None, fx=upscale, fy=upscale,
                               interpolation=cv2.INTER_CUBIC)
             for _box, text, conf in reader.readtext(crop, allowlist="0123456789"):
                 digits = "".join(ch for ch in text if ch.isdigit())
-                if digits and conf >= _MIN_CONF:
+                if digits and conf >= min_conf:
                     votes[int(row.track_id)][int(digits)] += 1
 
     mean_colours = {t: np.mean(np.stack(c), axis=0) for t, c in colours.items() if c}
