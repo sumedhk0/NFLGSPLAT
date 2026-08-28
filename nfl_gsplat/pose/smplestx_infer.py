@@ -200,9 +200,84 @@ def _load_smplestx_model(cfg: SMPLestXConfig):
         tester = Tester(smplestx_cfg)
         tester._make_model()      # builds DataParallel model, loads ckpt, .eval()
 
+    verify_checkpoint_coverage(tester.model, weights_abs)
     model = _SMPLestXRunner(tester, smplestx_cfg)
     _MODEL_CACHE[key] = model
     return model
+
+
+# The SMPL-X layer's buffers are CONSTANTS of the body model -- the template
+# mesh, the shape and pose blend shapes, the joint regressor, the skinning
+# weights -- read from SMPLX_NEUTRAL.npz when the layer is constructed. They are
+# deliberately not shipped inside a training checkpoint, so they are the
+# expected and harmless residue of loading with strict=False.
+_BODY_MODEL_CONSTANT_PREFIX = "smplx_layer."
+
+
+def strip_data_parallel(key: str) -> str:
+    """Drop the ``module.`` prefix DataParallel adds to every parameter name.
+
+    Both sides need this, and getting it wrong is not a subtle failure: taking
+    it off only the checkpoint reported all 536 tensors as missing, which reads
+    as a catastrophically broken load and is purely a naming artefact.
+    """
+    return key[len("module."):] if key.startswith("module.") else key
+
+
+def checkpoint_coverage(model, weights_path):
+    """``(missing, unexpected, mismatched)`` between a checkpoint and a model.
+
+    ``missing`` excludes the body-model constants, which no checkpoint carries.
+    """
+    import torch
+
+    blob = torch.load(weights_path, map_location="cpu", weights_only=False)
+    state = blob.get("network", blob.get("state_dict", blob))
+    ckpt = {strip_data_parallel(k): v for k, v in state.items()}
+    own = {strip_data_parallel(k): v for k, v in model.state_dict().items()}
+
+    missing = sorted(k for k in own if k not in ckpt
+                     and not k.startswith(_BODY_MODEL_CONSTANT_PREFIX))
+    unexpected = sorted(k for k in ckpt if k not in own)
+    mismatched = sorted(k for k in own if k in ckpt
+                        and tuple(own[k].shape) != tuple(ckpt[k].shape))
+    return missing, unexpected, mismatched
+
+
+def verify_checkpoint_coverage(model, weights_path) -> None:
+    """Fail loudly if any LEARNED parameter did not come from the checkpoint.
+
+    SMPLest-X loads with ``strict=False`` and prints "Please check manually" on
+    every run. That warning cannot distinguish a fully loaded network from one
+    missing half its encoder, and a partially loaded network still returns
+    plausible-looking poses -- which is exactly the failure that would go
+    unnoticed. Measured on smplest_x_h: all 519 checkpoint tensors match, with
+    0 unexpected and 0 shape mismatches; the only 17 unmatched entries are the
+    body-model constants above. So the check is cheap and the expected answer
+    is clean, which makes it worth enforcing rather than re-verifying by hand
+    whenever the checkpoint changes.
+    """
+    missing, unexpected, mismatched = checkpoint_coverage(model, weights_path)
+    if not (missing or unexpected or mismatched):
+        _LOG.info("SMPLest-X checkpoint: every learned parameter loaded "
+                  "(strict=False residue is body-model constants only)")
+        return
+    parts = []
+    if missing:
+        parts.append(f"{len(missing)} parameter(s) absent from the checkpoint "
+                     f"(e.g. {missing[:3]})")
+    if mismatched:
+        parts.append(f"{len(mismatched)} shape mismatch(es) "
+                     f"(e.g. {mismatched[:3]})")
+    if unexpected:
+        parts.append(f"{len(unexpected)} checkpoint tensor(s) the model has no "
+                     f"slot for (e.g. {unexpected[:3]})")
+    raise SetupError(
+        "SMPLest-X checkpoint does not match the model: " + "; ".join(parts)
+        + f". Weights: {weights_path}. The network would run and return "
+        "plausible-looking poses regardless, so this is checked rather than "
+        "trusted. Confirm the checkpoint matches the config in "
+        "pretrained_models/<ckpt>/config_base.py.")
 
 
 class _SMPLestXRunner:
