@@ -36,9 +36,26 @@ _LOG = get_logger(__name__)
 BODY_RGB = (0.72, 0.62, 0.55)
 TEAM_RGB = {"ARI": (0.62, 0.11, 0.22), "SEA": (0.11, 0.22, 0.34)}
 
-# A track must appear in at least this many sampled frames to be drawn. A
-# fragment seen twice contributes flicker, not motion.
-MIN_FRAMES_PER_TRACK = 4
+# A track must survive this FRACTION of the posed frames to be drawn. Twenty-two
+# players are on the field and a real one is tracked for most of the play; a
+# fragment is not. The old floor of 4 frames was set to stop flicker and does not
+# select players -- measured on play_001 it drew up to 34 bodies in a frame, and
+# 26% of frames held more than 22 people.
+#
+#     floor   tracks   median/frame   max/frame   frames over 22
+#         4       63             22          34              208
+#        50       31             22          24              111
+#       200       24             21          22                0
+#       300       22             20          22                0
+#
+# A quarter of the play never exceeds 22 while keeping the most coverage, so the
+# physical constraint is satisfied by evidence rather than by capping the count.
+MIN_TRACK_FRACTION = 0.25
+
+# Nobody outruns this. A foot point that moves faster has jumped, not run, and
+# feeding that to the smoother drags the whole trajectory toward the outlier --
+# measured on play_001, 1.6% of steps exceeded it and the worst reached 97 m/s.
+MAX_SPEED_M_S = 11.0
 
 
 def main() -> None:
@@ -67,7 +84,7 @@ def main() -> None:
     from nfl_gsplat.field.procedural_field import (render_field_texture,
                                                    texture_to_gaussians)
     from nfl_gsplat.pose.fit_shape import fit_height_and_weight
-    from nfl_gsplat.pose.place_on_field import place_mesh
+    from nfl_gsplat.pose.place_on_field import ground_point, place_mesh
     from nfl_gsplat.pose.temporal_smooth import (OneEuroConfig,
                                                  smooth_param_sequence_zero_phase)
 
@@ -97,9 +114,12 @@ def main() -> None:
     for f in frames:
         for tid in cache[f]:
             tracks.setdefault(tid, []).append(f)
-    tracks = {t: fs for t, fs in tracks.items() if len(fs) >= MIN_FRAMES_PER_TRACK}
-    _LOG.info("%d tracks with >= %d frames (%d identified)", len(tracks),
-              MIN_FRAMES_PER_TRACK, sum(1 for t in tracks if t in player_of))
+    floor = max(4, int(MIN_TRACK_FRACTION * len(frames)))
+    dropped = {t: len(fs) for t, fs in tracks.items() if len(fs) < floor}
+    tracks = {t: fs for t, fs in tracks.items() if len(fs) >= floor}
+    _LOG.info("%d tracks survive the %d-frame floor (%d identified); dropped %d "
+              "shorter fragments", len(tracks), floor,
+              sum(1 for t in tracks if t in player_of), len(dropped))
 
     model = smplx.create(str(args.body_models), model_type="smplx",
                          gender="neutral", use_pca=False, batch_size=1)
@@ -121,18 +141,64 @@ def main() -> None:
     _LOG.info("%d roster bodies, %d from the network's own shape",
               n_roster, len(tracks) - n_roster)
 
-    # ---- pose: zero-phase smoothing per track ----------------------------
+    # ---- pose AND placement: zero-phase smoothing per track --------------
+    # Smoothing the pose alone left the visible jitter untouched, because a body
+    # is put on the field by its FOOT POINT and that was passed through raw. The
+    # foot point is the box's bottom edge, which the detector re-estimates every
+    # frame; its noise becomes the player skating about.
     cfg = OneEuroConfig(min_cutoff=args.min_cutoff, beta=0.01, fps=59.94 / blob["stride"])
     smoothed: dict[int, dict[int, dict]] = {}
+    n_outliers = 0
     for tid, fs in tracks.items():
         body = np.stack([cache[f][tid]["body_pose"].reshape(-1) for f in fs])
         orient = np.stack([cache[f][tid]["global_orient"].reshape(-1) for f in fs])
+        foot = np.stack([[0.5 * (cache[f][tid]["bbox"][0] + cache[f][tid]["bbox"][2]),
+                          float(cache[f][tid]["bbox"][3])] for f in fs])
+
+        # Drop impossible jumps BEFORE smoothing. A zero-phase filter spreads an
+        # outlier both forwards and backwards, so one bad frame smears over its
+        # neighbours instead of being averaged away.
+        #
+        # Gated on GROUND SPEED, not on pixels. A first version compared the
+        # foot point's pixel motion against the box height, which never fired
+        # once across 816 frames -- a threshold that cannot trigger is not a
+        # guard. The camera is available per frame, so the real quantity is
+        # cheap: a player who covers more than MAX_SPEED_M_S has jumped.
+        ground = np.full((len(fs), 2), np.nan)
+        for i, f in enumerate(fs):
+            intr_i, pose_i = track.at(f)
+            try:
+                ground[i] = ground_point(tuple(foot[i]), intr_i.K(),
+                                         pose_i.R, pose_i.t)[:2]
+            except Exception:      # ray parallel to the turf
+                pass
+        # Compare against the last ACCEPTED frame, with the elapsed time since
+        # THAT frame. Measuring from the immediately preceding index instead
+        # cascades: pinning one bad frame leaves the next genuine position two
+        # frames of motion away but still divided by one frame of time, so it
+        # reads as too fast and is rejected in turn. That version rejected 12%
+        # of steps against the 1.3% that are actually implausible -- it would
+        # have frozen every sprinting player.
+        last = 0
+        for i in range(1, len(fs)):
+            dt = max((fs[i] - fs[last]) / (59.94 / blob["stride"]), 1e-6)
+            step = float(np.linalg.norm(ground[i] - ground[last]))
+            if np.isfinite(step) and step / dt > MAX_SPEED_M_S:
+                foot[i] = foot[last]
+                ground[i] = ground[last]
+                n_outliers += 1
+            else:
+                last = i
+
         body_s = smooth_param_sequence_zero_phase(body, cfg)
         orient_s = smooth_param_sequence_zero_phase(orient, cfg)
+        foot_s = smooth_param_sequence_zero_phase(foot, cfg)
         for i, f in enumerate(fs):
             smoothed.setdefault(f, {})[tid] = {
                 "body_pose": body_s[i], "global_orient": orient_s[i],
-                "bbox": cache[f][tid]["bbox"]}
+                "bbox": cache[f][tid]["bbox"], "foot": foot_s[i]}
+    _LOG.info("smoothed %d tracks; replaced %d impossible foot-point jumps",
+              len(tracks), n_outliers)
 
     # ---- field, built once -----------------------------------------------
     f_xyz, f_rot, f_scale, f_opac, f_dc = texture_to_gaussians(
@@ -145,8 +211,6 @@ def main() -> None:
     # points -- which need no mesh, only the calibration -- rather than from a
     # running mean of bodies already drawn, which would drift the camera through
     # the sequence as later frames pulled the average around.
-    from nfl_gsplat.pose.place_on_field import ground_point
-
     feet = []
     for f in frames:
         if f not in smoothed:
@@ -154,9 +218,8 @@ def main() -> None:
         intr, pose = track.at(f)
         k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
         for rec in smoothed[f].values():
-            x1, _y1, x2, y2 = rec["bbox"]
             try:
-                feet.append(ground_point((0.5 * (x1 + x2), float(y2)),
+                feet.append(ground_point(tuple(rec["foot"]),
                                          k_cam, rot_cam, tvec_cam))
             except Exception:      # ray parallel to the turf; skip this one
                 continue
@@ -192,8 +255,7 @@ def main() -> None:
                                                dtype=torch.float32))
             verts = res.vertices[0].cpu().numpy().astype(np.float64)
             joints = res.joints[0].cpu().numpy().astype(np.float64)
-            x1, y1, x2, y2 = rec["bbox"]
-            placed = place_mesh(verts, joints, (0.5 * (x1 + x2), float(y2)),
+            placed = place_mesh(verts, joints, tuple(rec["foot"]),
                                 k_cam, rot_cam, tvec_cam)
             player = player_of.get(tid)
             colour = (TEAM_RGB.get(player.team, BODY_RGB) if player is not None
