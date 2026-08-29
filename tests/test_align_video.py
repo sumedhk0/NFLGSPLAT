@@ -11,14 +11,24 @@ from nfl_gsplat.data.align_video import (VIDEO_FPS, Alignment, align_play,
 from nfl_gsplat.data.helmet_dataset import PlayTracking
 
 
+PLAYERS = ("H1", "H2", "H3", "V4", "V5", "V6")
+
+
 def _track(n=250, snap_at=150):
-    """Players still, then moving at the snap -- the onset the match keys on."""
+    """Players still, then SOME moving at the snap.
+
+    Six of them, and only half move. image_speed subtracts the per-frame median
+    displacement to cancel camera pan, so a fixture where every player moves
+    identically -- or where there are only two -- has its entire signal removed
+    along with the camera's.
+    """
     times = (np.arange(n) - snap_at) / 10.0
-    xy = np.zeros((n, 2, 2))
+    xy = np.zeros((n, len(PLAYERS), 2))
     moving = np.arange(n) >= snap_at
-    xy[moving, 0, 0] = np.cumsum(np.full(moving.sum(), 0.5))
-    xy[moving, 1, 0] = np.cumsum(np.full(moving.sum(), 0.4))
-    return PlayTracking(game_key=1, play_id=2, players=("H1", "V2"),
+    for i in range(len(PLAYERS)):
+        if i % 2 == 0:
+            xy[moving, i, 0] = np.cumsum(np.full(moving.sum(), 0.3 + 0.2 * i))
+    return PlayTracking(game_key=1, play_id=2, players=PLAYERS,
                         times=times, xy=xy, snap_time=snap_at / 10.0)
 
 
@@ -28,9 +38,11 @@ def _labels(video, offset_s, n_frames=400, snap_track_s=0.0):
     for f in range(1, n_frames + 1):
         t = offset_s + f / VIDEO_FPS
         moved = max(0.0, t - snap_track_s) * 30.0
-        for i, lab in enumerate(("H1", "V2")):
+        for i, lab in enumerate(PLAYERS):
+            # only the even-indexed players move, matching _track
+            dx = moved * (1.0 if i % 2 == 0 else 0.0)
             rows.append({"video": video, "frame": f, "label": lab,
-                         "left": 100.0 + i * 50 + moved, "top": 200.0,
+                         "left": 100.0 + i * 50 + dx, "top": 200.0,
                          "width": 20.0, "height": 20.0})
     return pd.DataFrame(rows)
 
@@ -85,7 +97,7 @@ def test_a_flat_profile_is_refused_rather_than_fitted():
     flat = []
     for v in ("1_000002_Sideline.mp4", "1_000002_Endzone.mp4"):
         for f in range(1, 400):
-            for i, lab in enumerate(("H1", "V2")):
+            for i, lab in enumerate(PLAYERS):
                 flat.append({"video": v, "frame": f, "label": lab,
                              "left": 100.0 + i * 50, "top": 200.0,
                              "width": 20.0, "height": 20.0})
