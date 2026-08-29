@@ -55,21 +55,81 @@ from playwright.sync_api import sync_playwright
 # ~17 minute TTL even when a clip takes a minute to pull.
 BATCH = 6
 
+# Capture the Authorization header the app itself sends, and keep it IN THE
+# PAGE. Cookies alone are not enough -- /api/secured/* answers 401 to a
+# credentials-only fetch -- because the app attaches a rotating bearer that is
+# bound to the page bootstrap. Borrowing that header is the sanctioned move; the
+# alternative is reimplementing an auth flow that is designed to defeat replay.
+#
+# The token is never returned to Python, never printed and never written to
+# disk. It is read inside the page by the calls below and nowhere else.
+HOOK_JS = r"""
+() => {
+  if (window.__nflHook) return !!(window.__nflAuth && window.__nflAuth.secured);
+  window.__nflHook = true;
+  window.__nflAuth = {secured: null, api: null};
+  // Bucket by HOST. The page mints several bearers -- oidc/token,
+  // identity/v3/token, and the long one pro.nfl.com/api/secured wants (1823
+  // chars on this account). Keeping only "the last bearer seen" grabs whichever
+  // request happened to be most recent and 401s.
+  const bucket = (url) => {
+    if (!url) return null;
+    if (url.indexOf("/api/secured/") !== -1) return "secured";
+    if (url.indexOf("api.nfl.com") !== -1) return "api";
+    return null;
+  };
+  const remember = (url, value) => {
+    const b = bucket(url);
+    if (b && value && /bearer/i.test(value)) window.__nflAuth[b] = value;
+  };
+  const of = window.fetch;
+  window.fetch = function (input, init) {
+    try {
+      const url = typeof input === "string" ? input : (input && input.url);
+      let v = null;
+      if (init && init.headers) {
+        const h = new Headers(init.headers);
+        v = h.get("authorization");
+      } else if (input && input.headers && input.headers.get) {
+        v = input.headers.get("authorization");
+      }
+      remember(url, v);
+    } catch (e) {}
+    return of.apply(this, arguments);
+  };
+  // The app is axios, which uses XMLHttpRequest -- the fetch hook alone sees
+  // almost nothing. open() carries the URL, setRequestHeader the value.
+  const oo = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__nflUrl = url;
+    return oo.apply(this, arguments);
+  };
+  const os = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.setRequestHeader = function (k, v) {
+    if (String(k).toLowerCase() === "authorization") remember(this.__nflUrl, v);
+    return os.apply(this, arguments);
+  };
+  return false;
+}
+"""
+
 # Ask the page for the plays in a game, then for the coaches-film assets, and
 # hand back every (mcpID, view) pair found. The response schemas are walked
 # GENERICALLY rather than by a fixed path: these are private endpoints whose
 # shape is not contracted with us, and a rename would otherwise fail with a
 # KeyError deep in a comprehension instead of an actionable message.
 LIST_ASSETS_JS = r"""
-async ({season, seasonType, week, gameId}) => {
+async ({season, seasonType, week, gameId, maxPlays}) => {
   const out = {plays: [], assets: [], errors: []};
+  const auth = (window.__nflAuth || {}).secured;
+  if (!auth) { out.errors.push("no secured bearer captured"); return out; }
   const get = async (url) => {
-    const r = await fetch(url, {credentials: "include"});
-    if (!r.ok) { out.errors.push(url + " -> HTTP " + r.status); return null; }
+    const r = await fetch(url, {credentials: "include",
+                                headers: {"Authorization": auth,
+                                          "Accept": "application/json"}});
+    if (!r.ok) { out.errors.push(url.split("?")[0] + " -> HTTP " + r.status); return null; }
     return r.json();
   };
-
-  // Walk any JSON and collect objects that look like a film asset.
   const walk = (node, hit) => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) { node.forEach(n => walk(n, hit)); return; }
@@ -77,31 +137,40 @@ async ({season, seasonType, week, gameId}) => {
     for (const k of Object.keys(node)) walk(node[k], hit);
   };
 
-  const qs = `season=${season}&seasonType=${seasonType}&week=${week}` +
+  const qs = `season=${season}&seasonType=${seasonType}&weekSlug=WEEK_${week}` +
              (gameId ? `&gameId=${gameId}` : "");
   const plays = await get(`/api/secured/videos/filmroom/plays?${qs}`);
-  if (plays) {
-    walk(plays, n => {
-      if (n.playId != null && (n.gameId != null || n.gsisId != null)) {
-        out.plays.push({playId: n.playId, gameId: n.gameId ?? n.gsisId ?? null,
-                        title: n.playDescription ?? n.title ?? null});
-      }
-    });
-  }
-  const coaches = await get(`/api/secured/videos/coaches?${qs}`);
-  for (const src of [coaches, plays]) {
-    if (!src) continue;
-    walk(src, n => {
-      const id = n.mcpID ?? n.mcpId ?? n.assetId;
-      const view = n.videoView ?? n.view ?? n.angle;
+  if (!plays) return out;
+  const ids = new Set();
+  walk(plays, n => {
+    if (n.playId != null) {
+      ids.add(String(n.playId));
+      out.plays.push({playId: String(n.playId),
+                      title: String(n.playDescription ?? n.title ?? n.playId)});
+    }
+  });
+  // coaches is PER PLAY: /api/secured/videos/coaches?gameId=..&playId=..
+  let list = Array.from(ids);
+  if (maxPlays > 0) list = list.slice(0, maxPlays);
+  // OBSERVED SHAPE (2024 film room), not guessed:
+  //   {items: [{mcpPlaybackId, subType, cameraSource, title}, ...]}
+  // Three items per play -- one "Coaches Film" at cameraSource Broadcast, and
+  // two "Coaches Film Pro" at Endzone and Sideline. The asset id is
+  // mcpPlaybackId and the angle is cameraSource; the older script's mcpID /
+  // videoView names do not appear here at all.
+  for (const pid of list) {
+    const c = await get(`/api/secured/videos/coaches?gameId=${gameId}&playId=${pid}`);
+    if (!c) continue;
+    for (const it of (c.items || [])) {
+      const id = it.mcpPlaybackId ?? it.mcpID ?? it.id;
+      const view = it.cameraSource ?? it.videoView;
       if (id && view) {
         out.assets.push({mcpID: String(id), view: String(view),
-                         title: String(n.title ?? n.playDescription ?? id),
-                         playId: n.playId ?? null});
+                         title: String(it.title ?? it.displayTitle ?? pid),
+                         subType: String(it.subType ?? ""), playId: pid});
       }
-    });
+    }
   }
-  // de-duplicate on (mcpID, view)
   const seen = new Set();
   out.assets = out.assets.filter(a => {
     const k = a.mcpID + ":" + a.view;
@@ -116,15 +185,30 @@ async ({season, seasonType, week, gameId}) => {
 # Mint the signed URL for one asset, exactly as the player does.
 MINT_JS = r"""
 async ({mcpID, view, title}) => {
-  const r = await fetch(`https://api.nfl.com/play/v1/asset/${mcpID}`, {
-    method: "POST",
-    credentials: "include",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({asset: {videoView: view, title: title}}),
-  });
-  if (!r.ok) return {error: "HTTP " + r.status};
-  const j = await r.json();
-  return j && j.accessUrl ? {accessUrl: j.accessUrl} : {error: "no accessUrl"};
+  // Mirrors the app's own call, observed rather than guessed:
+  //   POST https://api.nfl.com/play/v1/asset/{mcpPlaybackId}
+  //   body {"asset":{"videoView":"sideline","mcpID":"...","title":...,"id":null}}
+  // videoView is LOWERCASE in the body even though the coaches response spells
+  // the angle "Sideline"/"Endzone".
+  //
+  // The bearer here is NOT the one /api/secured/ takes -- different length,
+  // different issuer -- which is why the hook buckets them by host.
+  const auth = (window.__nflAuth || {}).api;
+  if (!auth) return {error: "no api.nfl.com bearer captured yet"};
+  try {
+    const r = await fetch(`https://api.nfl.com/play/v1/asset/${mcpID}`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": auth},
+      body: JSON.stringify({asset: {videoView: String(view).toLowerCase(),
+                                    title: title, id: null,
+                                    mcpID: String(mcpID)}}),
+    });
+    if (!r.ok) return {error: "HTTP " + r.status};
+    const j = await r.json();
+    return j && j.accessUrl ? {accessUrl: j.accessUrl} : {error: "no accessUrl"};
+  } catch (e) {
+    return {error: "fetch failed: " + e.message};
+  }
 }
 """
 
@@ -201,21 +285,46 @@ def main() -> None:
                 "endpoints refuse a replayed bearer.")
         print(f"attached to: {page.url[:90]}")
 
+        had = page.evaluate(HOOK_JS)
+        if not had:
+            # The hook only sees requests made AFTER it is installed, so make the
+            # app issue one. A reload re-bootstraps the film room, which fetches
+            # the play list with the bearer attached.
+            print("installing auth hook and reloading to capture the bearer ...")
+            page.reload(wait_until="domcontentloaded")
+            page.evaluate(HOOK_JS)
+            for _ in range(30):
+                if page.evaluate("() => !!(window.__nflAuth && window.__nflAuth.secured)"):
+                    break
+                page.wait_for_timeout(1000)
+        if not page.evaluate("() => !!((window.__nflAuth||{}).api)"):
+            print("no api.nfl.com bearer yet -- opening a play to make the app "
+                  "mint one ...")
+            page.wait_for_timeout(4000)
+        if not page.evaluate("() => !!(window.__nflAuth && window.__nflAuth.secured)"):
+            raise SystemExit(
+                "no Authorization header seen. Click a play in the film room "
+                "once so the app issues an authenticated request, then re-run. "
+                "(Cookies alone get 401s -- the bearer has to be borrowed.)")
+        print("bearer captured from the page (never leaves it)")
+
         found = page.evaluate(LIST_ASSETS_JS, {
             "season": args.season, "seasonType": args.season_type,
-            "week": args.week, "gameId": args.game_id})
+            "week": args.week, "gameId": args.game_id,
+            "maxPlays": args.limit})
 
         for err in found.get("errors", []):
             print(f"  ! {err}")
         plays, assets = found.get("plays", []), found.get("assets", [])
         print(f"plays reported: {len(plays)};  film assets found: {len(assets)}")
         if args.list_games or not assets:
-            seen = {}
-            for p in plays:
-                seen.setdefault(p.get("gameId"), 0)
-                seen[p["gameId"]] += 1
-            for gid, n in sorted(seen.items(), key=lambda kv: -kv[1])[:32]:
-                print(f"   gameId {gid}: {n} plays")
+            views = {}
+            for a in assets:
+                views[a["view"]] = views.get(a["view"], 0) + 1
+            print(f"   angles available: {views or '(none)'}")
+            for a in assets[:6]:
+                print(f"   play {a['playId']:>6}  {a['view']:10s} "
+                      f"{a.get('subType',''):18s} {a['title'][:40]}")
             if not assets:
                 raise SystemExit(
                     "no film assets came back. Either the game id is wrong, or "
