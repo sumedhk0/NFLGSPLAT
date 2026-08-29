@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Download EVERY play of a game -- both angles -- from NFL Pro, without clicking.
+r"""Download EVERY play of a game -- both angles -- from NFL Pro, without clicking.
 
 ``06_download_all22.py`` hooks the page's ``fetch`` and waits for a human to step
 through the play list toggling Sideline and Endzone. That is fine for one play
@@ -22,13 +22,17 @@ every URL for a 150-play game up front would leave the last ones dead before
 yt-dlp reached them, and the failure looks like a network error rather than an
 expiry. So a batch is minted, downloaded, and only then is the next minted.
 
-SETUP (same as 06_download_all22.py)
-    1) Close ALL Chrome, then relaunch with debugging on a dedicated profile:
-         & "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" `
-             --remote-debugging-port=9222 --user-data-dir="C:\\Users\\sumedh\\chrome-nfl-profile"
-    2) Log into pro.nfl.com in that window and open ANY film-room page, e.g.
+SETUP
+    1) Launch a SECOND Chrome on a dedicated profile. Your normal Chrome can stay
+       open: a distinct --user-data-dir starts an independent browser process.
+       (Using your DEFAULT profile is what fails -- Chrome hands the request to
+       the already-running process and silently ignores the debugging port.)
+         & "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+             --remote-debugging-port=9222 --user-data-dir="C:\Users\sumedh\chrome-nfl-profile"
+    2) Log into pro.nfl.com in THAT window -- once; the profile persists it --
+       and open a film-room page, e.g.
          https://pro.nfl.com/film/plays?season=2024&seasonType=REG&weekSlug=WEEK_5
-    3) python scripts/06c_download_game_auto.py --season 2024 --week 5 \\
+    3) python scripts/06c_download_game_auto.py --season 2024 --week 5 \
              --game-id <FAPI_GAME_ID> --out data/all22/<name>
 
     --list-games prints the games for a week if you do not have the id.

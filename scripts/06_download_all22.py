@@ -29,7 +29,9 @@ hooking always can.
 
 USAGE
 -----
-1) Close ALL Chrome. Relaunch with debugging on a dedicated profile:
+1) Launch a SECOND Chrome on a dedicated profile. Your normal Chrome may stay
+   open -- a distinct --user-data-dir is an independent browser process, and it
+   is only the DEFAULT profile that silently ignores the debugging port:
      & "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" `
          --remote-debugging-port=9222 --user-data-dir="C:\\Users\\sumedh\\chrome-nfl-profile"
 2) Log into pro.nfl.com in it; open a game's film room:
