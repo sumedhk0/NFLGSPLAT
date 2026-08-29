@@ -93,7 +93,11 @@ pip-delete-this-directory.txt
 kp_eval/
 
 # season data tree: per-play videos + artifacts (never commit NFL footage)
-data/
+# Datasets at the REPO ROOT only. A bare "data/" matches any directory of that
+# name at any depth, which silently swallowed the nfl_gsplat/data package --
+# git add reported it as ignored, and without the leading slash any future
+# package called data would vanish the same way.
+/data/
 
 # agent tooling scratch
 .claude/
