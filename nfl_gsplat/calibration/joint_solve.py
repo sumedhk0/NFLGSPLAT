@@ -339,9 +339,19 @@ def _frame_result(i, frame_data, C, r, f, image_size):
         rms_px=rms, num_correspondences=len(uv), refined_with_ba=True)
 
 
-def _candidate_centers(init_results) -> list[np.ndarray]:
-    """Plausible-anchor median (if any) first, then the plausibility grid."""
+def _candidate_centers(init_results, seed_centers=None) -> list[np.ndarray]:
+    """Seeds first, then the plausible-anchor median, then the grid.
+
+    ``seed_centers`` are centres known from OUTSIDE this solve. The strongest
+    such prior is another play from the SAME GAME: a broadcast camera sits on a
+    fixed mount and does not move between snaps, so a centre solved once is a
+    near-exact starting point for every other play of that game. The grid alone
+    is coarse -- 3x6x3 points tens of metres apart -- and a camera that falls
+    between its points can fail to be found at all.
+    """
     cands: list[np.ndarray] = []
+    for c in (seed_centers or ()):
+        cands.append(np.asarray(c, dtype=np.float64).reshape(3))
     anchor = init_from_results(init_results)
     if anchor is not None:
         cands.append(anchor)
@@ -473,7 +483,8 @@ def _rescue_refit(frame_ids, frame_data, image_size, C, *, view_deg: int = 0):
 
 def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
                        max_rounds: int = 2, _frame_data_override=None,
-                       view_deg: int = 0, center_bounds=None, audit_drop_px=None):
+                       view_deg: int = 0, center_bounds=None, audit_drop_px=None,
+                       seed_centers=None):
     """Joint solve over all usable frames -> (results, mirrored).
 
     ``results`` is a list aligned to ``init_results``' length with a
@@ -496,7 +507,11 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
 
     ``audit_drop_px`` overrides the module-level ``AUDIT_DROP_PX`` gate for
     the frame-consistency audits in this solve only; None (default) falls
-    back to ``AUDIT_DROP_PX``."""
+    back to ``AUDIT_DROP_PX``.
+
+    ``seed_centers`` are extra starting centres tried BEFORE the grid -- see
+    ``_candidate_centers``. Use it to carry a camera from one play of a game to
+    the next, since the mount does not move between snaps."""
     del max_rounds
     drop_px = AUDIT_DROP_PX if audit_drop_px is None else audit_drop_px
     frame_data = (_frame_data_override if _frame_data_override is not None
@@ -506,9 +521,10 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     if not frame_ids:
         raise CalibrationError("no usable frames (>=4 correspondences) for the joint solve.")
 
-    candidates = _candidate_centers(init_results)
+    candidates = _candidate_centers(init_results, seed_centers)
     candidates = _filter_centers(candidates, center_bounds)
-    n_anchor = 1 if init_from_results(init_results) is not None else 0
+    n_anchor = len(seed_centers or ()) + (
+        1 if init_from_results(init_results) is not None else 0)
     mirrored, C_win, cost = _resolve_reflection(
         frame_ids, frame_data, image_size, candidates, n_anchor=n_anchor,
         view_deg=view_deg)

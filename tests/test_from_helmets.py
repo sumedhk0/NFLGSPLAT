@@ -186,3 +186,35 @@ def test_fixed_centre_beats_per_frame_under_realistic_noise():
     assert spread > 0.05 * focal                   # per-frame: scattered
     assert abs(got_focal - focal) < 0.05 * focal   # jointly: pinned down
     assert np.linalg.norm(got_centre - centre) < 2.0
+
+
+def test_seed_centre_finds_a_camera_the_grid_would_miss():
+    """A camera between the grid's coarse points is unreachable without a seed.
+
+    The multi-start grid is 3x6x3 points tens of metres apart. A real camera
+    that falls between them can fail outright -- 9 of 59 views did -- and the
+    fix is free, because the mount does not move between plays of a game, so
+    one solved centre seeds all the rest.
+    """
+    from nfl_gsplat.calibration.from_helmets import cameras_fixed_centre
+
+    # Deliberately far from any grid node.
+    centre = np.array([17.0, -112.0, 41.0])
+    focal = 4200.0
+    K = intrinsics(focal)
+    rng = np.random.default_rng(11)
+    base = players(seed=11)
+    byf, world = {}, {}
+    for frame, dx in enumerate(np.linspace(-6, 6, 14), start=1):
+        xy = base + rng.normal(0.0, 0.4, size=base.shape)
+        R, t = look_at(centre, target=(dx, 0.0, 0.0))
+        uv = (project(K, R, t, np.c_[xy, np.zeros(len(xy))])
+              + rng.normal(0.0, 4.0, size=(len(xy), 2)))
+        byf[frame] = (uv, np.arange(len(xy)))
+        world[frame] = xy
+
+    seeded, got_centre, _m = cameras_fixed_centre(
+        byf, lambda f: world[f], W, H, audit_px=25.0,
+        seed_centre=centre + np.array([1.5, -2.0, 1.0]))
+    assert len(seeded) >= 10
+    assert np.linalg.norm(got_centre - centre) < 8.0

@@ -53,7 +53,8 @@ from nfl_gsplat.errors import CalibrationError
 WIDTH, HEIGHT = 1280, 720
 
 
-def measure_play(labels, track, game, play, offset, *, stride=5, holdout=True):
+def measure_play(labels, track, game, play, offset, *, stride=5, holdout=True,
+                 seeds=None):
     """One play. ``holdout`` calibrates on half the squad and scores the rest.
 
     Without it the cameras are fitted on the very players they are then scored
@@ -89,7 +90,8 @@ def measure_play(labels, track, game, play, offset, *, stride=5, holdout=True):
             return None, f"{view} lies outside the tracking record"
         try:
             cams, centre, mirrored = cameras_fixed_centre(
-                byf, world_at, WIDTH, HEIGHT, players=fit_players)
+                byf, world_at, WIDTH, HEIGHT, players=fit_players,
+                seed_centre=None if seeds is None else seeds.get((game, view)))
         except CalibrationError as exc:
             return None, f"{view}: {exc}"
         if mirrored:
@@ -100,6 +102,10 @@ def measure_play(labels, track, game, play, offset, *, stride=5, holdout=True):
         scored = {f: (uv[[i for i, c in enumerate(cols) if c in score_players]],
                       cols[[i for i, c in enumerate(cols) if c in score_players]])
                   for f, (uv, cols) in byf.items()}
+        if seeds is not None:
+            # The mount does not move between snaps, so this game's next play
+            # starts from here instead of from the coarse grid.
+            seeds[(game, view)] = centre
         views[view] = (scored, cams, centre)
 
     (byf_s, cam_s, c_s) = views["Sideline"]
@@ -169,7 +175,7 @@ def main() -> None:
         usable = usable[:args.limit]
     print(f"{len(usable)} aligned plays to measure\n")
 
-    out, good = {}, []
+    out, good, seeds = {}, [], {}
     for i, rec in enumerate(usable, 1):
         game, play = rec["game_key"], rec["play_id"]
         track = plays.get((game, play))
@@ -177,7 +183,7 @@ def main() -> None:
             continue
         got, reason = measure_play(labels, track, game, play, rec["offset_s"],
                                    stride=args.stride,
-                                   holdout=not args.no_holdout)
+                                   holdout=not args.no_holdout, seeds=seeds)
         out[f"{game}_{play}"] = got or {"failed": reason}
         if got:
             good.append(got["xy_median_m"])

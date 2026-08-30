@@ -157,7 +157,7 @@ def _arr(x):
 
 def cameras_fixed_centre(byf, world_at, width: int, height: int, *,
                          audit_px: float = HELMET_AUDIT_PX, view_deg: int = 0,
-                         players=None, min_corrs: int = 6):
+                         players=None, min_corrs: int = 6, seed_centre=None):
     """``({frame: (K, R, t)}, centre, mirrored)`` from ONE shared camera centre.
 
     Prefer this to ``cameras_for_view``. Fitting each frame independently does
@@ -176,6 +176,11 @@ A tripod camera pans but does not translate, so one centre shared across
     ``players`` restricts the fit to a subset of player columns, which is how
     that held-out check is run: calibrate on half the squad and score the half
     the solve never saw.
+
+    ``seed_centre`` is a centre to try before the multi-start grid. The camera
+    does not move between plays of a GAME, so a centre solved on one play is a
+    near-exact seed for the rest -- which is what rescues the plays whose camera
+    falls between the grid's coarse points.
 
     A CAVEAT ON THE CENTRE. Distance along the viewing axis trades off against
     focal length -- a camera further away with a longer lens looks almost the
@@ -205,7 +210,8 @@ A tripod camera pans but does not translate, so one centre shared across
     results, mirrored = solve_fixed_center(
         {}, (width, height), init_results=[None] * (max(frame_data) + 1),
         _frame_data_override=frame_data, view_deg=view_deg,
-        audit_drop_px=audit_px)
+        audit_drop_px=audit_px,
+        seed_centers=None if seed_centre is None else [seed_centre])
 
     cams = {}
     for frame in frame_data:
