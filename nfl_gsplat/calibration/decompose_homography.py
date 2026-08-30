@@ -51,15 +51,20 @@ def _solve_focal(H: np.ndarray, cx: float, cy: float) -> float:
     return float(np.sqrt(np.average(cands, weights=weights)))
 
 
-def homography_to_krt(
-    H: np.ndarray, *, width: int, height: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Decompose a field(z=0)->image homography into (K, R, t)."""
+def homography_to_rt(
+    H: np.ndarray, K: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pose (R, t) of a field(z=0)->image homography under a KNOWN intrinsic.
+
+    Split out from ``homography_to_krt`` for the case where the focal is
+    already known better than any one frame can determine it. A single frame's
+    focal comes from that frame's plane orientation alone, so it is noisy and
+    degenerates outright at particular poses; when many frames share one
+    camera, a focal pooled over them and fixed here beats letting every frame
+    re-estimate its own.
+    """
     H = np.asarray(H, dtype=np.float64)
-    cx, cy = width / 2.0, height / 2.0
-    f = _solve_focal(H, cx, cy)
-    K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]], dtype=np.float64)
-    B = np.linalg.inv(K) @ H
+    B = np.linalg.inv(np.asarray(K, dtype=np.float64)) @ H
     scale = 1.0 / np.linalg.norm(B[:, 0])
     # Sign: the camera must see the field in front of it (positive depth).
     if (B[:, 2] * scale)[2] < 0:
@@ -72,5 +77,29 @@ def homography_to_krt(
     U, _, Vt = np.linalg.svd(R)
     D = np.eye(3)
     D[2, 2] = np.linalg.det(U @ Vt)
-    R = U @ D @ Vt
+    return U @ D @ Vt, t
+
+
+def projection_matrix(K: np.ndarray, R: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """The 3x4 P = K [R | t] for FULL 3D points, not just the z=0 plane."""
+    t = np.asarray(t, dtype=np.float64).reshape(3, 1)
+    return np.asarray(K, dtype=np.float64) @ np.hstack(
+        [np.asarray(R, dtype=np.float64), t])
+
+
+def camera_centre(R: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """Camera position in world coordinates, ``-R^T t``."""
+    return -np.asarray(R, dtype=np.float64).T @ np.asarray(
+        t, dtype=np.float64).reshape(3)
+
+
+def homography_to_krt(
+    H: np.ndarray, *, width: int, height: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Decompose a field(z=0)->image homography into (K, R, t)."""
+    H = np.asarray(H, dtype=np.float64)
+    cx, cy = width / 2.0, height / 2.0
+    f = _solve_focal(H, cx, cy)
+    K = np.array([[f, 0, cx], [0, f, cy], [0, 0, 1.0]], dtype=np.float64)
+    R, t = homography_to_rt(H, K)
     return K, R, t
