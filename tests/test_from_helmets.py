@@ -8,6 +8,8 @@ back out.
 import numpy as np
 import pytest
 
+from nfl_gsplat.errors import CalibrationError
+
 from nfl_gsplat.calibration.decompose_homography import (
     camera_centre,
     krt_to_homography,
@@ -133,3 +135,54 @@ def test_pooled_focal_refuses_when_every_view_is_degenerate():
     """A camera that never tilts cannot reveal its focal; say so, don't guess."""
     with pytest.raises(Exception):
         pooled_focal([np.eye(3), np.eye(3), np.eye(3)], W, H)
+
+
+def test_fixed_centre_beats_per_frame_under_realistic_noise():
+    """Why the fixed-centre solve exists, with the real mechanism.
+
+    It is not that a telephoto view has no focal in it -- on noiseless points
+    the per-frame estimate is exact. It is that the focal is weakly
+    CONDITIONED at this geometry, so the ~8 px that real helmet-height
+    variation puts on every correspondence is amplified enormously. On real
+    footage that took the per-frame focal from 2125 to 18430 px across one
+    play while every homography still fitted to 6.3 px.
+
+    One shared camera centre over the play constrains what one frame cannot.
+    """
+    from nfl_gsplat.calibration.from_helmets import cameras_fixed_centre
+
+    centre = np.array([0.0, -80.0, 35.0])
+    focal = 3000.0
+    K = intrinsics(focal)
+    rng = np.random.default_rng(3)
+    base = players(seed=3)
+    byf, world = {}, {}
+    for frame, dx in enumerate(np.linspace(-8, 8, 14), start=1):
+        xy = base + rng.normal(0.0, 0.4, size=base.shape)
+        R, t = look_at(centre, target=(dx, 0.0, 0.0))
+        uv = (project(K, R, t, np.c_[xy, np.zeros(len(xy))])
+              + rng.normal(0.0, 8.0, size=(len(xy), 2)))
+        byf[frame] = (uv, np.arange(len(xy)))
+        world[frame] = xy
+
+    homographies = []
+    for frame, (uv, _cols) in byf.items():
+        h, _inliers = plane_homography(world[frame], uv)
+        # The FIT is still fine -- that is the whole point. It is the focal
+        # extracted from the fit that is not, not the fit itself.
+        import cv2
+        proj = cv2.perspectiveTransform(
+            world[frame].reshape(-1, 1, 2).astype(float), h).reshape(-1, 2)
+        assert np.median(np.linalg.norm(proj - uv, axis=1)) < 15.0
+        homographies.append(h)
+    _f_pf, spread = pooled_focal(homographies, W, H)
+
+    cams, got_centre, mirrored = cameras_fixed_centre(
+        byf, lambda f: world[f], W, H, audit_px=25.0)
+    got_focal = np.median([Ki[0, 0] for Ki, _R, _t in cams.values()])
+
+    assert not mirrored
+    assert len(cams) >= 10
+    assert spread > 0.05 * focal                   # per-frame: scattered
+    assert abs(got_focal - focal) < 0.05 * focal   # jointly: pinned down
+    assert np.linalg.norm(got_centre - centre) < 2.0

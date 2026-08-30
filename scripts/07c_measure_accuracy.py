@@ -20,11 +20,18 @@ and compare against tracking. Reported as
     centre     recovered camera position, for a plausibility read: a broadcast
                sideline camera sits tens of metres out and tens of metres up.
 
-WHAT IT IS NOT. The cameras here are fitted USING the tracking, so xy error is
-not an end-to-end score of the full pipeline -- it is the geometry's error floor
-given perfect identity and perfect correspondence. That floor is exactly what
-was missing: it says how much of the 2.90 m placement error is geometry and how
-much is everything upstream of it.
+HOW THE CIRCULARITY IS BROKEN. The cameras are fitted using the tracking, so
+scoring them against that same tracking would flatter itself. By default the
+solve calibrates on HALF the squad and the error is reported only on the half
+it never saw. Measured on 57583/82 the two agree -- 0.13 m in sample, 0.15 m
+held out -- which is the evidence that the in-sample number was honest, but the
+held-out one is the one quoted.
+
+WHAT IT IS STILL NOT. Even held out, this is not an end-to-end score of the
+pipeline: identity and cross-view correspondence are given, not earned. It is
+the geometry's error FLOOR under perfect identity, which is exactly the number
+that was missing -- it says how much of the 2.90 m placement error is geometry
+(very little) and how much is everything upstream of it (nearly all).
 """
 from __future__ import annotations
 
@@ -34,12 +41,9 @@ from pathlib import Path
 
 import numpy as np
 
-from nfl_gsplat.calibration.decompose_homography import (
-    camera_centre,
-    projection_matrix,
-)
+from nfl_gsplat.calibration.decompose_homography import projection_matrix
 from nfl_gsplat.calibration.from_helmets import (
-    cameras_for_view,
+    cameras_fixed_centre,
     triangulate_matched,
 )
 from nfl_gsplat.data.align_video import VIDEO_FPS, helmet_boxes_by_frame
@@ -49,8 +53,20 @@ from nfl_gsplat.errors import CalibrationError
 WIDTH, HEIGHT = 1280, 720
 
 
-def measure_play(labels, track, game, play, offset, *, stride=5):
+def measure_play(labels, track, game, play, offset, *, stride=5, holdout=True):
+    """One play. ``holdout`` calibrates on half the squad and scores the rest.
+
+    Without it the cameras are fitted on the very players they are then scored
+    against, and the number cannot be quoted as accuracy. With it the scored
+    players are ones the solve never saw. Measured on 57583/82 the two agree
+    (0.13 m in-sample, 0.15 m held out), which is the evidence that the
+    in-sample figure was not flattering itself -- but the held-out one is the
+    one to report.
+    """
     index = {p: i for i, p in enumerate(track.players)}
+    fit_players = set(range(0, len(track.players), 2)) if holdout else None
+    score_players = (set(range(1, len(track.players), 2)) if holdout
+                     else set(range(len(track.players))))
 
     def world_at(frame):
         return track.at(offset + frame / VIDEO_FPS)
@@ -72,18 +88,29 @@ def measure_play(labels, track, game, play, offset, *, stride=5):
         if not byf:
             return None, f"{view} lies outside the tracking record"
         try:
-            cams, focal = cameras_for_view(byf, world_at, WIDTH, HEIGHT)
+            cams, centre, mirrored = cameras_fixed_centre(
+                byf, world_at, WIDTH, HEIGHT, players=fit_players)
         except CalibrationError as exc:
             return None, f"{view}: {exc}"
-        views[view] = (byf, cams, focal)
+        if mirrored:
+            # Our world frame comes from tracking and is unambiguous, so a
+            # mirror win means the solve fitted something other than reality.
+            return None, f"{view}: solve chose a MIRRORED world -- not trusted"
+        # Score only players the calibration never saw.
+        scored = {f: (uv[[i for i, c in enumerate(cols) if c in score_players]],
+                      cols[[i for i, c in enumerate(cols) if c in score_players]])
+                  for f, (uv, cols) in byf.items()}
+        views[view] = (scored, cams, centre)
 
-    (byf_s, cam_s, f_s) = views["Sideline"]
-    (byf_e, cam_e, f_e) = views["Endzone"]
+    (byf_s, cam_s, c_s) = views["Sideline"]
+    (byf_e, cam_e, c_e) = views["Endzone"]
 
     errs, zs, n_pts = [], [], 0
     for frame in sorted(set(cam_s) & set(cam_e)):
         Ks, Rs, ts = cam_s[frame]
         Ke, Re, te = cam_e[frame]
+        if frame not in byf_s or frame not in byf_e:
+            continue
         uv_s, cols_s = byf_s[frame]
         uv_e, cols_e = byf_e[frame]
         cols, xyz = triangulate_matched(
@@ -103,16 +130,16 @@ def measure_play(labels, track, game, play, offset, *, stride=5):
         return None, "no frame had players in both views"
     err = np.concatenate(errs)
     z = np.concatenate(zs)
-    cs = np.median([camera_centre(R, t) for _K, R, t in cam_s.values()], axis=0)
-    ce = np.median([camera_centre(R, t) for _K, R, t in cam_e.values()], axis=0)
     return {
         "frames": len(set(cam_s) & set(cam_e)), "points": n_pts,
+        "held_out": bool(holdout),
         "xy_median_m": float(np.median(err)),
         "xy_p90_m": float(np.percentile(err, 90)),
         "z_iqr_m": float(np.subtract(*np.percentile(z, [75, 25]))),
-        "focal_sideline": round(f_s, 1), "focal_endzone": round(f_e, 1),
-        "centre_sideline": [round(float(v), 1) for v in cs],
-        "centre_endzone": [round(float(v), 1) for v in ce],
+        "focal_sideline": round(float(np.median([K[0, 0] for K, _R, _t in cam_s.values()])), 1),
+        "focal_endzone": round(float(np.median([K[0, 0] for K, _R, _t in cam_e.values()])), 1),
+        "centre_sideline": [round(float(v), 1) for v in c_s],
+        "centre_endzone": [round(float(v), 1) for v in c_e],
     }, "ok"
 
 
@@ -126,6 +153,9 @@ def main() -> None:
     ap.add_argument("--stride", type=int, default=5,
                     help="use every Nth labelled frame")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--no-holdout", action="store_true",
+                    help="calibrate and score on ALL players (not an accuracy "
+                         "figure -- the cameras then know the answer)")
     args = ap.parse_args()
 
     align_path = args.alignment or (args.root / "alignment.json")
@@ -146,7 +176,8 @@ def main() -> None:
         if track is None:
             continue
         got, reason = measure_play(labels, track, game, play, rec["offset_s"],
-                                   stride=args.stride)
+                                   stride=args.stride,
+                                   holdout=not args.no_holdout)
         out[f"{game}_{play}"] = got or {"failed": reason}
         if got:
             good.append(got["xy_median_m"])

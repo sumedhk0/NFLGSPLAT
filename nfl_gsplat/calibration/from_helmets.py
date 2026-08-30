@@ -11,12 +11,24 @@ measured earlier, it returned an identical residual for offsets seven seconds
 apart. Coplanar points determine a homography exactly, and a homography of a
 known plane is enough: it yields the focal, and with the focal the pose.
 
-WHY THE FOCAL IS POOLED. A single frame's focal comes only from that frame's
-plane orientation, so it is noisy, and at particular poses it is not determined
-at all -- a camera whose plane axis is parallel to the image plane, which is
-roughly the nominal endzone pose. Broadcast cameras do zoom, so the focal is
-not constant forever; ``focal_spread`` reports how much it moved so a play
-where it did can be caught rather than averaged into nonsense.
+WHY ONE FRAME IS NOT ENOUGH, and what to use instead. A homography per frame
+fits beautifully -- 6.3 px -- and still yields a useless camera. Measured over
+one play the per-frame focal ranged 2125 to 18430 px, a factor of 8.7.
+
+The mechanism is CONDITIONING, not absence: on noiseless points a single frame
+recovers the focal exactly, so it is wrong to say a telephoto view has no focal
+in it. What happens is that at this geometry -- a long lens, far away, looking
+at a shallow patch of players -- the focal is very weakly constrained, and the
+~8 px that real helmet-height variation puts on every correspondence is
+amplified into that 8.7x spread. Pooling does not rescue it; the spread is the
+signal that the individual estimates are meaningless.
+
+What works is ``cameras_fixed_centre``: a tripod camera pans but does not
+translate, so ONE centre shared over the play ties the frames together and
+makes the focal determined. Measured against tracking, triangulation error went
+from 6.17 m per-frame to 0.13 m, and 0.15 m on players held out of the
+calibration. ``cameras_for_view`` and ``pooled_focal`` are kept because they
+are what establishes that per-frame fitting fails.
 
 WHAT THE WORLD FRAME IS. z = 0 is the HELMET plane, not the ground, because
 that is the plane the correspondences lie on. Its height above the turf never
@@ -48,6 +60,14 @@ MIN_HELMETS: int = 8
 
 # Frames needed before a pooled focal means anything.
 MIN_FRAMES_FOR_FOCAL: int = 5
+
+# Reprojection gate for the fixed-centre solve on HELMET correspondences.
+# joint_solve's own default is 6 px, which is right for field-line
+# intersections but impossible here: helmet height varies ~0.3 m, which is
+# ~8 px, so even a perfect rigid camera cannot reproject helmets to 6 px. At
+# the 6 px default the solve kept 0 of 48 frames; at 25 px, which is ~3x the
+# correspondence noise, it keeps 48 of 48 and lands on a plausible camera.
+HELMET_AUDIT_PX: float = 25.0
 
 
 def plane_homography(world_xy, image_uv, *, ransac_px: float = RANSAC_PX):
@@ -128,6 +148,79 @@ def cameras_for_view(byf, world_at, width: int, height: int, *,
     _LOG.info("recovered %d cameras, focal %.1f px (IQR %.1f)",
               len(cams), focal, spread)
     return cams, focal
+
+
+def _arr(x):
+    """CalibrationResult exposes some of these as methods and some as fields."""
+    return np.asarray(x() if callable(x) else x, dtype=np.float64)
+
+
+def cameras_fixed_centre(byf, world_at, width: int, height: int, *,
+                         audit_px: float = HELMET_AUDIT_PX, view_deg: int = 0,
+                         players=None, min_corrs: int = 6):
+    """``({frame: (K, R, t)}, centre, mirrored)`` from ONE shared camera centre.
+
+    Prefer this to ``cameras_for_view``. Fitting each frame independently does
+    not work on this footage: at this geometry the focal is weakly conditioned,
+    so the ~8 px that real helmet-height variation puts on every correspondence
+    is amplified enormously. Measured on one play the per-frame focal ranged
+    2125 to 18430 px -- a factor of 8.7 -- while the underlying homography
+    fitted to 6.3 px. The fit was fine; the focal was not recoverable through
+    the noise.
+
+A tripod camera pans but does not translate, so one centre shared across
+    the play ties the frames together and makes the focal determined. Measured
+    against tracking on the same play, triangulation went from 6.17 m of error
+    to 0.13 m, and to 0.15 m on players held out of the calibration entirely.
+
+    ``players`` restricts the fit to a subset of player columns, which is how
+    that held-out check is run: calibrate on half the squad and score the half
+    the solve never saw.
+
+    A CAVEAT ON THE CENTRE. Distance along the viewing axis trades off against
+    focal length -- a camera further away with a longer lens looks almost the
+    same -- so the returned centre is only good to something like 15%: two fits
+    of the same play put the sideline camera at y = -102 m and y = -87 m.
+    Triangulation is unharmed, because the projection is what is pinned down.
+    Do not read the centre as a survey.
+    """
+    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+
+    frame_data = {}
+    for frame, (uv, cols) in byf.items():
+        world = np.asarray(world_at(frame), dtype=np.float64)[cols]
+        keep = np.isfinite(world).all(axis=1)
+        if players is not None:
+            keep = keep & np.array([c in players for c in cols], dtype=bool)
+        if keep.sum() < min_corrs:
+            continue
+        # z = 0 IS the helmet plane, so the height of that plane above the turf
+        # never has to be known -- see the module docstring.
+        frame_data[frame] = (np.c_[world[keep], np.zeros(int(keep.sum()))],
+                             uv[keep])
+    if not frame_data:
+        raise CalibrationError(
+            f"no frame had {min_corrs} usable helmets; nothing to calibrate.")
+
+    results, mirrored = solve_fixed_center(
+        {}, (width, height), init_results=[None] * (max(frame_data) + 1),
+        _frame_data_override=frame_data, view_deg=view_deg,
+        audit_drop_px=audit_px)
+
+    cams = {}
+    for frame in frame_data:
+        r = results[frame]
+        if r is None:
+            continue
+        cams[frame] = (_arr(r.intrinsics.K), _arr(r.pose.R),
+                       _arr(r.pose.t).reshape(3))
+    if not cams:
+        raise CalibrationError("the joint solve kept no frames.")
+    centre = np.median([_arr(results[f].pose.center_world)
+                        for f in cams], axis=0)
+    _LOG.info("fixed-centre solve kept %d/%d frames, centre %s, mirrored=%s",
+              len(cams), len(frame_data), np.round(centre, 1), mirrored)
+    return cams, centre, mirrored
 
 
 def triangulate_matched(P_a, uv_a, cols_a, P_b, uv_b, cols_b):
