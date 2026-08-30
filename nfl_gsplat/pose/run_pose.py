@@ -30,6 +30,7 @@ from nfl_gsplat.pose.forward_kinematics import (
     joint_tfms_sequence,
 )
 from nfl_gsplat.pose.fuse_smplx import SMPLXFitConfig, fuse_sequence
+from nfl_gsplat.pose.plausibility import mark_implausible
 from nfl_gsplat.pose.temporal_smooth import (
     OneEuroConfig,
     interpolate_short_gaps,
@@ -79,6 +80,8 @@ def solve_joint_tfms(
     fit_cfg: SMPLXFitConfig | None = None,
     euro_cfg: OneEuroConfig | None = None,
     gap_frames: int = 5,
+    audit_poses: bool = True,
+    fps: float = 59.94,
 ) -> np.ndarray:
     """Triangulate → refit → smooth → FK. Returns ``joint_tfms[T, J, 4, 4]``.
 
@@ -92,6 +95,14 @@ def solve_joint_tfms(
 
     tri = triangulate_joints_two_view(observations, cameras, tri_cfg)
     joints3d, valid = tri.joints3d, tri.valid
+
+    # Strike out frames whose triangulated joints are not a body BEFORE fitting.
+    # Left in, they pull the fit toward themselves and the smoother then spreads
+    # the damage over their neighbours; struck out, the existing short-gap
+    # interpolation covers them from the good frames on either side. This is the
+    # "flailing" in the rendered output.
+    if audit_poses:
+        valid, _report = mark_implausible(joints3d, valid, fps=fps)
 
     forward = fk_forward(
         rest_joints, parents,
