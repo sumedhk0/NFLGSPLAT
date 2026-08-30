@@ -21,8 +21,13 @@ Reported against two baselines so the number means something:
     chance      pairing at random, 1/N
     epipolar    the pairing implied by geometry, which is what is being tested
 
-Run with --detections to repeat it on the dataset's own detector output rather
-than ground-truth boxes, which adds real misses and false positives.
+--tracks raises the question from boxes to TRACKS: instead of matching one
+frame's boxes, accumulate the geometric cost for each pair of players over the
+whole play and assign once. This is the "sideline track vs endzone track"
+pairing, and it is the form the real pipeline needs. It ASSUMES single-view
+tracking already works, since it uses each view's own identities as track ids
+-- that is a separate problem, and this measures what cross-view matching adds
+on top of it rather than pretending to solve both at once.
 """
 from __future__ import annotations
 
@@ -89,6 +94,53 @@ def match_frame(P_a, uv_a, cols_a, P_b, uv_b, cols_b):
     return int((cols_a[r] == cols_b[c]).sum()), int(len(r))
 
 
+def match_tracks(byf_s, cam_s, byf_e, cam_e):
+    """``(n_correct, n_tracks, chance)`` from ONE assignment over the whole play.
+
+    A single frame's geometry is ambiguous whenever two players are close
+    together in both views at once, and that ambiguity is different in every
+    frame. Summing the cost over the play lets frames where a pair is
+    well-separated outvote the frames where it is not, which is the whole
+    reason to match tracks rather than boxes.
+
+    Costs are averaged over the frames a pair actually co-occurs in, because
+    players are not visible in the same number of frames and a pair seen twice
+    would otherwise look cheaper than a correct pair seen two hundred times.
+    """
+    from scipy.optimize import linear_sum_assignment
+
+    total, count = {}, {}
+    for frame in sorted(set(cam_s) & set(cam_e)):
+        if frame not in byf_s or frame not in byf_e:
+            continue
+        Ks, Rs, ts = cam_s[frame]
+        Ke, Re, te = cam_e[frame]
+        uv_s, cols_s = byf_s[frame]
+        uv_e, cols_e = byf_e[frame]
+        if len(uv_s) == 0 or len(uv_e) == 0:
+            continue
+        cost = pair_cost(projection_matrix(Ks, Rs, ts), uv_s,
+                         projection_matrix(Ke, Re, te), uv_e)
+        for a, ca in enumerate(cols_s):
+            for b, cb in enumerate(cols_e):
+                key = (int(ca), int(cb))
+                total[key] = total.get(key, 0.0) + float(cost[a, b])
+                count[key] = count.get(key, 0) + 1
+
+    if not total:
+        return None
+    tracks_s = sorted({k[0] for k in total})
+    tracks_e = sorted({k[1] for k in total})
+    ia = {t: i for i, t in enumerate(tracks_s)}
+    ib = {t: i for i, t in enumerate(tracks_e)}
+    M = np.full((len(tracks_s), len(tracks_e)), 1e6)
+    for (a, b), tot in total.items():
+        M[ia[a], ib[b]] = tot / count[(a, b)]
+    r, c = linear_sum_assignment(M)
+    correct = sum(1 for i, j in zip(r, c) if tracks_s[i] == tracks_e[j])
+    return correct, len(r), 1.0 / max(len(tracks_e), 1)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -98,6 +150,9 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--stride", type=int, default=10)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--tracks", action="store_true",
+                    help="match TRACKS over the whole play instead of boxes "
+                         "frame by frame")
     args = ap.parse_args()
 
     align_path = args.alignment or (args.root / "alignment.json")
@@ -141,6 +196,23 @@ def main() -> None:
             continue
 
         (byf_s, cam_s), (byf_e, cam_e) = views["Sideline"], views["Endzone"]
+
+        if args.tracks:
+            got = match_tracks(byf_s, cam_s, byf_e, cam_e)
+            if got is None:
+                continue
+            ok, n, chance_v = got
+            acc = ok / max(n, 1)
+            out[f"{game}_{play}"] = {"tracks": n, "correct": ok,
+                                     "accuracy": round(acc, 4),
+                                     "chance": round(chance_v, 4)}
+            totals[0] += ok
+            totals[1] += n
+            totals[2] += chance_v * n
+            print(f"[{i:3d}] {game}/{play:<6d} TRACK matching {acc:6.1%}  "
+                  f"({ok}/{n} tracks, chance {chance_v:.1%})", flush=True)
+            continue
+
         ok = n = 0
         chance = []
         for frame in sorted(set(cam_s) & set(cam_e)):

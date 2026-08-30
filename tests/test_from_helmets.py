@@ -133,7 +133,7 @@ def test_triangulation_uses_only_players_seen_in_both_views():
 
 def test_pooled_focal_refuses_when_every_view_is_degenerate():
     """A camera that never tilts cannot reveal its focal; say so, don't guess."""
-    with pytest.raises(Exception):
+    with pytest.raises(CalibrationError):
         pooled_focal([np.eye(3), np.eye(3), np.eye(3)], W, H)
 
 
