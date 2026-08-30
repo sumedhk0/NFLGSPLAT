@@ -53,8 +53,23 @@ class PlayTracking:
     def n_players(self) -> int:
         return len(self.players)
 
+    def covers(self, seconds_from_snap: float) -> bool:
+        """Is this time actually inside the record, rather than extrapolated?
+
+        Callers that SEARCH over time must ask. ``at`` clamps outside the
+        window, which freezes every player at the first or last sample -- and a
+        frozen configuration is trivially consistent with itself, so a search
+        scoring geometric fit will score a clamped offset as PERFECT and prefer
+        it to the truth. Measured: the offset search picked -12.5 s over the
+        true -5.25 s, because both put the clip before the record's start.
+        """
+        return bool(self.times[0] <= seconds_from_snap <= self.times[-1])
+
     def at(self, seconds_from_snap: float) -> np.ndarray:
-        """Positions at a time, linearly interpolated. ``[P, 2]`` metres."""
+        """Positions at a time, linearly interpolated. ``[P, 2]`` metres.
+
+        CLAMPS outside the record; see ``covers``.
+        """
         idx = np.clip(np.searchsorted(self.times, seconds_from_snap), 1,
                       len(self.times) - 1)
         t0, t1 = self.times[idx - 1], self.times[idx]
