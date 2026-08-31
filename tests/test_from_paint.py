@@ -123,7 +123,11 @@ def test_fit_rows_finds_the_hash_rows_among_noise():
     rows = fit_rows(noisy)
     assert len(rows) >= 2
     # the two strongest rows should be the planted ones, ~30 marks each
-    assert sorted(n for _l, n in rows)[-2] >= 20
+    assert sorted(n for _l, n, _m in rows)[-2] >= 20
+    # and each row hands back the marks that formed it, so grid consistency can
+    # be scored on those instead of on every blob the detector returned
+    for _line, n, marks in rows:
+        assert len(marks) == n
 
 
 def test_frame_homography_labels_the_long_lines_correctly():
@@ -286,3 +290,54 @@ def test_focal_disagreement_is_infinite_at_a_degenerate_pose():
 
     _feats, Hm = synth_features()          # the nominal, degenerate pose
     assert not np.isfinite(focal_disagreement(Hm, W, H))
+
+
+def test_implied_fov_reads_the_lens_from_a_homography():
+    from nfl_gsplat.calibration.from_paint import implied_fov_deg
+
+    K = K_of(FOCAL)
+    R, t = look_at(np.array([18.0, -60.0, 26.0]), up=(0.15, 0.1, 1.0))
+    got = implied_fov_deg(ground_homography(K, R, t), W, H)
+    want = np.degrees(2.0 * np.arctan(W / (2.0 * FOCAL)))
+    assert abs(got - want) < 1.0
+
+
+def test_an_impossible_camera_is_ranked_last():
+    """A wrong row labelling survives every fit-based test but not physics.
+
+    Calling the hash rows the sidelines stretches world Y by 8.65x, and the
+    solve absorbs that by moving the camera 8.65x away behind a longer lens.
+    Measured on All-22 that gave cameras 300-500 m out at a 4-6 degree field of
+    view. Nothing about the FIT objects; only the lens does.
+    """
+    from nfl_gsplat.calibration.from_paint import (
+        PLAUSIBLE_FOV_DEG,
+        assignment_is_possible,
+    )
+
+    K = K_of(FOCAL)
+    R, t = look_at(np.array([18.0, -60.0, 26.0]), up=(0.15, 0.1, 1.0))
+    assert assignment_is_possible(ground_homography(K, R, t), W, H)
+
+    # The same view fitted as if the field were 8.65x wider.
+    stretched = ground_homography(K_of(FOCAL * 12.0), R, t)
+    fov = np.degrees(2.0 * np.arctan(W / (2.0 * FOCAL * 12.0)))
+    assert fov < PLAUSIBLE_FOV_DEG[0]
+    assert not assignment_is_possible(stretched, W, H)
+
+
+def test_solve_quality_flags_a_mount_that_cannot_exist():
+    from nfl_gsplat.calibration.from_paint import solve_quality
+
+    class _R:
+        rms_px = 9.0
+
+    results = {1: _R(), 2: _R()}
+    cams = {1: None, 2: None}
+    real = solve_quality(results, cams, {1: None, 2: None},
+                         np.array([0.0, -80.0, 35.0]), 2600.0, W)
+    assert real["plausible_mount"]
+    assert real["rms_px"] == 9.0
+    far = solve_quality(results, cams, {1: None, 2: None},
+                        np.array([200.0, -560.0, 350.0]), 12957.0, W)
+    assert not far["plausible_mount"]

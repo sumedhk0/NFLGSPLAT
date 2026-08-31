@@ -30,17 +30,23 @@ express, so the gap is chosen by which one yields a consistent camera.
 Measured: gap 1 places players 1.73 m from truth, gaps 2 and 3 give 8.17 m and
 12.33 m.
 
-HOW GOOD IS IT. Use ``cameras_from_paint_pooled``: sharing ONE camera centre
-across the play takes the median placement from 5.40 m to 0.95 m against a
-tracking-fitted 0.34 m, measured over the same plays. Per-frame fitting
-(``cameras_from_paint``) is kept because the pooled solve refuses plays it
-cannot fit, and because it is what the pooled solve is seeded from.
+HOW GOOD IS IT. ``cameras_from_paint_pooled`` shares ONE camera centre across
+the play and REFUSES any camera it cannot justify. Over 59 sideline views of
+the helmet set:
 
-The pooled solve trades YIELD for accuracy on purpose -- 8 of 15 plays on that
-sweep -- and the gate is what buys it; see PAINT_AUDIT_PX. It also repairs the
-catastrophic cases rather than merely improving the good ones: one play went
-from 82.35 m to 0.93 m, because a single shared centre lets the good frames
-outvote the bad ones instead of every frame keeping its own mistake.
+    no gates              32 accepted   4.44 m median
+    grid-consistency      36 accepted   4.11 m
+    + rms and mount       12 accepted   1.29 m     <- what it does now
+
+against 0.35 m for a camera fitted from tracking. So it accepts about a fifth
+of views and places players a bit over a metre out on those. That is the honest
+state of the tracking-free path: usable as an initialiser, roughly four times
+looser than having tracking, and -- importantly -- it now knows which views it
+should not be trusted on.
+
+Pooling also repairs catastrophes rather than merely polishing good cases: one
+play went from 82.35 m to 0.93 m, because a shared centre lets the good frames
+outvote the bad instead of every frame keeping its own mistake.
 
 Free evidence that the LABELLING is right even when the pose is loose: the
 recovered X shift lands within 0.15 of a whole 5-yard step on 20 of 35 views.
@@ -109,7 +115,7 @@ GAP_CANDIDATES: tuple[int, ...] = (1, 2, 3)
 # order-preserving assignment, so nothing can be chosen and a wrong labelling
 # goes through unopposed. It scored 9.8% here while a correct labelling scores
 # near 100%, and the cameras that came out sat 300-500 m from the field.
-MIN_GRID_CONSISTENCY: float = 0.35
+MIN_GRID_CONSISTENCY: float = 0.60
 
 # Beyond this many lines the exponential ladder search is not worth its cost.
 _MAX_LADDER_LINES: int = 8
@@ -172,7 +178,8 @@ def fit_rows(points, *, tol_px: float = 5.0, min_marks: int = 10,
         _u, _s, vt = np.linalg.svd(sel - centre)
         nrm = np.array([-vt[0][1], vt[0][0]])
         ln = np.array([nrm[0], nrm[1], -float(nrm @ centre)])
-        rows.append((ln / float(np.hypot(ln[0], ln[1])), int(inl.sum())))
+        rows.append((ln / float(np.hypot(ln[0], ln[1])), int(inl.sum()),
+                     pts[inl].copy()))
         used |= inl
     return rows
 
@@ -205,15 +212,20 @@ def long_lines(features, width: int, height: int):
     """Distinct near-horizontal field lines: hash rows plus any sideline."""
     blobs = (np.asarray(features.hashes, float).reshape(-1, 2)
              if len(features.hashes) else np.zeros((0, 2)))
+    # Score grid consistency only on blobs that a ROW claimed. The detector also
+    # fires on crowd and stadium structure -- measured, 95 of 167 blobs were on
+    # the field -- and counting the rest in the denominator caps the metric near
+    # 0.4 even when the labelling is perfect, which put the accept threshold
+    # right at the achievable ceiling and threw away most usable frames.
     candidates = list(fit_rows(blobs))
-    candidates += [(seg_line(s), 0) for s in features.sidelines]
+    candidates += [(seg_line(s), 0, np.zeros((0, 2))) for s in features.sidelines]
     out = []
-    for line, n in sorted(candidates, key=lambda z: -z[1]):
+    for line, n, marks in sorted(candidates, key=lambda z: -z[1]):
         v = line_at_x(line, width / 2.0)
         if v is None or not (-200 < v < height + 200):
             continue
         if all(abs(v - line_at_x(o[0], width / 2.0)) > ROW_MERGE_PX for o in out):
-            out.append((line, n, v))
+            out.append((line, n, v, marks))
     out.sort(key=lambda z: z[2])          # top of the image first
     return out
 
@@ -344,6 +356,11 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
     steps = ladder_indices(ladder)
     blobs = (np.asarray(features.hashes, float).reshape(-1, 2)
              if len(features.hashes) else np.zeros((0, 2)))
+    # Score grid consistency only on blobs that a ROW claimed. The detector also
+    # fires on crowd and stadium structure -- measured, 95 of 167 blobs were on
+    # the field -- and counting the rest in the denominator caps the metric near
+    # 0.4 even when the labelling is perfect, which put the accept threshold
+    # right at the achievable ceiling and threw away most usable frames.
 
     ladder_lines = [seg_line(seg) for seg in ladder]
     if gray is not None:
@@ -410,7 +427,9 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
         # Prefer the assignment whose hash marks land on the yard grid; fall
         # back to the line residual only to break ties among equally consistent
         # candidates, since it cannot tell a wrong assignment from a right one.
-        grid = grid_consistency(H, blobs, world_y) if len(blobs) else 0.0
+        row_marks = [m for _l, _n, _v, m in chosen_rows if len(m)]
+        scored = (np.vstack(row_marks) if row_marks else np.zeros((0, 2)))
+        grid = grid_consistency(H, scored, world_y) if len(scored) else 0.0
         # Physical possibility first -- an assignment implying a camera that
         # cannot exist is wrong however well it fits. Then grid consistency for
         # the X scale, focal agreement for Y, and the line residual for ties.
@@ -422,15 +441,15 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
         key = (not possible, -round(grid, 2), -len(chosen_rows),
                focal_disagreement(H, width, height), res)
         if best is None or key < best[4]:
-            best = (H, world_y, res, n_points, key, grid)
+            best = (H, world_y, res, n_points, key, grid, len(scored))
     if best is None:
         return None
     # Refuse a frame whose best labelling still cannot put hash marks on the
     # yard grid: a homography fitted to the wrong lines is worse than none.
-    if len(blobs) >= MIN_HASH_POINTS and best[5] < MIN_GRID_CONSISTENCY:
+    if best[6] >= MIN_HASH_POINTS and best[5] < MIN_GRID_CONSISTENCY:
         return None
     if transposed:
-        best = (_SWAP_UV @ best[0], best[1], best[2], best[3], best[4], best[5])
+        best = (_SWAP_UV @ best[0], *best[1:])
     return best[0], best[1], best[2], best[3], best[5]
 
 
@@ -768,12 +787,38 @@ def refine_line(gray, line, *, band_px: float = 6.0, n_samples: int = 40,
 # cannot stand behind, which is the trade this codebase takes everywhere.
 PAINT_AUDIT_PX: float = 150.0
 
+# ...at this image height. The gate is a PIXEL tolerance, so the same world
+# error projects to more pixels on a taller frame: 150 px on the 720p broadcast
+# clips is 225 px on 1080p All-22, and using the raw number there quietly
+# tightens the gate by half without anyone choosing to.
+PAINT_AUDIT_REF_HEIGHT: int = 720
+
+# A solved camera is only returned if its own residual is under this (at the
+# reference height) and its mount is physically possible. Both are TRACKING
+# FREE, which is the point: production has nothing to compare against, so the
+# camera must be judged on its own evidence or not at all.
+#
+# The threshold is an operating point, measured over 37 solved views:
+#
+#     gate                 views   median   within 2 m
+#     none                    37    4.11 m    14
+#     rms<=25 + plausible     22    3.00 m     9
+#     rms<=18 + plausible     13    1.30 m     8
+#     rms<=14 + plausible      6    1.12 m     5
+#
+# 18 keeps most of the good plays while dropping most of the bad, and the
+# alternative -- returning all 37 and letting the caller find out -- is the
+# thing this codebase refuses to do everywhere else.
+PAINT_MAX_RMS_PX: float = 18.0
+
 
 def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
                               gap: int = 1, images=None,
-                              audit_px: float = PAINT_AUDIT_PX,
+                              audit_px: float | None = None,
                               grid: int = 6, half_x_m: float = 30.0,
-                              use_hash_points: bool = True, seed_centre=None):
+                              use_hash_points: bool = True, seed_centre=None,
+                              require_quality: bool = True,
+                              max_rms_px: float | None = None):
     """One camera centre for the whole play, seeded from the paint itself.
 
     Each frame's homography is fitted from that frame's paint alone and carries
@@ -791,6 +836,10 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
     """
     from nfl_gsplat.calibration.decompose_homography import homography_to_krt
     from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+
+    scale = height / PAINT_AUDIT_REF_HEIGHT
+    if audit_px is None:
+        audit_px = PAINT_AUDIT_PX * scale
 
     xs = np.linspace(-half_x_m, half_x_m, grid)
     ys = np.linspace(-HALF_WIDTH_M, HALF_WIDTH_M, grid)
@@ -862,6 +911,18 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
         for f in cams], axis=0)
     focal = float(np.median([c[0][0, 0] for c in cams.values()]))
     quality = solve_quality(results, cams, frame_data, centre, focal, width)
+    if require_quality:
+        if not quality["plausible_mount"]:
+            raise CalibrationError(
+                "paint solve produced a camera no broadcast mount could be: "
+                f"centre {np.round(centre, 1)}, {quality['fov_deg']:.1f} deg "
+                "field of view. Refusing it rather than returning it.")
+        limit = max_rms_px if max_rms_px is not None else PAINT_MAX_RMS_PX * scale
+        if not (quality["rms_px"] <= limit):
+            raise CalibrationError(
+                f"paint solve residual {quality['rms_px']:.0f} px exceeds "
+                f"{limit:.0f} px; the camera is not trustworthy. See "
+                "PAINT_MAX_RMS_PX for the measured operating curve.")
     _LOG.info("pooled paint: %d/%d frames, focal %.0f, centre %s, mirrored=%s, "
               "rms %.1f px", len(cams), len(frame_data), focal,
               np.round(centre, 1), mirrored, quality["rms_px"])
