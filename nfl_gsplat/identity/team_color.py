@@ -82,6 +82,46 @@ def split_two_teams(colors: np.ndarray, *, iters: int = 25, seed: int = 0) -> np
     return labels
 
 
+def split_two_teams_balanced(colors: np.ndarray, *, iters: int = 25,
+                             seed: int = 0, tolerance: int = 2) -> np.ndarray:
+    """2-means, then forced toward the 11-v-11 split the rules guarantee.
+
+    Plain 2-means ignores a fact that is always true: both teams field the same
+    number of players. Left free it happily returns 16-6, because one team's
+    jersey is closer in HSV to the turf, or because a few tracks are lit
+    differently -- and a lopsided split is worse than useless downstream, where
+    the team label is used to penalise cross-team jersey pairings.
+
+    So the tracks are ordered by how strongly they prefer one cluster over the
+    other, and the split is placed at the middle. Tracks with a strong
+    preference keep it; only the genuinely ambiguous ones near the boundary get
+    moved, which is exactly where a colour split should be overruled by
+    counting.
+
+    ``tolerance`` allows a real imbalance: the tracked set is not always exactly
+    11 and 11 once officials or missed players are in it.
+    """
+    colors = np.asarray(colors, dtype=np.float64).reshape(-1, 3)
+    k = colors.shape[0]
+    if k < 4:
+        return split_two_teams(colors, iters=iters, seed=seed)
+
+    labels = split_two_teams(colors, iters=iters, seed=seed)
+    counts = np.bincount(labels, minlength=2)
+    if abs(int(counts[0]) - int(counts[1])) <= tolerance:
+        return labels
+
+    centers = np.stack([
+        colors[labels == j].mean(axis=0) if (labels == j).any() else colors[0]
+        for j in range(2)])
+    margin = np.array([_hsv_distance(c, centers[0]) - _hsv_distance(c, centers[1])
+                       for c in colors])
+    order = np.argsort(margin)          # most cluster-0-like first
+    out = np.ones(k, dtype=np.int64)
+    out[order[: k // 2]] = 0
+    return out
+
+
 @dataclass(frozen=True)
 class RefereeConfig:
     min_stripe_transitions: int = 4     # alternating dark/bright vertical bands

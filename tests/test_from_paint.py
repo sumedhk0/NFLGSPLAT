@@ -268,11 +268,15 @@ def test_a_wrong_row_assignment_is_caught_by_focal_agreement():
     H_wrong = homography_from_lines(world_w, image_w)
 
     # Grid consistency alone CANNOT see this: it is a pure rescale of world Y,
-    # so the hash marks still land on the X ruler. Hence the focal check.
-    blobs = [tuple(map(float, p)) for p in
+    # so the hash marks still land on the X ruler and score just as well.
+    blobs = [tuple(map(float, q)) for q in
              project(Hm, np.c_[np.arange(-4, 20) * 0.9144,
                                np.full(24, HASH_OFFSET_M)])]
-    assert grid_consistency(H_wrong, blobs, [HALF_WIDTH_M, -HALF_WIDTH_M]) >=         grid_consistency(H_right, blobs, [HASH_OFFSET_M, -HASH_OFFSET_M]) - 1e-9
+    wrong_grid = grid_consistency(H_wrong, blobs, [HALF_WIDTH_M, -HALF_WIDTH_M])
+    right_grid = grid_consistency(H_right, blobs, [HASH_OFFSET_M, -HASH_OFFSET_M])
+    assert wrong_grid >= right_grid - 1e-9
+
+    # The focal check is what actually separates them.
     assert focal_disagreement(H_wrong, W, H) > focal_disagreement(H_right, W, H)
 
 

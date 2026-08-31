@@ -41,7 +41,11 @@ import pandas as pd
 
 from nfl_gsplat.identity.jersey_ocr import read_jerseys
 from nfl_gsplat.identity.jersey_vote import assign, restrict_to_known
-from nfl_gsplat.identity.team_color import split_two_teams
+from nfl_gsplat.identity.digit_lattice import tally_lattice
+from nfl_gsplat.identity.team_color import (
+    split_two_teams,
+    split_two_teams_balanced,
+)
 from nfl_gsplat.data.helmet_dataset import load_labels, load_tracking
 
 # A helmet box is about one head high. A standing player is roughly 6.5 heads,
@@ -121,14 +125,19 @@ def read_view(root, labels, game, play, view, *, n_frames, gpu):
             truth_jersey, truth_team)
 
 
-def score(votes_by_player, colours_by_player, truth_jersey, truth_team):
+def score(votes_by_player, colours_by_player, truth_jersey, truth_team, *,
+          use_lattice=False, balanced_teams=True, use_team_prior=False,
+          min_margin=None):
     """Run the pipeline on player-keyed votes and score it."""
     index = {p: i for i, p in enumerate(sorted(truth_jersey))}
     inv = {i: p for p, i in index.items()}
     votes = {index[p]: c for p, c in votes_by_player.items() if p in index}
     colours = {index[p]: c for p, c in colours_by_player.items() if p in index}
     roster = sorted({truth_jersey[p] for p in index})
-    kept = restrict_to_known(votes, roster)
+    # The lattice scores every read against the whole roster instead of
+    # keeping only exact hits, so a partial or confused read still counts.
+    kept = (tally_lattice(votes, roster) if use_lattice
+            else restrict_to_known(votes, roster))
 
     n_read = len(kept)
     top1 = sum(1 for t, c in kept.items()
@@ -147,15 +156,27 @@ def score(votes_by_player, colours_by_player, truth_jersey, truth_team):
         "height_m": [1.85] * len(inv)})
 
     # Team split from colour, scored on its own before it is used.
-    team_acc = None
+    team_acc, team_of_track = None, None
     if len(colours) >= 4:
         tracks_c = sorted(colours)
-        lab = split_two_teams(np.stack([colours[t] for t in tracks_c]))
+        splitter = split_two_teams_balanced if balanced_teams else split_two_teams
+        lab = splitter(np.stack([colours[t] for t in tracks_c]))
         truth_lab = np.array([truth_team[inv[t]] == "H" for t in tracks_c])
         agree = float((lab.astype(bool) == truth_lab).mean())
         team_acc = round(max(agree, 1.0 - agree), 3)   # label order is arbitrary
+        if use_team_prior:
+            # Map cluster ids onto the roster's own team letters, picking the
+            # orientation that agrees better -- the clustering has no idea
+            # which side is "H".
+            letters = sorted({truth_team[p] for p in index})
+            if len(letters) == 2:
+                flip = agree < 0.5
+                team_of_track = {
+                    t: letters[int(bool(v)) ^ int(flip)]
+                    for t, v in zip(tracks_c, lab)}
 
-    got = assign(kept, on_field)
+    kw = {} if min_margin is None else {'min_margin': min_margin}
+    got = assign(kept, on_field, team_of_track=team_of_track, **kw)
     correct = 0
     for ident in got:
         want = truth_jersey.get(inv.get(ident.track_id, ""), None)
@@ -190,6 +211,18 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--views", default="Sideline,Endzone")
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--min-margin", type=float, default=None)
+    # All three measured on 20 plays of cached reads. The lattice and the team
+    # prior both LOSE; the balanced split is free. Defaults follow the measurement.
+    ap.add_argument("--lattice", action="store_true",
+                    help="spread each read over similar roster numbers "
+                         "(measured WORSE: 48%% vs 55%% recall)")
+    ap.add_argument("--no-balanced-teams", action="store_true",
+                    help="plain 2-means instead of the 11-v-11 split "
+                         "(measured worse team accuracy: 77%% vs 82%%)")
+    ap.add_argument("--team-prior", action="store_true",
+                    help="feed the team split into assignment (measured WORSE: "
+                         "46%% recall at 92%% precision vs 55%% at 100%%)")
     ap.add_argument("--merge-views", action="store_true",
                     help="also pool both cameras' votes onto one track")
     args = ap.parse_args()
@@ -212,7 +245,10 @@ def main() -> None:
                              n_frames=args.frames, gpu=not args.cpu)
             if read is not None:
                 per_view_reads[view] = read
-                got = score(*read)
+                got = score(*read, use_lattice=args.lattice,
+                            balanced_teams=not args.no_balanced_teams,
+                            use_team_prior=args.team_prior,
+                            min_margin=args.min_margin)
             if got is None:
                 got = {"failed": "no usable labels"}
             out[f"{game}_{play}_{view}"] = got
@@ -245,7 +281,11 @@ def main() -> None:
             merged_col.update(b[1])
             truth_j = dict(a[2]); truth_j.update(b[2])
             truth_t = dict(a[3]); truth_t.update(b[3])
-            m = score(dict(merged_votes), merged_col, truth_j, truth_t)
+            m = score(dict(merged_votes), merged_col, truth_j, truth_t,
+                      use_lattice=args.lattice,
+                      balanced_teams=not args.no_balanced_teams,
+                      use_team_prior=args.team_prior,
+                      min_margin=args.min_margin)
             if m is not None:
                 out[f"{game}_{play}_MERGED"] = m
                 print(f"[{i:3d}] {game}/{play:<6d} {'MERGED':8s} "
