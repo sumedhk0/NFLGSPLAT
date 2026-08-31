@@ -32,7 +32,11 @@ import numpy as np
 from nfl_gsplat.calibration import field_detect
 from nfl_gsplat.calibration.field_landmarks import YARD_LINE_SPACING_M
 from nfl_gsplat.calibration.from_helmets import cameras_fixed_centre
-from nfl_gsplat.calibration.from_paint import cameras_from_paint, ray_to_plane
+from nfl_gsplat.calibration.from_paint import (
+    cameras_from_paint,
+    cameras_from_paint_pooled,
+    ray_to_plane,
+)
 from nfl_gsplat.data.align_video import VIDEO_FPS, helmet_boxes_by_frame
 from nfl_gsplat.data.helmet_dataset import load_labels, load_tracking
 from nfl_gsplat.errors import CalibrationError
@@ -92,20 +96,33 @@ def measure_view(root, labels, track, game, play, view, offset, *, stride, frame
 
     chosen = sorted(ref_cams)[:frames]
     cap = cv2.VideoCapture(str(root / "video" / name))
-    feats = {}
+    feats, images = {}, {}
     for f in chosen:
         cap.set(cv2.CAP_PROP_POS_FRAMES, f - 1)
         ok, img = cap.read()
         if ok:
             feats[f] = field_detect.detect_field_features(img)
+            images[f] = img
     cap.release()
     if len(feats) < 5:
         return {"failed": "could not read frames"}
 
+    # Pooled first: one shared centre is far more accurate, but it refuses
+    # plays it cannot fit, so per-frame remains the fallback and the result
+    # records which was used.
+    residual, method = float("nan"), "pooled"
     try:
-        paint_cams, focal, residual = cameras_from_paint(feats, WIDTH, HEIGHT)
-    except CalibrationError as exc:
-        return {"failed": f"paint: {str(exc)[:90]}"}
+        paint_cams, focal, _centre, mirrored = cameras_from_paint_pooled(
+            feats, WIDTH, HEIGHT, images=images)
+        if mirrored:
+            raise CalibrationError("pooled solve chose a mirrored world")
+    except CalibrationError:
+        method = "per-frame"
+        try:
+            paint_cams, focal, residual = cameras_from_paint(
+                feats, WIDTH, HEIGHT, images=images)
+        except CalibrationError as exc:
+            return {"failed": f"paint: {str(exc)[:90]}"}
 
     # Reference lives in the helmet-plane frame (helmets at z=0); paint lives in
     # the ground frame (helmets at z = TURF_DROP_M).
@@ -129,6 +146,7 @@ def measure_view(root, labels, track, game, play, view, offset, *, stride, frame
         "x_shift_steps": round(float(steps), 2),
         "shift_off_integer": round(float(abs(steps - round(steps))), 3),
         "frames": len(paint_cams),
+        "method": method,
     }
 
 
@@ -140,7 +158,7 @@ def main() -> None:
     ap.add_argument("--alignment", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--stride", type=int, default=10)
-    ap.add_argument("--frames", type=int, default=12,
+    ap.add_argument("--frames", type=int, default=30,
                     help="frames per view to run field detection on")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--views", default="Sideline,Endzone")
@@ -177,7 +195,7 @@ def main() -> None:
                       f"reference {got['reference_median_m']:5.2f} m "
                       f"({got['ratio']:4.1f}x)  shift {got['x_shift_steps']:+6.2f} steps "
                       f"(off {got['shift_off_integer']:.2f})  "
-                      f"f={got['focal_paint']:.0f}",
+                      f"f={got['focal_paint']:.0f} [{got['method']}]",
                       flush=True)
 
     out_path.write_text(json.dumps(out, indent=2), encoding="utf-8")

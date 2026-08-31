@@ -30,11 +30,17 @@ express, so the gap is chosen by which one yields a consistent camera.
 Measured: gap 1 places players 1.73 m from truth, gaps 2 and 3 give 8.17 m and
 12.33 m.
 
-HOW GOOD IS IT, measured over 35 sideline views. A paint-only camera places
-players a median 3.24 m from tracking where the tracking-fitted camera places
-them 0.34 m, with the best play at 0.60 m and 13 of 35 inside 2 m. So paint
-works, is far looser, and is not yet a replacement -- it is an initialiser, and
-the honest state of the tracking-free path.
+HOW GOOD IS IT. Use ``cameras_from_paint_pooled``: sharing ONE camera centre
+across the play takes the median placement from 5.40 m to 0.95 m against a
+tracking-fitted 0.34 m, measured over the same plays. Per-frame fitting
+(``cameras_from_paint``) is kept because the pooled solve refuses plays it
+cannot fit, and because it is what the pooled solve is seeded from.
+
+The pooled solve trades YIELD for accuracy on purpose -- 8 of 15 plays on that
+sweep -- and the gate is what buys it; see PAINT_AUDIT_PX. It also repairs the
+catastrophic cases rather than merely improving the good ones: one play went
+from 82.35 m to 0.93 m, because a single shared centre lets the good frames
+outvote the bad ones instead of every frame keeping its own mistake.
 
 Free evidence that the LABELLING is right even when the pose is loose: the
 recovered X shift lands within 0.15 of a whole 5-yard step on 20 of 35 views.
@@ -46,14 +52,13 @@ THE ENDZONE VIEW IS NOT SOLVED. Its residuals run ~199 px against the sideline's
 focal. That camera looks ALONG the field, so its yard lines crowd toward the
 vanishing point and little of the field's width is in frame.
 
-A SHARED-CENTRE SOLVE ON PAINT WAS TRIED AND DOES NOT WORK YET. Pooling one
-camera centre across the play is what took the helmet-fitted cameras from
-6.17 m to 0.13 m, so the same was attempted here: fit each frame's homography,
-sample points from it, hand them to joint_solve. It failed on all six views
-tried -- the multi-start refit found no frames consistent with any candidate
-camera, because per-frame paint poses scatter more than the audit tolerates.
-The idea is still the most promising route to closing the gap; it needs better
-per-frame homographies first, not a looser gate.
+THE SHARED-CENTRE SOLVE NEEDED TWO THINGS THAT WERE MISSING AT FIRST. An early
+attempt failed on every view: the multi-start refit found no frames consistent
+with any candidate camera. The causes were starvation, not the method -- twelve
+frames per play where the solve needs ten consistent ones, and no seed, so it
+searched a plausibility grid whose points are tens of metres apart. Feeding it
+thirty frames and SEEDING it with the median of the per-frame paint centres
+turns it from never working into the best result here.
 """
 from __future__ import annotations
 
@@ -288,7 +293,8 @@ def ladder_indices(ladder, *, min_ratio: float = 1.5):
 
 
 def frame_homography(features, width: int, height: int, *, gap: int = 1,
-                     transposed: bool = False):
+                     transposed: bool = False, image=None,
+                     use_hash_points: bool = True):
     """``(H, world_y, residual_px)`` for one frame, X ORIGIN ARBITRARY.
 
     The assignment of detected long lines to the field's known Y values is
@@ -300,6 +306,15 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
     if transposed:
         features = _Transposed(features)
         width, height = height, width
+        if image is not None:
+            image = np.transpose(image, (1, 0, 2) if image.ndim == 3 else (1, 0))
+
+    gray = None
+    if image is not None:
+        import cv2
+
+        gray = (cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                if image.ndim == 3 else np.asarray(image))
 
     rows = long_lines(features, width, height)
     ladder = yard_ladder(features)
@@ -307,20 +322,43 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
         return None
 
     steps = ladder_indices(ladder)
+    blobs = (np.asarray(features.hashes, float).reshape(-1, 2)
+             if len(features.hashes) else np.zeros((0, 2)))
+
+    ladder_lines = [seg_line(seg) for seg in ladder]
+    row_lines = [r[0] for r in rows]
+    if gray is not None:
+        ladder_lines = [refine_line(gray, ln) for ln in ladder_lines]
+        row_lines = [refine_line(gray, ln) for ln in row_lines]
 
     best = None
     for pick in combinations(range(len(CROSS_Y_M)), len(rows)):
         world_y = [CROSS_Y_M[i] for i in pick]
         world_lines, image_lines = [], []
-        for k, seg in zip(steps, ladder):
+        for k, ln in zip(steps, ladder_lines):
             world_lines.append([1.0, 0.0, -k * gap * YARD_LINE_SPACING_M])
-            image_lines.append(seg_line(seg))
-        for (line, _n, _v), y in zip(rows, world_y):
+            image_lines.append(ln)
+        for ln, y in zip(row_lines, world_y):
             world_lines.append([0.0, 1.0, -y])
-            image_lines.append(line)
+            image_lines.append(ln)
         H = homography_from_lines(world_lines, image_lines)
         if H is None:
             continue
+
+        # Second pass: the line fit is only needed to say WHICH yard and which
+        # row each hash mark is, after which the marks themselves are far
+        # better constraints -- tens of points instead of a handful of lines,
+        # and a 1-yard ruler laid along the field.
+        n_points = 0
+        if use_hash_points and len(blobs):
+            import cv2
+
+            wpts, ipts = hash_point_correspondences(H, blobs, world_y)
+            if len(wpts) >= MIN_HASH_POINTS:
+                H2, mask = cv2.findHomography(wpts, ipts, cv2.RANSAC, 6.0)
+                if H2 is not None and int(mask.sum()) >= MIN_HASH_POINTS:
+                    H = H2
+                    n_points = int(mask.sum())
         errs = []
         Hinv_T = np.linalg.inv(H).T
         for world, img in zip(world_lines, image_lines):
@@ -338,29 +376,44 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
         if not errs:
             continue
         res = float(np.median(errs))
-        if best is None or res < best[2]:
-            best = (H, world_y, res)
-    if best is not None and transposed:
-        best = (_SWAP_UV @ best[0], best[1], best[2])
-    return best
+        # Prefer the assignment whose hash marks land on the yard grid; fall
+        # back to the line residual only to break ties among equally consistent
+        # candidates, since it cannot tell a wrong assignment from a right one.
+        grid = grid_consistency(H, blobs, world_y) if len(blobs) else 0.0
+        # Grid consistency settles the X scale, focal agreement the Y scale,
+        # and the line residual only breaks remaining ties.
+        key = (-round(grid, 2), focal_disagreement(H, width, height), res)
+        if best is None or key < best[4]:
+            best = (H, world_y, res, n_points, key, grid)
+    if best is None:
+        return None
+    if transposed:
+        best = (_SWAP_UV @ best[0], best[1], best[2], best[3], best[4], best[5])
+    return best[0], best[1], best[2], best[3], best[5]
 
 
-def best_frame_homography(features, width: int, height: int, *, gap: int = 1):
+def best_frame_homography(features, width: int, height: int, *, gap: int = 1,
+                          image=None, use_hash_points: bool = True):
     """``(H, world_y, residual, transposed)`` -- tries both view orientations."""
     out = []
     for flag in (False, True):
-        got = frame_homography(features, width, height, gap=gap, transposed=flag)
+        got = frame_homography(features, width, height, gap=gap,
+                               transposed=flag, image=image,
+                               use_hash_points=use_hash_points)
         if got is not None:
-            out.append((got[2], got[0], got[1], flag))
+            # Same rule as within a frame: grid consistency first, residual
+            # only as a tie-break.
+            out.append(((-got[4], got[2]), got[0], got[1], flag, got[4]))
     if not out:
         return None
     out.sort(key=lambda z: z[0])
-    res, H, world_y, flag = out[0]
-    return H, world_y, res, flag
+    _key, H, world_y, flag, grid = out[0]
+    return H, world_y, _key[1], flag, grid
 
 
 def cameras_from_paint(features_by_frame, width: int, height: int, *,
-                       gap: int = 1, transposed=None):
+                       gap: int = 1, transposed=None, images=None,
+                       use_hash_points: bool = True):
     """``({frame: (K, R, t)}, focal, residual)`` in the GROUND frame.
 
     The focal is pooled over frames and then held fixed, for the same reason as
@@ -369,11 +422,15 @@ def cameras_from_paint(features_by_frame, width: int, height: int, *,
     """
     per_frame, focals, residuals = {}, [], []
     for frame, feats in features_by_frame.items():
+        image = None if images is None else images.get(frame)
         if transposed is None:
-            got = best_frame_homography(feats, width, height, gap=gap)
+            got = best_frame_homography(feats, width, height, gap=gap,
+                                        image=image,
+                                        use_hash_points=use_hash_points)
         else:
             got = frame_homography(feats, width, height, gap=gap,
-                                   transposed=transposed)
+                                   transposed=transposed, image=image,
+                                   use_hash_points=use_hash_points)
         if got is None:
             continue
         H, _world_y, res = got[0], got[1], got[2]
@@ -444,3 +501,268 @@ def ray_to_plane(K, R, t, uv, z_plane: float):
     if s <= 0:
         return None
     return (centre + s * d)[:2]
+
+# --------------------------------------------------------------------------
+# Hash marks as POINTS, and sub-pixel line refinement.
+# --------------------------------------------------------------------------
+
+# How close a hash blob must land to the 1-yard grid, in metres, to be believed
+# as that grid point. Loose enough for a rough starting homography, tight enough
+# that a blob which is really a shoe or a shadow is not snapped onto the field.
+HASH_SNAP_TOL_M: float = 0.45
+
+# Hash marks are painted one per yard along each hash row.
+HASH_PITCH_M: float = 0.9144
+
+MIN_HASH_POINTS: int = 8
+
+
+def focal_disagreement(H, width: int, height: int) -> float:
+    """How badly the two focal constraints disagree under ``H``. Lower is better.
+
+    A plane homography gives the focal twice over, from the orthogonality of
+    the plane's two axes and from their equal length. Under a CORRECT world
+    labelling the two agree; under a wrong one they cannot, because mislabelling
+    the rows rescales world Y against world X and no square-pixel camera can
+    absorb that.
+
+    This is the complement to ``grid_consistency``, which pins the X scale via
+    the 1-yard hash pitch but is blind to a pure Y rescale -- measured, a fit
+    that called the hash rows the sidelines still landed every hash mark on the
+    grid. Together they cover both axes.
+    """
+    H = np.asarray(H, float)
+    T = np.array([[1.0, 0.0, -width / 2.0],
+                  [0.0, 1.0, -height / 2.0],
+                  [0.0, 0.0, 1.0]])
+    G = T @ H
+    h1, h2 = G[:, 0], G[:, 1]
+    denom_o = h1[2] * h2[2]
+    denom_n = h1[2] ** 2 - h2[2] ** 2
+    scale2 = max(abs(h1[2]), abs(h2[2]), 1e-30) ** 2
+    vals = []
+    for num, den in ((-(h1[0] * h2[0] + h1[1] * h2[1]), denom_o),
+                     ((h2[0] ** 2 + h2[1] ** 2) - (h1[0] ** 2 + h1[1] ** 2),
+                      denom_n)):
+        if abs(den) / scale2 <= 1e-6:
+            continue
+        v = num / den
+        if v > 0:
+            vals.append(np.sqrt(v))
+    if len(vals) < 2:
+        return np.inf
+    return float(abs(vals[0] - vals[1]) / max(min(vals), 1e-9))
+
+
+def grid_consistency(H, blobs, row_y_values, *, tol_m: float = HASH_SNAP_TOL_M,
+                     pitch_m: float = HASH_PITCH_M):
+    """What fraction of hash blobs land on the 1-yard grid under ``H``.
+
+    This is the score that picks the row assignment and the yard-line step, and
+    it works where the line residual does not. A wrong assignment -- calling the
+    far sideline a hash row, or stepping the ladder by 10 yards instead of 5 --
+    still fits the LINES perfectly, because a homography has enough freedom to
+    put a few lines wherever it is told. What it cannot do is also land ninety
+    independent hash marks on a ruler they do not belong to.
+
+    Measured: the line residual picked assignments that placed players tens of
+    metres out, on plays where the grid score rejects the same assignment.
+    """
+    blobs = np.asarray(blobs, float).reshape(-1, 2)
+    if len(blobs) < MIN_HASH_POINTS or H is None:
+        return 0.0
+    world, _img = hash_point_correspondences(H, blobs, row_y_values,
+                                             tol_m=tol_m, pitch_m=pitch_m)
+    return float(len(world)) / float(len(blobs))
+
+
+def hash_point_correspondences(H, blobs, row_y_values, *,
+                               tol_m: float = HASH_SNAP_TOL_M,
+                               pitch_m: float = HASH_PITCH_M):
+    """``(world_xy, image_uv)`` from hash-mark blobs snapped to the yard grid.
+
+    Rows alone give two line constraints out of ninety-odd detected marks. But
+    the marks are painted ONE PER YARD, so each is a point with known field
+    coordinates as soon as it is known which row and which yard it belongs to.
+    A rough homography answers both: send the blob to the field, snap its Y to
+    the nearest hash row and its X to the nearest yard, and keep it only if it
+    landed close enough that the snap is not a guess.
+
+    This is also what pins the X SCALE. The yard-line ladder cannot -- evenly
+    spaced lines fit any constant step -- but the 1-yard pitch of the hash marks
+    is a ruler laid along the field.
+    """
+    blobs = np.asarray(blobs, float).reshape(-1, 2)
+    if len(blobs) == 0 or H is None:
+        return np.zeros((0, 2)), np.zeros((0, 2))
+    try:
+        Hinv = np.linalg.inv(np.asarray(H, float))
+    except np.linalg.LinAlgError:
+        return np.zeros((0, 2)), np.zeros((0, 2))
+
+    q = np.c_[blobs, np.ones(len(blobs))] @ Hinv.T
+    with np.errstate(invalid="ignore", divide="ignore"):
+        world = q[:, :2] / q[:, 2:3]
+
+    rows = np.asarray(sorted(row_y_values), float)
+    if len(rows) == 0:
+        return np.zeros((0, 2)), np.zeros((0, 2))
+    dy = np.abs(world[:, 1][:, None] - rows[None, :])
+    row_idx = np.argmin(dy, axis=1)
+    snapped_y = rows[row_idx]
+    snapped_x = np.round(world[:, 0] / pitch_m) * pitch_m
+
+    good = (np.isfinite(world).all(axis=1)
+            & (dy.min(axis=1) <= tol_m)
+            & (np.abs(world[:, 0] - snapped_x) <= tol_m))
+    return (np.column_stack([snapped_x[good], snapped_y[good]]), blobs[good])
+
+
+def refine_line(gray, line, *, band_px: float = 6.0, n_samples: int = 40,
+                min_support: int = 8):
+    """Re-fit a detected line to the sub-pixel ridge of the paint under it.
+
+    Hough returns a line quantised to its accumulator; the paint itself is a
+    bright ridge several pixels wide whose CENTRE can be located far more
+    precisely. Sampling perpendicular profiles and taking the
+    intensity-weighted centroid of each moves the line onto that ridge.
+    """
+    gray = np.asarray(gray)
+    h, w = gray.shape[:2]
+    line = np.asarray(line, float)
+    n = np.hypot(line[0], line[1])
+    if n < 1e-9:
+        return line
+    line = line / n
+    normal = line[:2]
+    direction = np.array([-normal[1], normal[0]])
+    # A point on the line, then walk along it.
+    p0 = -line[2] * normal
+    ts = np.linspace(-max(w, h), max(w, h), n_samples)
+    offsets = np.arange(-band_px, band_px + 1.0)
+
+    pts = []
+    for t in ts:
+        centre = p0 + t * direction
+        samples = centre[None, :] + offsets[:, None] * normal[None, :]
+        cols = np.round(samples[:, 0]).astype(int)
+        rows_i = np.round(samples[:, 1]).astype(int)
+        inside = (cols >= 0) & (cols < w) & (rows_i >= 0) & (rows_i < h)
+        if inside.sum() < 3:
+            continue
+        vals = gray[rows_i[inside], cols[inside]].astype(np.float64)
+        weight = vals - vals.min()
+        total = weight.sum()
+        if total <= 1e-6:
+            continue
+        off = float((offsets[inside] * weight).sum() / total)
+        pts.append(centre + off * normal)
+    if len(pts) < min_support:
+        return line
+    pts = np.asarray(pts)
+    centroid = pts.mean(axis=0)
+    _u, _s, vt = np.linalg.svd(pts - centroid)
+    d = vt[0]
+    nrm = np.array([-d[1], d[0]])
+    out = np.array([nrm[0], nrm[1], -float(nrm @ centroid)])
+    return out / max(float(np.hypot(out[0], out[1])), 1e-9)
+
+
+# Reprojection gate for the shared-centre solve on PAINT, in pixels.
+#
+# Paint is looser than helmets -- line residuals run ~13 px on the sideline view
+# and points sampled from a per-frame homography inherit that -- so the helmet
+# gate of 25 px rejects everything. But loose is worse than useless: swept over
+# 15 plays, a 150 px gate gave a 0.95 m median placement on the 8 plays it
+# accepted, while a 400 px gate accepted 11 and scored 5.72 m, no better than
+# not pooling at all. The tight gate REFUSES rather than returning a camera it
+# cannot stand behind, which is the trade this codebase takes everywhere.
+PAINT_AUDIT_PX: float = 150.0
+
+
+def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
+                              gap: int = 1, images=None,
+                              audit_px: float = PAINT_AUDIT_PX,
+                              grid: int = 6, half_x_m: float = 30.0,
+                              use_hash_points: bool = True):
+    """One camera centre for the whole play, seeded from the paint itself.
+
+    Each frame's homography is fitted from that frame's paint alone and carries
+    that frame's mistakes straight into the pose -- which is why a handful of
+    plays land tens of metres out while most land within a few. The camera is on
+    a tripod, so the play shares one centre, and imposing that lets the good
+    frames outvote the bad ones. It is the same constraint that took the
+    helmet-fitted cameras from 6.17 m to 0.13 m.
+
+    SEEDED FROM THE PER-FRAME CENTRES, which is what an earlier attempt lacked.
+    Left to its own multi-start grid the solve failed on every view tried: the
+    grid is coarse and nothing pointed it at the right neighbourhood. The
+    per-frame homographies already answer that question approximately, and
+    their median is a good starting point even when individual frames are poor.
+    """
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
+    from nfl_gsplat.calibration.joint_solve import solve_fixed_center
+
+    xs = np.linspace(-half_x_m, half_x_m, grid)
+    ys = np.linspace(-HALF_WIDTH_M, HALF_WIDTH_M, grid)
+    world = np.array([[x, y, 0.0] for x in xs for y in ys])
+
+    frame_data, centres = {}, []
+    for frame, feats in features_by_frame.items():
+        image = None if images is None else images.get(frame)
+        got = best_frame_homography(feats, width, height, gap=gap, image=image,
+                                    use_hash_points=use_hash_points)
+        if got is None:
+            continue
+        H = got[0]
+        q = np.c_[world[:, :2], np.ones(len(world))] @ H.T
+        with np.errstate(invalid="ignore", divide="ignore"):
+            uv = q[:, :2] / q[:, 2:3]
+        keep = (np.isfinite(uv).all(axis=1)
+                & (uv[:, 0] > -width) & (uv[:, 0] < 2 * width)
+                & (uv[:, 1] > -height) & (uv[:, 1] < 2 * height))
+        if keep.sum() < 8:
+            continue
+        frame_data[int(frame)] = (world[keep], uv[keep])
+        try:
+            _K, R, t = homography_to_krt(H, width=width, height=height)
+            centres.append(-np.asarray(R).T @ np.asarray(t).reshape(3))
+        except ValueError:
+            continue
+    if len(frame_data) < 10:
+        raise CalibrationError(
+            f"only {len(frame_data)} frames gave a paint homography; "
+            "need 10 for a shared-centre solve.")
+
+    seeds = None
+    if centres:
+        # Median over frames: individual per-frame centres are noisy and a few
+        # are wild, which is the whole reason for pooling in the first place.
+        seeds = [np.median(np.stack(centres), axis=0)]
+
+    results, mirrored = solve_fixed_center(
+        {}, (width, height), init_results=[None] * (max(frame_data) + 1),
+        _frame_data_override=frame_data, view_deg=0, audit_drop_px=audit_px,
+        seed_centers=seeds)
+
+    cams = {}
+    for frame in frame_data:
+        r = results[frame]
+        if r is None:
+            continue
+        K = np.asarray(r.intrinsics.K() if callable(r.intrinsics.K)
+                       else r.intrinsics.K, float)
+        cams[frame] = (K, np.asarray(r.pose.R, float),
+                       np.asarray(r.pose.t, float).reshape(3))
+    if not cams:
+        raise CalibrationError("shared-centre paint solve kept no frames.")
+    centre = np.median([
+        np.asarray(results[f].pose.center_world()
+                   if callable(results[f].pose.center_world)
+                   else results[f].pose.center_world, float)
+        for f in cams], axis=0)
+    focal = float(np.median([c[0][0, 0] for c in cams.values()]))
+    _LOG.info("pooled paint: %d/%d frames, focal %.0f, centre %s, mirrored=%s",
+              len(cams), len(frame_data), focal, np.round(centre, 1), mirrored)
+    return cams, focal, centre, mirrored
+
