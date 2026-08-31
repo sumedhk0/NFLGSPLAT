@@ -87,13 +87,29 @@ CROSS_Y_M: tuple[float, ...] = (+HALF_WIDTH_M, +HASH_OFFSET_M,
 # Real yard lines cross most of the frame. Short segments come off players and
 # the painted numbers, and one of them in the ladder shifts every index after
 # it.
-MIN_YARD_LINE_PX: float = 300.0
+#
+# As a FRACTION of image height, not a pixel count. The original 300 px was set
+# on 1280x720 broadcast clips; production All-22 is 1920x1080, where the same
+# number silently means something else. 0.42 reproduces the old behaviour at
+# 720 and scales.
+MIN_YARD_LINE_FRAC: float = 0.42
+MIN_YARD_LINE_PX: float = 300.0        # kept for callers that pass pixels
 
 # Two rows within this many pixels at the image centre are the same line
 # detected twice.
 ROW_MERGE_PX: float = 25.0
 
 GAP_CANDIDATES: tuple[int, ...] = (1, 2, 3)
+
+# A frame whose best assignment cannot land this fraction of hash marks on the
+# yard grid has been labelled wrong, and its homography is not worth keeping.
+#
+# The check earns its place on production All-22, where the detector also
+# returns stadium structure as "long lines": with four rows there is only ONE
+# order-preserving assignment, so nothing can be chosen and a wrong labelling
+# goes through unopposed. It scored 9.8% here while a correct labelling scores
+# near 100%, and the cameras that came out sat 300-500 m from the field.
+MIN_GRID_CONSISTENCY: float = 0.35
 
 # Beyond this many lines the exponential ladder search is not worth its cost.
 _MAX_LADDER_LINES: int = 8
@@ -202,8 +218,12 @@ def long_lines(features, width: int, height: int):
     return out
 
 
-def yard_ladder(features, *, min_len_px: float = MIN_YARD_LINE_PX):
+def yard_ladder(features, *, min_len_px: float | None = None,
+                image_height: int | None = None):
     """Detected yard lines, filtered and ordered across the image."""
+    if min_len_px is None:
+        min_len_px = (MIN_YARD_LINE_FRAC * image_height
+                      if image_height else MIN_YARD_LINE_PX)
     kept = [s for s in features.yard_lines if seg_length(s) >= min_len_px]
     return sorted(kept, key=lambda s: (s.p0[0] + s.p1[0]) / 2.0)
 
@@ -317,7 +337,7 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
                 if image.ndim == 3 else np.asarray(image))
 
     rows = long_lines(features, width, height)
-    ladder = yard_ladder(features)
+    ladder = yard_ladder(features, image_height=height)
     if len(rows) < 2 or len(ladder) < 3:
         return None
 
@@ -326,19 +346,30 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
              if len(features.hashes) else np.zeros((0, 2)))
 
     ladder_lines = [seg_line(seg) for seg in ladder]
-    row_lines = [r[0] for r in rows]
     if gray is not None:
         ladder_lines = [refine_line(gray, ln) for ln in ladder_lines]
-        row_lines = [refine_line(gray, ln) for ln in row_lines]
 
     best = None
-    for pick in combinations(range(len(CROSS_Y_M)), len(rows)):
+    # SUBSETS of the detected rows, not just all of them. The detector picks up
+    # stadium edges as long lines, and with every row forced into the
+    # assignment there is exactly one candidate and therefore no choice to make.
+    # Allowing the weakest rows to be dropped restores the competition that
+    # grid consistency and camera plausibility are there to judge.
+    row_choices = []
+    for size in range(min(len(rows), len(CROSS_Y_M)), 1, -1):
+        for keep in combinations(range(len(rows)), size):
+            row_choices.append([rows[i] for i in keep])
+    for chosen_rows in row_choices:
+      for pick in combinations(range(len(CROSS_Y_M)), len(chosen_rows)):
         world_y = [CROSS_Y_M[i] for i in pick]
         world_lines, image_lines = [], []
         for k, ln in zip(steps, ladder_lines):
             world_lines.append([1.0, 0.0, -k * gap * YARD_LINE_SPACING_M])
             image_lines.append(ln)
-        for ln, y in zip(row_lines, world_y):
+        for row, y in zip(chosen_rows, world_y):
+            ln = row[0]
+            if gray is not None:
+                ln = refine_line(gray, ln)
             world_lines.append([0.0, 1.0, -y])
             image_lines.append(ln)
         H = homography_from_lines(world_lines, image_lines)
@@ -380,12 +411,23 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
         # back to the line residual only to break ties among equally consistent
         # candidates, since it cannot tell a wrong assignment from a right one.
         grid = grid_consistency(H, blobs, world_y) if len(blobs) else 0.0
-        # Grid consistency settles the X scale, focal agreement the Y scale,
-        # and the line residual only breaks remaining ties.
-        key = (-round(grid, 2), focal_disagreement(H, width, height), res)
+        # Physical possibility first -- an assignment implying a camera that
+        # cannot exist is wrong however well it fits. Then grid consistency for
+        # the X scale, focal agreement for Y, and the line residual for ties.
+        possible = assignment_is_possible(H, width, height)
+        # Physical possibility, then grid consistency, then MORE ROWS -- a
+        # labelling that uses four field lines is better constrained than one
+        # using two, so among equally consistent candidates the fuller one
+        # wins. Focal agreement and the line residual break what is left.
+        key = (not possible, -round(grid, 2), -len(chosen_rows),
+               focal_disagreement(H, width, height), res)
         if best is None or key < best[4]:
             best = (H, world_y, res, n_points, key, grid)
     if best is None:
+        return None
+    # Refuse a frame whose best labelling still cannot put hash marks on the
+    # yard grid: a homography fitted to the wrong lines is worse than none.
+    if len(blobs) >= MIN_HASH_POINTS and best[5] < MIN_GRID_CONSISTENCY:
         return None
     if transposed:
         best = (_SWAP_UV @ best[0], best[1], best[2], best[3], best[4], best[5])
@@ -529,6 +571,39 @@ HASH_SNAP_TOL_M: float = 0.45
 HASH_PITCH_M: float = 0.9144
 
 MIN_HASH_POINTS: int = 8
+
+
+# A broadcast camera's physical envelope. Used to REJECT a row assignment whose
+# implied camera cannot exist, which is the only thing that separates two
+# labellings that both fit the lines perfectly.
+PLAUSIBLE_FOV_DEG = (4.0, 75.0)
+
+
+def implied_fov_deg(H, width: int, height: int) -> float:
+    """Horizontal field of view implied by a plane homography, or NaN."""
+    try:
+        focal = _solve_focal(np.asarray(H, float), width / 2.0, height / 2.0)
+    except ValueError:
+        return float("nan")
+    if not np.isfinite(focal) or focal <= 1e-6:
+        return float("nan")
+    return float(np.degrees(2.0 * np.arctan(width / (2.0 * focal))))
+
+
+def assignment_is_possible(H, width: int, height: int) -> bool:
+    """Could a real camera have produced this homography of the field?
+
+    This is what separates a wrong row labelling from a right one when both fit
+    the lines. Calling the two HASH ROWS the two sidelines stretches world Y by
+    24.384/2.8194 = 8.65, and the solve absorbs it by moving the camera 8.65x
+    further away behind a much longer lens. Measured on All-22, that produced
+    cameras 300-500 m from the field at a 4-6 degree field of view -- a fit no
+    broadcast mount could have made, and the only signal that says so.
+    """
+    fov = implied_fov_deg(H, width, height)
+    if not np.isfinite(fov):
+        return True          # cannot tell; do not penalise
+    return PLAUSIBLE_FOV_DEG[0] <= fov <= PLAUSIBLE_FOV_DEG[1]
 
 
 def focal_disagreement(H, width: int, height: int) -> float:
@@ -786,7 +861,41 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
                    else results[f].pose.center_world, float)
         for f in cams], axis=0)
     focal = float(np.median([c[0][0, 0] for c in cams.values()]))
-    _LOG.info("pooled paint: %d/%d frames, focal %.0f, centre %s, mirrored=%s",
-              len(cams), len(frame_data), focal, np.round(centre, 1), mirrored)
-    return cams, focal, centre, mirrored
+    quality = solve_quality(results, cams, frame_data, centre, focal, width)
+    _LOG.info("pooled paint: %d/%d frames, focal %.0f, centre %s, mirrored=%s, "
+              "rms %.1f px", len(cams), len(frame_data), focal,
+              np.round(centre, 1), mirrored, quality["rms_px"])
+    return cams, focal, centre, mirrored, quality
+
+
+# A camera this far from the field, or this high, is not a broadcast mount.
+PLAUSIBLE_HEIGHT_M = (8.0, 90.0)
+PLAUSIBLE_RANGE_M = (25.0, 220.0)
+
+
+def solve_quality(results, cams, frame_data, centre, focal, width: int) -> dict:
+    """Tracking-free signals for whether a paint camera can be believed.
+
+    None of these look at ground truth, which is the point: in production there
+    is nothing to compare against, so a camera has to be judged on its own
+    evidence or not at all. Reported rather than acted on here, so their
+    predictive value can be measured before anything is gated on them.
+    """
+    rms = [float(results[f].rms_px) for f in cams
+           if getattr(results[f], "rms_px", None) is not None]
+    centre = np.asarray(centre, float)
+    height = float(centre[2])
+    ground_range = float(np.hypot(centre[0], centre[1]))
+    # Focal as a field of view is easier to sanity-check than raw pixels.
+    fov_deg = float(np.degrees(2.0 * np.arctan(width / (2.0 * max(focal, 1e-6)))))
+    return {
+        "rms_px": float(np.median(rms)) if rms else float("nan"),
+        "kept_frac": float(len(cams) / max(len(frame_data), 1)),
+        "height_m": height,
+        "range_m": ground_range,
+        "fov_deg": fov_deg,
+        "plausible_mount": bool(
+            PLAUSIBLE_HEIGHT_M[0] <= height <= PLAUSIBLE_HEIGHT_M[1]
+            and PLAUSIBLE_RANGE_M[0] <= ground_range <= PLAUSIBLE_RANGE_M[1]),
+    }
 

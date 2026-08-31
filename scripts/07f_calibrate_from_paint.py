@@ -113,9 +113,9 @@ def measure_view(root, labels, track, game, play, view, offset, *, stride, frame
     # Pooled first: one shared centre is far more accurate, but it refuses
     # plays it cannot fit, so per-frame remains the fallback and the result
     # records which was used.
-    residual, method = float("nan"), "pooled"
+    residual, method, quality = float("nan"), "pooled", {}
     try:
-        paint_cams, focal, centre_p, mirrored = cameras_from_paint_pooled(
+        paint_cams, focal, centre_p, mirrored, quality = cameras_from_paint_pooled(
             feats, WIDTH, HEIGHT, images=images,
             seed_centre=None if paint_seeds is None
             else paint_seeds.get((game, view)))
@@ -154,6 +154,7 @@ def measure_view(root, labels, track, game, play, view, offset, *, stride, frame
         "shift_off_integer": round(float(abs(steps - round(steps))), 3),
         "frames": len(paint_cams),
         "method": method,
+        **{f"q_{k}": v for k, v in quality.items()},
     }
 
 
