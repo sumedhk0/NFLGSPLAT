@@ -684,7 +684,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
                               gap: int = 1, images=None,
                               audit_px: float = PAINT_AUDIT_PX,
                               grid: int = 6, half_x_m: float = 30.0,
-                              use_hash_points: bool = True):
+                              use_hash_points: bool = True, seed_centre=None):
     """One camera centre for the whole play, seeded from the paint itself.
 
     Each frame's homography is fitted from that frame's paint alone and carries
@@ -734,11 +734,21 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
             f"only {len(frame_data)} frames gave a paint homography; "
             "need 10 for a shared-centre solve.")
 
-    seeds = None
+    seeds = []
+    if seed_centre is not None:
+        # A camera solved on another play of the SAME GAME -- the mount does
+        # not move between snaps. Beware: measured on paint this makes things
+        # slightly WORSE (5.23 m against 4.40 m, paired, same yield), because a
+        # paint camera carries metres of its own error and seeding with it can
+        # pull the solve into a worse basin than this play's own estimate. It
+        # helps when the seed is accurate: carrying TRACKING-fitted cameras the
+        # same way took 53/59 plays to 56/59. Pass one only if it is good.
+        seeds.append(np.asarray(seed_centre, float).reshape(3))
     if centres:
         # Median over frames: individual per-frame centres are noisy and a few
         # are wild, which is the whole reason for pooling in the first place.
-        seeds = [np.median(np.stack(centres), axis=0)]
+        seeds.append(np.median(np.stack(centres), axis=0))
+    seeds = seeds or None
 
     results, mirrored = solve_fixed_center(
         {}, (width, height), init_results=[None] * (max(frame_data) + 1),

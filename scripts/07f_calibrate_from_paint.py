@@ -72,7 +72,8 @@ def placement_errors(cams, byf, world_at, z_plane, *, remove_x_shift):
     return err, shift
 
 
-def measure_view(root, labels, track, game, play, view, offset, *, stride, frames):
+def measure_view(root, labels, track, game, play, view, offset, *, stride, frames,
+                 paint_seeds=None):
     import cv2
 
     index = {p: i for i, p in enumerate(track.players)}
@@ -112,10 +113,14 @@ def measure_view(root, labels, track, game, play, view, offset, *, stride, frame
     # records which was used.
     residual, method = float("nan"), "pooled"
     try:
-        paint_cams, focal, _centre, mirrored = cameras_from_paint_pooled(
-            feats, WIDTH, HEIGHT, images=images)
+        paint_cams, focal, centre_p, mirrored = cameras_from_paint_pooled(
+            feats, WIDTH, HEIGHT, images=images,
+            seed_centre=None if paint_seeds is None
+            else paint_seeds.get((game, view)))
         if mirrored:
             raise CalibrationError("pooled solve chose a mirrored world")
+        if paint_seeds is not None:
+            paint_seeds[(game, view)] = centre_p
     except CalibrationError:
         method = "per-frame"
         try:
@@ -162,6 +167,11 @@ def main() -> None:
                     help="frames per view to run field detection on")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--views", default="Sideline,Endzone")
+    ap.add_argument("--carry-game-camera", action="store_true",
+                    help="seed each play from the previous play of the same "
+                         "game (measured WORSE for paint: 5.23 m vs 4.40 m "
+                         "paired, same yield -- a paint camera is too noisy to "
+                         "seed with, unlike a tracking-fitted one)")
     args = ap.parse_args()
 
     align_path = args.alignment or (args.root / "alignment.json")
@@ -177,6 +187,8 @@ def main() -> None:
     print(f"{len(usable)} aligned plays x {len(views)} views\n")
 
     out = {}
+    # Off by default: measured worse. See --carry-game-camera.
+    paint_seeds = {} if args.carry_game_camera else None
     for i, rec in enumerate(usable, 1):
         game, play, offset = rec["game_key"], rec["play_id"], rec["offset_s"]
         track = plays.get((game, play))
@@ -184,7 +196,8 @@ def main() -> None:
             continue
         for view in views:
             got = measure_view(args.root, labels, track, game, play, view,
-                               offset, stride=args.stride, frames=args.frames)
+                               offset, stride=args.stride, frames=args.frames,
+                               paint_seeds=paint_seeds)
             out[f"{game}_{play}_{view}"] = got
             if "failed" in got:
                 print(f"[{i:3d}] {game}/{play:<6d} {view:8s} FAILED {got['failed']}",
