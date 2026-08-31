@@ -23,19 +23,30 @@ Deliberately small. The crops are 64x64 and the signal is a couple of large
 digits; a bigger network would fit the turf and the jersey colour instead, and
 this has to run over thousands of crops per play.
 
-MEASURED, AND IT IS NOT GOOD ENOUGH YET. Trained on 48k crops and scored on
-17k from HELD-OUT PLAYS: 10.1% exact number, 22.5% top-1 against a 22-number
-roster (chance 4.5%). Real, but far from usable.
+MEASURED, AND IT LOSES BADLY TO THE OCR IT WAS MEANT TO REPLACE. Trained on
+34k crops from ~90 plays and scored on held-out PLAYS, pooling evidence over a
+track exactly as identity does:
 
-The interesting part is WHY, because it is not resolution. Accuracy by helmet
-size runs 6.0% / 7.3% / 12.3% / 7.6% across 8-14, 14-20, 20-30 and 30+ px
-helmets -- it PEAKS in the middle and falls for the biggest, closest players.
-Small crops being hard is expected; large ones being hard is not, and it points
-at the crop itself rather than the pixels in it. The body box is synthesised
-from the helmet at a fixed 6.5-heads ratio, and that ratio cannot hold across
-scale and posture: for a near player the box runs off the frame or past the
-number entirely. Fixing the crop -- a real person detector, or a ratio that
-adapts to posture -- is the next thing to try, not a bigger network.
+    per crop, top-1 against that play's roster      20.0%
+    per TRACK, top-1 against that play's roster     25.1%   (629 tracks)
+    easyocr, per track                              75%
+
+Chance is about 4.5%, so it learned something real and nowhere near enough.
+
+Two things were ruled out on the way, and they are the useful part. It is NOT
+resolution: with crops cut from a synthesised body box, accuracy by helmet size
+ran 6.0 / 7.3 / 12.3 / 7.6 percent across 8-14, 14-20, 20-30 and 30+ px --
+peaking in the middle and FALLING for the closest players, which indicts the
+crop rather than the pixels. And it is not the crop either: cutting from real
+YOLO person boxes instead flattened that curve to 7.9 / 8.4 / 9.8 / 9.0, fixing
+the geometry problem while leaving overall accuracy where it was.
+
+So the limit is the model and the data volume. 34k crops over ninety-odd plays
+is thin for learning digits that generalise to unseen uniforms, stadiums and
+lighting, and a from-scratch CNN has none of the text priors a pretrained
+recogniser brings for free. The version of this idea worth trying next is
+FINE-TUNING a pretrained text recogniser on these crops, not training a network
+from nothing. Kept, with its numbers, so the next attempt starts here.
 """
 from __future__ import annotations
 

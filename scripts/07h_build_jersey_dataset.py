@@ -39,6 +39,55 @@ CROP_PX: int = 64
 MIN_HELMET_PX: int = 8
 
 
+def person_boxes(model, image, conf: float = 0.25):
+    """Person boxes in one frame, as ``[N, 4]`` xyxy."""
+    res = model.predict(image, classes=[0], conf=conf, verbose=False)[0]
+    if res.boxes is None or len(res.boxes) == 0:
+        return np.zeros((0, 4), np.float32)
+    return res.boxes.xyxy.cpu().numpy().astype(np.float32)
+
+
+def match_person(helmet, boxes):
+    """The person box a helmet sits in, or None.
+
+    A helmet is at the TOP of its player, so the right box is one that contains
+    the helmet centre and starts near it -- not merely the nearest, which on a
+    crowded field is often the player standing behind.
+    """
+    if len(boxes) == 0:
+        return None
+    left, top, width, height = helmet
+    cx, cy = left + width / 2.0, top + height / 2.0
+    contains = ((boxes[:, 0] <= cx) & (boxes[:, 2] >= cx)
+                & (boxes[:, 1] <= cy + height) & (boxes[:, 3] >= cy))
+    idx = np.flatnonzero(contains)
+    if len(idx) == 0:
+        return None
+    # Among containers, the one whose top is closest to the helmet's top.
+    best = idx[np.argmin(np.abs(boxes[idx, 1] - top))]
+    return boxes[best]
+
+
+def torso_crop_from_person(image, box, top=TORSO_TOP, bottom=TORSO_BOTTOM):
+    """The number band of a real person box."""
+    import cv2
+
+    x1, y1, x2, y2 = [float(v) for v in box]
+    h = y2 - y1
+    ya = int(round(y1 + top * h))
+    yb = int(round(y1 + bottom * h))
+    xa, xb = int(round(x1)), int(round(x2))
+    xa, ya = max(0, xa), max(0, ya)
+    xb = min(image.shape[1], xb)
+    yb = min(image.shape[0], yb)
+    if xb - xa < 4 or yb - ya < 4:
+        return None
+    crop = image[ya:yb, xa:xb]
+    if crop.size == 0:
+        return None
+    return cv2.resize(crop, (CROP_PX, CROP_PX), interpolation=cv2.INTER_CUBIC)
+
+
 def torso_crop(image, left, top, width, height):
     """The number band implied by one helmet box, or None if unusable."""
     import cv2
@@ -69,7 +118,16 @@ def main() -> None:
     ap.add_argument("--frames-per-video", type=int, default=40)
     ap.add_argument("--holdout-frac", type=float, default=0.25)
     ap.add_argument("--limit-videos", type=int, default=0)
+    ap.add_argument("--detector", action="store_true",
+                    help="crop from real YOLO person boxes instead of a body "
+                         "box synthesised from the helmet")
     args = ap.parse_args()
+
+    detector = None
+    if args.detector:
+        from ultralytics import YOLO
+
+        detector = YOLO("yolov8n.pt")
 
     labels = load_labels(args.root / "train_labels.csv")
     labels = labels[labels["label"].str.slice(1).str.isdigit()]
@@ -85,7 +143,7 @@ def main() -> None:
     test_plays = {plays[i] for i in order[:n_test]}
     print(f"{len(plays)} plays -> {len(test_plays)} held out\n")
 
-    crops, numbers, splits, heights = [], [], [], []
+    crops, numbers, splits, heights, tracks = [], [], [], [], []
     for i, video in enumerate(videos, 1):
         sub = labels[labels["video"] == video]
         if sub.empty:
@@ -103,10 +161,16 @@ def main() -> None:
             ok, img = cap.read()
             if not ok:
                 continue
+            boxes = person_boxes(detector, img) if detector is not None else None
             for r in sub[sub["frame"] == f].itertuples():
                 if r.height < MIN_HELMET_PX:
                     continue
-                crop = torso_crop(img, r.left, r.top, r.width, r.height)
+                if boxes is not None:
+                    person = match_person((r.left, r.top, r.width, r.height), boxes)
+                    crop = (None if person is None
+                            else torso_crop_from_person(img, person))
+                else:
+                    crop = torso_crop(img, r.left, r.top, r.width, r.height)
                 if crop is None:
                     continue
                 crops.append(crop)
@@ -116,6 +180,10 @@ def main() -> None:
                 # whether a number is legible at all -- recorded so accuracy can
                 # be read against it instead of averaged over illegible crops.
                 heights.append(float(r.height))
+                # (video, player) IS the track. Identity consumes evidence per
+                # track, never per crop, so without this the model cannot be
+                # compared against the OCR path on the terms that matter.
+                tracks.append(f"{video}|{r.label}")
                 kept += 1
         cap.release()
         print(f"[{i:3d}/{len(videos)}] {video}  +{kept} crops "
@@ -126,7 +194,8 @@ def main() -> None:
     splits = np.asarray(splits, np.int8)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.out, crops=crops, numbers=numbers, splits=splits,
-                        heights=np.asarray(heights, np.float32))
+                        heights=np.asarray(heights, np.float32),
+                        tracks=np.asarray(tracks))
     print(f"\n{len(crops)} crops -> {args.out}")
     print(f"   train {(splits == 0).sum()}  test {(splits == 1).sum()}")
     print(f"   distinct numbers {len(np.unique(numbers))}")
