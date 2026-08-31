@@ -54,6 +54,14 @@ _LOG = get_logger(__name__)
 # because bones do not change length.
 BONE_TOLERANCE: float = 0.15          # 15% of the bone's length
 
+# ...AND this many metres. Relative error alone is unusable on a skeleton whose
+# bones differ by an order of magnitude in length: the collar and spine links
+# are a few centimetres, so a millimetre of fit noise is tens of percent, and a
+# worst-bone rule then fires on every frame. Measured on real SMPLest-X output:
+# typical deviation 1.7-4.6% but the worst bone read 31-45%, and the detector
+# rejected 100% of frames. A bone must be wrong BOTH relatively and absolutely.
+BONE_MIN_ABS_M: float = 0.04
+
 # Generous enough to allow real sprinting limbs. A hand in a throwing motion
 # passes 10 m/s, so these catch teleports rather than fast play.
 MAX_JOINT_SPEED_MS: float = 25.0
@@ -104,27 +112,48 @@ def reference_bone_lengths(joints, parents=SMPLX_BODY_PARENTS) -> np.ndarray:
     return np.nanmedian(bone_lengths(joints, parents), axis=0)
 
 
-def joint_kinematics(joints, fps: float):
-    """``(max_speed[T], max_accel[T])`` over joints, in m/s and m/s^2."""
+def joint_kinematics(joints, fps: float, frame_indices=None):
+    """``(max_speed[T], max_accel[T])`` over joints, in m/s and m/s^2.
+
+    ``frame_indices`` gives each entry's real frame number. Without it the
+    sequence is assumed to be consecutive, which is false whenever a player was
+    not detected in every frame -- and then a perfectly ordinary movement across
+    a ninety-frame gap is read as a teleport. Measured on real output: a track
+    with three surviving frames spanning video frames 48 to 140 was rejected for
+    "46 m/s" that never happened.
+
+    Steps spanning a gap are scored as NaN rather than guessed at, and a frame
+    with no usable step is left at zero rather than convicted.
+    """
     joints = np.asarray(joints, dtype=np.float64)
     T = len(joints)
     speed = np.zeros(T)
     accel = np.zeros(T)
     if T < 2:
         return speed, accel
-    v = np.linalg.norm(np.diff(joints, axis=0), axis=-1) * fps      # [T-1, J]
-    speed[1:] = v.max(axis=1)
+    if frame_indices is None:
+        dt = np.full(T - 1, 1.0 / fps)
+    else:
+        idx = np.asarray(frame_indices, dtype=np.float64)
+        dt = np.diff(idx) / fps
+        dt[dt <= 0] = np.nan
+    step = np.linalg.norm(np.diff(joints, axis=0), axis=-1)          # [T-1, J]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        v = step / dt[:, None]
+    speed[1:] = np.nan_to_num(np.nanmax(v, axis=1), nan=0.0)
     speed[0] = speed[1]
     if T >= 3:
-        a = np.linalg.norm(np.diff(np.diff(joints, axis=0), axis=0),
-                           axis=-1) * fps * fps                     # [T-2, J]
-        accel[2:] = a.max(axis=1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            dv = (v[1:] - v[:-1]) / ((dt[1:] + dt[:-1])[:, None] / 2.0)
+        accel[2:] = np.nan_to_num(np.nanmax(np.abs(dv), axis=1), nan=0.0)
         accel[:2] = accel[2]
     return speed, accel
 
 
 def audit(joints, *, fps: float = 59.94, parents=SMPLX_BODY_PARENTS,
+          frame_indices=None,
           bone_tolerance: float = BONE_TOLERANCE,
+          bone_min_abs_m: float = BONE_MIN_ABS_M,
           max_speed: float = MAX_JOINT_SPEED_MS,
           max_accel: float = MAX_JOINT_ACCEL_MS2,
           ground_z: float | None = None,
@@ -143,10 +172,14 @@ def audit(joints, *, fps: float = 59.94, parents=SMPLX_BODY_PARENTS,
     ref = reference_bone_lengths(joints, parents)
     with np.errstate(invalid="ignore", divide="ignore"):
         rel = np.abs(lengths - ref[None, :]) / np.where(ref > 1e-6, ref, np.nan)
-    worst = np.nanmax(rel, axis=1)
-    n_off = np.nansum(rel > bone_tolerance, axis=1)
+    absolute = np.abs(lengths - ref[None, :])
+    # BOTH tests, so a millimetre on a collar bone cannot convict a frame.
+    off = (rel > bone_tolerance) & (absolute > bone_min_abs_m)
+    worst = np.where(off.any(axis=1),
+                     np.nanmax(np.where(off, rel, 0.0), axis=1), 0.0)
+    n_off = off.sum(axis=1)
 
-    speed, accel = joint_kinematics(joints, fps)
+    speed, accel = joint_kinematics(joints, fps, frame_indices)
 
     ok = np.ones(T, bool)
     reasons = [""] * T
@@ -154,7 +187,7 @@ def audit(joints, *, fps: float = 59.94, parents=SMPLX_BODY_PARENTS,
         why = []
         if not np.isfinite(joints[t]).all():
             why.append("non-finite joints")
-        if worst[t] > bone_tolerance:
+        if n_off[t]:
             why.append(f"{int(n_off[t])} bone(s) off, worst {worst[t]:.0%}")
         if speed[t] > max_speed:
             why.append(f"joint speed {speed[t]:.0f} m/s")

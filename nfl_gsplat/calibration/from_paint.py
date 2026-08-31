@@ -488,6 +488,20 @@ def choose_gap(features_by_frame, width: int, height: int,
     return best
 
 
+# Height to meet when turning a HELMET detection into a field position, with a
+# camera whose world z=0 is the turf.
+#
+# NOT the same number as the 1.5 m turf-drop measured in 07e, and the difference
+# is real rather than an inconsistency. That one is where the helmet PLANE sits
+# relative to the paint, fitted to painted lines. This one is what best matches
+# TRACKING, which marks a player's position on the ground while their helmet
+# leans forward of it -- so it absorbs lean as well as height and comes out
+# lower. Swept over 10 plays with paint cameras: 0.6 m -> 1.72, 1.0 -> 0.98,
+# 1.2 -> 0.81, 1.4 -> 0.82, 1.5 -> 1.03, 2.0 -> 2.02. A clean minimum, and
+# using it instead of 1.5 is worth 21%.
+PLACEMENT_HELMET_HEIGHT_M: float = 1.25
+
+
 def ray_to_plane(K, R, t, uv, z_plane: float):
     """Where the ray through pixel ``uv`` meets a horizontal plane, or None."""
     K = np.asarray(K, float)

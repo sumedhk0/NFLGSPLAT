@@ -33,6 +33,7 @@ from nfl_gsplat.calibration import field_detect
 from nfl_gsplat.calibration.field_landmarks import YARD_LINE_SPACING_M
 from nfl_gsplat.calibration.from_helmets import cameras_fixed_centre
 from nfl_gsplat.calibration.from_paint import (
+    PLACEMENT_HELMET_HEIGHT_M,
     cameras_from_paint,
     cameras_from_paint_pooled,
     ray_to_plane,
@@ -42,8 +43,9 @@ from nfl_gsplat.data.helmet_dataset import load_labels, load_tracking
 from nfl_gsplat.errors import CalibrationError
 
 WIDTH, HEIGHT = 1280, 720
-# Turf below the helmet plane, measured in 07e against the painted lines.
-TURF_DROP_M = 1.5
+# Where a helmet ray meets, for a camera whose z=0 is the turf. Swept against
+# tracking; see PLACEMENT_HELMET_HEIGHT_M for why it is not the 1.5 m turf drop.
+TURF_DROP_M = PLACEMENT_HELMET_HEIGHT_M
 
 
 def placement_errors(cams, byf, world_at, z_plane, *, remove_x_shift):

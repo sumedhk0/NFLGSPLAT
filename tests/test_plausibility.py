@@ -156,3 +156,46 @@ def test_mark_implausible_strikes_out_bad_frames_for_the_fit():
     assert not got_valid[70:74].any()      # struck out across ALL joints
     assert got_valid[:69].all()
     assert report.n_bad >= 4
+
+
+def test_a_short_bone_cannot_convict_a_frame_on_relative_error_alone():
+    """The defect that rejected 100% of real frames.
+
+    The collar and spine links are a few centimetres long, so a millimetre of
+    fit noise is tens of percent. Judged on relative error alone the worst bone
+    is always one of those, and every frame is condemned. A bone has to be
+    wrong in metres as well.
+    """
+    seq = clean_sequence(T=60)
+    parents = np.asarray(SMPLX_BODY_PARENTS)
+    child = np.flatnonzero(parents >= 0)
+    # Find the shortest bone and disturb it by a large FRACTION but a tiny
+    # distance -- exactly the real failure mode.
+    lens = bone_lengths(seq)[0]
+    shortest = child[int(np.argmin(lens))]
+    seq[30:34, shortest] += 0.30 * lens.min()      # 30% of a very short bone
+    got = audit(seq, fps=FPS)
+    assert got.ok[30:34].all()
+
+
+def test_a_real_bone_error_is_still_caught():
+    seq = clean_sequence(T=60)
+    seq[30:34, 5] += 0.5                            # half a metre out of place
+    got = audit(seq, fps=FPS)
+    assert not got.ok[30:34].any()
+
+
+def test_gaps_in_a_track_are_not_read_as_teleports():
+    """Players are not detected every frame, and the audit must know that.
+
+    Measured on real output: a track whose three surviving frames spanned video
+    frames 48 to 140 was rejected for a 46 m/s joint speed that never happened,
+    because consecutive ENTRIES were assumed to be consecutive FRAMES.
+    """
+    seq = clean_sequence(T=200)
+    keep = [0, 1, 2, 90, 91, 92, 180, 181, 182]
+    sparse = seq[keep]
+    naive = audit(sparse, fps=FPS)                      # assumes 1/fps spacing
+    aware = audit(sparse, fps=FPS, frame_indices=keep)  # knows the real gaps
+    assert aware.n_bad <= naive.n_bad
+    assert aware.n_bad == 0
