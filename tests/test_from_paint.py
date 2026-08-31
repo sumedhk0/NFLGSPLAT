@@ -341,3 +341,35 @@ def test_solve_quality_flags_a_mount_that_cannot_exist():
     far = solve_quality(results, cams, {1: None, 2: None},
                         np.array([200.0, -560.0, 350.0]), 12957.0, W)
     assert not far["plausible_mount"]
+
+
+def test_x_origins_are_brought_onto_a_common_frame():
+    """Each frame numbers its own yard lines, so panning slides its world.
+
+    The shift is invisible inside one frame -- its hash marks still land on its
+    own grid -- and fatal across many, because no rigid camera satisfies frames
+    that disagree about where x=0 is. Measured on All-22, 12 to 29 frames of
+    every clip needed shifting.
+    """
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
+    from nfl_gsplat.calibration.from_paint import align_x_origins
+
+    K = K_of(FOCAL)
+    R, t = look_at(CENTRE)
+    truth = ground_homography(K, R, t)
+    shifts = [0, 2, -3, 1, 0, -1, 4]
+    moved_in = {}
+    for i, k in enumerate(shifts):
+        T = np.array([[1.0, 0.0, k * YARD_LINE_SPACING_M],
+                      [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+        moved_in[i] = truth @ T
+    aligned, moved = align_x_origins(moved_in, W, H)
+    assert moved >= len(shifts) - 3
+
+    # Every frame must now imply the SAME camera, whatever it started from.
+    centres = []
+    for Hm in aligned.values():
+        _K, Rr, tt = homography_to_krt(Hm, width=W, height=H)
+        centres.append(-Rr.T @ tt)
+    spread = np.ptp(np.stack(centres), axis=0)
+    assert float(np.max(spread)) < 1.0

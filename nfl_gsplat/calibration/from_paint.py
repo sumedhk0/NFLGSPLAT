@@ -812,13 +812,79 @@ PAINT_AUDIT_REF_HEIGHT: int = 720
 PAINT_MAX_RMS_PX: float = 18.0
 
 
+def align_x_origins(homographies, width: int, height: int, *,
+                    spacing_m: float = YARD_LINE_SPACING_M, search: int = 25):
+    """Put every frame's homography on a COMMON world X origin.
+
+    Each frame numbers its own detected yard lines from zero, so as the camera
+    pans and a different line becomes the leftmost one, that frame's world
+    slides by a whole number of 5-yard steps. Every frame is then internally
+    consistent -- its hash marks still land on its own grid -- while no single
+    rigid camera can satisfy them all, which is exactly what was seen on
+    All-22: grid consistency 0.97 per frame alongside a 170-240 px shared-centre
+    residual that shortening the window did nothing to fix.
+
+    The shift is unobservable within one frame and obvious across many: only one
+    choice per frame puts the camera where the other frames put it. So each
+    frame's offset is chosen to bring its implied centre to the median, which
+    needs no ground truth and no tracking.
+
+    OFF BY DEFAULT, because it helps only where the problem exists. On All-22 it
+    fires on 12-29 frames per clip and cut one clip's residual from 158 to 97
+    px. On the helmet clips the camera barely pans, the origins already agree,
+    and aligning to a median of NOISY per-frame decompositions moves frames that
+    were right: pooled views fell 12 to 4 and paired error went 0.96 -> 1.43 m.
+
+    That is the third time in this work that a correction has done harm where
+    the thing it corrects was already fine -- see also the team prior in
+    identity and per-game seeding here. The rule is the same each time: the
+    correction must be better than what it is correcting.
+    """
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
+
+    def centre_of(H):
+        try:
+            _K, R, t = homography_to_krt(H, width=width, height=height)
+        except (ValueError, np.linalg.LinAlgError):
+            return None
+        return -np.asarray(R, float).T @ np.asarray(t, float).reshape(3)
+
+    frames = list(homographies)
+    centres = {f: centre_of(homographies[f]) for f in frames}
+    known = [c for c in centres.values() if c is not None and np.isfinite(c).all()]
+    if len(known) < 3:
+        return dict(homographies), 0
+    target = np.median(np.stack(known), axis=0)
+
+    out, moved = {}, 0
+    for f in frames:
+        H = homographies[f]
+        best, best_d, best_k = H, np.inf, 0
+        for k in range(-search, search + 1):
+            T = np.array([[1.0, 0.0, k * spacing_m],
+                          [0.0, 1.0, 0.0],
+                          [0.0, 0.0, 1.0]])
+            cand = np.asarray(H, float) @ T
+            c = centre_of(cand)
+            if c is None or not np.isfinite(c).all():
+                continue
+            d = float(np.linalg.norm(c - target))
+            if d < best_d:
+                best, best_d, best_k = cand, d, k
+        out[f] = best
+        moved += int(best_k != 0)
+    _LOG.info("x-origin alignment: %d/%d frames shifted", moved, len(frames))
+    return out, moved
+
+
 def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
                               gap: int = 1, images=None,
                               audit_px: float | None = None,
                               grid: int = 6, half_x_m: float = 30.0,
                               use_hash_points: bool = True, seed_centre=None,
                               require_quality: bool = True,
-                              max_rms_px: float | None = None):
+                              max_rms_px: float | None = None,
+                              align_origins: bool = False):
     """One camera centre for the whole play, seeded from the paint itself.
 
     Each frame's homography is fitted from that frame's paint alone and carries
@@ -845,14 +911,22 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
     ys = np.linspace(-HALF_WIDTH_M, HALF_WIDTH_M, grid)
     world = np.array([[x, y, 0.0] for x in xs for y in ys])
 
-    frame_data, centres = {}, []
+    # First pass: per-frame homographies, then put them on one world origin.
+    raw = {}
     for frame, feats in features_by_frame.items():
         image = None if images is None else images.get(frame)
         got = best_frame_homography(feats, width, height, gap=gap, image=image,
                                     use_hash_points=use_hash_points)
-        if got is None:
+        if got is not None:
+            raw[int(frame)] = got[0]
+    if align_origins and len(raw) >= 3:
+        raw, _moved = align_x_origins(raw, width, height)
+
+    frame_data, centres = {}, []
+    for frame, feats in features_by_frame.items():
+        H = raw.get(int(frame))
+        if H is None:
             continue
-        H = got[0]
         q = np.c_[world[:, :2], np.ones(len(world))] @ H.T
         with np.errstate(invalid="ignore", divide="ignore"):
             uv = q[:, :2] / q[:, 2:3]
