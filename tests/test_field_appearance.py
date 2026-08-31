@@ -137,3 +137,22 @@ def test_coverage_fraction_is_a_fraction():
 def test_accumulate_refuses_an_empty_sequence():
     with pytest.raises(ValueError):
         accumulate([], res_m=RES, extent=EXTENT)
+
+
+def test_grazing_rays_are_dropped_because_they_reach_the_crowd():
+    """The ground plane is infinite; the ground is not.
+
+    Near the horizon a ray passes just above the real field and lands on the
+    stands, and the sampler will faithfully paint spectators onto the far
+    sideline -- measured, a band of crowd across the top of a real texture.
+    """
+    ground = painted_ground()
+    image, R, t = render_view(ground, (0.0, -45.0, 25.0))
+    strict = sample_frame(image, K, R, t, res_m=RES, extent=EXTENT,
+                          min_incidence_deg=25.0)[1]
+    loose = sample_frame(image, K, R, t, res_m=RES, extent=EXTENT,
+                         min_incidence_deg=0.0)[1]
+    assert strict.sum() < loose.sum()
+    # What survives is the near ground, not the far edge.
+    rows = np.flatnonzero(strict.any(axis=1))
+    assert rows.min() >= np.flatnonzero(loose.any(axis=1)).min()

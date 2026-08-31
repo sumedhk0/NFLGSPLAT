@@ -39,6 +39,20 @@ _LOG = get_logger(__name__)
 # median cannot reject an outlier it has no majority against.
 MIN_SAMPLES: int = 3
 
+# A ray meeting the turf at less than this angle is not to be believed: the
+# ground PLANE is infinite but the ground is not, so near the horizon a ray
+# passes above the real field and lands on the crowd.
+#
+# Honest note on provenance. This was added believing it explained a band of
+# spectators across the top of a real texture. It did not -- that band came from
+# a sign error in the caller's ground-plane offset, which put the sampled rows
+# above the true far sideline, and fixing the sign removed it while this filter
+# changed nothing. The far sideline is at about 20 degrees from a real mount,
+# nowhere near grazing. Kept because the failure it describes is real at the
+# horizon and the guard is nearly free, but it has not yet earned its keep on
+# this footage, and the threshold is a guess rather than a measurement.
+MIN_INCIDENCE_DEG: float = 4.0
+
 
 def ground_grid(res_m: float, extent):
     """``(X, Y)`` world coordinates of every texel centre, as a map image."""
@@ -76,7 +90,8 @@ def remap_points(image, u, v, interpolation=None):
     return out.reshape(-1, image.shape[2])[:n]
 
 
-def sample_frame(image, K, R, t, *, res_m: float, extent, z_plane: float = 0.0):
+def sample_frame(image, K, R, t, *, res_m: float, extent, z_plane: float = 0.0,
+                 min_incidence_deg: float = MIN_INCIDENCE_DEG):
     """``(colour, seen)`` -- the frame resampled onto the top-down field grid.
 
     Every texel is PROJECTED into the image rather than every pixel being
@@ -101,6 +116,15 @@ def sample_frame(image, K, R, t, *, res_m: float, extent, z_plane: float = 0.0):
               & (uv[:, 0] >= 0) & (uv[:, 0] < w - 1)
               & (uv[:, 1] >= 0) & (uv[:, 1] < h - 1))
 
+    # Drop grazing rays: they reach the crowd, not the turf. The angle is
+    # between the viewing ray and the plane, so it falls to zero at the horizon.
+    centre = -R.T @ t
+    to_cam = centre[None, :] - world
+    rng = np.linalg.norm(to_cam, axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        sin_inc = np.abs(to_cam[:, 2]) / np.maximum(rng, 1e-9)
+    inside &= sin_inc >= np.sin(np.radians(min_incidence_deg))
+
     colour = np.zeros((*shape, image.shape[2]), np.float32)
     seen = inside.reshape(shape)
     if inside.any():
@@ -112,7 +136,8 @@ def sample_frame(image, K, R, t, *, res_m: float, extent, z_plane: float = 0.0):
 
 
 def accumulate(frames, *, res_m: float = 0.05, extent=None,
-               z_plane: float = 0.0, min_samples: int = MIN_SAMPLES):
+               z_plane: float = 0.0, min_samples: int = MIN_SAMPLES,
+               min_incidence_deg: float = MIN_INCIDENCE_DEG):
     """``(texture, coverage_mask, n_samples)`` from ``(image, K, R, t)`` frames.
 
     Held in memory as a stack because the median needs every sample; at 0.05 m
@@ -123,7 +148,8 @@ def accumulate(frames, *, res_m: float = 0.05, extent=None,
     stack, masks = [], []
     for image, K, R, t in frames:
         colour, seen = sample_frame(image, K, R, t, res_m=res_m,
-                                    extent=extent, z_plane=z_plane)
+                                    extent=extent, z_plane=z_plane,
+                                    min_incidence_deg=min_incidence_deg)
         stack.append(colour)
         masks.append(seen)
     if not stack:
