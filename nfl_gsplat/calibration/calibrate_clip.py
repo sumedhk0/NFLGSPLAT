@@ -39,12 +39,17 @@ _LOG = get_logger(__name__)
 # Ordered by how often they win, cheapest first. 180/0.25 is the broadcast
 # default; 0.05 finds yard lines on the wider feed; 120 finds its sidelines.
 DETECT_SETTINGS: tuple[tuple[int, float], ...] = (
-    (180, 0.25),
+    (180, 0.25),     # broadcast feeds
+    (120, 0.05),     # All-22: dimmer paint, and the only setting that finds
+                     # its sidelines at all
     (180, 0.05),
     (135, 0.05),
-    (120, 0.05),
-    (150, 0.15),
 )
+
+# Stop sweeping once a setting is this good (at the reference height). Every
+# further setting costs a full re-detect and several solves, and nothing
+# measured has beaten a camera already this consistent.
+GOOD_ENOUGH_RMS_PX: float = 20.0
 
 
 def detect_all(images, *, white_thresh: int, min_line_len_frac: float):
@@ -79,6 +84,10 @@ def calibrate_clip(images, width: int, height: int, *,
                   white, frac, len(cams), quality["fov_deg"], quality["rms_px"])
         if best is None or quality["rms_px"] < best[3]["rms_px"]:
             best = (cams, focal, centre, quality, (white, frac))
+        if quality["rms_px"] <= GOOD_ENOUGH_RMS_PX * (height / 720.0):
+            _LOG.info("stopping the sweep early: %.1f px is good enough",
+                      quality["rms_px"])
+            break
     if best is None:
         raise CalibrationError(
             "no detector setting produced a camera that could exist for this "

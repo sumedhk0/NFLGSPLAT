@@ -373,3 +373,40 @@ def test_x_origins_are_brought_onto_a_common_frame():
         centres.append(-Rr.T @ tt)
     spread = np.ptp(np.stack(centres), axis=0)
     assert float(np.max(spread)) < 1.0
+
+
+def test_the_neighbour_chain_is_built_once_and_composed():
+    """Links between neighbours do not depend on the reference.
+
+    Recomputing them per candidate turned screening into an O(n^2) pile of
+    feature matching that cost more than the solve it was meant to make
+    affordable. Composing precomputed links must give the same answer.
+    """
+    from nfl_gsplat.calibration.from_paint import carry_with_chain
+
+    K = K_of(FOCAL)
+    R, t = look_at(CENTRE)
+    truth = ground_homography(K, R, t)
+
+    # Frame i is frame 0 shifted in the IMAGE by S_i, so world -> image_i is
+    # S_i @ truth, and the link from a to b is S_b @ inv(S_a).
+    shifts = {}
+    for i in range(5):
+        S = np.eye(3)
+        S[0, 2] = 12.0 * i
+        shifts[i] = S
+    per_frame = {i: S @ truth for i, S in shifts.items()}
+    links = {a: shifts[a + 1] @ np.linalg.inv(shifts[a])
+             for a in range(len(shifts) - 1)}
+
+    carried = carry_with_chain(links, per_frame, reference=2)
+    assert len(carried) == len(per_frame)
+    for f, Hm in carried.items():
+        want = per_frame[f] / per_frame[f][2, 2]
+        assert np.allclose(Hm / Hm[2, 2], want, atol=1e-6)
+
+
+def test_carrying_from_a_missing_reference_returns_nothing():
+    from nfl_gsplat.calibration.from_paint import carry_with_chain
+
+    assert carry_with_chain({}, {1: np.eye(3)}, reference=99) == {}

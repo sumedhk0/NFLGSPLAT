@@ -968,7 +968,8 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
                               require_quality: bool = True,
                               max_rms_px: float | None = None,
                               align_origins: bool = False,
-                              propagate: bool = False):
+                              propagate: bool = False,
+                              verify_top: int = 2):
     """One camera centre for the whole play, seeded from the paint itself.
 
     Each frame's homography is fitted from that frame's paint alone and carries
@@ -1010,11 +1011,24 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
         # Y-rescaled one, and picking on them alone was unstable: the same clip
         # gave a 26.9 degree camera from one frame set and 2.7 degrees from
         # another, purely on which frame won.
+        # Two stages. Screen EVERY labelled frame cheaply, then run the full
+        # solve only on the few that survive. Trying a handful chosen by
+        # per-frame proxies was unstable -- one clip gave 5.1 px on one frame
+        # sample and 63 px on another purely on which candidate was offered.
+        links = neighbour_chain(images, raw)
+        screened = []
+        for ref in sorted(raw):
+            plausible, spread, carried = screen_reference(
+                links, raw, ref, width, height)
+            if plausible and np.isfinite(spread):
+                screened.append((spread, ref, carried))
+        screened.sort(key=lambda z: z[0])
+        if not screened:
+            raise CalibrationError(
+                "no reference labelling implied a camera that could exist.")
+
         best, best_key = None, None
-        for ref in rank_references(raw, scored, width, height):
-            carried = propagate_field_homographies(images, raw, reference=ref)
-            if len(carried) < 3:
-                continue
+        for _spread, ref, carried in screened[:verify_top]:
             try:
                 got = _solve_pooled(carried, world, width, height,
                                     seed_centre, audit_px)
@@ -1201,6 +1215,105 @@ def choose_reference(per_frame, scored, width: int, height: int):
         return max(scored, key=lambda f: scored[f]) if scored else None
     ranked.sort(reverse=True)
     return ranked[0][1]
+
+
+
+
+def neighbour_chain(images, frames):
+    """``{frame: H}`` carrying each frame onto the NEXT one, computed once.
+
+    The links between neighbours do not depend on which frame is later chosen
+    as the reference, so computing them once and composing turns an O(n^2) pile
+    of SIFT matching into O(n). Without this, screening every candidate
+    reference re-matched the whole clip per candidate and took longer than the
+    solve it was meant to make affordable.
+    """
+    order = sorted(frames)
+    links = {}
+    for a, b in zip(order, order[1:]):
+        H = image_to_image(images[a], images[b])
+        if H is not None:
+            links[a] = H
+    _LOG.info("frame chain: %d/%d neighbour links", len(links), max(len(order) - 1, 1))
+    return links
+
+
+def carry_with_chain(links, per_frame, reference):
+    """Propagate one labelling using precomputed neighbour links."""
+    order = sorted(per_frame)
+    if reference not in per_frame:
+        return {}
+    pivot = order.index(reference)
+    to_ref = {reference: np.eye(3)}
+
+    # Forward: frame i -> reference, walking back down the links.
+    for i in range(pivot + 1, len(order)):
+        prev, cur = order[i - 1], order[i]
+        H = links.get(prev)
+        if H is None or prev not in to_ref:
+            break
+        try:
+            to_ref[cur] = to_ref[prev] @ np.linalg.inv(H)
+        except np.linalg.LinAlgError:
+            break
+    # Backward.
+    for i in range(pivot - 1, -1, -1):
+        cur, nxt = order[i], order[i + 1]
+        H = links.get(cur)
+        if H is None or nxt not in to_ref:
+            break
+        to_ref[cur] = to_ref[nxt] @ H
+
+    H_ref = np.asarray(per_frame[reference], float)
+    out = {}
+    for f, G in to_ref.items():
+        try:
+            out[f] = np.linalg.inv(G) @ H_ref
+        except np.linalg.LinAlgError:
+            continue
+    return out
+
+
+def screen_reference(links, raw, reference, width: int, height: int):
+    """Cheap score for one candidate reference, without running the solve.
+
+    Propagating a labelling makes every frame share one world, so if that
+    labelling is right the frames must all imply the SAME camera -- and a camera
+    that could exist. Both are readable from the per-frame decompositions alone,
+    which costs a matrix inverse per frame instead of a full bundle.
+
+    Returns ``(plausible, spread_m, carried)``; lower spread is better. This
+    exists because the full solve is far too slow to try on every frame, while
+    the proxies that are cheap enough (grid consistency, per-frame residual)
+    cannot see a wrong labelling at all. Measured, choosing among only four
+    candidates by those proxies was unstable: one endzone clip solved at 5.1 px
+    on one frame sample and 63 px on another.
+    """
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
+
+    carried = carry_with_chain(links, raw, reference)
+    if len(carried) < 3:
+        return False, np.inf, {}
+    centres = []
+    for H in carried.values():
+        try:
+            _K, R, t = homography_to_krt(H, width=width, height=height)
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        centres.append(-np.asarray(R, float).T @ np.asarray(t, float).reshape(3))
+    if len(centres) < 3:
+        return False, np.inf, carried
+    C = np.stack(centres)
+    med = np.median(C, axis=0)
+    fov = implied_fov_deg(carried[reference], width, height)
+    plausible = bool(
+        PLAUSIBLE_HEIGHT_M[0] <= med[2] <= PLAUSIBLE_HEIGHT_M[1]
+        and PLAUSIBLE_RANGE_M[0] <= float(np.hypot(*med[:2]))
+        <= PLAUSIBLE_RANGE_M[1]
+        and (not np.isfinite(fov)
+             or PLAUSIBLE_FOV_DEG[0] <= fov <= PLAUSIBLE_FOV_DEG[1]))
+    spread = float(np.median(np.linalg.norm(C - med, axis=1)))
+    return plausible, spread, carried
 
 
 def propagate_field_homographies(images, per_frame, *, reference=None):
