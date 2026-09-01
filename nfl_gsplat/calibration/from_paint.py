@@ -372,10 +372,15 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
     # assignment there is exactly one candidate and therefore no choice to make.
     # Allowing the weakest rows to be dropped restores the competition that
     # grid consistency and camera plausibility are there to judge.
-    row_choices = []
-    for size in range(min(len(rows), len(CROSS_Y_M)), 1, -1):
-        for keep in combinations(range(len(rows)), size):
-            row_choices.append([rows[i] for i in keep])
+    # The full set, then single drops only. Every subset was tried at first and
+    # it multiplied the per-frame cost by about ten for no measured gain: the
+    # detector returns at most one or two spurious rows, so dropping more than
+    # one at a time is discarding real evidence rather than noise.
+    n_rows = min(len(rows), len(CROSS_Y_M))
+    row_choices = [[rows[i] for i in range(n_rows)]]
+    if n_rows > 2:
+        for drop in range(n_rows):
+            row_choices.append([rows[i] for i in range(n_rows) if i != drop])
     for chosen_rows in row_choices:
       for pick in combinations(range(len(CROSS_Y_M)), len(chosen_rows)):
         world_y = [CROSS_Y_M[i] for i in pick]
@@ -1019,7 +1024,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
         screened = []
         for ref in sorted(raw):
             plausible, spread, carried = screen_reference(
-                links, raw, ref, width, height)
+                links, raw, ref, width, height, features=features_by_frame)
             if plausible and np.isfinite(spread):
                 screened.append((spread, ref, carried))
         screened.sort(key=lambda z: z[0])
@@ -1219,6 +1224,81 @@ def choose_reference(per_frame, scored, width: int, height: int):
 
 
 
+
+# How close a predicted line must come to a detected one, as a fraction of image
+# height, to count as explained.
+AGREE_TOL_FRAC: float = 0.02
+
+# Frames used to score one candidate reference. A propagated labelling puts
+# every frame on the same world, so a handful says as much as all of them, and
+# scoring all of them made the search quadratic.
+_SCREEN_FRAMES: int = 5
+
+
+def paint_agreement(H, features, width: int, height: int,
+                    *, tol_frac: float = AGREE_TOL_FRAC) -> float:
+    """How much of the WHOLE field model the picture agrees with, 0 to 1.
+
+    The residual of a fit says how well the lines it was given are explained,
+    which is not the question -- a wrong labelling fits its own lines perfectly.
+    This asks the held-out question instead: with this homography, every line on
+    a football field has a predicted place in the image, so how many of the
+    predicted ones are actually there, and how much of the detected paint is
+    accounted for?
+
+    A labelling that calls the hash rows the sidelines has to predict real
+    sidelines somewhere no paint exists, and leaves the true hash rows
+    unexplained. Nothing about its own fit objects; this does.
+
+    Needed because plausibility alone does not settle it: the same sideline clip
+    produced a 14.4 degree camera 146 m out and a 41.7 degree one 58 m out, both
+    passing every physical check, on different frame samples.
+    """
+    H = np.asarray(H, float)
+    tol = tol_frac * height
+    try:
+        Hinv_T = np.linalg.inv(H).T
+    except np.linalg.LinAlgError:
+        return 0.0
+
+    detected = [seg_line(s) for s in features.yard_lines]
+    detected += [seg_line(s) for s in features.sidelines]
+    if not detected:
+        return 0.0
+
+    def crossing(line):
+        return line_at_x(line, width / 2.0)
+
+    det_v = [v for v in (crossing(ln) for ln in detected) if v is not None]
+
+    predicted = []
+    for y in CROSS_Y_M:
+        pred = Hinv_T @ np.array([0.0, 1.0, -y])
+        n = float(np.hypot(pred[0], pred[1]))
+        if n < 1e-12:
+            continue
+        v = crossing(pred / n)
+        if v is not None and -0.2 * height <= v <= 1.2 * height:
+            predicted.append(v)
+    if not predicted:
+        return 0.0
+
+    # Recall: predicted long lines that are actually visible in the picture.
+    hits = sum(1 for v in predicted
+               if det_v and min(abs(v - d) for d in det_v) <= tol)
+    recall = hits / len(predicted)
+
+    # Precision: detected paint the model can account for, using the hash
+    # marks, which are the densest evidence available.
+    blobs = (np.asarray(features.hashes, float).reshape(-1, 2)
+             if len(features.hashes) else np.zeros((0, 2)))
+    precision = (grid_consistency(H, blobs, list(CROSS_Y_M))
+                 if len(blobs) >= MIN_HASH_POINTS else recall)
+    if recall <= 0 or precision <= 0:
+        return 0.0
+    return float(2.0 * recall * precision / (recall + precision))
+
+
 def neighbour_chain(images, frames):
     """``{frame: H}`` carrying each frame onto the NEXT one, computed once.
 
@@ -1274,7 +1354,8 @@ def carry_with_chain(links, per_frame, reference):
     return out
 
 
-def screen_reference(links, raw, reference, width: int, height: int):
+def screen_reference(links, raw, reference, width: int, height: int,
+                     features=None):
     """Cheap score for one candidate reference, without running the solve.
 
     Propagating a labelling makes every frame share one world, so if that
@@ -1282,7 +1363,7 @@ def screen_reference(links, raw, reference, width: int, height: int):
     that could exist. Both are readable from the per-frame decompositions alone,
     which costs a matrix inverse per frame instead of a full bundle.
 
-    Returns ``(plausible, spread_m, carried)``; lower spread is better. This
+    Returns ``(plausible, cost, carried)``; lower cost is better. This
     exists because the full solve is far too slow to try on every frame, while
     the proxies that are cheap enough (grid consistency, per-frame residual)
     cannot see a wrong labelling at all. Measured, choosing among only four
@@ -1312,8 +1393,23 @@ def screen_reference(links, raw, reference, width: int, height: int):
         <= PLAUSIBLE_RANGE_M[1]
         and (not np.isfinite(fov)
              or PLAUSIBLE_FOV_DEG[0] <= fov <= PLAUSIBLE_FOV_DEG[1]))
-    spread = float(np.median(np.linalg.norm(C - med, axis=1)))
-    return plausible, spread, carried
+    # Centre spread cannot be the score: propagation forces every frame onto
+    # one world, so their centres agree for ANY reference and the number
+    # measures decomposition noise rather than whether the labelling is right.
+    # Model agreement is the held-out question, and it does discriminate.
+    if features:
+        # On a SUBSAMPLE. Every candidate reference is screened against every
+        # frame otherwise, which is quadratic and dominated the runtime; the
+        # agreement of a propagated labelling barely varies between frames,
+        # because they all share one world by construction.
+        usable = [f for f in sorted(carried) if f in features]
+        step = max(1, len(usable) // _SCREEN_FRAMES)
+        agree = float(np.median([
+            paint_agreement(carried[f], features[f], width, height)
+            for f in usable[::step][:_SCREEN_FRAMES]] or [0.0]))
+    else:
+        agree = 0.0
+    return plausible, 1.0 - agree, carried
 
 
 def propagate_field_homographies(images, per_frame, *, reference=None):
