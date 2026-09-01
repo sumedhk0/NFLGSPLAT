@@ -595,7 +595,12 @@ MIN_HASH_POINTS: int = 8
 # A broadcast camera's physical envelope. Used to REJECT a row assignment whose
 # implied camera cannot exist, which is the only thing that separates two
 # labellings that both fit the lines perfectly.
-PLAUSIBLE_FOV_DEG = (4.0, 75.0)
+# Measured on the broadcast clips, a real game camera runs about 14-16 degrees
+# horizontally, and All-22 is wider still because it exists to show all 22
+# players. A 4.6 degree lens at 122 m sees ten metres of field and cannot show a
+# formation, so the old 4.0 lower bound admitted cameras that were physically
+# impossible for the job. 8 degrees is still generous to a long lens.
+PLAUSIBLE_FOV_DEG = (8.0, 75.0)
 
 
 def implied_fov_deg(H, width: int, height: int) -> float:
@@ -877,57 +882,29 @@ def align_x_origins(homographies, width: int, height: int, *,
     return out, moved
 
 
-def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
-                              gap: int = 1, images=None,
-                              audit_px: float | None = None,
-                              grid: int = 6, half_x_m: float = 30.0,
-                              use_hash_points: bool = True, seed_centre=None,
-                              require_quality: bool = True,
-                              max_rms_px: float | None = None,
-                              align_origins: bool = False):
-    """One camera centre for the whole play, seeded from the paint itself.
+def _enforce_quality(quality, centre, max_rms_px, scale):
+    """Refuse a camera that cannot be justified on its own evidence."""
+    if not quality["plausible_mount"]:
+        raise CalibrationError(
+            "paint solve produced a camera no broadcast mount could be: centre "
+            f"{np.round(centre, 1)}, {quality['fov_deg']:.1f} deg field of "
+            "view. Refusing it rather than returning it.")
+    limit = max_rms_px if max_rms_px is not None else PAINT_MAX_RMS_PX * scale
+    if not (quality["rms_px"] <= limit):
+        raise CalibrationError(
+            f"paint solve residual {quality['rms_px']:.0f} px exceeds "
+            f"{limit:.0f} px; the camera is not trustworthy. See "
+            "PAINT_MAX_RMS_PX for the measured operating curve.")
 
-    Each frame's homography is fitted from that frame's paint alone and carries
-    that frame's mistakes straight into the pose -- which is why a handful of
-    plays land tens of metres out while most land within a few. The camera is on
-    a tripod, so the play shares one centre, and imposing that lets the good
-    frames outvote the bad ones. It is the same constraint that took the
-    helmet-fitted cameras from 6.17 m to 0.13 m.
 
-    SEEDED FROM THE PER-FRAME CENTRES, which is what an earlier attempt lacked.
-    Left to its own multi-start grid the solve failed on every view tried: the
-    grid is coarse and nothing pointed it at the right neighbourhood. The
-    per-frame homographies already answer that question approximately, and
-    their median is a good starting point even when individual frames are poor.
-    """
+def _solve_pooled(raw, world, width, height, seed_centre, audit_px):
+    """The shared-centre solve, given one homography per frame."""
     from nfl_gsplat.calibration.decompose_homography import homography_to_krt
     from nfl_gsplat.calibration.joint_solve import solve_fixed_center
 
-    scale = height / PAINT_AUDIT_REF_HEIGHT
-    if audit_px is None:
-        audit_px = PAINT_AUDIT_PX * scale
-
-    xs = np.linspace(-half_x_m, half_x_m, grid)
-    ys = np.linspace(-HALF_WIDTH_M, HALF_WIDTH_M, grid)
-    world = np.array([[x, y, 0.0] for x in xs for y in ys])
-
-    # First pass: per-frame homographies, then put them on one world origin.
-    raw = {}
-    for frame, feats in features_by_frame.items():
-        image = None if images is None else images.get(frame)
-        got = best_frame_homography(feats, width, height, gap=gap, image=image,
-                                    use_hash_points=use_hash_points)
-        if got is not None:
-            raw[int(frame)] = got[0]
-    if align_origins and len(raw) >= 3:
-        raw, _moved = align_x_origins(raw, width, height)
-
     frame_data, centres = {}, []
-    for frame, feats in features_by_frame.items():
-        H = raw.get(int(frame))
-        if H is None:
-            continue
-        q = np.c_[world[:, :2], np.ones(len(world))] @ H.T
+    for frame, H in raw.items():
+        q = np.c_[world[:, :2], np.ones(len(world))] @ np.asarray(H, float).T
         with np.errstate(invalid="ignore", divide="ignore"):
             uv = q[:, :2] / q[:, 2:3]
         keep = (np.isfinite(uv).all(axis=1)
@@ -939,7 +916,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
         try:
             _K, R, t = homography_to_krt(H, width=width, height=height)
             centres.append(-np.asarray(R).T @ np.asarray(t).reshape(3))
-        except ValueError:
+        except (ValueError, np.linalg.LinAlgError):
             continue
     if len(frame_data) < 10:
         raise CalibrationError(
@@ -948,17 +925,12 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
 
     seeds = []
     if seed_centre is not None:
-        # A camera solved on another play of the SAME GAME -- the mount does
-        # not move between snaps. Beware: measured on paint this makes things
-        # slightly WORSE (5.23 m against 4.40 m, paired, same yield), because a
-        # paint camera carries metres of its own error and seeding with it can
-        # pull the solve into a worse basin than this play's own estimate. It
-        # helps when the seed is accurate: carrying TRACKING-fitted cameras the
-        # same way took 53/59 plays to 56/59. Pass one only if it is good.
+        # A camera from another play of the SAME GAME. Measured to make paint
+        # slightly WORSE (5.23 m vs 4.40 m) because a paint camera carries
+        # metres of its own error, while the same trick on tracking-fitted
+        # cameras rescued plays. Pass one only if it is good.
         seeds.append(np.asarray(seed_centre, float).reshape(3))
     if centres:
-        # Median over frames: individual per-frame centres are noisy and a few
-        # are wild, which is the whole reason for pooling in the first place.
         seeds.append(np.median(np.stack(centres), axis=0))
     seeds = seeds or None
 
@@ -985,21 +957,96 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
         for f in cams], axis=0)
     focal = float(np.median([c[0][0, 0] for c in cams.values()]))
     quality = solve_quality(results, cams, frame_data, centre, focal, width)
+    return cams, focal, centre, mirrored, quality
+
+
+def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
+                              gap: int = 1, images=None,
+                              audit_px: float | None = None,
+                              grid: int = 6, half_x_m: float = 30.0,
+                              use_hash_points: bool = True, seed_centre=None,
+                              require_quality: bool = True,
+                              max_rms_px: float | None = None,
+                              align_origins: bool = False,
+                              propagate: bool = False):
+    """One camera centre for the whole play, seeded from the paint itself.
+
+    Each frame's homography is fitted from that frame's paint alone and carries
+    that frame's mistakes into the pose. The camera is on a tripod -- confirmed
+    on this footage, since off-plane structure fits the same frame-to-frame
+    homography as the field -- so the play shares one centre, and imposing that
+    lets the good frames outvote the bad. It is the same constraint that took
+    the helmet-fitted cameras from 6.17 m to 0.13 m.
+
+    Set propagate to label the field ONCE and carry that labelling to every
+    frame through image-to-image homographies, instead of labelling each frame
+    on its own. Independent labelling lets the world slide between frames in
+    both origin and scale, which is what makes excellent single frames
+    irreconcilable; see propagate_field_homographies.
+    """
+    scale = height / PAINT_AUDIT_REF_HEIGHT
+    if audit_px is None:
+        audit_px = PAINT_AUDIT_PX * scale
+
+    xs = np.linspace(-half_x_m, half_x_m, grid)
+    ys = np.linspace(-HALF_WIDTH_M, HALF_WIDTH_M, grid)
+    world = np.array([[x, y, 0.0] for x in xs for y in ys])
+
+    raw, scored = {}, {}
+    for frame, feats in features_by_frame.items():
+        image = None if images is None else images.get(frame)
+        got = best_frame_homography(feats, width, height, gap=gap, image=image,
+                                    use_hash_points=use_hash_points)
+        if got is not None:
+            raw[int(frame)] = got[0]
+            scored[int(frame)] = (got[4], -got[2])       # grid, then -residual
+    if len(raw) < 3:
+        raise CalibrationError(
+            f"only {len(raw)} frames could be labelled from paint; need 3.")
+
+    if propagate and images is not None:
+        # Try several reference frames and keep the one whose CAMERA comes out
+        # best. The per-frame proxies cannot tell a correct labelling from a
+        # Y-rescaled one, and picking on them alone was unstable: the same clip
+        # gave a 26.9 degree camera from one frame set and 2.7 degrees from
+        # another, purely on which frame won.
+        best, best_key = None, None
+        for ref in rank_references(raw, scored, width, height):
+            carried = propagate_field_homographies(images, raw, reference=ref)
+            if len(carried) < 3:
+                continue
+            try:
+                got = _solve_pooled(carried, world, width, height,
+                                    seed_centre, audit_px)
+            except CalibrationError:
+                continue
+            q = got[4]
+            # Plausibility is a FILTER, never a tie-break. Ranking implausible
+            # candidates by rms selects the most degenerate one available: a
+            # camera far enough away compresses the whole field into a handful
+            # of pixels, so its reprojection error goes to zero for the same
+            # reason it is useless. Measured, that is exactly what won -- 1.5 px
+            # rms from a camera 1981 m down the field.
+            if not q["plausible_mount"]:
+                continue
+            if best_key is None or q["rms_px"] < best_key:
+                best, best_key = got, q["rms_px"]
+        if best is None:
+            raise CalibrationError(
+                "no reference labelling produced a camera that could exist; "
+                "every candidate was rejected as an impossible mount.")
+        cams, focal, centre, mirrored, quality = best
+    else:
+        if align_origins:
+            raw, _moved = align_x_origins(raw, width, height)
+        cams, focal, centre, mirrored, quality = _solve_pooled(
+            raw, world, width, height, seed_centre, audit_px)
+
     if require_quality:
-        if not quality["plausible_mount"]:
-            raise CalibrationError(
-                "paint solve produced a camera no broadcast mount could be: "
-                f"centre {np.round(centre, 1)}, {quality['fov_deg']:.1f} deg "
-                "field of view. Refusing it rather than returning it.")
-        limit = max_rms_px if max_rms_px is not None else PAINT_MAX_RMS_PX * scale
-        if not (quality["rms_px"] <= limit):
-            raise CalibrationError(
-                f"paint solve residual {quality['rms_px']:.0f} px exceeds "
-                f"{limit:.0f} px; the camera is not trustworthy. See "
-                "PAINT_MAX_RMS_PX for the measured operating curve.")
-    _LOG.info("pooled paint: %d/%d frames, focal %.0f, centre %s, mirrored=%s, "
-              "rms %.1f px", len(cams), len(frame_data), focal,
-              np.round(centre, 1), mirrored, quality["rms_px"])
+        _enforce_quality(quality, centre, max_rms_px, scale)
+    _LOG.info("pooled paint: %d frames, focal %.0f, centre %s, mirrored=%s, "
+              "rms %.1f px", len(cams), focal, np.round(centre, 1), mirrored,
+              quality["rms_px"])
     return cams, focal, centre, mirrored, quality
 
 
@@ -1029,8 +1076,187 @@ def solve_quality(results, cams, frame_data, centre, focal, width: int) -> dict:
         "height_m": height,
         "range_m": ground_range,
         "fov_deg": fov_deg,
+        # The LENS counts as part of the mount. A camera can sit in exactly the
+        # right place behind a lens that could never cover a football field,
+        # which is what a residual Y-scale error looks like once the position
+        # has been forced to be sensible.
         "plausible_mount": bool(
             PLAUSIBLE_HEIGHT_M[0] <= height <= PLAUSIBLE_HEIGHT_M[1]
-            and PLAUSIBLE_RANGE_M[0] <= ground_range <= PLAUSIBLE_RANGE_M[1]),
+            and PLAUSIBLE_RANGE_M[0] <= ground_range <= PLAUSIBLE_RANGE_M[1]
+            and PLAUSIBLE_FOV_DEG[0] <= fov_deg <= PLAUSIBLE_FOV_DEG[1]),
     }
+
+
+# --------------------------------------------------------------------------
+# Label once, propagate. The fix for per-frame labelling drift.
+# --------------------------------------------------------------------------
+
+# Lowe ratio and RANSAC tolerance for frame-to-frame matching. Measured on both
+# feeds, these give 73-87% inliers at frame gaps of 15 to 40.
+MATCH_RATIO: float = 0.75
+MATCH_RANSAC_PX: float = 3.0
+MIN_MATCHES: int = 40
+
+
+def image_to_image(image_a, image_b, *, ratio: float = MATCH_RATIO,
+                   ransac_px: float = MATCH_RANSAC_PX,
+                   min_matches: int = MIN_MATCHES):
+    """Homography carrying image A onto image B, or None.
+
+    Valid whatever the camera did between the two frames, because it is fitted
+    to the picture rather than to a world model. Measured to be reliable on this
+    footage: 73-87% inliers at gaps of 15-40 frames.
+    """
+    import cv2
+
+    sift = cv2.SIFT_create(nfeatures=4000)
+    ga = (cv2.cvtColor(image_a, cv2.COLOR_BGR2GRAY)
+          if image_a.ndim == 3 else image_a)
+    gb = (cv2.cvtColor(image_b, cv2.COLOR_BGR2GRAY)
+          if image_b.ndim == 3 else image_b)
+    ka, da = sift.detectAndCompute(ga, None)
+    kb, db = sift.detectAndCompute(gb, None)
+    if da is None or db is None or len(ka) < min_matches:
+        return None
+    pairs = cv2.BFMatcher().knnMatch(da, db, k=2)
+    good = [m for m, n in pairs if m.distance < ratio * n.distance]
+    if len(good) < min_matches:
+        return None
+    pa = np.float32([ka[m.queryIdx].pt for m in good])
+    pb = np.float32([kb[m.trainIdx].pt for m in good])
+    H, mask = cv2.findHomography(pa, pb, cv2.RANSAC, ransac_px)
+    if H is None or int(mask.sum()) < min_matches:
+        return None
+    return H
+
+
+def rank_references(per_frame, scored, width: int, height: int, *, limit: int = 4):
+    """Candidate reference frames, best proxy first.
+
+    A ranking rather than a single pick, because the per-frame proxies cannot
+    reliably identify a correct labelling. Grid consistency is blind to a wrong
+    row assignment (a pure Y rescale leaves every hash mark on the X ruler) and
+    the plausibility of one frame's own decomposition is noisy. Measured, the
+    single-pick version was unstable: the same clip gave a 26.9 degree camera
+    from one frame set and a 2.7 degree one from another, purely on which frame
+    won. The caller tries these in order and keeps whichever produces the best
+    CAMERA, which is the thing actually wanted.
+    """
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
+
+    ranked = []
+    for frame, H in per_frame.items():
+        try:
+            _K, R, t = homography_to_krt(H, width=width, height=height)
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        centre = -np.asarray(R, float).T @ np.asarray(t, float).reshape(3)
+        fov = implied_fov_deg(H, width, height)
+        ok = (PLAUSIBLE_HEIGHT_M[0] <= centre[2] <= PLAUSIBLE_HEIGHT_M[1]
+              and PLAUSIBLE_RANGE_M[0] <= float(np.hypot(*centre[:2]))
+              <= PLAUSIBLE_RANGE_M[1]
+              and (not np.isfinite(fov)
+                   or PLAUSIBLE_FOV_DEG[0] <= fov <= PLAUSIBLE_FOV_DEG[1]))
+        ranked.append(((not ok, [-v for v in scored.get(frame, (0.0, 0.0))]), frame))
+    ranked.sort(key=lambda z: (z[0][0], z[0][1]))
+    out = [f for _k, f in ranked][:limit]
+    return out or ([max(scored, key=lambda f: scored[f])] if scored else [])
+
+
+def choose_reference(per_frame, scored, width: int, height: int):
+    """The frame whose labelling should be trusted with the whole clip.
+
+    Grid consistency is NOT enough on its own, and this is the trap that made
+    propagation actively harmful at first. A wrong row assignment -- hash rows
+    called sidelines -- still scores 1.00, because rescaling world Y leaves
+    every hash mark on the X ruler. Picking the reference on grid alone chose
+    such a frame and then propagated its error perfectly: the frames agreed with
+    each other beautifully (centre spread fell by half) on a camera 3.7 km away
+    and 1.5 km underground.
+
+    So a candidate must also DECOMPOSE to a camera that could exist. That is
+    the one check a wrong Y scale cannot survive.
+    """
+    from nfl_gsplat.calibration.decompose_homography import homography_to_krt
+
+    ranked = []
+    for frame, H in per_frame.items():
+        try:
+            _K, R, t = homography_to_krt(H, width=width, height=height)
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        centre = -np.asarray(R, float).T @ np.asarray(t, float).reshape(3)
+        height_ok = PLAUSIBLE_HEIGHT_M[0] <= centre[2] <= PLAUSIBLE_HEIGHT_M[1]
+        range_ok = (PLAUSIBLE_RANGE_M[0] <= float(np.hypot(*centre[:2]))
+                    <= PLAUSIBLE_RANGE_M[1])
+        fov = implied_fov_deg(H, width, height)
+        fov_ok = (not np.isfinite(fov)
+                  or PLAUSIBLE_FOV_DEG[0] <= fov <= PLAUSIBLE_FOV_DEG[1])
+        if not (height_ok and range_ok and fov_ok):
+            continue
+        ranked.append((scored.get(frame, (0.0, 0.0)), frame))
+    if not ranked:
+        # Nothing decomposes to a possible camera; fall back to the best label
+        # and let the quality gate refuse whatever comes out.
+        return max(scored, key=lambda f: scored[f]) if scored else None
+    ranked.sort(reverse=True)
+    return ranked[0][1]
+
+
+def propagate_field_homographies(images, per_frame, *, reference=None):
+    """One labelling, carried to every frame by image-to-image homographies.
+
+    THE PROBLEM THIS SOLVES. Labelling each frame independently lets its world
+    slide: as the camera pans, a different yard line becomes that frame's
+    "index 0", and a frame that loses a line under players can read the spacing
+    as 10 yards where its neighbour read 5. Each frame is then self-consistent
+    -- its hash marks land on its own grid, measured at 0.97 -- while no rigid
+    camera satisfies them all. That is exactly the All-22 failure: excellent
+    frames, a 100-240 px shared-centre residual.
+
+    Labelling ONCE removes both the origin and the scale ambiguity by
+    construction, because every frame inherits the same world. The camera was
+    separately confirmed to only ROTATE on this footage -- off-plane structure
+    fits the same homography as the field, at the same rate as on the broadcast
+    clips -- so an image-to-image homography is exact and chaining is sound.
+
+    Chained through neighbours rather than matched directly to a distant
+    reference, since a frame at the other end of a pan may share no view with it
+    at all.
+    """
+    frames = sorted(f for f in per_frame if per_frame[f] is not None)
+    if len(frames) < 2:
+        return dict(per_frame)
+    if reference is None:
+        reference = frames[len(frames) // 2]
+    if reference not in per_frame or per_frame[reference] is None:
+        return dict(per_frame)
+
+    # Walk outward from the reference, composing neighbour-to-neighbour maps.
+    to_ref = {reference: np.eye(3)}
+    order = sorted(frames)
+    pivot = order.index(reference)
+    for direction in (1, -1):
+        i = pivot
+        while 0 <= i + direction < len(order):
+            cur, nxt = order[i], order[i + direction]
+            G = image_to_image(images[nxt], images[cur])
+            if G is None or cur not in to_ref:
+                break
+            to_ref[nxt] = to_ref[cur] @ G
+            i += direction
+
+    H_ref = np.asarray(per_frame[reference], float)
+    out = {}
+    for f in frames:
+        if f not in to_ref:
+            continue
+        try:
+            # world -> image_f  =  (image_f -> ref)^-1  applied to world -> ref
+            out[f] = np.linalg.inv(to_ref[f]) @ H_ref
+        except np.linalg.LinAlgError:
+            continue
+    _LOG.info("propagated one labelling to %d/%d frames from frame %d",
+              len(out), len(frames), reference)
+    return out
 

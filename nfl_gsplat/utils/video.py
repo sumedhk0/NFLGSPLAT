@@ -101,11 +101,41 @@ def encode_mp4(
     return out_path
 
 
-def iter_frames(video: Path | str, start_frame: int = 0, stride: int = 1) -> Iterator[tuple[int, np.ndarray]]:
-    """Yield (frame_index, HWC uint8 RGB) using imageio. Lazy and memory-bounded."""
+# Decoders to try, in order. pyav is preferred when it works -- it is faster
+# and seeks properly -- but it must not be the only option: it is a compiled
+# extension, and on this machine Windows Application Control blocks its DLL
+# outright, which took out every video test with an ImportError that reads like
+# a missing package rather than a blocked one. FFMPEG is pure subprocess and
+# keeps working when that happens.
+_VIDEO_PLUGINS: tuple[str | None, ...] = ("pyav", "FFMPEG", None)
+
+
+def _imiter(video: str):
+    """Frame iterator from the first decoder that actually loads."""
     import imageio.v3 as iio
 
-    for i, frame in enumerate(iio.imiter(str(video), plugin="pyav")):
+    last = None
+    for plugin in _VIDEO_PLUGINS:
+        try:
+            it = iio.imiter(video, plugin=plugin) if plugin else iio.imiter(video)
+            first = next(iter(it), None)
+            if first is None:
+                continue
+            # Restart cleanly now that the plugin is known to work.
+            source = (iio.imiter(video, plugin=plugin) if plugin
+                      else iio.imiter(video))
+            return source
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            last = exc
+            continue
+    raise RuntimeError(
+        f"no imageio plugin could read {video}. Tried {_VIDEO_PLUGINS}. "
+        f"Last error: {last}")
+
+
+def iter_frames(video: Path | str, start_frame: int = 0, stride: int = 1) -> Iterator[tuple[int, np.ndarray]]:
+    """Yield (frame_index, HWC uint8 RGB) using imageio. Lazy and memory-bounded."""
+    for i, frame in enumerate(_imiter(str(video))):
         if i < start_frame:
             continue
         if (i - start_frame) % stride != 0:
