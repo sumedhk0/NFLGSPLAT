@@ -32,8 +32,9 @@ MEASURED, 2026-09-02, 34k training crops, 640 held-out tracks, 6 epochs:
 
 The prior is worth fourteen points per track and reproduces the CNN's
 recorded number to a tenth, so the harness is sound. It is not a replacement
-for OCR. Training loss was still falling at the last epoch (2.58), so a
-longer run will move it some; the gap to 75% is not a schedule. What this
+for OCR. Training loss was still falling at the last epoch (2.58); at 15
+epochs (loss 1.6) it reaches 42.2% per track, three more points, so the gap
+to 75% is not a schedule. What this
 reader may still be worth is as a SECOND signal alongside OCR -- they fail
 differently -- which is the next thing to measure, in 07g, not here.
 """
