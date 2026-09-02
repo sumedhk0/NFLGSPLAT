@@ -34,7 +34,8 @@ from nfl_gsplat.utils.logging import get_logger
 _LOG = get_logger(__name__)
 
 BODY_RGB = (0.72, 0.62, 0.55)
-TEAM_RGB = {"ARI": (0.62, 0.11, 0.22), "SEA": (0.11, 0.22, 0.34)}
+TEAM_RGB = {"ARI": (0.62, 0.11, 0.22), "SEA": (0.11, 0.22, 0.34),
+            "KC": (0.89, 0.09, 0.22), "BAL": (0.14, 0.13, 0.44)}
 
 # A track must survive this FRACTION of the posed frames to be drawn. Twenty-two
 # players are on the field and a real one is tracked for most of the play; a
