@@ -70,7 +70,8 @@ def mesh_to_gaussians(vertices, faces, *, colour=(0.7, 0.7, 0.7),
                       thickness_ratio: float = 0.25) -> GaussianBatch:
     """One flat, surface-aligned gaussian per vertex.
 
-    ``colour`` is linear RGB in [0, 1]. In-plane extent is derived from the mesh
+    ``colour`` is linear RGB in [0, 1], either one triple for the whole body or
+    ``[V, 3]`` per vertex. In-plane extent is derived from the mesh
     itself -- the mean distance between connected vertices -- so the shell stays
     closed whatever the body's size, rather than needing a hand-tuned radius per
     player.
@@ -94,7 +95,11 @@ def mesh_to_gaussians(vertices, faces, *, colour=(0.7, 0.7, 0.7),
     n = len(vertices)
     scale = np.tile(np.log([sigma_xy, sigma_xy, sigma_n]).astype(np.float32), (n, 1))
     alpha = float(np.clip(opacity, 1e-4, 1 - 1e-4))
-    rgb = np.tile(np.asarray(colour, np.float32), (n, 1))
+    colour = np.asarray(colour, np.float32)
+    # One colour for the body, or one per vertex (appearance sampled from the
+    # footage, compositing.appearance) -- the batch does not care which.
+    rgb = (colour.reshape(n, 3) if colour.ndim == 2 and len(colour) == n
+           else np.tile(colour.reshape(3), (n, 1)))
 
     return GaussianBatch(
         xyz=vertices.astype(np.float32),

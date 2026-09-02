@@ -46,7 +46,10 @@ from pathlib import Path
 
 import numpy as np
 
-from nfl_gsplat.calibration.calibrate_clip import candidates_for_video
+from nfl_gsplat.calibration.calibrate_clip import (
+    MAX_PLAYER_COST,
+    candidates_for_video,
+)
 from nfl_gsplat.calibration.from_players import feet_of, solve_second_view
 from nfl_gsplat.calibration.joint_views import match_count
 from nfl_gsplat.calibration.player_scale import implied_heights
@@ -125,6 +128,18 @@ def main() -> None:
                                  n_frames=args.calib_frames, model=model)
     if not cands:
         raise SystemExit("no sideline camera could be solved from paint")
+    # Players gate the pool, as they gate the single-clip path. On play 2 the
+    # best-ranked candidate (8.3 deg, 70 m up, player cost 0.70) put every
+    # player at an impossible height and the render laid every body flat on
+    # the turf -- body orientation comes through the camera. Prefer the
+    # candidates the players believe; fall back to all only if none do.
+    believed = [c for c in cands
+                if c["quality"]["player_cost"] <= MAX_PLAYER_COST]
+    if believed:
+        cands = believed
+    else:
+        print(f"   WARNING: no candidate under player cost {MAX_PLAYER_COST}; "
+              "using all, expect wrong body orientation")
     print(f"   {len(cands)} candidate cameras")
 
     # The same moments in both clips, away from the ends of the play.
