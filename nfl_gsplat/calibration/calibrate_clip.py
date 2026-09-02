@@ -32,6 +32,10 @@ import numpy as np
 
 from nfl_gsplat.calibration import field_detect
 from nfl_gsplat.calibration.from_paint import cameras_from_paint_pooled
+from nfl_gsplat.calibration.coverage import (
+    field_coverage,
+    sees_enough_of_the_field,
+)
 from nfl_gsplat.calibration.orientation import (
     cameras_from_rotated,
     rotate_images_90,
@@ -262,7 +266,8 @@ def rotate_boxes_90(boxes, width: int):
 
 def calibrate_candidates(images, width: int, height: int, *,
                          settings=DETECT_SETTINGS, player_boxes=None,
-                         orientations=("upright", "quarter-turn"), **kwargs):
+                         orientations=("upright", "quarter-turn"),
+                         require_coverage: bool = True, **kwargs):
     """Every physically possible camera this clip admits, best first.
 
     One view cannot always tell its candidates apart -- see joint_views for the
@@ -301,8 +306,17 @@ def calibrate_candidates(images, width: int, height: int, *,
             cost = _player_cost(cams, boxes)
             if back is not None:
                 cams = cameras_from_rotated(cams, back)
+            # In the ORIGINAL frame, whichever orientation solved it.
+            cover = float(np.median([
+                field_coverage(*cams[f], width, height) for f in cams]))
+            if require_coverage and not sees_enough_of_the_field(
+                    *cams[min(cams)], width, height):
+                _LOG.info("white>=%d %s: sees %.0f%% of the field, discarded",
+                          white, how, 100 * cover)
+                continue
             out.append({"cams": cams, "centre": centre, "focal": focal,
-                        "quality": dict(quality, player_cost=cost),
+                        "quality": dict(quality, player_cost=cost,
+                                        coverage=cover),
                         "settings": (white, frac), "orientation": how})
     out.sort(key=lambda d: (d["quality"]["player_cost"]
                             if np.isfinite(d["quality"]["player_cost"])

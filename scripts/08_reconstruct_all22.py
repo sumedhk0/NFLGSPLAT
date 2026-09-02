@@ -1,30 +1,41 @@
 #!/usr/bin/env python
 """Reconstruct one production All-22 play end to end, from the video alone.
 
-Every stage of this has been measured on its own; none have ever run together on
-production footage. The chain is:
+Every stage of this has been measured on its own; this is where they meet on the
+footage the project exists for. The chain is:
 
-    paint  -> two cameras          calibrate_clip, no tracking, no identity
-    YOLO   -> players per view     head point = top-centre of the person box
-    geometry -> cross-view matching  which detection in one view is which in the
-                                     other, by how well the pair triangulates
-    triangulation -> 3D positions
+    paint    -> sideline camera candidates    calibrate_clip, no tracking; kept
+                                              only if they can see the field
+    YOLO     -> players per view              feet = bottom-centre of the box
+    players  -> endzone camera                from_players: the sideline puts
+                                              each player on the turf, the
+                                              endzone sees the same people, and
+                                              that is a plane homography
+    agreement -> which sideline candidate     the pair that reconciles the most
+                                              players, in metres
+    placement -> 3D positions                 ground point per player
 
-THERE IS NO GROUND TRUTH HERE, which is the point: this is the footage the
-project exists to reconstruct, and nothing external says where the players were.
-So it is checked against things that must be true regardless:
+WHY THE ENDZONE IS NOT SOLVED FROM PAINT. It cannot be, and this was measured
+rather than assumed: twenty-four paint solves of the endzone clip produced two
+cameras, both impossible, and neither reconciled a single player with any
+sideline candidate. Looking down the field, the hash marks are receding strings
+of dots rather than rows, and the far half is a few dozen pixels.
 
-    on the field     a triangulated player must land inside the boundary
-    head height      matching HEADS, the 3D point must sit near 1.8 m above the
-                     turf -- nothing in the pipeline forces this, and it is the
-                     sharpest check available, because a wrong camera or a wrong
-                     match puts it anywhere
-    count            about 22 players, not 5 and not 60
-    continuity       positions must move smoothly between frames
+THERE IS NO GROUND TRUTH HERE, which is the point. So the result is checked
+against things that must be true regardless:
 
-The two clips are assumed to start together. They are the same play at the same
-length, but nothing verifies the offset, so any per-frame count should be read
-with that in mind.
+    reconciled    two independent cameras put the same players in the same
+                  places -- about 22 of them, not 3
+    coverage      an All-22 camera sees most of the field, not a fifth of it
+    on the field  placements land inside the boundary
+    head height   with feet on the turf, each view's head ray implies a height;
+                  it must come out near 1.85 m in BOTH views, and nothing in the
+                  pipeline forces it to
+    spacing       real players stand about 1-3 m apart
+
+The two clips are assumed to start together; they are the same play at the same
+length. Nothing here verifies the offset, and an offset sweep on this play found
+none.
 """
 from __future__ import annotations
 
@@ -33,70 +44,59 @@ from pathlib import Path
 
 import numpy as np
 
-from nfl_gsplat.calibration.calibrate_clip import calibrate_clip
-from nfl_gsplat.calibration.decompose_homography import projection_matrix
+from nfl_gsplat.calibration.calibrate_clip import candidates_for_video
+from nfl_gsplat.calibration.coverage import field_coverage
+from nfl_gsplat.calibration.from_players import solve_second_view
+from nfl_gsplat.calibration.joint_views import match_count
+from nfl_gsplat.calibration.player_scale import implied_heights
 from nfl_gsplat.errors import CalibrationError
 
-# A head sits about here above the turf. Used ONLY to check the result, never
-# to produce it.
-EXPECTED_HEAD_M = 1.80
+EXPECTED_PLAYER_M = 1.85
 FIELD_HALF_X_M = 56.0
 FIELD_HALF_Y_M = 26.0
 
 
-def read_frames(path, n_wanted):
+def boxes_by_frame(model, path, frames, *, conf=0.15):
+    """Person boxes on the requested frames, plus the frame size."""
     import cv2
 
     cap = cv2.VideoCapture(str(path))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     out = {}
-    for f in np.linspace(0, max(1, total - 2), n_wanted).astype(int):
+    for f in frames:
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(f))
         ok, img = cap.read()
-        if ok:
-            out[int(f)] = img
+        if not ok:
+            continue
+        res = model.predict(img, classes=[0], conf=conf, verbose=False)[0]
+        if res.boxes is None or len(res.boxes) == 0:
+            continue
+        out[int(f)] = res.boxes.xyxy.cpu().numpy()
     cap.release()
-    return out, w, h, total
+    return out, w, h
 
 
-def head_points(model, image, conf=0.25):
-    """Top-centre of each person box: the same physical point in both views."""
-    res = model.predict(image, classes=[0], conf=conf, verbose=False)[0]
-    if res.boxes is None or len(res.boxes) == 0:
-        return np.zeros((0, 2))
-    xyxy = res.boxes.xyxy.cpu().numpy()
-    return np.column_stack([(xyxy[:, 0] + xyxy[:, 2]) / 2.0, xyxy[:, 1]])
+def feet_of(boxes):
+    return {f: np.column_stack([(b[:, 0] + b[:, 2]) / 2.0, b[:, 3]])
+            for f, b in boxes.items()}
 
 
-def match_and_triangulate(P_a, pts_a, P_b, pts_b, *, max_cost_px=60.0):
-    """Pair detections across views by triangulation quality, then place them."""
+def nearest(cams, f):
+    return cams[min(cams, key=lambda k: abs(k - f))]
+
+
+def fov_deg(K, width):
+    return float(2.0 * np.degrees(np.arctan(width / (2.0 * K[0, 0]))))
+
+
+def frame_count(path):
     import cv2
-    from scipy.optimize import linear_sum_assignment
 
-    if len(pts_a) == 0 or len(pts_b) == 0:
-        return np.zeros((0, 3))
-    ia, ib = np.meshgrid(np.arange(len(pts_a)), np.arange(len(pts_b)),
-                         indexing="ij")
-    pa = pts_a[ia.ravel()].astype(np.float64)
-    pb = pts_b[ib.ravel()].astype(np.float64)
-    h = cv2.triangulatePoints(P_a, P_b, pa.T.copy(), pb.T.copy())
-    xyz = (h[:3] / h[3]).T
-
-    def reproj(P, uv):
-        q = np.c_[xyz, np.ones(len(xyz))] @ P.T
-        return np.linalg.norm(q[:, :2] / q[:, 2:3] - uv, axis=1)
-
-    cost = reproj(P_a, pa) + reproj(P_b, pb)
-    off = ((np.abs(xyz[:, 0]) > FIELD_HALF_X_M)
-           | (np.abs(xyz[:, 1]) > FIELD_HALF_Y_M)
-           | (xyz[:, 2] < 0.0) | (xyz[:, 2] > 3.5))
-    cost[off] = 1e6
-    cost = cost.reshape(len(pts_a), len(pts_b))
-    r, c = linear_sum_assignment(cost)
-    keep = cost[r, c] < max_cost_px
-    return xyz.reshape(len(pts_a), len(pts_b), 3)[r[keep], c[keep]]
+    cap = cv2.VideoCapture(str(path))
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return n
 
 
 def main() -> None:
@@ -107,87 +107,123 @@ def main() -> None:
                     default=Path("data/all22/bal_at_kc_2024_wk1"))
     ap.add_argument("--sideline", default="001_Sideline_KC_2-20_BLT_24.mp4")
     ap.add_argument("--endzone", default="002_Endzone_KC_2-20_BLT_24.mp4")
+    ap.add_argument("--attempts", type=int, default=3)
     ap.add_argument("--calib-frames", type=int, default=26)
-    ap.add_argument("--play-frames", type=int, default=24)
+    ap.add_argument("--play-frames", type=int, default=16)
+    ap.add_argument("--model", default="yolov8m.pt")
+    ap.add_argument("--out", type=Path,
+                    default=Path("C:/Users/sumedh/diag/all22_reconstruction.npz"))
     args = ap.parse_args()
 
     from ultralytics import YOLO
 
-    cams, sizes = {}, {}
-    for tag, name in (("Sideline", args.sideline), ("Endzone", args.endzone)):
-        images, w, h, total = read_frames(args.root / name, args.calib_frames)
-        print(f"{tag}: {name}  {w}x{h}, {total} frames")
+    model = YOLO(args.model)
+    side_path = args.root / args.sideline
+    end_path = args.root / args.endzone
+
+    print(f"Sideline: {args.sideline}")
+    cands = candidates_for_video(side_path, attempts=args.attempts,
+                                 n_frames=args.calib_frames, model=model)
+    if not cands:
+        raise SystemExit("no sideline camera could see the field")
+    print(f"   {len(cands)} candidate cameras that can see the field")
+
+    # The same moments in both clips, away from the ends of the play.
+    total = min(frame_count(side_path), frame_count(end_path))
+    want = np.linspace(int(0.2 * total), int(0.8 * total),
+                       args.play_frames).astype(int)
+
+    boxes_s, _w_s, _h_s = boxes_by_frame(model, side_path, want)
+    boxes_e, w_e, h_e = boxes_by_frame(model, end_path, want)
+    feet_s, feet_e = feet_of(boxes_s), feet_of(boxes_e)
+    print(f"   detections per frame: sideline "
+          f"{np.median([len(b) for b in boxes_s.values()]):.0f}, endzone "
+          f"{np.median([len(b) for b in boxes_e.values()]):.0f}")
+
+    # Choose the sideline candidate by what the OTHER view can reconcile.
+    best = None
+    for i, cand in enumerate(cands):
+        cams_s = cand["cams"]
         try:
-            cam, focal, centre, q, won = calibrate_clip(images, w, h)
+            K, R, t, inliers = solve_second_view(cams_s, feet_s, feet_e,
+                                                 w_e, h_e)
         except CalibrationError as exc:
-            raise SystemExit(f"{tag} did not calibrate: {exc}")
-        print(f"   camera {np.round(centre, 1)} m, {q['fov_deg']:.1f} deg, "
-              f"rms {q['rms_px']:.1f} px, {len(cam)} frames, white>={won[0]}")
-        cams[tag] = cam
-        sizes[tag] = (w, h, total)
-
-    # Sample the SAME frame indices in both clips; they are the same play at the
-    # same length, though nothing here verifies the offset.
-    total = min(sizes["Sideline"][2], sizes["Endzone"][2])
-    want = np.linspace(0, max(1, total - 2), args.play_frames).astype(int)
-    frames = {}
-    for tag, name in (("Sideline", args.sideline), ("Endzone", args.endzone)):
-        import cv2
-
-        cap = cv2.VideoCapture(str(args.root / name))
-        got = {}
-        for f in want:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(f))
-            ok, img = cap.read()
-            if ok:
-                got[int(f)] = img
-        cap.release()
-        frames[tag] = got
-
-    model = YOLO("yolov8n.pt")
-    per_frame, counts = [], []
-    for f in want:
-        f = int(f)
-        if f not in frames["Sideline"] or f not in frames["Endzone"]:
+            print(f"   [{i}] centre {np.round(cand['centre'], 1)} "
+                  f"{cand['quality']['fov_deg']:.1f} deg: {str(exc)[:70]}")
             continue
-        # Cameras are solved on their own sampled frames; use the nearest.
-        ks = min(cams["Sideline"], key=lambda k: abs(k - f))
-        ke = min(cams["Endzone"], key=lambda k: abs(k - f))
-        Ps = projection_matrix(*cams["Sideline"][ks])
-        Pe = projection_matrix(*cams["Endzone"][ke])
-        pa = head_points(model, frames["Sideline"][f])
-        pb = head_points(model, frames["Endzone"][f])
-        xyz = match_and_triangulate(Ps, pa, Pe, pb)
-        counts.append((len(pa), len(pb), len(xyz)))
-        if len(xyz):
-            per_frame.append((f, xyz))
+        cam_e = (K, R, t)
+        per = [match_count(nearest(cams_s, f), feet_s[f], cam_e, feet_e[f])[0]
+               for f in want if f in feet_s and f in feet_e]
+        score = float(np.median(per)) if per else 0.0
+        print(f"   [{i}] centre {np.round(cand['centre'], 1)} "
+              f"{cand['quality']['fov_deg']:.1f} deg, sees "
+              f"{100 * cand['quality']['coverage']:.0f}% -> endzone "
+              f"{np.round(-R.T @ t, 1)} {fov_deg(K, w_e):.1f} deg, "
+              f"{inliers} inliers, reconciles {score:.0f}/frame")
+        if best is None or score > best[0]:
+            best = (score, cand, cam_e, per)
+    if best is None:
+        raise SystemExit("no sideline candidate let the players calibrate "
+                         "the endzone")
+    score, cand, cam_e, per = best
+    cams_s = cand["cams"]
+    K_e, R_e, t_e = cam_e
 
-    if not per_frame:
-        raise SystemExit("no frame produced a reconstruction")
+    print("\nchosen cameras")
+    print(f"   sideline {np.round(cand['centre'], 1)} m, "
+          f"{cand['quality']['fov_deg']:.1f} deg, sees "
+          f"{100 * cand['quality']['coverage']:.0f}% of the field")
+    cov_e = field_coverage(K_e, R_e, t_e, w_e, h_e)
+    print(f"   endzone  {np.round(-R_e.T @ t_e, 1)} m, "
+          f"{fov_deg(K_e, w_e):.1f} deg, sees {100 * cov_e:.0f}% of the field")
 
-    det = np.array(counts)
-    allxyz = np.concatenate([x for _f, x in per_frame])
-    print(f"\n{len(per_frame)} frames reconstructed")
-    print(f"detections per frame: sideline {np.median(det[:, 0]):.0f}, "
-          f"endzone {np.median(det[:, 1]):.0f}, matched {np.median(det[:, 2]):.0f}")
-    print(f"players placed per frame: median {np.median(det[:, 2]):.0f}")
-    print("\nchecks that need no ground truth:")
-    inside = ((np.abs(allxyz[:, 0]) <= FIELD_HALF_X_M)
-              & (np.abs(allxyz[:, 1]) <= FIELD_HALF_Y_M))
+    # Place every reconciled player, and check what needs no ground truth.
+    placed_all, heights_s, heights_e, spacing = [], [], [], []
+    for f in want:
+        if f not in feet_s or f not in feet_e:
+            continue
+        n, placed = match_count(nearest(cams_s, f), feet_s[f], cam_e, feet_e[f])
+        if n:
+            placed_all.append(placed)
+            if n > 2:
+                d = np.linalg.norm(placed[:, None] - placed[None], axis=2)
+                np.fill_diagonal(d, np.inf)
+                spacing.append(np.median(d.min(1)))
+        heights_s.extend(implied_heights(*nearest(cams_s, f), boxes_s[f]))
+        heights_e.extend(implied_heights(K_e, R_e, t_e, boxes_e[f]))
+
+    if not placed_all:
+        raise SystemExit("the chosen pair placed nobody")
+    allxy = np.concatenate(placed_all)
+    inside = ((np.abs(allxy[:, 0]) <= FIELD_HALF_X_M)
+              & (np.abs(allxy[:, 1]) <= FIELD_HALF_Y_M))
+    hs, he = np.asarray(heights_s), np.asarray(heights_e)
+    hs = hs[(hs > 0.5) & (hs < 4.0)]
+    he = he[(he > 0.5) & (he < 4.0)]
+
+    print("\nchecks that need no ground truth")
+    print(f"   reconciled        median {score:.0f} players per frame  {per}")
     print(f"   on the field      {inside.mean():5.0%} of placements")
-    z = allxyz[:, 2]
-    print(f"   head height       median {np.median(z):4.2f} m "
-          f"(expected ~{EXPECTED_HEAD_M:.1f}), IQR "
-          f"{np.subtract(*np.percentile(z, [75, 25])):4.2f} m")
-    spread = [np.median([np.min(np.linalg.norm(x[i] - np.delete(x, i, 0), axis=1))
-                         for i in range(len(x))]) for _f, x in per_frame if len(x) > 2]
-    if spread:
-        print(f"   nearest neighbour median {np.median(spread):4.2f} m "
+    print(f"   player height     sideline median {np.median(hs):4.2f} m, "
+          f"endzone median {np.median(he):4.2f} m  (expected ~{EXPECTED_PLAYER_M})")
+    print(f"   footprint         x {allxy[:, 0].min():6.1f}..{allxy[:, 0].max():6.1f}"
+          f"   y {allxy[:, 1].min():6.1f}..{allxy[:, 1].max():6.1f} m")
+    if spacing:
+        print(f"   nearest neighbour median {np.median(spacing):4.2f} m "
               "(real players stand about 1-3 m apart)")
-    np.savez("C:/Users/sumedh/diag/all22_reconstruction.npz",
-             frames=np.array([f for f, _x in per_frame]),
-             counts=det)
-    print("\nsaved -> C:/Users/sumedh/diag/all22_reconstruction.npz")
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    fr = sorted(cams_s)
+    np.savez(args.out,
+             side_frames=np.array(fr),
+             side_K=np.array([cams_s[f][0] for f in fr]),
+             side_R=np.array([cams_s[f][1] for f in fr]),
+             side_t=np.array([cams_s[f][2] for f in fr]),
+             end_K=K_e, end_R=R_e, end_t=t_e,
+             frames=np.array([f for f in want if f in feet_s and f in feet_e]),
+             reconciled=np.array(per),
+             placed=allxy)
+    print(f"\nsaved -> {args.out}")
 
 
 if __name__ == "__main__":
