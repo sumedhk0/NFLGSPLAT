@@ -86,10 +86,18 @@ def _player_cost(cams, player_boxes):
     return float(np.median(costs)) if costs else float("inf")
 
 
-def detect_all(images, *, white_thresh: int, min_line_len_frac: float):
+def detect_all(images, *, white_thresh: int, min_line_len_frac: float,
+               vertical_deg: float | None = None):
     cfg = replace(field_detect.FieldDetectConfig(),
                   white_thresh=white_thresh,
                   min_line_len_frac=min_line_len_frac)
+    if vertical_deg is not None:
+        # How far from vertical a segment may lean and still be a yard line
+        # (rows are the complement). The default 35 leaves a dead zone from
+        # 35 to 55 degrees where a segment is neither; on an oblique red-zone
+        # sideline view (play 2) the yard lines sat at 45-60 degrees and most
+        # fell in it, and the upright solve found no camera at all.
+        cfg = replace(cfg, vertical_deg=vertical_deg)
     return {f: field_detect.detect_field_features(img, cfg=cfg)
             for f, img in images.items()}
 
@@ -263,7 +271,8 @@ def rotate_boxes_90(boxes, width: int):
 
 def calibrate_candidates(images, width: int, height: int, *,
                          settings=DETECT_SETTINGS, player_boxes=None,
-                         orientations=("upright",), **kwargs):
+                         orientations=("upright",), vertical_deg=None,
+                         **kwargs):
     """Every physically possible camera this clip admits, best first.
 
     One view cannot always tell its candidates apart -- see joint_views for the
@@ -290,7 +299,8 @@ def calibrate_candidates(images, width: int, height: int, *,
         for white, frac in settings:
             try:
                 feats = detect_all(imgs, white_thresh=white,
-                                   min_line_len_frac=frac)
+                                   min_line_len_frac=frac,
+                                   vertical_deg=vertical_deg)
                 cams, focal, centre, mirrored, quality = (
                     cameras_from_paint_pooled(
                         feats, w, h, images=imgs, propagate=True,
@@ -325,7 +335,8 @@ SAME_CAMERA_M: float = 5.0
 
 
 def candidates_for_video(path, *, attempts: int = DEFAULT_ATTEMPTS,
-                         n_frames: int = 28, model=None, **kwargs):
+                         n_frames: int = 28, model=None, vertical_deg=None,
+                         **kwargs):
     """Candidate cameras pooled over several frame samples, best first.
 
     WHY POOL RATHER THAN RETRY. Which frames are drawn decides which labellings
@@ -350,7 +361,8 @@ def candidates_for_video(path, *, attempts: int = DEFAULT_ATTEMPTS,
             continue
         players = detect_players(model, images)
         for cand in calibrate_candidates(images, width, height,
-                                         player_boxes=players, **kwargs):
+                                         player_boxes=players,
+                                         vertical_deg=vertical_deg, **kwargs):
             cand["attempt"] = attempt
             pool.append(cand)
 
@@ -363,7 +375,7 @@ def candidates_for_video(path, *, attempts: int = DEFAULT_ATTEMPTS,
                   Path(path).name)
         return candidates_for_video(path, attempts=attempts, n_frames=n_frames,
                                     model=model, orientations=("quarter-turn",),
-                                    **kwargs)
+                                    vertical_deg=vertical_deg, **kwargs)
     pool.sort(key=lambda d: (d["quality"]["player_cost"]
                              if np.isfinite(d["quality"]["player_cost"])
                              else 1e9, d["quality"]["rms_px"]))
