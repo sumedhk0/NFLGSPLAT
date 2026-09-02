@@ -107,6 +107,11 @@ def main() -> None:
     ap.add_argument("--sideline", default="001_Sideline_KC_2-20_BLT_24.mp4")
     ap.add_argument("--endzone", default="002_Endzone_KC_2-20_BLT_24.mp4")
     ap.add_argument("--attempts", type=int, default=3)
+    ap.add_argument("--vertical-deg", type=float, default=45.0,
+                    help="how far from vertical a segment may lean and still "
+                         "be a yard line. 35 (the detector default) left a "
+                         "dead zone 35-55 deg; play 2's red-zone view put its "
+                         "yard lines there and solved nothing. 45 solved it.")
     ap.add_argument("--calib-frames", type=int, default=26)
     ap.add_argument("--play-frames", type=int, default=24)
     ap.add_argument("--top", type=int, default=3,
@@ -125,7 +130,8 @@ def main() -> None:
 
     print(f"Sideline: {args.sideline}")
     cands = candidates_for_video(side_path, attempts=args.attempts,
-                                 n_frames=args.calib_frames, model=model)
+                                 n_frames=args.calib_frames, model=model,
+                                 vertical_deg=args.vertical_deg)
     if not cands:
         raise SystemExit("no sideline camera could be solved from paint")
     # Players gate the pool, as they gate the single-clip path. On play 2 the
