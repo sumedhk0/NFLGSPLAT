@@ -54,6 +54,10 @@ def main() -> None:
     ap.add_argument("--ocr-backend", default="easyocr")
     ap.add_argument("--ocr-top-k", type=int, default=8)
     ap.add_argument("--rosters", type=Path, default=Path("data/rosters"))
+    ap.add_argument("--week", type=int, default=None,
+                    help="use the WEEKLY roster for this week (data/rosters/"
+                         "{season}/roster_weekly.parquet); the season file "
+                         "names a number by whoever wore it last")
     ap.add_argument("--teams", default="KC,BAL",
                     help="the game's two team codes; the colour split is "
                          "mapped onto them by which roster explains its numbers")
@@ -83,8 +87,14 @@ def main() -> None:
         lambda s: int(s[s >= 0].mode().iloc[0]) if (s >= 0).any() else -1)
     print(f"OCR: {(read >= 0).sum()} of {len(read)} global ids got a number")
 
-    roster = pd.read_parquet(args.rosters / str(args.season) / "rosters.parquet")
     teams = [t.strip() for t in args.teams.split(",")]
+    weekly = args.rosters / str(args.season) / "roster_weekly.parquet"
+    if args.week is not None and weekly.exists():
+        roster = pd.read_parquet(weekly)
+        roster = roster[roster["week"] == args.week]
+        print(f"weekly roster, week {args.week}: {len(roster)} rows")
+    else:
+        roster = pd.read_parquet(args.rosters / str(args.season) / "rosters.parquet")
     roster = roster[roster["team"].isin(teams) & roster["jersey_number"].notna()]
     # Latest week wins where a number changed hands during the season.
     roster = (roster.sort_values("week").drop_duplicates(["team", "jersey_number"], keep="last")
