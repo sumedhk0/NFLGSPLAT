@@ -106,6 +106,9 @@ def main() -> None:
     ap.add_argument("--attempts", type=int, default=3)
     ap.add_argument("--calib-frames", type=int, default=26)
     ap.add_argument("--play-frames", type=int, default=24)
+    ap.add_argument("--top", type=int, default=3,
+                    help="sideline candidates to try, best player cost first; "
+                         "each costs an endzone solve of several minutes")
     ap.add_argument("--model", default="yolov8m.pt")
     ap.add_argument("--out", type=Path,
                     default=Path("C:/Users/sumedh/diag/all22_reconstruction.npz"))
@@ -139,7 +142,7 @@ def main() -> None:
 
     # Choose the sideline candidate by what the OTHER view can reconcile.
     best = None
-    for i, cand in enumerate(cands):
+    for i, cand in enumerate(cands[:args.top]):
         cams_s = cand["cams"]
         q = cand["quality"]
         head = (f"   [{i}] sideline {np.round(cand['centre'], 1)} "
