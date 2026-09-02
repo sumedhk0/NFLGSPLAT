@@ -1,43 +1,35 @@
-"""How much of the field a camera can actually see.
+"""How much of the field a camera can see. A DIAGNOSTIC, not a gate.
 
-WHY THIS EXISTS. All-22 footage is named for what it shows: all twenty-two
-players, which means substantially the whole field. That is a hard external fact
-about the footage, and nothing in the pipeline was using it.
+WHY IT EXISTS, AND WHY IT IS NOT A GATE. This was written as a filter, on the
+reasoning that All-22 footage is named for showing all twenty-two players and so
+must show most of the field. Measured on the real play, that reasoning was
+wrong, and the filter would have rejected the right camera and kept the wrong
+one:
 
-It should have been. The sideline solve settled, repeatedly and across
-independent frame samples, on a camera 95 m out behind a 12.2 degree lens. At
-that range such a lens spans about 21 m of turf -- a fifth of the field -- and
-the solve duly placed all twenty-three detected players inside a 17 by 28 m
-patch. Three separate samples agreed on it, which looked like evidence and was
-not: they agreed because the same wrong labelling recurs, not because it is
-right. Meanwhile a 62.5 degree candidate, which is what an All-22 sideline
-camera actually looks like, was thrown away for scoring badly on player height.
+    lens      coverage   players' implied height   players' ground points
+    12.2 deg    0.13     1.85 m (p10 1.5, p90 2.1)  on the field, 17 x 28 m
+    62.5 deg    0.80     5.2 m  (p90 over 6)        y -69..-40 m, OFF the field
 
-The checks in place could not catch this. Paint residual cannot -- a field of
-parallel lines fits a telephoto view of one corner as happily as a wide view of
-the whole. Player height cannot either: it constrains how far away the camera
-is, and a camera can be the right distance behind quite the wrong lens.
+The boxes themselves settle it without any solve: the detector's person boxes
+are ~140 px tall at 1080p. A 1.85 m player about 100 m away is 140 px only
+behind a focal length near 7500 px -- a 12 to 15 degree lens. Behind a 62.5
+degree lens they would be 31 px. All-22 sideline film frames the FORMATION,
+about twenty metres of turf, and pans with the play; it does not show the
+whole 120 yard field at once.
 
-Coverage is a different question from either, and a blunt one: project the field
-into the image and count how much of it lands on the sensor. It needs no
-detections, no labelling and no tracking -- only the camera and the frame size.
+So this is the fifth measured case of a sensible prior making things worse
+because the thing it was correcting was already right. The number is still
+worth printing -- a camera that sees 80% of the field while placing players
+five metres tall is describing a different world, and the two facts read
+together say so at a glance -- but it decides nothing.
 """
 from __future__ import annotations
 
 import numpy as np
 
-from nfl_gsplat.utils.logging import get_logger
-
-_LOG = get_logger(__name__)
-
 # An NFL field including both end zones: 120 yd by 53.3 yd.
 FIELD_HALF_X_M: float = 54.86
 FIELD_HALF_Y_M: float = 24.38
-
-# How much of the field an All-22 camera must see. Deliberately well below what
-# a correct camera scores, so this rejects the plainly impossible rather than
-# adjudicating between plausible ones -- the same role the mount check plays.
-MIN_ALL22_COVERAGE: float = 0.35
 
 _GRID = 41
 
@@ -67,13 +59,3 @@ def field_coverage(K, R, t, width: int, height: int, *, z_plane: float = 0.0,
     inside = ((uv[:, 0] >= 0) & (uv[:, 0] < width)
               & (uv[:, 1] >= 0) & (uv[:, 1] < height))
     return float(inside.sum()) / float(len(pts))
-
-
-def sees_enough_of_the_field(K, R, t, width: int, height: int, *,
-                             minimum: float = MIN_ALL22_COVERAGE) -> bool:
-    """Could this camera have produced All-22 footage at all?"""
-    got = field_coverage(K, R, t, width, height)
-    if got < minimum:
-        _LOG.info("camera sees %.0f%% of the field, under %.0f%%",
-                  100 * got, 100 * minimum)
-    return got >= minimum

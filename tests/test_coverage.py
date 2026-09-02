@@ -1,10 +1,7 @@
-"""All-22 footage shows the whole field; a camera that cannot is not the camera."""
+"""Field coverage is a diagnostic. It must never decide which camera is right."""
 import numpy as np
 
-from nfl_gsplat.calibration.coverage import (
-    field_coverage,
-    sees_enough_of_the_field,
-)
+from nfl_gsplat.calibration.coverage import field_coverage
 
 W, H = 1920, 1080
 
@@ -22,27 +19,28 @@ def cam(centre, fov_deg, target=(0.0, 0.0, 0.0)):
     return K, R, -R @ centre
 
 
-def test_a_real_all22_sideline_camera_sees_most_of_the_field():
+def test_a_wide_lens_high_over_the_field_sees_most_of_it():
     K, R, t = cam([0.0, -80.0, 40.0], 65.0)
     assert field_coverage(K, R, t, W, H) > 0.6
-    assert sees_enough_of_the_field(K, R, t, W, H)
 
 
-def test_the_telephoto_the_solve_kept_choosing_is_rejected():
-    """The measured failure: 95 m out behind a 12.2 degree lens.
+def test_the_right_all22_camera_sees_only_a_fifth_of_the_field():
+    """The measured fact that made this a diagnostic and not a gate.
 
-    It fits the paint, and it puts players at a believable height, because a
-    camera can be the right distance away behind quite the wrong lens. It sees
-    about a fifth of the field, which is what gives it away.
+    The camera the paint solve kept choosing -- 95 m out behind a 12.2 degree
+    lens -- IS the All-22 sideline camera: its person boxes are 140 px tall,
+    which at that range only a lens this long produces, and it puts every
+    player at 1.85 m on the turf. It sees about 13% of the field, because
+    All-22 film frames the formation and pans. A gate at 35% rejected it in
+    favour of a 62.5 degree camera that made the players five metres tall.
     """
     K, R, t = cam([29.5, -95.3, 47.1], 12.2)
-    assert field_coverage(K, R, t, W, H) < 0.25
-    assert not sees_enough_of_the_field(K, R, t, W, H)
+    cover = field_coverage(K, R, t, W, H)
+    assert cover < 0.25
+    # And there is no threshold in this module to trip over.
+    import nfl_gsplat.calibration.coverage as mod
 
-
-def test_an_endzone_camera_also_passes():
-    K, R, t = cam([-75.0, 0.0, 25.0], 40.0)
-    assert sees_enough_of_the_field(K, R, t, W, H)
+    assert not [n for n in dir(mod) if "MIN" in n or "enough" in n]
 
 
 def test_a_camera_pointed_away_from_the_field_sees_none_of_it():
