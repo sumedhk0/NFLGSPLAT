@@ -354,6 +354,16 @@ def candidates_for_video(path, *, attempts: int = DEFAULT_ATTEMPTS,
             cand["attempt"] = attempt
             pool.append(cand)
 
+    if not pool and "quarter-turn" not in kwargs.get("orientations", ()):
+        # Upright found nothing. The quarter turn was dropped from the default
+        # because it never won on the first play's sideline and doubled the
+        # cost; on the second play's sideline it was the ONLY orientation that
+        # produced a camera. Try it only when upright comes up empty.
+        _LOG.info("%s: no upright camera; trying the quarter turn",
+                  Path(path).name)
+        return candidates_for_video(path, attempts=attempts, n_frames=n_frames,
+                                    model=model, orientations=("quarter-turn",),
+                                    **kwargs)
     pool.sort(key=lambda d: (d["quality"]["player_cost"]
                              if np.isfinite(d["quality"]["player_cost"])
                              else 1e9, d["quality"]["rms_px"]))

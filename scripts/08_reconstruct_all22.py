@@ -135,11 +135,14 @@ def main() -> None:
     # candidates the players believe; fall back to all only if none do.
     believed = [c for c in cands
                 if c["quality"]["player_cost"] <= MAX_PLAYER_COST]
-    if believed:
-        cands = believed
-    else:
-        print(f"   WARNING: no candidate under player cost {MAX_PLAYER_COST}; "
-              "using all, expect wrong body orientation")
+    if not believed:
+        raise SystemExit(
+            f"no sideline candidate passes the player gate ({MAX_PLAYER_COST}); "
+            f"best {min(c['quality']['player_cost'] for c in cands):.2f}. "
+            "Refusing: a camera the players do not believe lays every body "
+            "flat in the render. The sideline paint solve is the weak stage "
+            "on this clip.")
+    cands = believed
     print(f"   {len(cands)} candidate cameras")
 
     # The same moments in both clips, away from the ends of the play.
