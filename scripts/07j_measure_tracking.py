@@ -32,6 +32,11 @@ run reported coverage 0.13-0.20 and xy 0.86 m, and that was the harness.
 Tracks are also passed through tracking.stitch, which joins pieces across
 short gaps, and fragments/purity are reported again after it -- so the stitch
 is measured, not assumed, like everything else.
+
+THE GROUND-PLANE LINKER (tracking.link3d) is measured on the SAME detections:
+BoT-SORT's track ids are thrown away, every detection is placed on the plane
+through the labelled-helmet camera, and link3d links those placements in
+metres. Same frames, same boxes, same metrics -- only the linking differs.
 """
 from __future__ import annotations
 
@@ -47,6 +52,7 @@ from nfl_gsplat.calibration.joint_views import ground_points
 from nfl_gsplat.data.align_video import helmet_boxes_by_frame
 from nfl_gsplat.data.helmet_dataset import load_labels, load_tracking
 from nfl_gsplat.errors import CalibrationError
+from nfl_gsplat.tracking import link3d
 from nfl_gsplat.tracking.detect_track import TrackingConfig, detect_and_track
 
 VIDEO_FPS = 59.94
@@ -178,6 +184,28 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
                                   "fragments_per_player")}
         except Exception as exc:                          # noqa: BLE001
             m["after_stitch"] = {"failed": str(exc)[:80]}
+        # The ground-plane linker on the same detections, ids discarded.
+        frs = df["frame"].to_numpy()
+        placements = {int(f): ground[frs == f] for f in np.unique(frs)}
+        tracks = link3d.link(placements, fps=VIDEO_FPS)
+        linked = np.full(len(df), -1, int)
+        row_of = {}
+        for i, (f, xy) in enumerate(zip(frs, ground)):
+            if np.isfinite(xy).all():
+                row_of[(int(f), round(float(xy[0]), 6), round(float(xy[1]), 6))] = i
+        for tr in tracks:
+            for f, xy in zip(tr.frames, tr.xy):
+                i = row_of.get((int(f), round(float(xy[0]), 6), round(float(xy[1]), 6)))
+                if i is not None:
+                    linked[i] = tr.id
+        df3 = df.copy()
+        df3["ground_track"] = linked
+        keep = linked >= 0
+        m_g = track_metrics(df3[keep].reset_index(drop=True), player[keep], track,
+                            offset, id_col="ground_track")
+        m["ground_linker"] = {k: m_g[k] for k in
+                              ("tracks", "purity_median", "purity_p10", "switches",
+                               "fragments_per_player", "coverage")}
         out[view] = m
     return out
 
@@ -223,14 +251,20 @@ def main() -> None:
                       flush=True)
                 continue
             s = m.get("after_stitch", {})
-            print(f"[{i}/{len(usable)}] {game}/{play} {view:8s} "
-                  f"tracks {m['tracks']:3d} purity {m['purity_median']:.2f} "
-                  f"(p10 {m['purity_p10']:.2f}) switches {m['switches']:3d} "
-                  f"frag/player {m['fragments_per_player']:.1f} "
-                  f"coverage {m['coverage']:.2f} xy {m['xy_error_median_m']:.2f} m"
-                  + (f" | stitched: tracks {s['tracks']} frag {s['fragments_per_player']:.1f} "
-                     f"switches {s['switches']}" if "tracks" in s else ""),
-                  flush=True)
+            g = m.get("ground_linker", {})
+            print(f"[{i}/{len(usable)}] {game}/{play} {view:8s} botsort: "
+                  f"tracks {m['tracks']:3d} purity p10 {m['purity_p10']:.2f} "
+                  f"switches {m['switches']:3d} frag/player "
+                  f"{m['fragments_per_player']:.1f} coverage {m['coverage']:.2f} "
+                  f"xy {m['xy_error_median_m']:.2f} m"
+                  + (f" | stitched frag {s['fragments_per_player']:.1f}"
+                     if "tracks" in s else ""), flush=True)
+            if "tracks" in g:
+                print(f"{'':>{len(f'[{i}/{len(usable)}] {game}/{play} {view:8s}')}} ground:  "
+                      f"tracks {g['tracks']:3d} purity p10 {g['purity_p10']:.2f} "
+                      f"switches {g['switches']:3d} frag/player "
+                      f"{g['fragments_per_player']:.1f} coverage {g['coverage']:.2f}",
+                      flush=True)
     out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"\nsaved -> {out_path}")
 
