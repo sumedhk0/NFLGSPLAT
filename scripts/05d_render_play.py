@@ -248,6 +248,51 @@ def main() -> None:
     # next step and appearance.median_colours is built for it.
     reader = (imageio.get_reader(str(args.play_dir / f"{cam_name}.mp4"))
               if args.appearance else None)
+
+    def posed_mesh(tid, rec):
+        with torch.no_grad():
+            res = model(
+                betas=torch.tensor(betas_of[tid][None, :model.num_betas],
+                                   dtype=torch.float32),
+                body_pose=torch.tensor(rec["body_pose"].reshape(1, -1),
+                                       dtype=torch.float32),
+                global_orient=torch.tensor(rec["global_orient"].reshape(1, 3),
+                                           dtype=torch.float32))
+        return (res.vertices[0].cpu().numpy().astype(np.float64),
+                res.joints[0].cpu().numpy().astype(np.float64))
+
+    # Pass 1: a body's colours from EVERY frame it was posed in, averaged per
+    # vertex over the frames that saw that vertex. One frame carries motion
+    # blur, whoever ran in front, and a single viewing side; over a track the
+    # occluders move on and both sides get seen. Sums and counts per body,
+    # so memory is two arrays per player, not one per frame.
+    colour_sum: dict[int, np.ndarray] = {}
+    colour_n: dict[int, np.ndarray] = {}
+    if reader is not None:
+        t_app = time.time()
+        for f in frames:
+            if f not in smoothed:
+                continue
+            try:
+                frame_rgb = reader.get_data(int(f))
+            except (IndexError, ValueError):
+                continue
+            intr, pose = track.at(f)
+            k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
+            for tid, rec in smoothed[f].items():
+                verts, joints = posed_mesh(tid, rec)
+                placed = place_mesh(verts, joints, tuple(rec["foot"]),
+                                    k_cam, rot_cam, tvec_cam)
+                seen = vertex_colours_from_view(placed, faces, k_cam, rot_cam,
+                                                tvec_cam, frame_rgb)
+                ok = np.isfinite(seen).all(1)
+                if tid not in colour_sum:
+                    colour_sum[tid] = np.zeros_like(seen)
+                    colour_n[tid] = np.zeros(len(seen))
+                colour_sum[tid][ok] += seen[ok]
+                colour_n[tid][ok] += 1
+        _LOG.info("appearance: %d bodies coloured from the footage (%.0f s)",
+                  len(colour_sum), time.time() - t_app)
     t0 = time.time()
 
     for n, f in enumerate(frames):
@@ -255,33 +300,20 @@ def main() -> None:
             continue
         intr, pose = track.at(f)
         k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
-        frame_rgb = None
-        if reader is not None:
-            try:
-                frame_rgb = reader.get_data(int(f))
-            except (IndexError, ValueError):
-                frame_rgb = None
         batches = []
         for tid, rec in smoothed[f].items():
-            with torch.no_grad():
-                res = model(
-                    betas=torch.tensor(betas_of[tid][None, :model.num_betas],
-                                       dtype=torch.float32),
-                    body_pose=torch.tensor(rec["body_pose"].reshape(1, -1),
-                                           dtype=torch.float32),
-                    global_orient=torch.tensor(rec["global_orient"].reshape(1, 3),
-                                               dtype=torch.float32))
-            verts = res.vertices[0].cpu().numpy().astype(np.float64)
-            joints = res.joints[0].cpu().numpy().astype(np.float64)
+            verts, joints = posed_mesh(tid, rec)
             placed = place_mesh(verts, joints, tuple(rec["foot"]),
                                 k_cam, rot_cam, tvec_cam)
             player = player_of.get(tid)
             colour = (TEAM_RGB.get(player.team, BODY_RGB) if player is not None
                       else BODY_RGB)
-            if frame_rgb is not None:
-                seen = vertex_colours_from_view(placed, faces, k_cam, rot_cam,
-                                                tvec_cam, frame_rgb)
-                colour, _unseen = median_colours(seen[None], fallback=colour)
+            if tid in colour_sum:
+                n_seen = colour_n[tid]
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    mean = colour_sum[tid] / n_seen[:, None]
+                mean[n_seen == 0] = np.nan
+                colour, _unseen = median_colours(mean[None], fallback=colour)
             batches.append(mesh_to_gaussians(placed, faces, colour=colour))
 
         scene = merge([field] + batches)
