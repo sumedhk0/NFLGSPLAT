@@ -145,7 +145,9 @@ def main() -> None:
     for i, cand in enumerate(cands):
         cams_s = cand["cams"]
         try:
-            K, R, t, inliers = solve_second_view(cams_s, feet_s, feet_e,
+            # Boxes, not feet: their height seeds the endzone lens and gates
+            # the answer on the players being a believable height.
+            K, R, t, inliers = solve_second_view(cams_s, feet_s, boxes_e,
                                                  w_e, h_e)
         except CalibrationError as exc:
             print(f"   [{i}] centre {np.round(cand['centre'], 1)} "

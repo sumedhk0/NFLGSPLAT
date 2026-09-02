@@ -15,24 +15,32 @@ dots, and the far half of the field compresses into a few dozen pixels. Turning
 the frame a quarter turn swaps the families back (see orientation.py) but does
 not restore the resolution that perspective threw away.
 
-WHAT WORKS INSTEAD. The sideline camera IS solid -- three independent frame
-samples, at two different detector settings, agreed on (30, -95, 47) with
-players at plausible heights. So use it. Players stand on the turf, so the
+WHAT WORKS INSTEAD. The sideline camera is solved and verified by the players
+themselves (1.85 m, on the turf). So use it. Players stand on the turf, so the
 sideline view says where each of them is in the world; the endzone view sees the
 same people. That is a set of world-to-image correspondences on a PLANE, which
-is a homography, which is machinery this package already has.
+is a homography, which is machinery this package already has -- and better
+conditioned than paint ever was, because twenty spread points carry scale where
+a pencil of parallel lines does not.
 
-And the correspondences are better conditioned than paint ever was: twenty-two
-points spread across the field, rather than a pencil of parallel lines that
-carries no scale. The thing that made paint ambiguous is exactly what players
-fix.
+HOW THE SEARCH IS SEEDED, AND WHY BY THE BOXES. Which endzone detection is which
+sideline player is unknown, so the fit starts from a guess and alternates
+matching with re-fitting. The first version guessed the lens from a grid of
+three fields of view and, on the real play, converged to a 119 degree camera
+five metres above the turf that reconciled five players. The lens does not have
+to be guessed: the person boxes are a ruler. A 1.85 m player at range d is
+f * 1.85 / d pixels tall, so the median box height at a candidate mount fixes
+the focal length directly. That ruler is what just settled the sideline camera
+(140 px boxes at 100 m mean a 12 degree lens, whatever the paint prefers), and
+it is used here for the same reason.
 
-WHAT IS UNKNOWN, AND HOW IT IS SEARCHED. Which endzone detection is which
-sideline player is not known. Rather than search that combinatorially, the solve
-is seeded from where a broadcast endzone camera can physically be -- behind an
-end zone, on the long axis -- and alternates matching with re-fitting, keeping
-whichever seed reconciles the most players. A seed that is wrong does not
-converge to a plausible camera; it reconciles nothing, and says so.
+HOW A RESULT IS BELIEVED. Inlier count alone was not enough: a degenerate
+homography can collect matches and then imply a camera no mount could be. So a
+result must (a) reconcile at least MIN_INLIERS players, (b) decompose into a
+camera at a physically possible height and range, and (c) put the players it
+sees at a plausible height -- the same player_scale check that ranks sideline
+candidates. Candidates are walked in order of inliers until one passes all
+three; if none does, it says so rather than returning the least bad.
 """
 from __future__ import annotations
 
@@ -40,6 +48,7 @@ import numpy as np
 
 from nfl_gsplat.calibration.decompose_homography import homography_to_krt
 from nfl_gsplat.calibration.joint_views import ground_points
+from nfl_gsplat.calibration.player_scale import EXPECTED_PLAYER_M, height_score
 from nfl_gsplat.errors import CalibrationError
 from nfl_gsplat.utils.logging import get_logger
 
@@ -47,10 +56,13 @@ _LOG = get_logger(__name__)
 
 # Where a broadcast endzone camera can be: behind an end zone, on or near the
 # field's long axis, high enough to see over the players. Deliberately coarse --
-# these only have to get the matching started.
+# these only have to get the matching started; the lens comes from the boxes.
 SEED_X_M: tuple[float, ...] = (-95.0, -75.0, -60.0, 60.0, 75.0, 95.0)
 SEED_Z_M: tuple[float, ...] = (12.0, 25.0, 40.0)
-SEED_FOV_DEG: tuple[float, ...] = (20.0, 35.0, 50.0)
+
+# The box-implied focal is tried at these multiples, because the boxes give the
+# lens at the SEED range, which is itself a guess.
+SEED_FOCAL_SCALES: tuple[float, ...] = (0.7, 1.0, 1.4)
 
 # How close a predicted player must land to a detection to be called that
 # player, in pixels. Starts loose so a rough seed can find anything at all, and
@@ -62,6 +74,11 @@ ICP_ITERS: int = 12
 # Below this many reconciled players the answer is not believed at all.
 MIN_INLIERS: int = 8
 
+# Player-height cost above which a camera is not believed however many players
+# it reconciled. Same bar as calibrate_clip.MAX_PLAYER_COST, and for the same
+# reason: it is the one check a wrong lens cannot pass.
+MAX_PLAYER_COST: float = 0.60
+
 FIELD_HALF_X_M: float = 56.0
 FIELD_HALF_Y_M: float = 26.0
 
@@ -71,7 +88,28 @@ MOUNT_HEIGHT_M: tuple[float, float] = (3.0, 90.0)
 MAX_MOUNT_RANGE_M: float = 300.0
 
 
-def seed_homography(centre, fov_deg: float, width: int, height: int,
+def feet_of(boxes):
+    """Bottom-centre of each person box: where they meet the turf."""
+    b = np.asarray(boxes, float).reshape(-1, 4)
+    return np.column_stack([(b[:, 0] + b[:, 2]) / 2.0, b[:, 3]])
+
+
+def focal_from_boxes(boxes_by_frame, distance_m: float,
+                     expected_m: float = EXPECTED_PLAYER_M) -> float:
+    """The focal length the boxes imply if the players are ``distance_m`` away.
+
+    A person ``expected_m`` tall at range ``d`` is ``f * expected_m / d`` pixels
+    tall, so the median box height fixes ``f`` at any assumed range.
+    """
+    heights = [np.median(np.asarray(b, float).reshape(-1, 4)[:, 3]
+                         - np.asarray(b, float).reshape(-1, 4)[:, 1])
+               for b in boxes_by_frame.values() if len(b)]
+    if not heights:
+        raise CalibrationError("no person boxes to read a lens from.")
+    return float(np.median(heights)) * distance_m / expected_m
+
+
+def seed_homography(centre, focal_px: float, width: int, height: int,
                     target=(0.0, 0.0, 0.0)):
     """Turf-to-image homography for a camera at ``centre`` looking at ``target``."""
     centre = np.asarray(centre, float)
@@ -85,8 +123,9 @@ def seed_homography(centre, fov_deg: float, width: int, height: int,
     right = right / n
     down = np.cross(fwd, right)
     R = np.vstack([right, down, fwd])
-    f = (width / 2.0) / np.tan(np.radians(fov_deg) / 2.0)
-    K = np.array([[f, 0.0, width / 2.0], [0.0, f, height / 2.0], [0.0, 0.0, 1.0]])
+    K = np.array([[focal_px, 0.0, width / 2.0],
+                  [0.0, focal_px, height / 2.0],
+                  [0.0, 0.0, 1.0]])
     P = K @ np.column_stack([R, -R @ centre])
     return P[:, [0, 1, 3]]
 
@@ -152,12 +191,27 @@ def fit_from_seed(H, world_by_frame, uv_by_frame, *, iters: int = ICP_ITERS,
     return best
 
 
-def solve_second_view(cam_known, feet_known, feet_unknown, width: int,
-                      height: int, *, seeds=None, min_inliers: int = MIN_INLIERS):
+def _player_cost(K, R, t, boxes_by_frame) -> float:
+    costs = []
+    for boxes in boxes_by_frame.values():
+        if len(boxes):
+            cost, _n, _median = height_score(K, R, t, boxes)
+            if np.isfinite(cost):
+                costs.append(cost)
+    return float(np.median(costs)) if costs else float("inf")
+
+
+def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
+                      height: int, *, seeds=None, min_inliers: int = MIN_INLIERS,
+                      max_player_cost: float = MAX_PLAYER_COST):
     """``(K, R, t, inliers)`` for the second camera, from the players alone.
 
-    ``cam_known`` is the solved camera of the first view; ``feet_*`` map frame to
-    bottom-centre person detections in each view. Frames are paired by index.
+    ``cam_known`` is the solved camera of the first view; ``feet_known`` maps
+    frame to bottom-centre detections in it; ``boxes_unknown`` maps frame to
+    full person boxes in the view to solve -- boxes, not feet, because their
+    height seeds the lens and gates the answer. Frames are paired by index.
+
+    ``seeds`` overrides the search as ``[(centre_xyz, focal_px), ...]``.
     """
     world_by_frame = {}
     for f, uv in feet_known.items():
@@ -170,30 +224,44 @@ def solve_second_view(cam_known, feet_known, feet_unknown, width: int,
         raise CalibrationError(
             "the known camera placed no players on the field, so it cannot "
             "calibrate the other view.")
+    feet_unknown = {f: feet_of(b) for f, b in boxes_unknown.items() if len(b)}
+    if not feet_unknown:
+        raise CalibrationError("no person boxes in the view to solve.")
+
+    # Aim at the formation, not the field's origin: the play may be anywhere.
+    formation = np.concatenate(list(world_by_frame.values())).mean(0)
+    target = np.array([formation[0], formation[1], 0.0])
 
     if seeds is None:
-        seeds = [(x, 0.0, z, fov) for x in SEED_X_M for z in SEED_Z_M
-                 for fov in SEED_FOV_DEG]
+        seeds = []
+        for x in SEED_X_M:
+            for z in SEED_Z_M:
+                centre = np.array([x, 0.0, z])
+                f0 = focal_from_boxes(boxes_unknown,
+                                      float(np.linalg.norm(centre - target)))
+                seeds += [(centre, f0 * s) for s in SEED_FOCAL_SCALES]
+
     results = []
-    for x, y, z, fov in seeds:
-        H0 = seed_homography((x, y, z), fov, width, height)
+    for centre, focal in seeds:
+        H0 = seed_homography(centre, focal, width, height, target=target)
         if H0 is None:
             continue
         H, n = fit_from_seed(H0, world_by_frame, feet_unknown)
         if n >= min_inliers:
-            results.append((n, (x, y, z, fov), H))
+            results.append((n, (tuple(np.round(centre, 1)), round(focal)), H))
     results.sort(key=lambda r: -r[0])
 
-    # Most inliers first, but a homography that cannot BE a camera does not win
-    # on count. A wrong seed can accumulate matches on a degenerate fit -- one
-    # did, and the decomposition raised rather than returning nonsense, which is
-    # the failure working correctly. Walk down until one is physically possible.
+    # Most inliers first, but a result must also be a camera that could exist
+    # AND make the players it sees a believable height. A wrong seed can collect
+    # matches on a degenerate fit; one did, and decomposition raised. Another
+    # converged to a 119 degree lens 5 m up that reconciled five players and
+    # passed the mount check, which is why the height check is here.
+    best_cost, best_n = float("inf"), results[0][0] if results else 0
     for n, seed, H in results:
         try:
             K, R, t = homography_to_krt(H, width=width, height=height)
         except (ValueError, np.linalg.LinAlgError):
-            _LOG.info("seed %s: %d inliers but no camera could exist",
-                      np.round(seed, 1), n)
+            _LOG.info("seed %s: %d inliers but no camera could exist", seed, n)
             continue
         centre = -R.T @ t
         if not np.all(np.isfinite(centre)):
@@ -202,12 +270,18 @@ def solve_second_view(cam_known, feet_known, feet_unknown, width: int,
             continue
         if np.linalg.norm(centre[:2]) > MAX_MOUNT_RANGE_M:
             continue
-        _LOG.info("second view from players: %d inliers, seed %s, centre %s",
-                  n, np.round(seed, 1), np.round(centre, 1))
+        cost = _player_cost(K, R, t, boxes_unknown)
+        if not np.isfinite(cost) or cost > max_player_cost:
+            _LOG.info("seed %s: %d inliers, centre %s, but player cost %.2f",
+                      seed, n, np.round(centre, 1), cost)
+            best_cost = min(best_cost, cost)
+            continue
+        _LOG.info("second view from players: %d inliers, player cost %.2f, "
+                  "seed %s, centre %s", n, cost, seed, np.round(centre, 1))
         return K, R, t, n
 
-    got = results[0][0] if results else 0
     raise CalibrationError(
         f"the players could not calibrate the second view: {len(results)} "
-        f"seeds reached {min_inliers} inliers (best {got}), but none implied a "
-        "camera that could exist.")
+        f"seeds reached {min_inliers} inliers (best {best_n}), but none "
+        f"implied a camera that could exist with players a believable height "
+        f"(best player cost {best_cost:.2f}, bar {max_player_cost}).")
