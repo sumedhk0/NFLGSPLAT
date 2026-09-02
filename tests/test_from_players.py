@@ -163,3 +163,26 @@ def test_the_aim_search_finds_a_frame_centred_off_the_formation():
     assert out is not None
     _R, _t, n = out
     assert n >= 0.8 * len(feet_b)
+
+
+def test_the_fitted_lens_makes_the_players_the_right_height():
+    """The fitted lens must make the players the right height.
+
+    Guards a property, not a fix. The endzone aims at the box, about eight
+    metres nearer than the formation centroid the ruler's range is taken
+    from; on this synthetic that costs under 5%, and it passed before any
+    change was made. The real play's endzone heights come out 1.45 m, a 22%
+    deficit this synthetic does NOT reproduce -- the leading suspect is the
+    sideline's own range ambiguity along its axis (its centre is only good to
+    ~15%), which would move the whole formation toward or away from the
+    endzone. Open; recorded here so nobody mistakes this test for its fix.
+    """
+    from nfl_gsplat.calibration.player_scale import implied_heights
+
+    feet_a, boxes_b, _truth, _cb = play()
+    cams_a = dict.fromkeys(feet_a, SIDE)
+    cams, _info = solve_second_view(cams_a, feet_a, boxes_b, W, H,
+                                    mounts=[(80.0, 0.0, 20.0)], refine=False)
+    hs = np.concatenate([implied_heights(*cams[f], boxes_b[f]) for f in cams])
+    hs = hs[(hs > 0.5) & (hs < 4.0)]
+    assert abs(np.median(hs) - PLAYER_M) / PLAYER_M < 0.05
