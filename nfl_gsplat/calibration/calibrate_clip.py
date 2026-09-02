@@ -263,8 +263,7 @@ def rotate_boxes_90(boxes, width: int):
 
 def calibrate_candidates(images, width: int, height: int, *,
                          settings=DETECT_SETTINGS, player_boxes=None,
-                         orientations=("upright", "quarter-turn"),
-                         **kwargs):
+                         orientations=("upright",), **kwargs):
     """Every physically possible camera this clip admits, best first.
 
     One view cannot always tell its candidates apart -- see joint_views for the
@@ -272,11 +271,11 @@ def calibrate_candidates(images, width: int, height: int, *,
     the width of the field by a factor of three. Handing the alternatives on
     lets the OTHER view break the tie.
 
-    Both ORIENTATIONS are tried, because the endzone camera looks down the field
-    and its two line families are swapped relative to everything the labeller
-    assumes. Solved upright, a production endzone clip put players across 101 m
-    of a 48.8 m field. The quarter turn is exact, not a fit, so trying it costs
-    only the re-detect.
+    ``orientations`` may add "quarter-turn" (see orientation.py), which swaps
+    the line families for a camera looking down the field. Off by default: the
+    endzone no longer calibrates from paint at all (from_players does it from
+    the players), and on the sideline the quarter turn never won a single
+    sample while doubling the pool's cost.
     """
     out = []
     for how in orientations:

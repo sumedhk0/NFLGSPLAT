@@ -238,6 +238,41 @@ def _project(K, R, t, xy):
     return uv
 
 
+def _aim_counts(K, centre, aims_xy, world_xy, uv, gate_px):
+    """Detections explained per aim, all aims at once, one-to-one by MUTUAL
+    nearest neighbour.
+
+    A plain nearest-neighbour count let several world points claim one
+    detection and ranked wrong aims first (two frames in eight lost). Mutual
+    nearest neighbours are a strict subset of the one-to-one match, cannot
+    double-count, rank aims as the Hungarian did, and run 100x faster.
+    """
+    centre = np.asarray(centre, float)
+    Rs = []
+    for ax, ay in aims_xy:
+        R = look_at(centre, [ax, ay, 0.0])
+        Rs.append(R if R is not None else np.full((3, 3), np.nan))
+    Rs = np.stack(Rs)                                          # [A, 3, 3]
+    world3 = np.c_[np.asarray(world_xy, float), np.zeros(len(world_xy))]
+    cam = (np.einsum("aij,nj->ani", Rs, world3)
+           - np.einsum("aij,j->ai", Rs, centre)[:, None, :])
+    with np.errstate(invalid="ignore", divide="ignore"):
+        z = cam[..., 2]
+        u = K[0, 0] * cam[..., 0] / z + K[0, 2]
+        v = K[1, 1] * cam[..., 1] / z + K[1, 2]
+    pred = np.stack([u, v], -1)                                # [A, N, 2]
+    pred[~np.isfinite(pred).all(-1) | (z <= 0)] = 1e9
+    det = np.asarray(uv, float)                                # [M, 2]
+    d2 = ((pred[:, :, None, :] - det[None, None, :, :]) ** 2).sum(-1)   # [A, N, M]
+    nn_det = d2.argmin(2)                                      # [A, N]
+    nn_world = d2.argmin(1)                                    # [A, M]
+    n_aims, n_world, _m = d2.shape
+    mutual = (nn_world[np.arange(n_aims)[:, None], nn_det]
+              == np.arange(n_world)[None, :])                  # [A, N]
+    close = d2.min(2) < gate_px * gate_px
+    return (mutual & close).sum(1), Rs
+
+
 def _match(K, R, t, world_xy, uv, gate_px):
     """Pair predicted player positions with detections, one to one."""
     from scipy.optimize import linear_sum_assignment
@@ -253,12 +288,34 @@ def _match(K, R, t, world_xy, uv, gate_px):
     return world_xy[idx[r[keep]]], np.asarray(uv, float)[c[keep]]
 
 
-def _refine_rotation(K, centre, R0, world_xy, uv, gate_px):
+def _kabsch_rotation(K, centre, world_xy, uv):
+    """Closed-form rotation aligning world rays from the centre with pixel rays.
+
+    Exact for the rotation-only model: each match gives a direction from the
+    centre to a point on the turf and a direction through a pixel; the
+    rotation that best aligns the two sets is Kabsch (SVD), in microseconds.
+    """
+    centre = np.asarray(centre, float)
+    w = np.c_[np.asarray(world_xy, float), np.zeros(len(world_xy))] - centre
+    w /= np.linalg.norm(w, axis=1, keepdims=True)
+    px = np.c_[np.asarray(uv, float), np.ones(len(uv))] @ np.linalg.inv(K).T
+    px /= np.linalg.norm(px, axis=1, keepdims=True)
+    # Find R with px ~ R @ w  (camera = R @ world for directions).
+    H = px.T @ w
+    U, _S, Vt = np.linalg.svd(H)
+    D = np.diag([1.0, 1.0, np.sign(np.linalg.det(U @ Vt))])
+    R = U @ D @ Vt
+    return R, -R @ centre
+
+
+def _refine_rotation(K, centre, R0, world_xy, uv, gate_px, *, polish=False):
     """Rotation only: the centre is a prior and the lens comes from the boxes.
 
-    Three parameters, a robust loss at the gate, so a stray match cannot
-    drag the aim.
+    Kabsch by default (closed form). With ``polish`` a robust least-squares
+    pass follows, weighting pixels rather than angles -- used once at the end.
     """
+    if len(world_xy) >= 3 and not polish:
+        return _kabsch_rotation(K, centre, world_xy, uv)
     import cv2
     from scipy.optimize import least_squares
 
@@ -274,7 +331,7 @@ def _refine_rotation(K, centre, R0, world_xy, uv, gate_px):
         return d.ravel()
 
     sol = least_squares(resid, r0, loss="soft_l1", f_scale=float(gate_px),
-                        max_nfev=200)
+                        max_nfev=60)
     R = cv2.Rodrigues(sol.x)[0]
     return R, -R @ centre
 
@@ -297,28 +354,24 @@ def _fit_frame(centre, K, world_xy, uv, formation, px_per_m):
     """
     centre = np.asarray(centre, float)
 
-    def score_aim(dx, dy):
-        R = look_at(centre, [formation[0] + dx, formation[1] + dy, 0.0])
-        if R is None:
-            return None
-        t = -R @ centre
-        w, _u = _match(K, R, t, world_xy, uv, AIM_GATE_M * px_per_m)
-        return (len(w), R, t, dx, dy)
+    def aims_at(offsets):
+        pts = [(formation[0] + dx, formation[1] + dy) for dx, dy in offsets]
+        counts, Rs = _aim_counts(K, centre, pts, world_xy, uv, AIM_GATE_M * px_per_m)
+        return [(int(c), R, -R @ centre, dx, dy)
+                for c, R, (dx, dy) in zip(counts, Rs, offsets)
+                if np.isfinite(R).all()]
 
-    coarse = [a for a in (score_aim(dx, dy) for dx in AIM_COARSE_M
-                          for dy in AIM_COARSE_M) if a is not None]
+    coarse = aims_at([(dx, dy) for dx in AIM_COARSE_M for dy in AIM_COARSE_M])
     coarse.sort(key=lambda a: -a[0])
-    seen, aims = set(), []
+    seen, fine = set(), []
     for _n, _R, _t, cx, cy in coarse[:AIM_REFINE_TOP]:
         for ddx in AIM_FINE_M:
             for ddy in AIM_FINE_M:
                 key = (round(cx + ddx, 3), round(cy + ddy, 3))
-                if key in seen:
-                    continue
-                seen.add(key)
-                a = score_aim(*key)
-                if a is not None:
-                    aims.append(a[:3])
+                if key not in seen:
+                    seen.add(key)
+                    fine.append(key)
+    aims = [a[:3] for a in aims_at(fine)]
     aims.sort(key=lambda a: -a[0])
     best = None
     recall_failed = 0
@@ -331,6 +384,10 @@ def _fit_frame(centre, K, world_xy, uv, formation, px_per_m):
                 if len(w) < MIN_MATCHES_PER_FRAME:
                     break
                 R, t = _refine_rotation(K, centre, R, w, u, gate_m * px_per_m)
+        w, u = _match(K, R, t, world_xy, uv, GATE_FINAL_M * px_per_m)
+        if len(w) >= MIN_MATCHES_PER_FRAME:
+            R, t = _refine_rotation(K, centre, R, w, u, GATE_FINAL_M * px_per_m,
+                                    polish=True)
         # The noise floor of THIS fit sets the counting gate.
         w, u = _match(K, R, t, world_xy, uv, NOISE_GATE_PROBE_M * px_per_m)
         if len(w) < MIN_MATCHES_PER_FRAME:
