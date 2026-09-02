@@ -165,13 +165,17 @@ RECON_MARGIN: float = 0.85
 # achievable. Heights choose the pitch; the gap keeps x and y honest.
 GAP_MARGIN: float = 1.25
 
-# The height cost has a noise floor of a few hundredths (box noise, which
-# players are in frame); heights are also INVARIANT to the mount's range
-# (measured: 1.44-1.46 m across a 20 m sweep). So comparing costs finer than
-# this is comparing noise, and it is the gap -- which does see range -- that
-# should decide between mounts of equal height. Costs are compared at this
-# resolution; 1.45 m vs 1.80 m players is 0.55 vs 0.48, still separable.
-COST_RESOLUTION: float = 0.1
+# The pitch is chosen by the MEDIAN implied height, compared at this
+# resolution, not by the full height cost. The full cost adds the spread
+# (IQR), and measured on the real play the spread is LARGER at the right
+# pitch (0.43 vs 0.15 -- steeper views foreshorten near and far players
+# differently) so it fought the median term: z = 16 scored 0.55 with players
+# 1.45 m tall and z = 30 scored 0.48 with players 1.80 m, and at 0.1
+# resolution both rounded to 0.5, leaving the gap to pick the wrong pitch.
+# The median alone is unambiguous: 0.40 m off against 0.05 m off. Heights
+# are invariant to the mount's RANGE (1.44-1.46 m across a 20 m sweep), so
+# within one pitch the gap, which does see range, still breaks the tie.
+HEIGHT_RESOLUTION_M: float = 0.1
 
 # Player-height cost above which a mount is not believed however many players
 # it reconciles. Looser than calibrate_clip's 0.60 on purpose: on the real play
@@ -392,14 +396,18 @@ def _agreement(cams_known, feet_known, cams_unknown, feet_unknown, *,
     return counts, np.asarray(gaps)
 
 
-def _player_cost(cams, boxes_by_frame) -> float:
-    costs = []
+def _player_cost(cams, boxes_by_frame):
+    """``(cost, median_height_m)`` over frames; both inf/nan when players cannot say."""
+    costs, medians = [], []
     for f, (K, R, t) in cams.items():
         if f in boxes_by_frame and len(boxes_by_frame[f]):
-            cost, _n, _median = height_score(K, R, t, boxes_by_frame[f])
+            cost, _n, median = height_score(K, R, t, boxes_by_frame[f])
             if np.isfinite(cost):
                 costs.append(cost)
-    return float(np.median(costs)) if costs else float("inf")
+                medians.append(median)
+    if not costs:
+        return float("inf"), float("nan")
+    return float(np.median(costs)), float(np.median(medians))
 
 
 def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
@@ -480,11 +488,12 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
             return None
         score, s, cams, counts, gaps = best
         f = float(np.median([c[0][0, 0] for c in cams.values()]))
-        cost = _player_cost(cams, boxes_unknown)
+        cost, height_m = _player_cost(cams, boxes_unknown)
         _LOG.info("mount (%.0f, %.0f, %.0f): lens %.0f px, %d frames, "
-                  "reconciles %.0f/frame, gap %.2f m, player cost %.2f",
-                  x, y, z, f, len(cams), score[0], -score[1], cost)
-        return (score, cost, (x, y, z), f, cams, counts, gaps, s)
+                  "reconciles %.0f/frame, gap %.2f m, player cost %.2f, "
+                  "height %.2f m", x, y, z, f, len(cams), score[0],
+                  -score[1], cost, height_m)
+        return (score, cost, (x, y, z), f, cams, counts, gaps, s, height_m)
 
     results = [r for r in (fit_mount(x, y, z, focal_scales)
                            for x, y, z in mounts) if r is not None]
@@ -502,12 +511,13 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
         near = [r for r in ok if r[0][0] >= bar]
         best_gap = min(-r[0][1] for r in near)
         near = [r for r in near if -r[0][1] <= GAP_MARGIN * best_gap + 1e-9]
-        return min(near, key=lambda r: (round(r[1] / COST_RESOLUTION),
-                                        -r[0][1], -r[0][0]))
+        return min(near, key=lambda r: (
+            round(abs(r[8] - EXPECTED_PLAYER_M) / HEIGHT_RESOLUTION_M),
+            -r[0][1], -r[0][0]))
 
     chosen = choose(results)
     if chosen is not None:
-        score, cost, mount, f, cams, counts, gaps, s = chosen
+        score, cost, mount, f, cams, counts, gaps, s, height_m = chosen
         if refine:
             x0, y0, z0 = mount
             local = [(x0 + dx, y0 + dy, z0 * sz) for dx in REFINE_DX_M
@@ -516,12 +526,13 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
             pool = [chosen] + [r for r in (fit_mount(x, y, z, (s,))
                                            for x, y, z in local)
                                if r is not None]
-            score, cost, mount, f, cams, counts, gaps, s = choose(pool)
+            score, cost, mount, f, cams, counts, gaps, s, height_m = choose(pool)
             _LOG.info("refined to mount %s: reconciles %.0f/frame, gap %.2f m, "
-                      "player cost %.2f", mount, score[0], -score[1], cost)
+                      "player cost %.2f, height %.2f m", mount, score[0],
+                      -score[1], cost, height_m)
         info = {"mount": mount, "focal": f, "frames": len(cams),
                 "reconciled": score[0], "gap_m": -score[1],
-                "player_cost": cost,
+                "player_cost": cost, "height_m": height_m,
                 "centre": np.array(mount, float),
                 "counts": counts}
         _LOG.info("second view from players: mount %s, %d frames, reconciles "

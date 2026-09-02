@@ -155,7 +155,8 @@ def main() -> None:
             continue
         print(f"{head} -> endzone mount {info['mount']}, {info['frames']} "
               f"frames, reconciles {info['reconciled']:.0f}/frame at "
-              f"{info['gap_m']:.2f} m, players {info['player_cost']:.2f}")
+              f"{info['gap_m']:.2f} m, players {info['player_cost']:.2f} "
+              f"({info['height_m']:.2f} m)")
         key = (info["reconciled"], -info["gap_m"])
         if best is None or key > best[0]:
             best = (key, cand, cams_e, info)
