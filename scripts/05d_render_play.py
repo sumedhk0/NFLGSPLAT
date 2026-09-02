@@ -72,6 +72,10 @@ def main() -> None:
     ap.add_argument("--ply-dir", type=Path, default=None,
                     help="also write each frame's merged Gaussian scene as a "
                          "PLY (field + bodies), for a real gsplat render on PACE")
+    ap.add_argument("--appearance-mean", action="store_true",
+                    help="average a body's colours over its frames instead of "
+                         "the median (the median rejects grass sampled at the "
+                         "silhouette; the mean was measured to wash reds pink)")
     ap.add_argument("--min-facing", type=float, default=0.1,
                     help="cosine a vertex must face the camera by to be "
                          "sampled; higher erodes the silhouette, where grass "
@@ -274,8 +278,10 @@ def main() -> None:
     # blur, whoever ran in front, and a single viewing side; over a track the
     # occluders move on and both sides get seen. Sums and counts per body,
     # so memory is two arrays per player, not one per frame.
-    colour_sum: dict[int, np.ndarray] = {}
-    colour_n: dict[int, np.ndarray] = {}
+    # Per body, per frame, the sampled colours (NaN where unseen), float16:
+    # ~60 frames x 30 bodies x 10k vertices x 3 x 2 bytes is about 100 MB,
+    # and it buys the median, which the mean's grass bleed made necessary.
+    samples: dict[int, list] = {}
     if reader is not None:
         t_app = time.time()
         for f in frames:
@@ -294,14 +300,16 @@ def main() -> None:
                 seen = vertex_colours_from_view(placed, faces, k_cam, rot_cam,
                                                 tvec_cam, frame_rgb,
                                                 min_facing=args.min_facing)
-                ok = np.isfinite(seen).all(1)
-                if tid not in colour_sum:
-                    colour_sum[tid] = np.zeros_like(seen)
-                    colour_n[tid] = np.zeros(len(seen))
-                colour_sum[tid][ok] += seen[ok]
-                colour_n[tid][ok] += 1
+                samples.setdefault(tid, []).append(seen.astype(np.float16))
         _LOG.info("appearance: %d bodies coloured from the footage (%.0f s)",
-                  len(colour_sum), time.time() - t_app)
+                  len(samples), time.time() - t_app)
+    # Reduce once per body: median by default, mean on request.
+    body_colour: dict[int, np.ndarray] = {}
+    for tid, frames_seen in samples.items():
+        stack = np.stack(frames_seen).astype(np.float32)       # [F, V, 3]
+        with np.errstate(all="ignore"):
+            body_colour[tid] = (np.nanmean(stack, axis=0) if args.appearance_mean
+                                else np.nanmedian(stack, axis=0))
     t0 = time.time()
 
     for n, f in enumerate(frames):
@@ -317,12 +325,9 @@ def main() -> None:
             player = player_of.get(tid)
             colour = (TEAM_RGB.get(player.team, BODY_RGB) if player is not None
                       else BODY_RGB)
-            if tid in colour_sum:
-                n_seen = colour_n[tid]
-                with np.errstate(invalid="ignore", divide="ignore"):
-                    mean = colour_sum[tid] / n_seen[:, None]
-                mean[n_seen == 0] = np.nan
-                colour, _unseen = median_colours(mean[None], fallback=colour)
+            if tid in body_colour:
+                colour, _unseen = median_colours(body_colour[tid][None],
+                                                 fallback=colour)
             batches.append(mesh_to_gaussians(placed, faces, colour=colour))
 
         scene = merge([field] + batches)
