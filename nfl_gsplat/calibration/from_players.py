@@ -165,6 +165,14 @@ RECON_MARGIN: float = 0.85
 # achievable. Heights choose the pitch; the gap keeps x and y honest.
 GAP_MARGIN: float = 1.25
 
+# The height cost has a noise floor of a few hundredths (box noise, which
+# players are in frame); heights are also INVARIANT to the mount's range
+# (measured: 1.44-1.46 m across a 20 m sweep). So comparing costs finer than
+# this is comparing noise, and it is the gap -- which does see range -- that
+# should decide between mounts of equal height. Costs are compared at this
+# resolution; 1.45 m vs 1.80 m players is 0.55 vs 0.48, still separable.
+COST_RESOLUTION: float = 0.1
+
 # Player-height cost above which a mount is not believed however many players
 # it reconciles. Looser than calibrate_clip's 0.60 on purpose: on the real play
 # EVERY mount scored 0.52-0.68 (the endzone's steep, tight view makes feet
@@ -494,7 +502,8 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
         near = [r for r in ok if r[0][0] >= bar]
         best_gap = min(-r[0][1] for r in near)
         near = [r for r in near if -r[0][1] <= GAP_MARGIN * best_gap + 1e-9]
-        return min(near, key=lambda r: (r[1], -r[0][0], -r[0][1]))
+        return min(near, key=lambda r: (round(r[1] / COST_RESOLUTION),
+                                        -r[0][1], -r[0][0]))
 
     chosen = choose(results)
     if chosen is not None:
