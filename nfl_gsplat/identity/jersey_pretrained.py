@@ -23,6 +23,19 @@ rather than overwritten.
 MEASURE PER TRACK, AGAINST THE ROSTER. That is what identity uses, and it is
 where the 25.1% and the 75% were measured. Per-crop numbers are printed too,
 but a track pools evidence over dozens of crops and is the unit that matters.
+
+MEASURED, 2026-09-02, 34k training crops, 640 held-out tracks, 6 epochs:
+
+    pretrained resnet18   per crop 23.7%   per track 39.4%
+    from-scratch cnn      per crop 18.5%   per track 25.2%   (same harness)
+    easyocr                                per track 75%
+
+The prior is worth fourteen points per track and reproduces the CNN's
+recorded number to a tenth, so the harness is sound. It is not a replacement
+for OCR. Training loss was still falling at the last epoch (2.58), so a
+longer run will move it some; the gap to 75% is not a schedule. What this
+reader may still be worth is as a SECOND signal alongside OCR -- they fail
+differently -- which is the next thing to measure, in 07g, not here.
 """
 from __future__ import annotations
 
