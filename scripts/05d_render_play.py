@@ -68,6 +68,10 @@ def main() -> None:
     ap.add_argument("--field-res-m", type=float, default=0.15)
     ap.add_argument("--width", type=int, default=960)
     ap.add_argument("--height", type=int, default=540)
+    ap.add_argument("--min-facing", type=float, default=0.1,
+                    help="cosine a vertex must face the camera by to be "
+                         "sampled; higher erodes the silhouette, where grass "
+                         "bleeds into the body's colour")
     ap.add_argument("--no-appearance", dest="appearance", action="store_false",
                     help="flat team colours instead of colours sampled from "
                          "the footage (compositing.appearance)")
@@ -284,7 +288,8 @@ def main() -> None:
                 placed = place_mesh(verts, joints, tuple(rec["foot"]),
                                     k_cam, rot_cam, tvec_cam)
                 seen = vertex_colours_from_view(placed, faces, k_cam, rot_cam,
-                                                tvec_cam, frame_rgb)
+                                                tvec_cam, frame_rgb,
+                                                min_facing=args.min_facing)
                 ok = np.isfinite(seen).all(1)
                 if tid not in colour_sum:
                     colour_sum[tid] = np.zeros_like(seen)
