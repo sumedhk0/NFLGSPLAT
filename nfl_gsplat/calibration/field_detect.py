@@ -58,9 +58,14 @@ def detect_lines(
     player_boxes=None,
 ) -> list[YardLineSeg]:
     """Detect near-vertical painted yard-line segments via HoughLinesP."""
-    H = img_bgr.shape[0]
+    # Measured against the SHORT side, not the height. The two are the same
+    # for every landscape frame, so this changes nothing that ever worked --
+    # but a frame turned a quarter turn (see orientation.py) has height 1920
+    # where it had 1080, which raised the bar 78% while the lines it has to
+    # pass got no longer, and the endzone solve found nothing at all.
+    short_side = min(img_bgr.shape[0], img_bgr.shape[1])
     mask = _zero_boxes(_white_mask(img_bgr, cfg), player_boxes)
-    min_len = int(cfg.min_line_len_frac * H)
+    min_len = int(cfg.min_line_len_frac * short_side)
     segs = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=80,
                            minLineLength=min_len, maxLineGap=cfg.max_line_gap_px)
     out: list[YardLineSeg] = []
@@ -116,8 +121,11 @@ def _detect_sidelines(img_bgr, cfg):
     """Detect sidelines via HoughLinesP: near-horizontal long white lines spanning
     at least 40 % of the image width. Thresholds are tuned against real footage."""
     mask = _white_mask(img_bgr, cfg)
+    # Against the SHORT side for the same reason as detect_lines: identical on
+    # every landscape frame, but a quarter-turned frame is 1080 wide, not 1920.
+    short_side = min(img_bgr.shape[0], img_bgr.shape[1])
     segs = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=120,
-                           minLineLength=int(0.4 * img_bgr.shape[1]),
+                           minLineLength=int(0.4 * short_side),
                            maxLineGap=cfg.max_line_gap_px)
     out = []
     if segs is None:
