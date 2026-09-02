@@ -62,9 +62,11 @@ what makes the implied heights come out right.
 HOW A RESULT IS BELIEVED. A mount must reconcile at least MIN_RECONCILED
 players per frame at the median IN METRES (joint_views' ground-cloud test, the
 only cross-view test that works for near-perpendicular cameras) and must put
-the players it sees at a believable height. Mounts are ranked by reconciled
-count, then by the gap. Nothing here is a prior about where the camera is
-except the coarse seed grid, and the grid covers both ends of the field.
+the players it sees at a believable height. Among the mounts within
+RECON_MARGIN of the best reconciliation, the one whose players come out
+nearest 1.85 m wins: feet cannot see the pitch, heads can. Nothing here is a
+prior about where the camera is except the coarse seed grid, and the grid
+covers both ends of the field.
 """
 from __future__ import annotations
 
@@ -148,6 +150,20 @@ MIN_RECONCILED: int = 6
 # because the median was taken over the frames that fitted; frames that did
 # not fit now count as zero, and too few fitted frames is a refusal.
 MIN_FRAMES_FRAC: float = 0.35     # late in a play the formation disperses
+
+# Mounts reconciling at least this fraction of the best count are all "as good
+# as the feet can tell", and among them the PLAYER HEIGHT decides. Measured on
+# the real play at the refined (x, y): z = 16 m reconciled 13 at 0.92 m with
+# players 1.45 m tall; z = 30 m reconciled 12 at 1.10 m with players 1.80 m.
+# Feet on a plane cannot see pitch under weak perspective; heads can. Each
+# signal decides what it can see.
+RECON_MARGIN: float = 0.85
+
+# ... and whose gap is within this factor of the best gap. The feet DO see
+# x and y: on noiseless synthetic data, height alone picked a mount at the
+# right pitch but 10 m off sideways, 0.88 m in the plane map against 0.45
+# achievable. Heights choose the pitch; the gap keeps x and y honest.
+GAP_MARGIN: float = 1.25
 
 # Player-height cost above which a mount is not believed however many players
 # it reconciles. Looser than calibrate_clip's 0.60 on purpose: on the real play
@@ -468,35 +484,43 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
         raise CalibrationError(
             "the players could not calibrate the second view: no mount seed "
             "fitted a single frame.")
-    results.sort(key=lambda r: r[0], reverse=True)
-    for score, cost, mount, f, cams, counts, gaps, s in results:
-        if score[0] < min_reconciled:
-            break
-        if not np.isfinite(cost) or cost > max_player_cost:
-            _LOG.info("mount %s reconciles %.0f but player cost %.2f; skipped",
-                      mount, score[0], cost)
-            continue
+    def choose(pool):
+        """Best reconciliation sets the bar; player height decides within it."""
+        ok = [r for r in pool if r[0][0] >= min_reconciled
+              and np.isfinite(r[1]) and r[1] <= max_player_cost]
+        if not ok:
+            return None
+        bar = RECON_MARGIN * max(r[0][0] for r in ok)
+        near = [r for r in ok if r[0][0] >= bar]
+        best_gap = min(-r[0][1] for r in near)
+        near = [r for r in near if -r[0][1] <= GAP_MARGIN * best_gap + 1e-9]
+        return min(near, key=lambda r: (r[1], -r[0][0], -r[0][1]))
+
+    chosen = choose(results)
+    if chosen is not None:
+        score, cost, mount, f, cams, counts, gaps, s = chosen
         if refine:
             x0, y0, z0 = mount
             local = [(x0 + dx, y0 + dy, z0 * sz) for dx in REFINE_DX_M
                      for dy in REFINE_DY_M for sz in REFINE_Z_SCALE
                      if (dx, dy, sz) != (0.0, 0.0, 1.0)]
-            for r in (fit_mount(x, y, z, (s,)) for x, y, z in local):
-                if (r is not None and r[0] > score and np.isfinite(r[1])
-                        and r[1] <= max_player_cost):
-                    score, cost, mount, f, cams, counts, gaps, s = r
-            _LOG.info("refined to mount %s: reconciles %.0f/frame, gap %.2f m",
-                      mount, score[0], -score[1])
+            pool = [chosen] + [r for r in (fit_mount(x, y, z, (s,))
+                                           for x, y, z in local)
+                               if r is not None]
+            score, cost, mount, f, cams, counts, gaps, s = choose(pool)
+            _LOG.info("refined to mount %s: reconciles %.0f/frame, gap %.2f m, "
+                      "player cost %.2f", mount, score[0], -score[1], cost)
         info = {"mount": mount, "focal": f, "frames": len(cams),
                 "reconciled": score[0], "gap_m": -score[1],
                 "player_cost": cost,
                 "centre": np.array(mount, float),
                 "counts": counts}
         _LOG.info("second view from players: mount %s, %d frames, reconciles "
-                  "%.0f/frame, gap %.2f m", mount, len(cams), score[0],
-                  -score[1])
+                  "%.0f/frame, gap %.2f m, player cost %.2f", mount, len(cams),
+                  score[0], -score[1], cost)
         return cams, info
 
+    results.sort(key=lambda r: r[0], reverse=True)
     best = results[0]
     raise CalibrationError(
         f"the players could not calibrate the second view: the best mount "

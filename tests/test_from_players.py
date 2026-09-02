@@ -95,6 +95,8 @@ def test_it_finds_the_mount_from_the_full_grid():
     assert info["centre"][0] > 30.0            # behind the +x end zone
     # The refinement sweeps y; the true mount is at y = -3.
     assert abs(info["centre"][1] - (-3.0)) <= 5.0
+    # And the HEIGHT picks the pitch the feet cannot see: true z is 22.
+    assert abs(info["centre"][2] - 22.0) <= 12.0
     assert info["reconciled"] >= 8
     # The centre is a prior from a coarse grid; the nearest grid mount is 5 m
     # and 3 m off the truth and that costs about 0.45 m in the plane map on
