@@ -104,10 +104,19 @@ AIM_STARTS: int = 8
 # pixels they would be meaningless: 15 px is 1 m behind a 1300 px lens and
 # 0.1 m behind a 9000 px one.
 GATE_START_M: float = 1.5
-GATE_FINAL_M: float = 0.4
-MATCH_FINAL_M: float = 0.7
+GATE_FINAL_M: float = 0.6
 ICP_ITERS: int = 6
 ICP_ROUNDS: int = 2               # re-match after each refine at the same gate
+
+# The gate for COUNTING a match at the end is adaptive: a multiple of the
+# median residual of the fit, clipped. Measured on the real play, the two
+# views disagree by about 1 m on the same player -- the sideline's own
+# world-point error, not the endzone fit -- so 70% of players agree within
+# 1.5 m and only 40% within 0.7 m. A fixed 0.7 m gate, tuned on noiseless
+# synthetic data, refused every real frame. Noiseless data still gets 0.5 m.
+NOISE_GATE_MULT: float = 1.5
+NOISE_GATE_PROBE_M: float = 2.0
+MATCH_GATE_M: tuple[float, float] = (0.5, 1.5)
 MIN_MATCHES_PER_FRAME: int = 4
 
 # A frame whose best fit explains fewer than this fraction of its detections
@@ -273,7 +282,14 @@ def fit_frame(centre, K, world_xy, uv, formation, px_per_m):
                 if len(w) < MIN_MATCHES_PER_FRAME:
                     break
                 R, t = _refine_rotation(K, centre, R, w, u, gate_m * px_per_m)
-        w, u = _match(K, R, t, world_xy, uv, MATCH_FINAL_M * px_per_m)
+        # The noise floor of THIS fit sets the counting gate.
+        w, u = _match(K, R, t, world_xy, uv, NOISE_GATE_PROBE_M * px_per_m)
+        if len(w) < MIN_MATCHES_PER_FRAME:
+            continue
+        floor = float(np.median(np.linalg.norm(_project(K, R, t, w) - u,
+                                               axis=1))) / px_per_m
+        gate_m = float(np.clip(NOISE_GATE_MULT * floor, *MATCH_GATE_M))
+        w, u = _match(K, R, t, world_xy, uv, gate_m * px_per_m)
         if len(w) < MIN_MATCHES_PER_FRAME:
             continue
         # Recall as well as precision: under this camera, how many of the
