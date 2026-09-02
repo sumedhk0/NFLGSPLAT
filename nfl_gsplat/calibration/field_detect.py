@@ -121,11 +121,15 @@ def _detect_sidelines(img_bgr, cfg):
     """Detect sidelines via HoughLinesP: near-horizontal long white lines spanning
     at least 40 % of the image width. Thresholds are tuned against real footage."""
     mask = _white_mask(img_bgr, cfg)
-    # Against the SHORT side for the same reason as detect_lines: identical on
-    # every landscape frame, but a quarter-turned frame is 1080 wide, not 1920.
-    short_side = min(img_bgr.shape[0], img_bgr.shape[1])
+    # Against the WIDTH, as it always was. detect_lines measured against the
+    # height and had to move to the short side for quarter-turned frames; this
+    # gate was width-based from the start, so on a turned (portrait) frame
+    # shape[1] is already the short side and nothing needed changing. It was
+    # changed anyway, to min(H, W), which on every ordinary landscape frame
+    # cut the bar from 768 px to 432 px -- a regression that review caught and
+    # the tests could not, since their synthetic lines were 1800 px long.
     segs = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=120,
-                           minLineLength=int(0.4 * short_side),
+                           minLineLength=int(0.4 * img_bgr.shape[1]),
                            maxLineGap=cfg.max_line_gap_px)
     out = []
     if segs is None:

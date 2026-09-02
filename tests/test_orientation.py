@@ -95,3 +95,25 @@ def test_the_length_gates_do_not_depend_on_which_way_up_the_frame_is():
     # The families swap, and neither may come back empty.
     assert len(up.yard_lines) >= 3 and len(up.sidelines) >= 1
     assert len(rot.sidelines) >= 3 and len(rot.yard_lines) >= 1
+
+
+def test_the_sideline_gate_on_an_upright_frame_is_still_forty_percent_of_width():
+    """Pins the pre-branch bar. A 600 px white line on a 1920 px frame is not
+    a sideline (bar 768 px). The branch briefly measured this gate against the
+    short side, which let it through at 432 px on every ordinary frame; the
+    existing test drew 1800 px lines and could not tell.
+    """
+    import cv2
+
+    from nfl_gsplat.calibration import field_detect
+
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:] = (40, 90, 40)
+    cv2.line(img, (600, 400), (1200, 400), (255, 255, 255), 5)      # 600 px
+    cv2.line(img, (60, 800), (W - 60, 800), (255, 255, 255), 5)     # 1800 px
+    cfg = field_detect.FieldDetectConfig()
+    feats = field_detect.detect_field_features(img, cfg=cfg)
+    ys = sorted(round((s.p0[1] + s.p1[1]) / 2.0) for s in feats.sidelines)
+    assert 800 in ys
+    assert 400 not in ys
+
