@@ -68,6 +68,9 @@ def main() -> None:
     ap.add_argument("--field-res-m", type=float, default=0.15)
     ap.add_argument("--width", type=int, default=960)
     ap.add_argument("--height", type=int, default=540)
+    ap.add_argument("--no-appearance", dest="appearance", action="store_false",
+                    help="flat team colours instead of colours sampled from "
+                         "the footage (compositing.appearance)")
     ap.add_argument("--min-cutoff", type=float, default=2.0,
                     help="zero-phase filters twice, so this runs HIGHER than a "
                          "causal cutoff would")
@@ -77,6 +80,8 @@ def main() -> None:
     import smplx
     import torch
 
+    from nfl_gsplat.compositing.appearance import (median_colours,
+                                                   vertex_colours_from_view)
     from nfl_gsplat.compositing.merge_ply import batch_from_arrays
     from nfl_gsplat.compositing.mesh_to_gaussians import merge, mesh_to_gaussians
     from nfl_gsplat.compositing.preview_cpu import (intrinsics, look_at,
@@ -236,6 +241,13 @@ def main() -> None:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     k_mat = intrinsics(args.width, args.height, fov_deg=55.0)
+    # Appearance comes from the frame each body was posed in: project the
+    # placed mesh through that frame's camera, read the pixels under the
+    # vertices that face it, team colour where the frame did not see them.
+    # One frame per body for now; the median over a track's frames is the
+    # next step and appearance.median_colours is built for it.
+    reader = (imageio.get_reader(str(args.play_dir / f"{cam_name}.mp4"))
+              if args.appearance else None)
     t0 = time.time()
 
     for n, f in enumerate(frames):
@@ -243,6 +255,12 @@ def main() -> None:
             continue
         intr, pose = track.at(f)
         k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
+        frame_rgb = None
+        if reader is not None:
+            try:
+                frame_rgb = reader.get_data(int(f))
+            except (IndexError, ValueError):
+                frame_rgb = None
         batches = []
         for tid, rec in smoothed[f].items():
             with torch.no_grad():
@@ -260,12 +278,19 @@ def main() -> None:
             player = player_of.get(tid)
             colour = (TEAM_RGB.get(player.team, BODY_RGB) if player is not None
                       else BODY_RGB)
+            if frame_rgb is not None:
+                seen = vertex_colours_from_view(placed, faces, k_cam, rot_cam,
+                                                tvec_cam, frame_rgb)
+                colour, _unseen = median_colours(seen[None], fallback=colour)
             batches.append(mesh_to_gaussians(placed, faces, colour=colour))
 
         scene = merge([field] + batches)
         img = render_gaussians_cpu(scene, k_mat, rot_v, tvec_v,
                                    width=args.width, height=args.height)
-        imageio.imwrite(args.out_dir / f"frame_{f:05d}.png", img)
+        # render_gaussians_cpu returns BGR; imageio writes RGB. Every render
+        # before this swapped red and blue, and the green field hid it until
+        # the first footage-coloured bodies came out the wrong team colour.
+        imageio.imwrite(args.out_dir / f"frame_{f:05d}.png", img[..., ::-1])
         if n % 10 == 0:
             done = n + 1
             rate = done / max(1e-6, time.time() - t0)
