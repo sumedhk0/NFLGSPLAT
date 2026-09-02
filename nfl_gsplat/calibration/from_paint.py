@@ -231,11 +231,16 @@ def long_lines(features, width: int, height: int):
 
 
 def yard_ladder(features, *, min_len_px: float | None = None,
-                image_height: int | None = None):
-    """Detected yard lines, filtered and ordered across the image."""
+                image_height: int | None = None, image_width: int | None = None):
+    """Detected yard lines, filtered and ordered across the image.
+
+    The length bar is a fraction of the SHORT side; see detect_lines for why
+    height alone silently blinds a frame that has been turned a quarter turn.
+    """
     if min_len_px is None:
-        min_len_px = (MIN_YARD_LINE_FRAC * image_height
-                      if image_height else MIN_YARD_LINE_PX)
+        ref = (min(image_height, image_width)
+               if image_height and image_width else image_height)
+        min_len_px = (MIN_YARD_LINE_FRAC * ref if ref else MIN_YARD_LINE_PX)
     kept = [s for s in features.yard_lines if seg_length(s) >= min_len_px]
     return sorted(kept, key=lambda s: (s.p0[0] + s.p1[0]) / 2.0)
 
@@ -349,7 +354,8 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
                 if image.ndim == 3 else np.asarray(image))
 
     rows = long_lines(features, width, height)
-    ladder = yard_ladder(features, image_height=height)
+    ladder = yard_ladder(features, image_height=height,
+                         image_width=width)
     if len(rows) < 2 or len(ladder) < 3:
         return None
 
