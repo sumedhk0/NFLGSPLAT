@@ -120,9 +120,14 @@ MATCH_GATE_M: tuple[float, float] = (0.5, 1.5)
 MIN_MATCHES_PER_FRAME: int = 4
 
 # A frame whose best fit explains fewer than this fraction of its detections
-# has settled into a wrong pairing; better no camera for that frame than a
-# wrong one, since the median over frames decides the mount anyway.
-MIN_MATCH_FRAC: float = 0.6
+# (and of the first view's players its camera puts in frame) has settled into
+# a wrong pairing; better no camera for that frame than a wrong one, since
+# the median over frames decides the mount anyway. Not higher: on the real
+# play the detections include referees, a skycam and sideline staff, and the
+# noise floor costs another third, so a correct frame explains 14 of 22 --
+# 0.6 rejected it. The stretched-world case this once guarded is now caught
+# by the zero-filled median over frames.
+MIN_MATCH_FRAC: float = 0.45
 
 # A mount must reconcile this many players per frame, at the median, for its
 # answer to be believed at all. The real play gives 12; a wrong mount gives a
@@ -133,7 +138,7 @@ MIN_RECONCILED: int = 6
 # sideline world was accepted on the strength of ONE lucky frame in eight,
 # because the median was taken over the frames that fitted; frames that did
 # not fit now count as zero, and too few fitted frames is a refusal.
-MIN_FRAMES_FRAC: float = 0.5
+MIN_FRAMES_FRAC: float = 0.35     # late in a play the formation disperses
 
 # Player-height cost above which a mount is not believed however many players
 # it reconciles. Looser than calibrate_clip's 0.60 on purpose: on the real play
@@ -238,6 +243,12 @@ def _refine_rotation(K, centre, R0, world_xy, uv, gate_px):
 
 
 def fit_frame(centre, K, world_xy, uv, formation, px_per_m):
+    """``(R, t, n_matched)`` or None. See ``_fit_frame`` for the reasons."""
+    out, _why = _fit_frame(centre, K, world_xy, uv, formation, px_per_m)
+    return out
+
+
+def _fit_frame(centre, K, world_xy, uv, formation, px_per_m):
     """One frame: aim search on the turf, then rotation-only ICP.
 
     Returns ``(R, t, n_matched)`` or None. The aim search is what lets a seed
@@ -273,6 +284,7 @@ def fit_frame(centre, K, world_xy, uv, formation, px_per_m):
                     aims.append(a[:3])
     aims.sort(key=lambda a: -a[0])
     best = None
+    recall_failed = 0
     for n0, R, t in aims[:AIM_STARTS]:
         if n0 < MIN_MATCHES_PER_FRAME:
             break
@@ -302,6 +314,7 @@ def fit_frame(centre, K, world_xy, uv, formation, px_per_m):
                         & (pred[:, 0] < 2 * K[0, 2]) & (pred[:, 1] >= 0)
                         & (pred[:, 1] < 2 * K[1, 2])).sum())
         if len(w) < MIN_MATCH_FRAC * in_frame:
+            recall_failed += 1
             continue
         resid = float(np.median(np.linalg.norm(
             _project(K, R, t, w) - u, axis=1)))
@@ -310,10 +323,13 @@ def fit_frame(centre, K, world_xy, uv, formation, px_per_m):
             best = (key, R, t)
         if len(w) == len(uv):
             break                       # every detection explained; done
-    if best is None or best[0][0] < MIN_MATCH_FRAC * len(uv):
-        return None
+    if best is None:
+        return None, ("explains too few of the players in frame"
+                      if recall_failed else "no start converged")
+    if best[0][0] < MIN_MATCH_FRAC * len(uv):
+        return None, "explains too few detections"
     (n, _r), R, t = best
-    return R, t, int(n)
+    return (R, t, int(n)), "ok"
 
 
 def _agreement(cams_known, feet_known, cams_unknown, feet_unknown, *,
@@ -402,17 +418,19 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
                                                              - formation))))
         best = None
         for s in focal_scales:
-            cams = {}
+            cams, why = {}, {}
             for fr in frames:
                 # The lens per FRAME, from that frame's boxes: the endzone zooms.
                 f = s * focal_from_boxes({fr: boxes_unknown[fr]}, d,
                                          pitch_deg=pitch)
                 K = np.array([[f, 0.0, width / 2.0], [0.0, f, height / 2.0],
                               [0.0, 0.0, 1.0]])
-                out = fit_frame(centre, K, world_by_frame[fr], feet_unknown[fr],
-                                formation, f / d)
+                out, reason = _fit_frame(centre, K, world_by_frame[fr],
+                                         feet_unknown[fr], formation, f / d)
+                why[reason] = why.get(reason, 0) + 1
                 if out is not None:
                     cams[fr] = (K, out[0], out[1])
+            _LOG.info("mount (%.0f, %.0f) x%.2f: %s", x, z, s, why)
             f = float(np.median([c[0][0, 0] for c in cams.values()])) if cams else 0.0
             if len(cams) < MIN_FRAMES_FRAC * len(frames):
                 continue
