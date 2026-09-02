@@ -69,6 +69,9 @@ def main() -> None:
     ap.add_argument("--field-res-m", type=float, default=0.15)
     ap.add_argument("--width", type=int, default=960)
     ap.add_argument("--height", type=int, default=540)
+    ap.add_argument("--ply-dir", type=Path, default=None,
+                    help="also write each frame's merged Gaussian scene as a "
+                         "PLY (field + bodies), for a real gsplat render on PACE")
     ap.add_argument("--min-facing", type=float, default=0.1,
                     help="cosine a vertex must face the camera by to be "
                          "sampled; higher erodes the silhouette, where grass "
@@ -87,7 +90,7 @@ def main() -> None:
 
     from nfl_gsplat.compositing.appearance import (median_colours,
                                                    vertex_colours_from_view)
-    from nfl_gsplat.compositing.merge_ply import batch_from_arrays
+    from nfl_gsplat.compositing.merge_ply import batch_from_arrays, save_gaussian_ply
     from nfl_gsplat.compositing.mesh_to_gaussians import merge, mesh_to_gaussians
     from nfl_gsplat.compositing.preview_cpu import (intrinsics, look_at,
                                                     render_gaussians_cpu)
@@ -323,6 +326,9 @@ def main() -> None:
             batches.append(mesh_to_gaussians(placed, faces, colour=colour))
 
         scene = merge([field] + batches)
+        if args.ply_dir is not None:
+            args.ply_dir.mkdir(parents=True, exist_ok=True)
+            save_gaussian_ply(args.ply_dir / f"scene_{f:05d}.ply", scene)
         img = render_gaussians_cpu(scene, k_mat, rot_v, tvec_v,
                                    width=args.width, height=args.height)
         # render_gaussians_cpu returns BGR; imageio writes RGB. Every render
