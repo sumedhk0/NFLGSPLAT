@@ -84,6 +84,15 @@ _LOG = get_logger(__name__)
 MOUNT_X_M: tuple[float, ...] = (45.0, 60.0, 75.0, 95.0)
 MOUNT_Z_M: tuple[float, ...] = (20.0, 35.0, 50.0, 65.0)
 
+# After the coarse grid picks a mount, a LOCAL grid around it, including the
+# lateral offset y the coarse grid holds at 0. Measured on the real play: the
+# coarse winner (75, 0, 20) reconciled 14 at 1.21 m; the local winner
+# (85, -8, 16) reconciled 14.5 at 0.88 m, and every one of the five best had
+# y = -8 or -4 and a lower z. Better on both numbers, so it stays.
+REFINE_DX_M: tuple[float, ...] = (-10.0, 0.0, 10.0)
+REFINE_DY_M: tuple[float, ...] = (-8.0, -4.0, 0.0, 4.0, 8.0)
+REFINE_Z_SCALE: tuple[float, ...] = (0.6, 0.8, 1.0, 1.3)
+
 # The box-implied focal is tried at these multiples: the boxes give the lens at
 # the SEED range, which is itself a guess.
 SEED_FOCAL_SCALES: tuple[float, ...] = (0.8, 1.0, 1.25)
@@ -373,7 +382,8 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
                       height: int, *, mounts=None,
                       focal_scales=SEED_FOCAL_SCALES,
                       min_reconciled: int = MIN_RECONCILED,
-                      max_player_cost: float = MAX_PLAYER_COST):
+                      max_player_cost: float = MAX_PLAYER_COST,
+                      refine: bool = True):
     """Per-frame cameras for the second view, from the players alone.
 
     Returns ``(cams, info)``: ``cams`` maps frame to ``(K, R, t)`` -- per frame,
@@ -386,7 +396,9 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
     boxes, because their height fixes the lens and gates the answer. Frames
     are paired by index.
 
-    ``mounts`` overrides the seed grid as ``[(x, z), ...]``; y is 0.
+    ``mounts`` overrides the seed grid as ``[(x, y, z), ...]``. With
+    ``refine`` the winner is then re-searched on a local grid (see
+    REFINE_*), which is where the lateral offset y comes from.
     """
     world_by_frame = {}
     for f, uv in feet_known.items():
@@ -407,17 +419,16 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
     target = np.array([formation[0], formation[1], 0.0])
 
     if mounts is None:
-        mounts = [(sx * x, z) for sx in (-1.0, 1.0) for x in MOUNT_X_M
+        mounts = [(sx * x, 0.0, z) for sx in (-1.0, 1.0) for x in MOUNT_X_M
                   for z in MOUNT_Z_M]
 
-    results = []
-    for x, z in mounts:
-        centre = np.array([x, 0.0, z], float)
+    def fit_mount(x, y, z, scales):
+        centre = np.array([x, y, z], float)
         d = float(np.linalg.norm(centre - target))
         pitch = float(np.degrees(np.arctan2(z, np.linalg.norm(centre[:2]
                                                              - formation))))
         best = None
-        for s in focal_scales:
+        for s in scales:
             cams, why = {}, {}
             for fr in frames:
                 # The lens per FRAME, from that frame's boxes: the endzone zooms.
@@ -430,8 +441,7 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
                 why[reason] = why.get(reason, 0) + 1
                 if out is not None:
                     cams[fr] = (K, out[0], out[1])
-            _LOG.info("mount (%.0f, %.0f) x%.2f: %s", x, z, s, why)
-            f = float(np.median([c[0][0, 0] for c in cams.values()])) if cams else 0.0
+            _LOG.info("mount (%.0f, %.0f, %.0f) x%.2f: %s", x, y, z, s, why)
             if len(cams) < MIN_FRAMES_FRAC * len(frames):
                 continue
             counts, gaps = _agreement(cam_known, feet_known, cams, feet_unknown)
@@ -439,38 +449,52 @@ def solve_second_view(cam_known, feet_known, boxes_unknown, width: int,
             score = (float(np.median(counts)),
                      -float(np.median(gaps)) if len(gaps) else -np.inf)
             if best is None or score > best[0]:
-                best = (score, f, cams, counts, gaps)
+                best = (score, s, cams, counts, gaps)
         if best is None:
-            _LOG.info("mount (%.0f, %.0f): fewer than half the frames fitted",
-                      x, z)
-            continue
-        score, f, cams, counts, gaps = best
+            _LOG.info("mount (%.0f, %.0f, %.0f): fewer than half the frames "
+                      "fitted", x, y, z)
+            return None
+        score, s, cams, counts, gaps = best
+        f = float(np.median([c[0][0, 0] for c in cams.values()]))
         cost = _player_cost(cams, boxes_unknown)
-        _LOG.info("mount (%.0f, %.0f): lens %.0f px, %d frames, reconciles "
-                  "%.0f/frame, gap %.2f m, player cost %.2f", x, z, f,
-                  len(cams), score[0], -score[1], cost)
-        results.append((score, cost, (x, z), f, cams, counts, gaps))
+        _LOG.info("mount (%.0f, %.0f, %.0f): lens %.0f px, %d frames, "
+                  "reconciles %.0f/frame, gap %.2f m, player cost %.2f",
+                  x, y, z, f, len(cams), score[0], -score[1], cost)
+        return (score, cost, (x, y, z), f, cams, counts, gaps, s)
 
+    results = [r for r in (fit_mount(x, y, z, focal_scales)
+                           for x, y, z in mounts) if r is not None]
     if not results:
         raise CalibrationError(
             "the players could not calibrate the second view: no mount seed "
             "fitted a single frame.")
     results.sort(key=lambda r: r[0], reverse=True)
-    for score, cost, mount, f, cams, counts, gaps in results:
+    for score, cost, mount, f, cams, counts, gaps, s in results:
         if score[0] < min_reconciled:
             break
         if not np.isfinite(cost) or cost > max_player_cost:
             _LOG.info("mount %s reconciles %.0f but player cost %.2f; skipped",
                       mount, score[0], cost)
             continue
+        if refine:
+            x0, y0, z0 = mount
+            local = [(x0 + dx, y0 + dy, z0 * sz) for dx in REFINE_DX_M
+                     for dy in REFINE_DY_M for sz in REFINE_Z_SCALE
+                     if (dx, dy, sz) != (0.0, 0.0, 1.0)]
+            for r in (fit_mount(x, y, z, (s,)) for x, y, z in local):
+                if (r is not None and r[0] > score and np.isfinite(r[1])
+                        and r[1] <= max_player_cost):
+                    score, cost, mount, f, cams, counts, gaps, s = r
+            _LOG.info("refined to mount %s: reconciles %.0f/frame, gap %.2f m",
+                      mount, score[0], -score[1])
         info = {"mount": mount, "focal": f, "frames": len(cams),
                 "reconciled": score[0], "gap_m": -score[1],
                 "player_cost": cost,
-                "centre": np.array([mount[0], 0.0, mount[1]]),
+                "centre": np.array(mount, float),
                 "counts": counts}
         _LOG.info("second view from players: mount %s, %d frames, reconciles "
-                  "%.0f/frame, gap %.2f m, centre %s", mount, len(cams),
-                  score[0], -score[1], np.round(info["centre"], 1))
+                  "%.0f/frame, gap %.2f m", mount, len(cams), score[0],
+                  -score[1])
         return cams, info
 
     best = results[0]

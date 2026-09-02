@@ -65,7 +65,8 @@ def play(n_frames=8, n_players=20, seed=0, head_m=PLAYER_M, side_stretch=1.0):
     return feet_a, boxes_b, truth, cams_b
 
 
-FAST_MOUNTS = [(sx * x, z) for sx in (-1, 1) for x, z in ((60, 20), (80, 35), (95, 50))]
+FAST_MOUNTS = [(sx * x, 0.0, z) for sx in (-1, 1)
+               for x, z in ((60, 20), (80, 35), (95, 50))]
 
 
 def test_the_tight_endzone_never_holds_the_whole_formation():
@@ -92,6 +93,8 @@ def test_it_finds_the_mount_from_the_full_grid():
     cams_a = dict.fromkeys(feet_a, SIDE)
     cams, info = solve_second_view(cams_a, feet_a, boxes_b, W, H)
     assert info["centre"][0] > 30.0            # behind the +x end zone
+    # The refinement sweeps y; the true mount is at y = -3.
+    assert abs(info["centre"][1] - (-3.0)) <= 5.0
     assert info["reconciled"] >= 8
     # The centre is a prior from a coarse grid; the nearest grid mount is 5 m
     # and 3 m off the truth and that costs about 0.45 m in the plane map on
@@ -108,7 +111,8 @@ def test_per_frame_cameras_follow_the_pan_and_zoom():
     # zoom, not the centre prior. (The prior's cost is measured separately:
     # a seed 13 m off in height put the plane map ~40 px, 0.3 m, off.)
     cams, _info = solve_second_view(cams_a, feet_a, boxes_b, W, H,
-                                    mounts=[(80.0, 20.0), (-80.0, 20.0)])
+                                    mounts=[(80.0, 0.0, 20.0), (-80.0, 0.0, 20.0)],
+                                    refine=False)
     errs = []
     for f, cam_hat in cams.items():
         pts = np.c_[truth[f], np.zeros(len(truth[f]))]
@@ -126,7 +130,8 @@ def test_a_camera_that_fits_the_feet_but_not_the_people_is_refused():
     feet_a, boxes_b, _truth, _cb = play(head_m=3.2)
     cams_a = dict.fromkeys(feet_a, SIDE)
     with pytest.raises(CalibrationError, match="player cost"):
-        solve_second_view(cams_a, feet_a, boxes_b, W, H, mounts=FAST_MOUNTS)
+        solve_second_view(cams_a, feet_a, boxes_b, W, H, mounts=FAST_MOUNTS,
+                          refine=False)
 
 
 def test_two_views_of_different_worlds_are_refused():
@@ -139,7 +144,8 @@ def test_two_views_of_different_worlds_are_refused():
     feet_a, boxes_b, _truth, _cb = play(side_stretch=3.0)
     cams_a = dict.fromkeys(feet_a, SIDE)
     with pytest.raises(CalibrationError, match="could not calibrate"):
-        solve_second_view(cams_a, feet_a, boxes_b, W, H, mounts=FAST_MOUNTS)
+        solve_second_view(cams_a, feet_a, boxes_b, W, H, mounts=FAST_MOUNTS,
+                          refine=False)
 
 
 def test_the_aim_search_finds_a_frame_centred_off_the_formation():
