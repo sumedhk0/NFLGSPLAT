@@ -109,9 +109,10 @@ def measure_hash_rows(image, K, R, t, *, band_m: float = HASH_BAND_M):
     """``[(y_solved, side)]`` for the hash rows on each side of midfield.
 
     Strips along the 1-yard lines between the 5-yard lines in view, top
-    down; the hash tick is the only paint there. White pixels are summed
-    across strips per row and the brightest row within ``band_m`` of
-    midfield on each side is the hash row. A side with no paint is absent.
+    down; the hash tick is the only paint there. The white fraction per
+    row is taken as the median across strips and the brightest row within
+    ``band_m`` of midfield on each side is the hash row. A side with no
+    paint is absent.
     """
     import cv2
 
@@ -120,15 +121,18 @@ def measure_hash_rows(image, K, R, t, *, band_m: float = HASH_BAND_M):
 
     h_m = 2.0 * HALF_WIDTH_M
     ppm = HASH_PX_PER_M
-    prof = None
+    profiles = []
     for x in lines_in_view(K, R, t, image.shape[1], image.shape[0]):
         for k in (-2, -1, 1, 2):
             strip = rectify(image, K, R, t, (x + k * YARD_TO_M, 0.0),
                             w_m=HASH_STRIP_W_M, h_m=h_m, px_per_m=ppm)
-            white = (cv2.cvtColor(strip, cv2.COLOR_BGR2GRAY) > HASH_WHITE).mean(axis=1)
-            prof = white if prof is None else prof + white
-    if prof is None:
+            profiles.append((cv2.cvtColor(strip, cv2.COLOR_BGR2GRAY) > HASH_WHITE).mean(axis=1))
+    if not profiles:
         return []
+    # The MEDIAN across strips, not the sum: the tick is on every 1-yard
+    # line, a white jersey on a few. Summed, the players on the far hash
+    # (where the line of scrimmage always is) read as a row 0.7 m off.
+    prof = np.median(np.stack(profiles), axis=0)
     y_axis = h_m / 2.0 - np.arange(len(prof)) / ppm
     out = []
     for side in (1, -1):
