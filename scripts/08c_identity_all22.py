@@ -58,6 +58,11 @@ def main() -> None:
                     help="use the WEEKLY roster for this week (data/rosters/"
                          "{season}/roster_weekly.parquet); the season file "
                          "names a number by whoever wore it last")
+    ap.add_argument("--home", default=None,
+                    help="home team code; with it, the colour cluster nearest "
+                         "the home team's primary colour is the home team and "
+                         "the other is the away team (white on the road), "
+                         "instead of the roster-overlap vote")
     ap.add_argument("--teams", default="KC,BAL",
                     help="the game's two team codes; the colour split is "
                          "mapped onto them by which roster explains its numbers")
@@ -108,13 +113,59 @@ def main() -> None:
         lambda s: s.dropna().mode().iloc[0] if s.notna().any() else "?")
     labels = sorted(set(team_of) - {"?"})
     mapping = {}
+    # Only numbers that exist on exactly ONE of the two rosters are evidence;
+    # a number both teams carry says nothing, and counting it produced 10-10
+    # ties. Ties are broken by the shared numbers only when the unique ones
+    # are silent.
+    unique = {t: numbers_of[t] - set().union(*(numbers_of[o] for o in teams if o != t))
+              for t in teams}
     for lab in labels:
         nums = [int(read[g]) for g in read.index if team_of.get(g) == lab and read[g] >= 0]
-        score = {t: sum(n in numbers_of[t] for n in nums) for t in teams}
+        score = {t: sum(n in unique[t] for n in nums) for t in teams}
+        if nums and max(score.values()) == 0:
+            score = {t: sum(n in numbers_of[t] for n in nums) for t in teams}
         mapping[lab] = max(score, key=score.get) if nums else "?"
-        print(f"colour team {lab}: {len(nums)} numbers read; explained by "
+        print(f"colour team {lab}: {len(nums)} numbers read; unique to "
               + ", ".join(f"{t} {score[t]}" for t in teams) + f" -> {mapping[lab]}")
-    if len(labels) == 2 and mapping[labels[0]] == mapping[labels[1]]:
+    if args.home is not None and len(labels) == 2 and args.home in teams:
+        # Uniforms decide. Each colour cluster's mean jersey colour (BGR crops,
+        # identity_precompute) against the home team's primary colour; the
+        # nearer cluster is home, the other away. The roster vote tied 10-10
+        # on play 2; this does not tie.
+        from nfl_gsplat.identity.team_color import dominant_jersey_color
+        import cv2
+
+        primary = {"KC": (0.89, 0.09, 0.22), "BAL": (0.14, 0.13, 0.44),
+                   "SEA": (0.11, 0.22, 0.34), "ARI": (0.62, 0.11, 0.22)}
+        home_rgb = np.asarray(primary.get(args.home, (0.5, 0.5, 0.5)))
+        cluster_rgb = {}
+        caps = {cam: cv2.VideoCapture(str(play / f"{cam}.mp4")) for cam in ("sideline", "endzone")}
+        for lab in labels:
+            rows = df[df["team"] == lab].sample(n=min(60, int((df["team"] == lab).sum())),
+                                                random_state=0)
+            cols = []
+            for r in rows.itertuples():
+                cap = caps[r.cam]
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(r.frame))
+                ok, img = cap.read()
+                if not ok:
+                    continue
+                y1, y2 = int(r.bbox_y1), int(r.bbox_y2)
+                ya, yb = int(y1 + 0.25 * (y2 - y1)), int(y1 + 0.6 * (y2 - y1))
+                crop = img[max(0, ya):max(0, yb), max(0, int(r.bbox_x1)):max(0, int(r.bbox_x2))]
+                if crop.size:
+                    cols.append(dominant_jersey_color(crop)[::-1] / 255.0)   # BGR -> RGB
+            cluster_rgb[lab] = np.mean(cols, axis=0) if cols else np.full(3, np.nan)
+        for cap in caps.values():
+            cap.release()
+        dist = {lab: float(np.linalg.norm(cluster_rgb[lab] - home_rgb)) for lab in labels}
+        home_lab = min(dist, key=dist.get)
+        away = [t for t in teams if t != args.home][0]
+        mapping = {lab: (args.home if lab == home_lab else away) for lab in labels}
+        print("uniforms: " + ", ".join(f"{lab} mean rgb {np.round(cluster_rgb[lab], 2)} "
+                                       f"dist to {args.home} {dist[lab]:.2f}" for lab in labels)
+              + f" -> {mapping}")
+    elif len(labels) == 2 and mapping[labels[0]] == mapping[labels[1]]:
         # Both colours claim the same team: give the weaker claim the other.
         a, b = labels
         na = sum(1 for g in read.index if team_of.get(g) == a and read[g] in numbers_of[mapping[a]])
@@ -127,7 +178,13 @@ def main() -> None:
     for gid in sorted(df["track_id"].unique()):
         gid = int(gid)
         jersey = int(read.get(gid, -1))
-        team = mapping.get(team_of.get(gid, "?"), "?")
+        # The number decides the team where it can: a number on exactly one
+        # of the two rosters names the team outright. The colour split mixes
+        # the teams (measured: both clusters carried KC-unique numbers, and
+        # Mahomes landed on the Ravens' side on play 2), so colour is only
+        # the tie-breaker for numbers both rosters carry or none read.
+        owners = [t for t in teams if jersey in unique[t]]
+        team = owners[0] if len(owners) == 1 else mapping.get(team_of.get(gid, "?"), "?")
         key = (team, float(jersey))
         row = roster.loc[key] if (jersey >= 0 and key in roster.index) else None
         if row is not None:
