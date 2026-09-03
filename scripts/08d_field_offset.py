@@ -239,16 +239,25 @@ def main() -> None:
         raise CalibrationError("refusing to apply the cross-field scale: the numeral and "
                                "hash rulers disagree (see 'by ruler'); --no-rows applies "
                                "the shift alone, --force overrides")
-    final = yn.transform_track(refined, tf)
     backup = args.play_dir / "cameras_relative.npz"
     if not backup.exists():
         shutil.copy(args.play_dir / "cameras.npz", backup)
-    tracks[args.cam] = final
+    # The shift is a rigid change of the WORLD frame: every camera moves
+    # with it and every cache keyed on pixels stays valid. The row
+    # refinement changes the sideline's own geometry and only the sideline
+    # gets it; the endzone was solved against the old sideline and must be
+    # re-solved (08 --sideline-from) before the views are fused again.
+    rows_applied = args.rows and (agree or args.force)
+    for name in list(tracks):
+        base = refined if (name == args.cam and rows_applied) else tracks[name]
+        tracks[name] = yn.transform_track(base, tf)
     write_camera_track(args.play_dir / "cameras.npz", tracks, fps=59.94)
     others = [c for c in tracks if c != args.cam]
-    print(f"cameras.npz rewritten ({args.cam} in the field frame; original in "
-          f"{backup.name}); {', '.join(others)} NOT corrected -- re-solve against "
-          f"this sideline (scripts/08) before fusing views")
+    print(f"cameras.npz rewritten: shift applied to {', '.join(tracks)} (original in "
+          f"{backup.name})" + (f"; rows applied to {args.cam} only -- re-solve "
+                               f"{', '.join(others)} against it (scripts/08 --sideline-from) "
+                               "before fusing views" if rows_applied else
+                               "; cross-field scale left as solved"))
 
 
 if __name__ == "__main__":
