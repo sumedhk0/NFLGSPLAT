@@ -10,9 +10,9 @@ recon = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(recon)
 
 
-def test_mirrored_mount_flips_x_only():
+def test_mirrored_mount_is_the_half_turn_about_the_centre():
     assert recon.mirrored_mount((60.0, 0.0, 20.0)) == (-60.0, 0.0, 20.0)
-    assert recon.mirrored_mount((-95, 4, 35)) == (95.0, 4.0, 35.0)
+    assert recon.mirrored_mount((-95, 4, 35)) == (95.0, -4.0, 35.0)
 
 
 def test_sideline_candidate_from_track_uses_only_solved_frames(tmp_path):

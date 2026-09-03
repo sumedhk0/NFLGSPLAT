@@ -139,8 +139,20 @@ def numeral_readability(video_path, cams, frames, *, reader=None):
 
 
 def mirrored_mount(mount):
+    """The other end of the field: the paint's unresolvable symmetry is the
+    half turn about the centre, ``(x, y) -> (-x, -y)``, not a mirror in x."""
     x, y, z = mount
-    return (-float(x), float(y), float(z))
+    return (-float(x), -float(y), float(z))
+
+
+# The mirror wins only when it is a comparable solve AND clearly more
+# readable: within these fractions of the original's reconciliation and gap,
+# and reading more numerals by a margin (summed confidence x1.5 or two more
+# readings). Summed confidence alone let one arrow read as a '1' decide.
+MIRROR_RECON_FRAC = 0.85
+MIRROR_GAP_FRAC = 1.25
+MIRROR_READ_FACTOR = 1.5
+MIRROR_READ_EXTRA = 2
 
 
 def frame_count(path):
@@ -267,14 +279,19 @@ def main() -> None:
             print(f"   mirror mount {mirrored_mount(info['mount'])}: {str(exc)[:80]}")
             cams_m = None
         if cams_m is not None:
-            probe = [int(f) for f in want[::max(1, len(want) // 6)]]
+            common = sorted(set(cams_e) & set(cams_m))
+            probe = common[::max(1, len(common) // 6)][:6]
             read_a, n_a = numeral_readability(end_path, cams_e, probe)
             read_b, n_b = numeral_readability(end_path, cams_m, probe)
-            print(f"   mount side by numerals: {info['mount']} reads {n_a} ({read_a:.1f}), "
-                  f"mirror {info_m['mount']} reads {n_b} ({read_b:.1f}); "
-                  f"mirror reconciles {info_m['reconciled']:.0f}/frame at {info_m['gap_m']:.2f} m")
-            if read_b > read_a:
-                print("   -> the mirror reads better; taking it")
+            comparable = (info_m["reconciled"] >= MIRROR_RECON_FRAC * info["reconciled"]
+                          and info_m["gap_m"] <= MIRROR_GAP_FRAC * info["gap_m"])
+            clearer = (read_b >= MIRROR_READ_FACTOR * read_a) or (n_b >= n_a + MIRROR_READ_EXTRA)
+            print(f"   mount side by numerals on {len(probe)} shared frames: {info['mount']} "
+                  f"reads {n_a} ({read_a:.1f}), mirror {info_m['mount']} reads {n_b} ({read_b:.1f}); "
+                  f"mirror reconciles {info_m['reconciled']:.0f}/frame at {info_m['gap_m']:.2f} m "
+                  f"({'comparable' if comparable else 'worse'})")
+            if comparable and clearer and read_b > read_a:
+                print("   -> the mirror is a comparable solve and reads clearly better; taking it")
                 cams_e, info = cams_m, info_m
 
     print("\nchosen cameras")
