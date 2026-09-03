@@ -52,6 +52,7 @@ from nfl_gsplat.calibration.joint_views import ground_points
 from nfl_gsplat.data.align_video import helmet_boxes_by_frame
 from nfl_gsplat.data.helmet_dataset import load_labels, load_tracking
 from nfl_gsplat.errors import CalibrationError
+from nfl_gsplat.identity.team_color import dominant_jersey_color, split_two_teams_balanced
 from nfl_gsplat.tracking import link3d
 from nfl_gsplat.tracking.detect_track import TrackingConfig, detect_and_track
 
@@ -91,6 +92,58 @@ def assign_players(df_view, cams, track, offset, *, gate_m=GATE_M):
                 player[r] = int(np.flatnonzero(ok)[j])
                 dist[r] = float(d[j])
     return player, dist, ground
+
+
+def team_labels(df_view, video_path, *, max_per_frame=64):
+    """Per-detection team label from jersey colour: 0/1, or -1 when unknown.
+
+    The one cue position-only linking cannot supply. Dominant colour of the
+    torso crop per detection, then one balanced two-way split over the whole
+    view -- the same split identity uses per track, here per detection so the
+    linker can refuse to join a red box to a white track.
+    """
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    frames = df_view["frame"].to_numpy()
+    boxes = df_view[["bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]].to_numpy(float)
+    colours = np.full((len(df_view), 3), np.nan)
+    for f in np.unique(frames):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(f))
+        ok, img = cap.read()
+        if not ok:
+            continue
+        rows = np.flatnonzero(frames == f)[:max_per_frame]
+        h, w = img.shape[:2]
+        for r in rows:
+            x1, y1, x2, y2 = boxes[r]
+            # Torso band: the middle of the box, away from helmet and turf.
+            bh = y2 - y1
+            ya, yb = int(max(0, y1 + 0.25 * bh)), int(min(h, y1 + 0.6 * bh))
+            xa, xb = int(max(0, x1)), int(min(w, x2))
+            if yb - ya < 3 or xb - xa < 3:
+                continue
+            try:
+                colours[r] = dominant_jersey_color(img[ya:yb, xa:xb])
+            except Exception:                              # noqa: BLE001
+                continue
+    cap.release()
+    ok = np.isfinite(colours).all(1)
+    labels = np.full(len(df_view), -1, int)
+    if ok.sum() >= 4:
+        lab = split_two_teams_balanced(colours[ok]).astype(int)
+        # A label only where the colour is CLEARLY one side. Forcing a label
+        # on every detection (measured) made linking worse -- 43 -> 73 tracks
+        # on one view -- because the colour flips frame to frame near the
+        # boundary and the linker then refuses to join a player to himself.
+        c = colours[ok]
+        centres = np.stack([c[lab == k].mean(0) if (lab == k).any() else np.zeros(3)
+                            for k in (0, 1)])
+        d = np.linalg.norm(c[:, None] - centres[None], axis=2)      # [N, 2]
+        margin = np.abs(d[:, 0] - d[:, 1]) / (d.sum(1) + 1e-9)       # 0..1
+        lab[margin < 0.25] = -1
+        labels[ok] = lab
+    return labels
 
 
 def track_metrics(df_view, player, track, offset, *, id_col="track_id"):
@@ -184,28 +237,33 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
                                   "fragments_per_player")}
         except Exception as exc:                          # noqa: BLE001
             m["after_stitch"] = {"failed": str(exc)[:80]}
-        # The ground-plane linker on the same detections, ids discarded.
+        # The ground-plane linker on the same detections, ids discarded --
+        # once with position only, once with a team label per detection.
         frs = df["frame"].to_numpy()
         placements = {int(f): ground[frs == f] for f in np.unique(frs)}
-        tracks = link3d.link(placements, fps=VIDEO_FPS)
-        linked = np.full(len(df), -1, int)
-        row_of = {}
-        for i, (f, xy) in enumerate(zip(frs, ground)):
-            if np.isfinite(xy).all():
-                row_of[(int(f), round(float(xy[0]), 6), round(float(xy[1]), 6))] = i
-        for tr in tracks:
-            for f, xy in zip(tr.frames, tr.xy):
-                i = row_of.get((int(f), round(float(xy[0]), 6), round(float(xy[1]), 6)))
-                if i is not None:
-                    linked[i] = tr.id
-        df3 = df.copy()
-        df3["ground_track"] = linked
-        keep = linked >= 0
-        m_g = track_metrics(df3[keep].reset_index(drop=True), player[keep], track,
-                            offset, id_col="ground_track")
-        m["ground_linker"] = {k: m_g[k] for k in
-                              ("tracks", "purity_median", "purity_p10", "switches",
-                               "fragments_per_player", "coverage")}
+        det_labels_all = team_labels(df, root / "video" / name)
+        det_labels = {int(f): det_labels_all[frs == f] for f in np.unique(frs)}
+        m["team_label_frac"] = float((det_labels_all >= 0).mean())
+        for tag, lab in (("ground_linker", None), ("ground_linker_teams", det_labels)):
+            tracks = link3d.link(placements, labels=lab, fps=VIDEO_FPS)
+            linked = np.full(len(df), -1, int)
+            row_of = {}
+            for i, (f, xy) in enumerate(zip(frs, ground)):
+                if np.isfinite(xy).all():
+                    row_of[(int(f), round(float(xy[0]), 6), round(float(xy[1]), 6))] = i
+            for tr in tracks:
+                for f, xy in zip(tr.frames, tr.xy):
+                    i = row_of.get((int(f), round(float(xy[0]), 6), round(float(xy[1]), 6)))
+                    if i is not None:
+                        linked[i] = tr.id
+            df3 = df.copy()
+            df3["ground_track"] = linked
+            keep = linked >= 0
+            m_g = track_metrics(df3[keep].reset_index(drop=True), player[keep], track,
+                                offset, id_col="ground_track")
+            m[tag] = {k: m_g[k] for k in
+                      ("tracks", "purity_median", "purity_p10", "switches",
+                       "fragments_per_player", "coverage")}
         out[view] = m
     return out
 
@@ -259,12 +317,17 @@ def main() -> None:
                   f"xy {m['xy_error_median_m']:.2f} m"
                   + (f" | stitched frag {s['fragments_per_player']:.1f}"
                      if "tracks" in s else ""), flush=True)
-            if "tracks" in g:
-                print(f"{'':>{len(f'[{i}/{len(usable)}] {game}/{play} {view:8s}')}} ground:  "
-                      f"tracks {g['tracks']:3d} purity p10 {g['purity_p10']:.2f} "
-                      f"switches {g['switches']:3d} frag/player "
-                      f"{g['fragments_per_player']:.1f} coverage {g['coverage']:.2f}",
-                      flush=True)
+            pad = len(f"[{i}/{len(usable)}] {game}/{play} {view:8s}")
+            for tag, label in (("ground_linker", "ground: "),
+                               ("ground_linker_teams", "+teams: ")):
+                g = m.get(tag, {})
+                if "tracks" in g:
+                    print(f"{'':>{pad}} {label} tracks {g['tracks']:3d} purity p10 "
+                          f"{g['purity_p10']:.2f} switches {g['switches']:3d} "
+                          f"frag/player {g['fragments_per_player']:.1f} coverage "
+                          f"{g['coverage']:.2f}"
+                          + (f" (labelled {m.get('team_label_frac', 0):.0%})"
+                             if tag.endswith("teams") else ""), flush=True)
     out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"\nsaved -> {out_path}")
 
