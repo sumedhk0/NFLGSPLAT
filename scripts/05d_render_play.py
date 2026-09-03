@@ -107,6 +107,13 @@ def main() -> None:
 
     blob = pickle.load(open(args.poses, "rb"))
     cam_name, cache = blob["cam"], blob["frames"]
+    # WORLD mode (scripts/05f): recs carry `transl` in metres on the field,
+    # fitted to fused two-view joints, instead of a foot pixel to ground
+    # through a camera; ids are the merged player ids. A real camera is still
+    # needed to read appearance off the footage.
+    world = bool(blob.get("world", False))
+    if world:
+        cam_name = blob["appearance_cam"]
     frames = sorted(cache)
     if not frames:
         raise SetupError(f"{args.poses} holds no posed frames")
@@ -119,8 +126,8 @@ def main() -> None:
     # tracker's raw fragment ids. Map every fragment of a player onto that
     # player, or nothing here matches and every body is drawn generic.
     stitched = (ident_blob.get("stitch") or {}).get(cam_name, {})
-    by_player = {p.tracks[cam_name]: p for p in merged.values()
-                 if cam_name in p.tracks}
+    by_player = ({pid: p for pid, p in merged.items()} if world else
+                 {p.tracks[cam_name]: p for p in merged.values() if cam_name in p.tracks})
     player_of = {frag: by_player[pid] for frag, pid in stitched.items()
                  if pid in by_player}
     for pid, p in by_player.items():          # unstitched ids map to themselves
@@ -169,8 +176,11 @@ def main() -> None:
     for tid, fs in tracks.items():
         body = np.stack([cache[f][tid]["body_pose"].reshape(-1) for f in fs])
         orient = np.stack([cache[f][tid]["global_orient"].reshape(-1) for f in fs])
-        foot = np.stack([[0.5 * (cache[f][tid]["bbox"][0] + cache[f][tid]["bbox"][2]),
-                          float(cache[f][tid]["bbox"][3])] for f in fs])
+        if world:
+            foot = np.stack([cache[f][tid]["transl"] for f in fs])       # metres
+        else:
+            foot = np.stack([[0.5 * (cache[f][tid]["bbox"][0] + cache[f][tid]["bbox"][2]),
+                              float(cache[f][tid]["bbox"][3])] for f in fs])
 
         # Drop impossible jumps BEFORE smoothing. A zero-phase filter spreads an
         # outlier both forwards and backwards, so one bad frame smears over its
@@ -181,8 +191,10 @@ def main() -> None:
         # once across 816 frames -- a threshold that cannot trigger is not a
         # guard. The camera is available per frame, so the real quantity is
         # cheap: a player who covers more than MAX_SPEED_M_S has jumped.
-        ground = np.full((len(fs), 2), np.nan)
+        ground = foot[:, :2].copy() if world else np.full((len(fs), 2), np.nan)
         for i, f in enumerate(fs):
+            if world:
+                break
             intr_i, pose_i = track.at(f)
             try:
                 ground[i] = ground_point(tuple(foot[i]), intr_i.K(),
@@ -213,7 +225,7 @@ def main() -> None:
         for i, f in enumerate(fs):
             smoothed.setdefault(f, {})[tid] = {
                 "body_pose": body_s[i], "global_orient": orient_s[i],
-                "bbox": cache[f][tid]["bbox"], "foot": foot_s[i]}
+                "bbox": cache[f][tid].get("bbox"), "foot": foot_s[i]}
     _LOG.info("smoothed %d tracks; replaced %d impossible foot-point jumps",
               len(tracks), n_outliers)
 
@@ -235,6 +247,9 @@ def main() -> None:
         intr, pose = track.at(f)
         k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
         for rec in smoothed[f].values():
+            if world:
+                feet.append(np.asarray(rec["foot"], float))
+                continue
             try:
                 feet.append(ground_point(tuple(rec["foot"]),
                                          k_cam, rot_cam, tvec_cam))
@@ -273,6 +288,14 @@ def main() -> None:
         return (res.vertices[0].cpu().numpy().astype(np.float64),
                 res.joints[0].cpu().numpy().astype(np.float64))
 
+    def placed_mesh(tid, rec, k_cam, rot_cam, tvec_cam):
+        """World vertices of a body: the fit's own translation in world mode,
+        else the foot pixel grounded through this frame's camera."""
+        verts, joints = posed_mesh(tid, rec)
+        if world:
+            return verts + np.asarray(rec["foot"], float)
+        return place_mesh(verts, joints, tuple(rec["foot"]), k_cam, rot_cam, tvec_cam)
+
     # Pass 1: a body's colours from EVERY frame it was posed in, averaged per
     # vertex over the frames that saw that vertex. One frame carries motion
     # blur, whoever ran in front, and a single viewing side; over a track the
@@ -294,9 +317,7 @@ def main() -> None:
             intr, pose = track.at(f)
             k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
             for tid, rec in smoothed[f].items():
-                verts, joints = posed_mesh(tid, rec)
-                placed = place_mesh(verts, joints, tuple(rec["foot"]),
-                                    k_cam, rot_cam, tvec_cam)
+                placed = placed_mesh(tid, rec, k_cam, rot_cam, tvec_cam)
                 seen = vertex_colours_from_view(placed, faces, k_cam, rot_cam,
                                                 tvec_cam, frame_rgb,
                                                 min_facing=args.min_facing)
@@ -319,9 +340,7 @@ def main() -> None:
         k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
         batches = []
         for tid, rec in smoothed[f].items():
-            verts, joints = posed_mesh(tid, rec)
-            placed = place_mesh(verts, joints, tuple(rec["foot"]),
-                                k_cam, rot_cam, tvec_cam)
+            placed = placed_mesh(tid, rec, k_cam, rot_cam, tvec_cam)
             player = player_of.get(tid)
             colour = (TEAM_RGB.get(player.team, BODY_RGB) if player is not None
                       else BODY_RGB)
