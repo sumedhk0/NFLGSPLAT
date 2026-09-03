@@ -37,8 +37,15 @@ def test_field_dimensions_match_rulebook():
     # 120 yd length, 53⅓ yd width (with margin for float rounding).
     assert abs(FIELD_LENGTH_M - 109.728) < 1e-3
     assert abs(FIELD_WIDTH_M - 48.768) < 1e-3
-    # Hash offset from centerline: 80 ft − 70.75 ft = 9.25 ft = 2.8194 m
-    assert abs(HASH_OFFSET_M - 2.8194) < 1e-3
+    # The inbound line is 80 ft − 70.75 ft = 9.25 ft = 2.8194 m from the
+    # centreline; the painted 2-ft tick lies outside it, so the hash ROW
+    # (the tick's centre, which is what gets detected and drawn) is 1 ft
+    # farther out: 10.25 ft = 3.1242 m (NFL rulebook: "measured to the
+    # inbound edge of the hash").
+    from nfl_gsplat.calibration.field_landmarks import INBOUND_LINE_Y_M
+    assert abs(INBOUND_LINE_Y_M - 2.8194) < 1e-3
+    assert abs(HASH_OFFSET_M - 3.1242) < 1e-3
+    assert abs(HASH_OFFSET_M - INBOUND_LINE_Y_M - 0.3048) < 1e-3
 
 
 def test_yardline_positions():

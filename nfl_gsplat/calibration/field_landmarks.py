@@ -13,8 +13,15 @@ Dimensions (from the NFL rulebook)
     100 yd =  91.440 m
 - Endzone depth: 10 yd = 9.144 m  (each)
 - Width:        53⅓ yd = 48.768 m  → half-width = 24.384 m
-- Hash marks: 70'9" from each sideline  → offset from centerline:
-    80 ft − 70.75 ft = 9.25 ft = 2.8194 m
+- Hash marks: the INBOUND LINE is 70'9" from each sideline (80 − 70.75 ft =
+    9.25 ft = 2.8194 m from the centreline), and the rulebook measures that
+    "to the inbound edge of the hash": the painted tick is 2 ft long and lies
+    OUTSIDE the inbound line, so its centre is 69'9" from the sideline =
+    10.25 ft = 3.1242 m from the centreline. Everything here that detects or
+    draws a hash ROW means the tick's centre, so HASH_OFFSET_M is 3.1242 and
+    the inbound line is INBOUND_LINE_Y_M. Measured before it was looked up:
+    with 2.8194 the hash rows and the numeral rows disagreed on the
+    cross-field scale by 7% on both All-22 plays; with 3.1242 they agree.
 - Yard-line spacing (painted): every 5 yd = 4.572 m
 - Goalposts: at the center of the back (end) line of each endzone,
     (±54.864, 0, 0).
@@ -53,7 +60,8 @@ FIELD_WIDTH_M: float = 48.768        # 53⅓ yd
 ENDZONE_DEPTH_M: float = 9.144       # 10 yd
 HALF_LENGTH_M: float = FIELD_LENGTH_M / 2.0                  # 54.864
 HALF_WIDTH_M: float = FIELD_WIDTH_M / 2.0                    # 24.384
-HASH_OFFSET_M: float = 2.8194        # 9.25 ft from centerline
+HASH_OFFSET_M: float = 3.1242        # tick CENTRE: 10.25 ft from centerline
+INBOUND_LINE_Y_M: float = 2.8194     # the inbound line itself, 9.25 ft; nothing detects it
 YARD_TO_M: float = 0.9144
 YARD_LINE_SPACING_M: float = 5.0 * YARD_TO_M                 # 4.572
 
