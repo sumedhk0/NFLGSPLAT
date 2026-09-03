@@ -158,8 +158,11 @@ class _RowReader:
         i = self.calls
         self.calls += 1
         boxes = []
+        # Odd calls are the turned strip: the same physical row sits at the
+        # mirrored height there, as it would in a real turned image.
+        frac = 0.75 if i % 2 else 0.25
         for text, conf in self.script.get(i, []):
-            v = img.shape[0] * 0.25
+            v = img.shape[0] * frac
             boxes.append(([[10, v - 10], [60, v - 10], [60, v + 10], [10, v + 10]], text, conf))
         return boxes
 
