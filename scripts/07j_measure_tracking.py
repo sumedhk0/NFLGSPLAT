@@ -147,18 +147,32 @@ def team_labels(df_view, video_path, *, max_per_frame=64):
     return labels
 
 
+# A track shorter than this is not scored for purity: one assigned detection
+# is trivially 100% pure, and BoT-SORT's 1-2 frame blips were inflating its
+# number while the ground linker's own min_frames=3 had already removed the
+# same cases from its side (review finding). Same gate for both now.
+MIN_SCORED_FRAMES = 3
+
+
 def track_metrics(df_view, player, track, offset, *, id_col="track_id"):
-    """purity, switches, fragments, coverage from per-detection assignments."""
+    """purity, switches, fragments, coverage from per-detection assignments.
+
+    Every detection in ``df_view`` counts toward coverage; tracks with fewer
+    than MIN_SCORED_FRAMES assigned detections (and id -1) are excluded from
+    purity/switches/fragments only.
+    """
     ids = df_view[id_col].to_numpy()
     frames = df_view["frame"].to_numpy()
     purities, switches = [], 0
     pieces = defaultdict(set)
     for tid in np.unique(ids):
+        if tid < 0:
+            continue
         rows = np.flatnonzero(ids == tid)
         rows = rows[np.argsort(frames[rows])]
         assigned = player[rows]
         assigned = assigned[assigned >= 0]
-        if len(assigned) == 0:
+        if len(assigned) < MIN_SCORED_FRAMES:
             continue
         counts = np.bincount(assigned)
         purities.append(counts.max() / len(assigned))
@@ -177,7 +191,7 @@ def track_metrics(df_view, player, track, offset, *, id_col="track_id"):
             total += n_players
     cover = sum(len(v) for v in covered.values()) / max(total, 1)
     return {
-        "tracks": int(len(np.unique(ids))),
+        "tracks": int(len(np.unique(ids[ids >= 0]))),
         "purity_median": float(np.median(purities)) if purities else float("nan"),
         "purity_p10": float(np.percentile(purities, 10)) if purities else float("nan"),
         "switches": int(switches),
@@ -248,20 +262,15 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         for tag, lab in (("ground_linker", None), ("ground_linker_teams", det_labels)):
             tracks = link3d.link(placements, labels=lab, fps=VIDEO_FPS, **LINK_KW)
             linked = np.full(len(df), -1, int)
-            row_of = {}
-            for i, (f, xy) in enumerate(zip(frs, ground)):
-                if np.isfinite(xy).all():
-                    row_of[(int(f), round(float(xy[0]), 6), round(float(xy[1]), 6))] = i
-            for tr in tracks:
-                for f, xy in zip(tr.frames, tr.xy):
-                    i = row_of.get((int(f), round(float(xy[0]), 6), round(float(xy[1]), 6)))
-                    if i is not None:
-                        linked[i] = tr.id
+            ids_by_frame = link3d.assignments(tracks, placements)
+            for f in placements:
+                linked[np.flatnonzero(frs == f)] = ids_by_frame[f]
             df3 = df.copy()
             df3["ground_track"] = linked
-            keep = linked >= 0
-            m_g = track_metrics(df3[keep].reset_index(drop=True), player[keep], track,
-                                offset, id_col="ground_track")
+            # Same population as the BoT-SORT number: every detection stays
+            # in the frame set (unlinked ones as their own -1 "track", which
+            # the length gate then drops from purity but not from coverage).
+            m_g = track_metrics(df3, player, track, offset, id_col="ground_track")
             m[tag] = {k: m_g[k] for k in
                       ("tracks", "purity_median", "purity_p10", "switches",
                        "fragments_per_player", "coverage")}

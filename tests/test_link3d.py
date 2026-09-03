@@ -6,7 +6,7 @@ the bar the ground-plane linker has to clear before it replaces that.
 """
 import numpy as np
 
-from nfl_gsplat.tracking.link3d import link, smooth
+from nfl_gsplat.tracking.link3d import assignments, link, smooth
 
 FPS = 59.94
 
@@ -152,3 +152,23 @@ def test_clutter_does_not_become_a_player():
         labels[f] = np.append(labels[f], -1)
     tracks = link(placements, labels=labels, fps=FPS)
     assert len([t for t in tracks if len(t.frames) >= 45]) == 5
+
+
+def test_assignments_are_index_aligned_even_for_duplicate_points():
+    """Two detections on the same ground point in one frame (an NMS miss)
+    must each keep their own row; a lookup by value gave both the id written
+    last (review finding)."""
+    placements, labels, _truth = synthetic_play(n_players=4, dropout=0.0)
+    f0 = min(placements)
+    dup = np.vstack([placements[f0], placements[f0][:1]])   # duplicate row 0
+    placements[f0] = dup
+    labels[f0] = np.append(labels[f0], labels[f0][0])
+    tracks = link(placements, labels=labels, fps=FPS)
+    ids = assignments(tracks, placements)
+    assert len(ids[f0]) == len(dup)
+    claimed = ids[f0][ids[f0] >= 0]
+    assert len(claimed) == len(set(claimed))                # one row per track
+    for tr in tracks:                                        # rows round-trip
+        for f, row, xy in zip(tr.frames, tr.rows, tr.xy):
+            assert np.allclose(placements[f][row], xy)
+

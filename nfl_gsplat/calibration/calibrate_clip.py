@@ -271,8 +271,8 @@ def rotate_boxes_90(boxes, width: int):
 
 def calibrate_candidates(images, width: int, height: int, *,
                          settings=DETECT_SETTINGS, player_boxes=None,
-                         orientations=("upright",), vertical_deg=None,
-                         **kwargs):
+                         orientations=("upright", "quarter-turn"),
+                         vertical_deg=None, **kwargs):
     """Every physically possible camera this clip admits, best first.
 
     One view cannot always tell its candidates apart -- see joint_views for the
@@ -280,11 +280,13 @@ def calibrate_candidates(images, width: int, height: int, *,
     the width of the field by a factor of three. Handing the alternatives on
     lets the OTHER view break the tie.
 
-    ``orientations`` may add "quarter-turn" (see orientation.py), which swaps
-    the line families for a camera looking down the field. Off by default: the
-    endzone no longer calibrates from paint at all (from_players does it from
-    the players), and on the sideline the quarter turn never won a single
-    sample while doubling the pool's cost.
+    ``orientations`` tries each in turn; "quarter-turn" (see orientation.py)
+    swaps the line families for a camera looking down the field. Both by
+    default at this level, as before; candidates_for_video asks for upright
+    alone and falls back to the quarter turn only when that finds nothing,
+    since on the All-22 sideline the turn never won a sample while doubling
+    the pool's cost -- and on one play it was the only orientation that
+    produced a camera at all.
     """
     out = []
     for how in orientations:
@@ -362,7 +364,9 @@ def candidates_for_video(path, *, attempts: int = DEFAULT_ATTEMPTS,
         players = detect_players(model, images)
         for cand in calibrate_candidates(images, width, height,
                                          player_boxes=players,
-                                         vertical_deg=vertical_deg, **kwargs):
+                                         vertical_deg=vertical_deg,
+                                         orientations=kwargs.pop("orientations", ("upright",)),
+                                         **kwargs):
             cand["attempt"] = attempt
             pool.append(cand)
 

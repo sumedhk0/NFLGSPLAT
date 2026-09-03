@@ -202,11 +202,8 @@ def main() -> None:
     print(f"linked {len(tracks)} tracks over {len(placements)} frames; "
           f"{sum(len(t.frames) >= 0.5 * len(placements) for t in tracks)} span half the play")
 
-    # Global id per fused point, then per detection.
-    gid_of_point = {}
-    for tr in tracks:
-        for f, xy in zip(tr.frames, tr.xy):
-            gid_of_point[(int(f), round(float(xy[0]), 6), round(float(xy[1]), 6))] = tr.id
+    # Global id per fused point (index-aligned), then per detection.
+    gid_by_frame = link3d.assignments(tracks, placements)
     rows = []
     for f in placements:
         pts = placements[f]
@@ -214,7 +211,7 @@ def main() -> None:
         bs = det_s.get(f, np.zeros((0, 4)))
         be = det_e.get(f, np.zeros((0, 4)))
         for k, p in enumerate(pts):
-            gid = gid_of_point.get((int(f), round(float(p[0]), 6), round(float(p[1]), 6)), -1)
+            gid = int(gid_by_frame[f][k])
             for cam, src, boxes in (("sideline", src_s[k], bs), ("endzone", src_e[k], be)):
                 if src < 0:
                     continue

@@ -56,8 +56,9 @@ def main() -> None:
     ap.add_argument("--rosters", type=Path, default=Path("data/rosters"))
     ap.add_argument("--week", type=int, default=None,
                     help="use the WEEKLY roster for this week (data/rosters/"
-                         "{season}/roster_weekly.parquet); the season file "
-                         "names a number by whoever wore it last")
+                         "{season}/roster_weekly.parquet, written by "
+                         "scripts/fetch_nflverse_rosters.py); without it the "
+                         "season file names a number by whoever wore it last")
     ap.add_argument("--home", default=None,
                     help="home team code; with it, the colour cluster nearest "
                          "the home team's primary colour is the home team and "
@@ -101,8 +102,19 @@ def main() -> None:
     else:
         roster = pd.read_parquet(args.rosters / str(args.season) / "rosters.parquet")
     roster = roster[roster["team"].isin(teams) & roster["jersey_number"].notna()]
-    # Latest week wins where a number changed hands during the season.
-    roster = (roster.sort_values("week").drop_duplicates(["team", "jersey_number"], keep="last")
+    # fetch_roster.py writes five columns (no week, name as player_name, no
+    # height/weight); fetch_nflverse_rosters.py writes the full weekly table.
+    # Take what is there and say so, rather than crash on the poorer file.
+    if "full_name" not in roster.columns:
+        roster = roster.assign(full_name=roster.get("player_name", "?"))
+    for col in ("height", "weight"):
+        if col not in roster.columns:
+            roster = roster.assign(**{col: np.nan})
+    if "week" in roster.columns:
+        roster = roster.sort_values("week")          # latest week wins below
+    else:
+        print("roster has no week column (fetch_roster.py output); using it as is")
+    roster = (roster.drop_duplicates(["team", "jersey_number"], keep="last")
               .set_index(["team", "jersey_number"]))
     numbers_of = {t: set(int(n) for _t, n in roster.index if _t == t) for t in teams}
 

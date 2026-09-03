@@ -97,6 +97,10 @@ def main() -> None:
     t0 = time.time()
     written = []
     for i, ply in enumerate(plys):
+        out = args.out_dir / (ply.stem.replace("scene", "frame") + ".png")
+        if out.exists():
+            written.append(out)              # a requeued job resumes here
+            continue
         batch = load_gaussian_ply(ply)
         R, t = orbit_camera(centre, i, len(plys), radius_m=args.radius_m,
                             height_m=args.height_m, turns=args.turns)
@@ -105,7 +109,6 @@ def main() -> None:
         else:
             img = render_gaussians_cpu(batch, K, R, t, width=args.width,
                                        height=args.height)[..., ::-1]     # BGR -> RGB
-        out = args.out_dir / (ply.stem.replace("scene", "frame") + ".png")
         imageio.imwrite(out, img)
         written.append(out)
         if i % 10 == 0:

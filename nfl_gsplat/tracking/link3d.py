@@ -80,6 +80,7 @@ class Track3D:
     # fragmented perfect synthetic tracks; the fit averages the window.
     state: np.ndarray = field(default_factory=lambda: np.zeros(2))
     labels: list[int] = field(default_factory=list)
+    rows: list[int] = field(default_factory=list)      # detection index per point
     misses: int = 0
 
     @property
@@ -102,10 +103,12 @@ class Track3D:
         dt = (frame - self.last_frame) / fps
         return self.state + self.velocity * dt
 
-    def extend(self, frame: int, xy: np.ndarray, fps: float, label: int = -1) -> None:
+    def extend(self, frame: int, xy: np.ndarray, fps: float, label: int = -1,
+               row: int = -1) -> None:
         self.frames.append(int(frame))
         self.xy.append(np.asarray(xy, float))
         self.labels.append(int(label))
+        self.rows.append(int(row))
         t = np.asarray(self.frames, float) / fps
         recent = t >= t[-1] - VELOCITY_WINDOW_S
         if recent.sum() >= VELOCITY_MIN_POINTS and np.ptp(t[recent]) > 0:
@@ -138,6 +141,7 @@ def link(placements, *, labels=None, fps: float = 59.94,
         labs = (np.asarray(labels[f], int).reshape(-1)
                 if labels is not None and f in labels else np.full(len(dets), -1))
         keep = np.isfinite(dets).all(1)
+        rows = np.flatnonzero(keep)                 # index into the caller's array
         dets, labs = dets[keep], labs[keep]
         # Retire what has been gone too long.
         still = []
@@ -168,7 +172,7 @@ def link(placements, *, labels=None, fps: float = 59.94,
             r, c = linear_sum_assignment(cost)
             for i, j in zip(r, c):
                 if not blocked[i, j]:
-                    cands[i].extend(f, dets[idx[j]], fps, labs[idx[j]])
+                    cands[i].extend(f, dets[idx[j]], fps, labs[idx[j]], rows[idx[j]])
                     cands[i].misses = 0
                     matched_det[idx[j]] = True
 
@@ -188,11 +192,27 @@ def link(placements, *, labels=None, fps: float = 59.94,
         for j in np.flatnonzero(~matched_det):
             tr = Track3D(next_id)
             next_id += 1
-            tr.extend(f, dets[j], fps, labs[j])
+            tr.extend(f, dets[j], fps, labs[j], rows[j])
             live.append(tr)
     done.extend(live)
     done.sort(key=lambda t: t.id)
     return [t for t in done if len(t.frames) >= min_frames]
+
+
+def assignments(tracks, placements):
+    """``{frame: [N] track id per input detection, -1 if none}``.
+
+    Index-aligned with the caller's arrays, so two detections that project to
+    the same ground point can never be confused: a value lookup keyed on
+    (frame, x, y) would hand both the id written last (review finding).
+    """
+    out = {int(f): np.full(len(np.asarray(placements[f]).reshape(-1, 2)), -1, int)
+           for f in placements}
+    for tr in tracks:
+        for f, row in zip(tr.frames, tr.rows):
+            if row >= 0:
+                out[int(f)][row] = tr.id
+    return out
 
 
 def smooth(track: Track3D, *, fps: float = 59.94, window_s: float = 0.25) -> np.ndarray:
