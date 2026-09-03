@@ -68,8 +68,8 @@ YARD_LINE_SPACING_M: float = 5.0 * YARD_TO_M                 # 4.572
 # The numerals are read from the nearer sideline, so a glyph's BOTTOM is the
 # edge nearer the sideline (12 yd in) and its TOP lies 6 ft farther toward
 # midfield. This had the top 6 ft farther OUT (centre 14.33 m); reading the
-# numerals through a calibrated camera and checking against the hash marks
-# (known at 2.82 m) measured the centre at 12.2-12.7 m from midfield --
+# numerals through a calibrated camera and checking against the hash ticks
+# (centres at 3.124 m, see below) measured the centre at 12.2-12.7 m from midfield --
 # 12.50 m as the rule book has it, not 14.33 (2026-09-02, play 1).
 NUMBER_BOTTOM_Y_M: float = HALF_WIDTH_M - 12.0 * YARD_TO_M   # 13.4112 (12 yd from sideline)
 NUMBER_TOP_Y_M: float = NUMBER_BOTTOM_Y_M - 6.0 * 0.3048     # 11.5824 (numbers are 6 ft tall)

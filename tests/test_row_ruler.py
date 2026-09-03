@@ -127,3 +127,11 @@ def test_measure_hash_rows_finds_painted_ticks():
     assert set(got) == {1, -1}
     assert abs(got[1] - rr.HASH_Y_M) < 0.15 and abs(got[-1] + rr.HASH_Y_M) < 0.15, got
 
+
+def test_reprojection_gap_is_zero_for_the_cameras_own_homography():
+    K, R, t = _camera()
+    Hg = rr.ground_homography(K, R, t)
+    assert rr.reprojection_gap_px(Hg, K, R, t) < 1e-6
+    K2, R2, t2 = rr.camera_from_homography(Hg @ np.diag([1.0, 1.0 / 0.9, 1.0]), W, H)
+    assert rr.reprojection_gap_px(Hg, K2, R2, t2) > 1.0
+

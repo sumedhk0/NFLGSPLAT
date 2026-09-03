@@ -4,16 +4,20 @@ WHY. Paint has no scale: yard lines fix the camera's x axis, but nothing in
 the paint says how far apart the two sidelines are in the image's depth
 direction, and the box-height ruler (from_players) fixes the lens for the
 players' patch only. Two kinds of paint sit at a y the rule book fixes:
-the HASH MARKS at +-2.82 m (70 ft 9 in from each sideline) and the NUMERAL
-rows at +-12.50 m (bottom 12 yd in, 6 ft tall, top toward midfield).
-Reading both on play 1 put the hashes at +-2.65 m and the numerals at
-+-11.2 m in the solved frame: the paint solve's cross-field axis was about
-6% short.
+the HASH TICKS, whose centres are at +-3.124 m (the inbound line is 70 ft
+9 in from the sideline "measured to the inbound edge" of a 2-ft tick, so
+the tick lies outside it), and the NUMERAL rows at +-12.50 m (bottom 12 yd
+in, 6 ft tall, top toward midfield). Reading both on two plays put the
+tick centres at +-2.72 / 2.84 m and the numerals at +-11.2 m in the solved
+frame: the paint solve's cross-field axis is about 10% short, and with
+these constants the two rulers agree (1.149 vs 1.111; 1.100 vs 1.107).
 
 TWO RULERS, ON PURPOSE. The first version of this module used the numerals
 alone, against a row constant that was wrong by the glyph height (14.33 m
 instead of 12.50), and "corrected" the camera by 27% -- the hash marks
-showed it up. A correction of a calibration needs a second ruler before it
+showed it up; then the hash constant itself was found to be the inbound
+line, not the tick centre, by the two rulers disagreing by 7% on both plays. A correction of a needs
+calibration a second ruler before it
 is applied: fit_rows takes every known row it is given, reports each
 ruler's implied scale, and 08d refuses to apply when they disagree.
 
@@ -39,7 +43,7 @@ from nfl_gsplat.utils.logging import get_logger
 _LOG = get_logger(__name__)
 
 ROW_Y_M: float = 0.5 * (NUMBER_BOTTOM_Y_M + NUMBER_TOP_Y_M)     # numeral rows, 12.50
-HASH_Y_M: float = HASH_OFFSET_M                                  # hash rows, 2.82
+HASH_Y_M: float = HASH_OFFSET_M                                  # hash tick centres, 3.124
 MIN_ROW_READINGS: int = 2
 # Hash-row search: strips on the 1-yard lines between two 5-yard lines,
 # where the only paint is the hash tick, thresholded and summed across
@@ -61,13 +65,19 @@ class RowScale:
 
 
 def _line_through_medians(y, yt):
-    """(scale, offset) through the median reading of each distinct true row."""
+    """(scale, offset) through the median reading of each distinct true row.
+
+    One row gives a ratio with zero offset -- a different quantity from a
+    two-row fit when the offset is not zero; ``fit_rows`` reports which.
+    """
     rows = {float(v): float(np.median(y[yt == v])) for v in np.unique(yt)}
     if len(rows) >= 2:
         A = np.column_stack([list(rows.values()), np.ones(len(rows))])
         (s, o), *_ = np.linalg.lstsq(A, np.array(list(rows)), rcond=None)
         return float(s), float(o)
     (v, m), = rows.items()
+    if abs(m) < 1e-6:
+        raise ValueError("a row read at y = 0 cannot give a scale")
     return float(v / m), 0.0
 
 
@@ -133,7 +143,7 @@ def measure_hash_rows(image, K, R, t, *, band_m: float = HASH_BAND_M):
     # line, a white jersey on a few. Summed, the players on the far hash
     # (where the line of scrimmage always is) read as a row 0.7 m off.
     prof = np.median(np.stack(profiles), axis=0)
-    y_axis = h_m / 2.0 - np.arange(len(prof)) / ppm
+    y_axis = h_m / 2.0 - (np.arange(len(prof)) + 0.5) / ppm       # pixel centres
     out = []
     for side in (1, -1):
         sel = (np.sign(y_axis) == side) & (np.abs(y_axis) < band_m)
@@ -194,9 +204,29 @@ def camera_from_homography(H, width: int, height: int):
     if np.linalg.det(R) < 0:
         R = U @ np.diag([1.0, 1.0, -1.0]) @ Vt
     centre = -R.T @ tv
+    if not np.isfinite(centre).all():
+        raise ValueError("homography gives no finite camera centre")
     if centre[2] < 0:                       # the other sign of the homography
         R, tv = camera_from_homography(-H, width, height)[1:]
     return K, R, tv
+
+
+def reprojection_gap_px(H_target, K, R, t, *, half_x: float = 50.0, half_y: float = 25.0):
+    """Median pixel gap between ``H_target`` and the camera's own ground
+    homography over a grid of turf points: the corrected homography is not
+    exactly a square-pixel camera's, and this says how far the camera read
+    out of it sits from it."""
+    Hc = ground_homography(K, R, t)
+    xs, ys = np.meshgrid(np.linspace(-half_x, half_x, 21), np.linspace(-half_y, half_y, 11))
+    P = np.column_stack([xs.ravel(), ys.ravel(), np.ones(xs.size)])
+    a = P @ np.asarray(H_target, float).T
+    b = P @ Hc.T
+    ok = (a[:, 2] > 1e-6) & (b[:, 2] > 1e-6)
+    if not ok.any():
+        return float("nan")
+    pa = a[ok, :2] / a[ok, 2:3]
+    pb = b[ok, :2] / b[ok, 2:3]
+    return float(np.median(np.linalg.norm(pa - pb, axis=1)))
 
 
 def refine_camera(K, R, t, rs: RowScale, width: int, height: int):
@@ -210,11 +240,16 @@ def refine_track(track, rs: RowScale):
     """Every frame of a CameraTrack refined by the same row fit."""
     from nfl_gsplat.calibration.cameras_io import CameraTrack
 
+    from nfl_gsplat.errors import CalibrationError
+
     K = np.empty_like(track.K)
     R = np.empty_like(track.R)
     t = np.empty_like(track.t)
     for i in range(len(track.R)):
-        K[i], R[i], t[i] = refine_camera(track.K[i], track.R[i], track.t[i], rs,
-                                         track.width, track.height)
+        try:
+            K[i], R[i], t[i] = refine_camera(track.K[i], track.R[i], track.t[i], rs,
+                                             track.width, track.height)
+        except ValueError as exc:
+            raise CalibrationError(f"row refinement failed at frame {i}: {exc}") from exc
     return CameraTrack(K=K, R=R, t=t, conf=track.conf.copy(),
                        width=track.width, height=track.height)

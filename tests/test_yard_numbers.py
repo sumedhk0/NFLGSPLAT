@@ -182,3 +182,33 @@ def test_row_orientation_is_decided_once_per_row(monkeypatch):
     assert [by_x[k].numeral for k in sorted(by_x)] == [10, 20, 30]
     assert all(r.turned for r in readings)
 
+
+def test_a_weak_reading_cannot_settle_a_shift():
+    # A lone '1' (arrow-like) votes at a quarter: with one strong 20 and one
+    # weak 10 the strong reading's two halves stay within the margin.
+    weak = yn.Reading(x_m=-4.572, side=1, numeral=10, conf=0.9, turned=True, weak=True)
+    strong = yn.Reading(x_m=4.572, side=1, numeral=20, conf=0.9, turned=True)
+    assert yn.solve_transform([weak, strong]) is None
+    # Two strong numerals plus a weak reading on the wrong line: the strong pair wins.
+    strong2 = yn.Reading(x_m=-4.572, side=1, numeral=10, conf=0.9, turned=True)
+    wrong = yn.Reading(x_m=13.716, side=-1, numeral=10, conf=0.9, turned=False, weak=True)
+    tf = yn.solve_transform([strong, strong2, wrong])
+    assert tf is not None and abs(tf.shift_m + 32.004) < 1e-6
+
+
+def test_lines_in_view_prune_the_impossible_half():
+    # One numeral, 20 on the +5 line: -32.0 (left half) or +22.86 (right half).
+    # With lines in view out to +40 yd, the right-half shift puts a seen line
+    # beyond the goal line, so the left half is the only candidate.
+    r = yn.Reading(x_m=4.572, side=1, numeral=20, conf=0.9, turned=True)
+    assert yn.solve_transform([r]) is None
+    lines = [k * 4.572 for k in range(-1, 9)]           # -5 .. +40 yd
+    tf = yn.solve_transform([r], lines_x=lines)
+    assert tf is not None and abs(tf.shift_m + 32.004) < 1e-6
+
+
+def test_apply_points_turn_keeps_z():
+    tf = yn.FieldTransform(turn=True, shift_m=1.0, votes=1, runner_up=0, n_readings=1)
+    out = tf.apply_points(np.array([[2.0, 3.0, 4.0]]))
+    assert np.allclose(out, [[-1.0, -3.0, 4.0]])
+

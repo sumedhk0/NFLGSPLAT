@@ -68,6 +68,7 @@ class Reading:
     conf: float
     turned: bool        # read after a 180-degree turn of the patch
     y_m: float = float("nan")   # where along the line it was found (strip reads)
+    weak: bool = False  # a lone '1': as likely the direction arrow as a numeral
 
 
 @dataclass(frozen=True)
@@ -79,8 +80,10 @@ class FieldTransform:
     n_readings: int
 
     def apply_points(self, xy):
-        xy = np.asarray(xy, float)
-        out = -xy if self.turn else xy.copy()
+        """``[..., 2]`` or ``[..., 3]`` points; the turn is about Z, so only x, y flip."""
+        out = np.array(xy, float, copy=True)
+        if self.turn:
+            out[..., :2] *= -1.0
         out[..., 0] += self.shift_m
         return out
 
@@ -201,16 +204,18 @@ MIN_DIGIT_CONF: float = 0.6
 
 
 def lines_in_view(K, R, t, width: int, height: int):
-    """Yard lines whose midfield-row point projects inside the frame."""
+    """Yard lines with midfield or either numeral row projecting inside the frame."""
     H = ground_homography(K, R, t)
     out = []
     for x in yard_line_xs():
-        q = H @ np.array([x, 0.0, 1.0])
-        if q[2] <= 1e-9:
-            continue
-        u, v = q[:2] / q[2]
-        if 0 <= u < width and 0 <= v < height:
-            out.append(float(x))
+        for y in (0.0, number_row_y(), -number_row_y()):
+            q = H @ np.array([x, y, 1.0])
+            if q[2] <= 1e-9:
+                continue
+            u, v = q[:2] / q[2]
+            if 0 <= u < width and 0 <= v < height:
+                out.append(float(x))
+                break
     return out
 
 
@@ -261,10 +266,11 @@ def read_line_strips(image, K, R, t, reader, *, min_conf: float = MIN_DIGIT_CONF
                     v = float(np.mean([pt[1] for pt in box]))
                     if turned:
                         v = img.shape[0] - v
-                    y = h_m / 2.0 - v / (px_per_m * stretch)
+                    y = h_m / 2.0 - (v + 0.5) / (px_per_m * stretch)
                     score = (float(conf) + (0.5 if text in NUMERALS else 0.0)
                              - (0.5 if text == "1" else 0.0))
-                    hits.append((x, int(np.sign(y)), turned, score, numeral, float(conf), y))
+                    hits.append((x, int(np.sign(y)), turned, score, numeral, float(conf), y,
+                                 text == "1"))
     out = []
     for side in (1, -1):
         row = [h for h in hits if h[1] == side]
@@ -275,8 +281,8 @@ def read_line_strips(image, K, R, t, reader, *, min_conf: float = MIN_DIGIT_CONF
         for h in row:
             if h[2] == facing and (h[0] not in best or h[3] > best[h[0]][3]):
                 best[h[0]] = h
-        for x, _side, turned, _score, numeral, conf, y in best.values():
-            out.append(Reading(x, side, numeral, conf, turned, y))
+        for x, _side, turned, _score, numeral, conf, y, weak in best.values():
+            out.append(Reading(x, side, numeral, conf, turned, y, weak))
     return out
 
 
@@ -286,21 +292,34 @@ def _snap(s: float) -> float | None:
     return snapped if abs(s - snapped) <= GRID_TOL_M else None
 
 
-def solve_transform(readings: list[Reading], *, win_margin: float = WIN_MARGIN):
+WEAK_WEIGHT: float = 0.25
+
+
+def solve_transform(readings: list[Reading], *, lines_x=None,
+                    win_margin: float = WIN_MARGIN):
     """The shift most readings agree on, or None when ambiguous.
 
-    Ambiguous means the winner has no clear margin over the runner-up --
-    which is what one numeral alone gives (its line on either half).
+    A reading votes with its confidence, a weak one (a lone '1', as likely
+    the arrow) with a quarter of it. A candidate that would push any line
+    in ``lines_x`` (the yard lines seen, default the read ones) past a goal
+    line is impossible and is not voted for -- which often settles a single
+    numeral's two halves. Ambiguous means the winner has no clear margin
+    over the runner-up; a lone weak reading cannot settle anything.
     """
     votes: Counter = Counter()
+    xs = list(lines_x) if lines_x is not None else [r.x_m for r in readings]
     for r in readings:
+        w = r.conf * (WEAK_WEIGHT if r.weak else 1.0)
         for sign in (-1.0, 1.0):
             x_abs = sign * (50 - r.numeral) * YARD_TO_M
             if r.numeral == 50 and sign > 0:
                 continue                            # midfield is one line
             s = _snap(x_abs - r.x_m)
-            if s is not None:
-                votes[s] += r.conf
+            if s is None:
+                continue
+            if max(abs(x + s) for x in xs) > GOAL_LINE_X_M + 0.5:
+                continue                            # a read line beyond the goal line
+            votes[s] += w
     if not votes:
         return None
     ranked = votes.most_common(2)
