@@ -212,15 +212,20 @@ def main() -> None:
         else:
             agree = False
             print("       only one ruler read; not enough to apply a scale")
-        refined = rr.refine_track(track, row_fit)
+        try:
+            refined = rr.refine_track(track, row_fit)
+        except CalibrationError as exc:
+            print(f"       {exc}; rows cannot be applied")
+            refined, sound = track, False
         gaps = []
         for f in frames:
             intr, pose = track.at(f)
             H_corr = rr.corrected_homography(rr.ground_homography(intr.K(), pose.R, pose.t), row_fit)
             intr2, pose2 = refined.at(f)
             gaps.append(rr.reprojection_gap_px(H_corr, intr2.K(), pose2.R, pose2.t))
-        reproj = float(np.median(gaps))
-        print(f"       refined camera vs corrected homography: median {reproj:.1f} px over the turf")
+        reproj = float(np.median(gaps)) if refined is not track else float("inf")
+        if refined is not track:
+            print(f"       refined camera vs corrected homography: median {reproj:.1f} px over the turf")
         num2, hsh2 = read_frames(video, refined, frames, reader)
         ys, yt, rl = row_readings(num2, hsh2)
         reread_ok = True
@@ -233,8 +238,8 @@ def main() -> None:
                 reread_ok = False
         h_after, _ = player_heights(refined, df, frames)
         print(f"player height under the refined camera: {h_after:.2f} m")
-        sound = (row_fit.residual_m <= MAX_RESIDUAL_M and abs(row_fit.offset) <= MAX_OFFSET_M
-                 and reread_ok and reproj <= MAX_REPROJ_PX)
+        sound = sound and (row_fit.residual_m <= MAX_RESIDUAL_M and abs(row_fit.offset) <= MAX_OFFSET_M
+                           and reread_ok and reproj <= MAX_REPROJ_PX)
         if not sound:
             print(f"       row fit NOT sound: MAD {row_fit.residual_m:.2f} m (max {MAX_RESIDUAL_M}), "
                   f"offset {row_fit.offset:+.2f} m (max {MAX_OFFSET_M}), re-read "
