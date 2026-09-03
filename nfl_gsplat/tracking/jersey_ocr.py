@@ -37,6 +37,15 @@ class JerseyOCRConfig:
     torso_top_frac: float = 0.15
     torso_bot_frac: float = 0.55
     upscale: float = 2.5
+    # Crops are picked by box height; with a facing function (identity.facing,
+    # from the pose stage) rows scoring below this are dropped FIRST, so the
+    # budget goes to chests and backs, not profiles. 0 = off. Unposed rows
+    # (NaN) are kept.
+    min_facing: float = 0.0
+    # One vote per PLAYER over both views instead of one per (view, track):
+    # the ids are shared across views (08b), the endzone sees backs and the
+    # sideline profiles, and a number read in either names the player.
+    pool_views: bool = False
 
 
 def _build_paddle(use_gpu: bool):
@@ -172,46 +181,63 @@ def vote_jersey_numbers(
     df: pd.DataFrame,
     video_paths: dict[str, Path | str],
     cfg: JerseyOCRConfig,
+    facing_of=None,
 ) -> pd.DataFrame:
-    """Run OCR + majority vote for each ``(cam, track_id)`` group and write
-    the winning digit into ``jersey_number_ocr``."""
+    """Run OCR + majority vote per ``(cam, track_id)`` -- or per ``track_id``
+    over both views with ``cfg.pool_views`` -- and write the winning digit
+    into ``jersey_number_ocr``. ``facing_of(cam, frame, track_id)`` (see
+    identity.facing) gates the crops when ``cfg.min_facing`` > 0."""
     if df.empty:
         return df.copy()
 
     reader = _lazy_ocr_engine(cfg.use_gpu, cfg.backend)
     out = df.copy()
 
-    for (cam, tid), group in df.groupby(["cam", "track_id"]):
-        video = video_paths.get(cam)
-        if video is None:
-            continue
-        g = group.copy()
-        g["h"] = g["bbox_y2"] - g["bbox_y1"]
-        g = g[g["h"] >= cfg.min_bbox_h_px]
-        g = g.nlargest(cfg.top_k_frames, "h")
-
+    keys = ["track_id"] if cfg.pool_views else ["cam", "track_id"]
+    for key, group in df.groupby(keys):
+        tid = int(key[-1])
         votes: Counter[int] = Counter()
-        for _, row in g.iterrows():
-            frame = _read_frame(video, int(row["frame"]))
-            if frame is None:
+        for cam, sub in group.groupby("cam"):
+            video = video_paths.get(cam)
+            if video is None:
                 continue
-            crop = jersey_crop(frame, (row["bbox_x1"], row["bbox_y1"],
-                                       row["bbox_x2"], row["bbox_y2"]), cfg)
-            if crop is None:
-                continue
-            digit = _ocr_crop(reader, crop, cfg.min_ocr_conf)
-            if digit is not None:
-                votes[digit] += 1
+            fo = (None if facing_of is None
+                  else (lambda frame, c=cam: facing_of(c, int(frame), tid)))
+            for _, row in _pick_rows(sub, cfg, fo).iterrows():
+                frame = _read_frame(video, int(row["frame"]))
+                if frame is None:
+                    continue
+                crop = jersey_crop(frame, (row["bbox_x1"], row["bbox_y1"],
+                                           row["bbox_x2"], row["bbox_y2"]), cfg)
+                if crop is None:
+                    continue
+                digit = _ocr_crop(reader, crop, cfg.min_ocr_conf)
+                if digit is not None:
+                    votes[digit] += 1
 
         if not votes:
             continue
         winner, _ = votes.most_common(1)[0]
-        mask = (out["cam"] == cam) & (out["track_id"] == tid)
+        mask = out["track_id"] == tid
+        if not cfg.pool_views:
+            mask &= out["cam"] == key[0]
         out.loc[mask, "jersey_number_ocr"] = int(winner)
-        _LOG.info(f"jersey OCR: ({cam}, track {tid}) → #{winner}  "
-                  f"(votes={dict(votes)})")
+        _LOG.info(f"jersey OCR: ({'both' if cfg.pool_views else key[0]}, track {tid}) "
+                  f"-> #{winner}  (votes={dict(votes)})")
 
     return out
+
+
+def _pick_rows(g: pd.DataFrame, cfg: JerseyOCRConfig, facing_of) -> pd.DataFrame:
+    """The crops one (view, track) gets: tall enough, facing the lens when a
+    facing function is given (NaN = unposed, kept), then the top-k by height."""
+    g = g.copy()
+    g["h"] = g["bbox_y2"] - g["bbox_y1"]
+    g = g[g["h"] >= cfg.min_bbox_h_px]
+    if facing_of is not None and cfg.min_facing > 0 and len(g):
+        score = np.array([facing_of(f) for f in g["frame"]], float)
+        g = g[np.isnan(score) | (score >= cfg.min_facing)]
+    return g.nlargest(cfg.top_k_frames, "h")
 
 
 def _main() -> None:  # pragma: no cover - thin CLI wiring, exercised on PACE

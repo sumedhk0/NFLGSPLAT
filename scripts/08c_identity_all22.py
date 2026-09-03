@@ -28,6 +28,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from nfl_gsplat.errors import SetupError
+
 from nfl_gsplat.identity.merge_cameras import PlayerIdentity
 
 
@@ -70,6 +72,11 @@ def main() -> None:
     ap.add_argument("--from-cache", action="store_true",
                     help="reuse tracks_identity.parquet instead of re-running OCR")
     ap.add_argument("--cpu", action="store_true")
+    ap.add_argument("--facing-min", type=float, default=0.0,
+                    help="drop crops whose posed body is side-on to the lens (identity."
+                         "facing score below this); needs poses_<cam>.json; 0 = off")
+    ap.add_argument("--pool-views", action="store_true",
+                    help="one vote per player over both views instead of per view")
     args = ap.parse_args()
 
     from nfl_gsplat.calibration.identity_precompute import assign_identity_columns
@@ -85,8 +92,25 @@ def main() -> None:
         videos = {cam: play / f"{cam}.mp4" for cam in ("sideline", "endzone")}
         print(f"{len(df)} detections, {df['track_id'].nunique()} global ids")
         cfg = JerseyOCRConfig(backend=args.ocr_backend, top_k_frames=args.ocr_top_k,
-                              use_gpu=not args.cpu)
-        df = vote_jersey_numbers(df, videos, cfg)
+                              use_gpu=not args.cpu, min_facing=args.facing_min,
+                              pool_views=args.pool_views)
+        facing_of = None
+        if args.facing_min > 0:
+            from nfl_gsplat.identity import facing as fc
+            tables = {}
+            for cam in videos:
+                cache_path = play / f"poses_{cam}.json"
+                if not cache_path.exists():
+                    raise SetupError(f"--facing-min needs {cache_path} (scripts/05c)")
+                blob = pickle.load(open(cache_path, "rb"))
+                tables[cam] = (fc.facing_table(blob["frames"]), int(blob.get("stride", 6)))
+            print("facing gate from poses: " + ", ".join(
+                f"{cam} {len(t)} posed detections" for cam, (t, _s) in tables.items()))
+
+            def facing_of(cam, frame, tid):
+                table, stride = tables[cam]
+                return fc.nearest(table, frame, tid, max_gap=stride)
+        df = vote_jersey_numbers(df, videos, cfg, facing_of=facing_of)
         df = assign_identity_columns(df, crop_provider(videos), season=args.season)
         df.to_parquet(play / "tracks_identity.parquet", index=False)
     read = df.groupby("track_id")["jersey_number_ocr"].agg(
