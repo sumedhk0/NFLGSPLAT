@@ -97,7 +97,9 @@ def covariance3d(scene: SceneParams) -> torch.Tensor:
 def project(scene: SceneParams, K, R, t):
     """``(means2d [N, 2], cov2d [N, 2, 2], depth [N])`` through a pinhole camera."""
     dev = scene.xyz.device
-    K = torch.as_tensor(np.asarray(K, np.float32), device=dev)
+    # K may be a tensor with gradient (the fit's principal-point shift).
+    K = (K.to(dev, torch.float32) if torch.is_tensor(K)
+         else torch.as_tensor(np.asarray(K, np.float32), device=dev))
     Rc = torch.as_tensor(np.asarray(R, np.float32), device=dev)
     tc = torch.as_tensor(np.asarray(t, np.float32), device=dev).reshape(3)
     Xc = scene.xyz @ Rc.T + tc                                  # [N, 3]
@@ -120,7 +122,9 @@ def render(scene: SceneParams, K, R, t, *, crop, background=(0.10, 0.12, 0.14),
            chunk: int = 256) -> torch.Tensor:
     """``[h, w, 3]`` linear RGB of the crop ``(x0, y0, w, h)``, differentiable
     in colour, scale multiplier and opacity. Pixel ``(i, j)`` of the crop is
-    image coordinate ``(x0 + j, y0 + i)``."""
+    image coordinate ``(x0 + j, y0 + i)``. ``background`` is an RGB triple or
+    an ``[h, w, 3]`` image the body is composited over (the fit passes the
+    frame crop itself, so uncovered pixels cost nothing)."""
     x0, y0, w, h = [int(v) for v in crop]
     dev = scene.xyz.device
     means, cov, depth = project(scene, K, R, t)
@@ -152,6 +156,8 @@ def render(scene: SceneParams, K, R, t, *, crop, background=(0.10, 0.12, 0.14),
         prev = torch.cat([torch.ones_like(trans[:, :1]), trans[:, :-1]], 1) * T[:, None]
         C = C + (prev * alpha)[:, :, None].mul(colour[None, s:s + chunk, :]).sum(1)
         T = T * trans[:, -1]
-    bg = torch.as_tensor(background, dtype=torch.float32, device=dev)
-    out = C + T[:, None] * bg[None, :]
+    bg = (background.to(dev, torch.float32) if torch.is_tensor(background)
+          else torch.as_tensor(np.asarray(background, np.float32), device=dev))
+    bg = bg.reshape(-1, 3) if bg.ndim == 3 else bg[None, :]
+    out = C + T[:, None] * bg
     return out.reshape(h, w, 3)
