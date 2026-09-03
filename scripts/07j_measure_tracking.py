@@ -59,6 +59,7 @@ from nfl_gsplat.tracking.detect_track import TrackingConfig, detect_and_track
 VIDEO_FPS = 59.94
 WIDTH, HEIGHT = 1280, 720
 GATE_M = 1.5
+LINK_KW: dict = {}
 
 
 def assign_players(df_view, cams, track, offset, *, gate_m=GATE_M):
@@ -245,7 +246,7 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         det_labels = {int(f): det_labels_all[frs == f] for f in np.unique(frs)}
         m["team_label_frac"] = float((det_labels_all >= 0).mean())
         for tag, lab in (("ground_linker", None), ("ground_linker_teams", det_labels)):
-            tracks = link3d.link(placements, labels=lab, fps=VIDEO_FPS)
+            tracks = link3d.link(placements, labels=lab, fps=VIDEO_FPS, **LINK_KW)
             linked = np.full(len(df), -1, int)
             row_of = {}
             for i, (f, xy) in enumerate(zip(frs, ground)):
@@ -280,7 +281,14 @@ def main() -> None:
     ap.add_argument("--weights", default="yolov8m.pt")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--device", default="cuda:0")
+    ap.add_argument("--gate-floor", type=float, default=link3d.GATE_FLOOR_M,
+                    help="ground linker: metres a detection may sit from a "
+                         "track's prediction at zero time gap")
+    ap.add_argument("--max-gap", type=float, default=link3d.MAX_GAP_S,
+                    help="ground linker: seconds unseen before a track retires")
     args = ap.parse_args()
+    global LINK_KW
+    LINK_KW = {"gate_floor": args.gate_floor, "max_gap_s": args.max_gap}
 
     align_path = args.alignment or (args.root / "alignment.json")
     out_path = args.out or (args.root / "tracking_accuracy.json")
