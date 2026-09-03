@@ -105,6 +105,44 @@ def sideline_candidate_from_track(play_dir: Path):
                         "coverage": float("nan")}}
 
 
+def numeral_readability(video_path, cams, frames, *, reader=None):
+    """Summed confidence of every numeral read through ``cams`` on ``frames``.
+
+    The field is mirror-symmetric except for the glyphs: a camera behind the
+    WRONG end zone sees every numeral mirrored, and mirrored digits do not
+    read. So the mount side that reads more is the right one -- the ground
+    cloud alone cannot say (both ends reconcile the same players at the
+    same gap).
+    """
+    import cv2
+
+    from nfl_gsplat.field import yard_numbers as yn
+
+    if reader is None:
+        import easyocr
+        reader = easyocr.Reader(["en"], gpu=True, verbose=False)
+    cap = cv2.VideoCapture(str(video_path))
+    total, n = 0.0, 0
+    for f in frames:
+        if f not in cams:
+            continue
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(f))
+        ok, img = cap.read()
+        if not ok:
+            continue
+        K, Rm, t = cams[f]
+        for r in yn.read_line_strips(img, K, Rm, t, reader):
+            total += r.conf
+            n += 1
+    cap.release()
+    return total, n
+
+
+def mirrored_mount(mount):
+    x, y, z = mount
+    return (-float(x), float(y), float(z))
+
+
 def frame_count(path):
     import cv2
 
@@ -138,6 +176,9 @@ def main() -> None:
                     help="play-dir whose cameras.npz sideline track is used as the one "
                          "sideline candidate (e.g. after scripts/08d refined it) instead "
                          "of solving from paint; the endzone is then solved against it")
+    ap.add_argument("--no-mirror-check", action="store_true",
+                    help="skip the second endzone solve at the mirrored mount and the "
+                         "numeral read that decides which end the camera is behind")
     ap.add_argument("--out", type=Path,
                     default=Path("C:/Users/sumedh/diag/all22_reconstruction.npz"))
     args = ap.parse_args()
@@ -213,6 +254,28 @@ def main() -> None:
                          "the endzone")
     _key, cand, cams_e, info = best
     cams_s = cand["cams"]
+
+    # The other end of the field: the same players reconcile at the same
+    # gap from behind either end zone (measured: +60 and -95 m, 0.90 and
+    # 0.91 m), so the side is decided by the numerals, which only read
+    # unmirrored. One extra endzone solve.
+    if not args.no_mirror_check:
+        try:
+            cams_m, info_m = solve_second_view(cams_s, feet_s, boxes_e, w_e, h_e,
+                                               mounts=[mirrored_mount(info["mount"])])
+        except CalibrationError as exc:
+            print(f"   mirror mount {mirrored_mount(info['mount'])}: {str(exc)[:80]}")
+            cams_m = None
+        if cams_m is not None:
+            probe = [int(f) for f in want[::max(1, len(want) // 6)]]
+            read_a, n_a = numeral_readability(end_path, cams_e, probe)
+            read_b, n_b = numeral_readability(end_path, cams_m, probe)
+            print(f"   mount side by numerals: {info['mount']} reads {n_a} ({read_a:.1f}), "
+                  f"mirror {info_m['mount']} reads {n_b} ({read_b:.1f}); "
+                  f"mirror reconciles {info_m['reconciled']:.0f}/frame at {info_m['gap_m']:.2f} m")
+            if read_b > read_a:
+                print("   -> the mirror reads better; taking it")
+                cams_e, info = cams_m, info_m
 
     print("\nchosen cameras")
     print(f"   sideline {np.round(cand['centre'], 1)} m, "
