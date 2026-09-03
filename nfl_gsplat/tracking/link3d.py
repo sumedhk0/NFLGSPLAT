@@ -67,10 +67,13 @@ CONFIRM_HITS: int = 3
 TENTATIVE_MAX_MISSES: int = 2
 
 # Metres of ground distance that one unit of cosine distance (0 = identical
-# appearance, 1 = orthogonal) is worth in the assignment cost. At 1.0 a
-# detection that looks nothing like the track costs as much as being a metre
-# away; at the noise floor of ~1 m that is a tie-breaker, not a veto.
-FEATURE_WEIGHT_M: float = 1.0
+# appearance, 1 = orthogonal) is worth in the assignment cost. Measured on
+# the helmet set with ImageNet ResNet-18 embeddings of ~50 px torso crops:
+# NO effect at 1.0 (tracks 43 -> 43, 31 -> 32, 90 -> 91; purity unchanged).
+# Two team-mates in one uniform look the same to a generic embedding at
+# that size. Off by default; the path stays for a re-ID trained on football
+# crops, which the helmet set's labelled tracks could supply.
+FEATURE_WEIGHT_M: float = 0.0
 FEATURE_EMA: float = 0.3
 
 # Velocity is a straight-line fit over this much recent history. At 60 Hz a
