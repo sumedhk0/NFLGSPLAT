@@ -53,7 +53,7 @@ from nfl_gsplat.data.align_video import helmet_boxes_by_frame
 from nfl_gsplat.data.helmet_dataset import load_labels, load_tracking
 from nfl_gsplat.errors import CalibrationError
 from nfl_gsplat.identity.team_color import dominant_jersey_color, split_two_teams_balanced
-from nfl_gsplat.tracking import link3d
+from nfl_gsplat.tracking import link3d, reid
 from nfl_gsplat.tracking.detect_track import TrackingConfig, detect_and_track
 
 VIDEO_FPS = 59.94
@@ -259,8 +259,13 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         det_labels_all = team_labels(df, root / "video" / name)
         det_labels = {int(f): det_labels_all[frs == f] for f in np.unique(frs)}
         m["team_label_frac"] = float((det_labels_all >= 0).mean())
-        for tag, lab in (("ground_linker", None), ("ground_linker_teams", det_labels)):
-            tracks = link3d.link(placements, labels=lab, fps=VIDEO_FPS, **LINK_KW)
+        feats_all = reid.embed_detections(root / "video" / name, df, device=cfg.device)
+        feats = {int(f): feats_all[frs == f] for f in np.unique(frs)}
+        for tag, lab, fe in (("ground_linker", None, None),
+                             ("ground_linker_teams", det_labels, None),
+                             ("ground_linker_reid", None, feats)):
+            tracks = link3d.link(placements, labels=lab, features=fe, fps=VIDEO_FPS,
+                                 **LINK_KW)
             linked = np.full(len(df), -1, int)
             ids_by_frame = link3d.assignments(tracks, placements)
             for f in placements:
@@ -336,7 +341,8 @@ def main() -> None:
                      if "tracks" in s else ""), flush=True)
             pad = len(f"[{i}/{len(usable)}] {game}/{play} {view:8s}")
             for tag, label in (("ground_linker", "ground: "),
-                               ("ground_linker_teams", "+teams: ")):
+                               ("ground_linker_teams", "+teams: "),
+                               ("ground_linker_reid", "+re-id: ")):
                 g = m.get(tag, {})
                 if "tracks" in g:
                     print(f"{'':>{pad}} {label} tracks {g['tracks']:3d} purity p10 "

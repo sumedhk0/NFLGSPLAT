@@ -27,6 +27,13 @@ cheap: the team. Each detection may carry a label (team from jersey colour,
 identity/team_color); a track votes its label from its detections, and a
 detection is never assigned across a known label mismatch.
 
+WHAT APPEARANCE ADDS. A detection may also carry an embedding (tracking.reid);
+a track keeps an exponential average of its own, and the assignment cost is
+the ground distance plus FEATURE_WEIGHT metres per unit of cosine distance
+between them. Soft: a wrong-looking crop makes a match dearer, never
+impossible, which is what the hard colour labels lacked (measured worse,
+twice). The gate stays on position alone.
+
 WHAT IT REFUSES TO DO. It does not bridge long gaps by guessing: a player
 missing for a second comes back as a new track, and the caller can decide
 what to do with two pieces. Guessing was what the stitcher did, and it was
@@ -59,6 +66,13 @@ MIN_TRACK_FRAMES: int = 3
 CONFIRM_HITS: int = 3
 TENTATIVE_MAX_MISSES: int = 2
 
+# Metres of ground distance that one unit of cosine distance (0 = identical
+# appearance, 1 = orthogonal) is worth in the assignment cost. At 1.0 a
+# detection that looks nothing like the track costs as much as being a metre
+# away; at the noise floor of ~1 m that is a tie-breaker, not a veto.
+FEATURE_WEIGHT_M: float = 1.0
+FEATURE_EMA: float = 0.3
+
 # Velocity is a straight-line fit over this much recent history. At 60 Hz a
 # single-step velocity is noise: 0.3 m of placement error over 1/60 s reads
 # as 18 m/s, and the first version predicted players off the field. Over a
@@ -82,6 +96,7 @@ class Track3D:
     labels: list[int] = field(default_factory=list)
     rows: list[int] = field(default_factory=list)      # detection index per point
     misses: int = 0
+    feature: np.ndarray | None = None                  # EMA appearance, unit norm
 
     @property
     def confirmed(self) -> bool:
@@ -104,11 +119,19 @@ class Track3D:
         return self.state + self.velocity * dt
 
     def extend(self, frame: int, xy: np.ndarray, fps: float, label: int = -1,
-               row: int = -1) -> None:
+               row: int = -1, feature=None) -> None:
         self.frames.append(int(frame))
         self.xy.append(np.asarray(xy, float))
         self.labels.append(int(label))
         self.rows.append(int(row))
+        if feature is not None and np.isfinite(feature).all():
+            f = np.asarray(feature, float)
+            f = f / max(np.linalg.norm(f), 1e-9)
+            if self.feature is None:
+                self.feature = f
+            else:
+                g = (1 - FEATURE_EMA) * self.feature + FEATURE_EMA * f
+                self.feature = g / max(np.linalg.norm(g), 1e-9)
         t = np.asarray(self.frames, float) / fps
         recent = t >= t[-1] - VELOCITY_WINDOW_S
         if recent.sum() >= VELOCITY_MIN_POINTS and np.ptp(t[recent]) > 0:
@@ -121,15 +144,18 @@ class Track3D:
             self.state = np.asarray(self.xy, float)[recent].mean(0)
 
 
-def link(placements, *, labels=None, fps: float = 59.94,
+def link(placements, *, labels=None, features=None, fps: float = 59.94,
          max_speed: float = MAX_SPEED_M_S, gate_floor: float = GATE_FLOOR_M,
-         max_gap_s: float = MAX_GAP_S,
-         min_frames: int = MIN_TRACK_FRAMES) -> list[Track3D]:
+         max_gap_s: float = MAX_GAP_S, min_frames: int = MIN_TRACK_FRAMES,
+         feature_weight: float = FEATURE_WEIGHT_M) -> list[Track3D]:
     """``placements`` maps frame -> ``[N, 2]`` ground positions in metres.
 
     ``labels`` optionally maps frame -> ``[N]`` ints (e.g. team; -1 unknown);
     a detection is never linked to a track whose known label differs.
-    Returns tracks with at least ``min_frames`` points, in order of creation.
+    ``features`` optionally maps frame -> ``[N, D]`` appearance embeddings
+    (NaN rows unknown); they add ``feature_weight`` metres per unit cosine
+    distance to the cost and never gate. Returns tracks with at least
+    ``min_frames`` points, in order of creation.
     """
     from scipy.optimize import linear_sum_assignment
 
@@ -140,9 +166,13 @@ def link(placements, *, labels=None, fps: float = 59.94,
         dets = np.asarray(placements[f], float).reshape(-1, 2)
         labs = (np.asarray(labels[f], int).reshape(-1)
                 if labels is not None and f in labels else np.full(len(dets), -1))
+        feats = (np.asarray(features[f], float) if features is not None and f in features
+                 else None)
         keep = np.isfinite(dets).all(1)
         rows = np.flatnonzero(keep)                 # index into the caller's array
         dets, labs = dets[keep], labs[keep]
+        if feats is not None:
+            feats = feats[keep]
         # Retire what has been gone too long.
         still = []
         for tr in live:
@@ -164,6 +194,14 @@ def link(placements, *, labels=None, fps: float = 59.94,
                               for tr in cands])
             cost = np.linalg.norm(preds[:, None] - dets[idx][None], axis=2)
             blocked = cost > gates[:, None]
+            if feats is not None and feature_weight > 0:
+                tf = np.stack([tr.feature if tr.feature is not None else np.full(feats.shape[1], np.nan)
+                               for tr in cands])
+                df_ = feats[idx]
+                sim = tf @ df_.T                              # cosine, unit vectors
+                extra = feature_weight * (1.0 - sim)
+                extra[~np.isfinite(extra)] = 0.0              # unknown: no opinion
+                cost = cost + extra
             tl = np.array([tr.label for tr in cands])
             mismatch = ((tl[:, None] >= 0) & (labs[idx][None, :] >= 0)
                         & (tl[:, None] != labs[idx][None, :]))
@@ -172,7 +210,8 @@ def link(placements, *, labels=None, fps: float = 59.94,
             r, c = linear_sum_assignment(cost)
             for i, j in zip(r, c):
                 if not blocked[i, j]:
-                    cands[i].extend(f, dets[idx[j]], fps, labs[idx[j]], rows[idx[j]])
+                    cands[i].extend(f, dets[idx[j]], fps, labs[idx[j]], rows[idx[j]],
+                                    None if feats is None else feats[idx[j]])
                     cands[i].misses = 0
                     matched_det[idx[j]] = True
 
@@ -192,7 +231,8 @@ def link(placements, *, labels=None, fps: float = 59.94,
         for j in np.flatnonzero(~matched_det):
             tr = Track3D(next_id)
             next_id += 1
-            tr.extend(f, dets[j], fps, labs[j], rows[j])
+            tr.extend(f, dets[j], fps, labs[j], rows[j],
+                      None if feats is None else feats[j])
             live.append(tr)
     done.extend(live)
     done.sort(key=lambda t: t.id)

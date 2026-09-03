@@ -172,3 +172,24 @@ def test_assignments_are_index_aligned_even_for_duplicate_points():
         for f, row, xy in zip(tr.frames, tr.rows, tr.xy):
             assert np.allclose(placements[f][row], xy)
 
+
+def test_appearance_breaks_the_ties_labels_could_not():
+    """Two brushing pairs, same-team-looking, NO labels: position alone may
+    swap them; a per-player appearance vector (with noise) must keep them."""
+    placements, _labels, truth = synthetic_play(n_players=4, noise_m=0.3, dropout=0.0)
+    rng = np.random.default_rng(7)
+    ident = rng.normal(size=(4, 32))
+    ident /= np.linalg.norm(ident, axis=1, keepdims=True)
+    features = {}
+    for f, pts in placements.items():
+        # Which true player each placement is (nearest truth), then its vector
+        # plus noise -- crops of one player vary, but less than between players.
+        who = np.array([int(np.nanargmin(np.linalg.norm(truth[f] - p, axis=1))) for p in pts])
+        feat = ident[who] + rng.normal(scale=0.35, size=(len(pts), 32))
+        features[f] = feat / np.linalg.norm(feat, axis=1, keepdims=True)
+    tracks = link(placements, features=features, fps=FPS, feature_weight=1.0)
+    purity, frags = purity_and_fragments(tracks, truth)
+    assert len(tracks) == 4
+    assert purity.min() >= 0.95
+    assert frags.max() == 1
+
