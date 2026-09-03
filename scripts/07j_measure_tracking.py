@@ -60,6 +60,8 @@ VIDEO_FPS = 59.94
 WIDTH, HEIGHT = 1280, 720
 GATE_M = 1.5
 LINK_KW: dict = {}
+REID_WEIGHTS = None
+FEATURE_WEIGHT = 1.0
 
 
 def assign_players(df_view, cams, track, offset, *, gate_m=GATE_M):
@@ -259,13 +261,14 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         det_labels_all = team_labels(df, root / "video" / name)
         det_labels = {int(f): det_labels_all[frs == f] for f in np.unique(frs)}
         m["team_label_frac"] = float((det_labels_all >= 0).mean())
-        feats_all = reid.embed_detections(root / "video" / name, df, device=cfg.device)
+        feats_all = reid.embed_detections(root / "video" / name, df, device=cfg.device,
+                                          weights=REID_WEIGHTS)
         feats = {int(f): feats_all[frs == f] for f in np.unique(frs)}
-        for tag, lab, fe in (("ground_linker", None, None),
-                             ("ground_linker_teams", det_labels, None),
-                             ("ground_linker_reid", None, feats)):
+        for tag, lab, fe, fw in (("ground_linker", None, None, 0.0),
+                                 ("ground_linker_teams", det_labels, None, 0.0),
+                                 ("ground_linker_reid", None, feats, FEATURE_WEIGHT)):
             tracks = link3d.link(placements, labels=lab, features=fe, fps=VIDEO_FPS,
-                                 **LINK_KW)
+                                 feature_weight=fw, **LINK_KW)
             linked = np.full(len(df), -1, int)
             ids_by_frame = link3d.assignments(tracks, placements)
             for f in placements:
@@ -300,9 +303,15 @@ def main() -> None:
                          "track's prediction at zero time gap")
     ap.add_argument("--max-gap", type=float, default=link3d.MAX_GAP_S,
                     help="ground linker: seconds unseen before a track retires")
+    ap.add_argument("--reid-weights", type=Path, default=None,
+                    help="football-trained embedding (scripts/07k); default ImageNet trunk")
+    ap.add_argument("--feature-weight", type=float, default=1.0,
+                    help="metres per unit cosine distance for the re-id run")
     args = ap.parse_args()
     global LINK_KW
     LINK_KW = {"gate_floor": args.gate_floor, "max_gap_s": args.max_gap}
+    global REID_WEIGHTS, FEATURE_WEIGHT
+    REID_WEIGHTS, FEATURE_WEIGHT = args.reid_weights, args.feature_weight
 
     align_path = args.alignment or (args.root / "alignment.json")
     out_path = args.out or (args.root / "tracking_accuracy.json")
