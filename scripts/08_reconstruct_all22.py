@@ -89,6 +89,22 @@ def fov_deg(K, width):
     return float(2.0 * np.degrees(np.arctan(width / (2.0 * K[0, 0]))))
 
 
+def sideline_candidate_from_track(play_dir: Path):
+    """One candidate in the shape candidates_for_video returns, from a
+    play-dir's sideline CameraTrack (every frame with conf > 0)."""
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
+
+    track = load_camera_track(play_dir / "cameras.npz")["sideline"]
+    cams = {int(f): (track.K[f], track.R[f], track.t[f])
+            for f in np.flatnonzero(track.conf > 0)}
+    if not cams:
+        raise SystemExit(f"{play_dir / 'cameras.npz'} has no sideline frame with a camera")
+    K, R, t = cams[min(cams)]
+    return {"cams": cams, "centre": -R.T @ t,
+            "quality": {"player_cost": 0.0, "fov_deg": fov_deg(K, track.width),
+                        "coverage": float("nan")}}
+
+
 def frame_count(path):
     import cv2
 
@@ -118,6 +134,10 @@ def main() -> None:
                     help="sideline candidates to try, best player cost first; "
                          "each costs an endzone solve of several minutes")
     ap.add_argument("--model", default="yolov8m.pt")
+    ap.add_argument("--sideline-from", type=Path, default=None,
+                    help="play-dir whose cameras.npz sideline track is used as the one "
+                         "sideline candidate (e.g. after scripts/08d refined it) instead "
+                         "of solving from paint; the endzone is then solved against it")
     ap.add_argument("--out", type=Path,
                     default=Path("C:/Users/sumedh/diag/all22_reconstruction.npz"))
     args = ap.parse_args()
@@ -129,9 +149,13 @@ def main() -> None:
     end_path = args.root / args.endzone
 
     print(f"Sideline: {args.sideline}")
-    cands = candidates_for_video(side_path, attempts=args.attempts,
-                                 n_frames=args.calib_frames, model=model,
-                                 vertical_deg=args.vertical_deg)
+    if args.sideline_from is not None:
+        cands = [sideline_candidate_from_track(args.sideline_from)]
+        print(f"   sideline camera taken from {args.sideline_from / 'cameras.npz'}")
+    else:
+        cands = candidates_for_video(side_path, attempts=args.attempts,
+                                     n_frames=args.calib_frames, model=model,
+                                     vertical_deg=args.vertical_deg)
     if not cands:
         raise SystemExit("no sideline camera could be solved from paint")
     # Players gate the pool, as they gate the single-clip path. On play 2 the

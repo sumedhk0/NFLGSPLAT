@@ -34,6 +34,11 @@ def test_row_fit_from_both_rows_and_from_one():
     assert abs(rs.scale - s_true) < 1e-9 and abs(rs.offset - o_true) < 1e-9
     one = rr.fit_row_scale([11.0, 11.2], [1, 1])
     assert one.offset == 0.0 and abs(one.scale - rr.ROW_Y_M / 11.1) < 0.02
+    # Two wild readings out of eight (a frame with a poor camera) must not move it.
+    wild = rr.fit_row_scale(ys + [11.0, 11.1, -11.4, -11.6, 25.9, -7.0],
+                            [1, -1, 1, 1, -1, -1, 1, -1])
+    assert abs(wild.scale - s_true) < 0.03 and abs(wild.offset - o_true) < 0.3
+    assert wild.residual_m < 0.5
     with pytest.raises(ValueError):
         rr.fit_row_scale([11.0], [1])
 

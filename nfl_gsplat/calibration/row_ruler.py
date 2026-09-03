@@ -40,26 +40,34 @@ class RowScale:
     offset: float
     n_far: int
     n_near: int
-    residual_m: float   # rms of the readings after the fit
+    residual_m: float   # median absolute deviation of the readings about the fit
 
 
 def fit_row_scale(ys_solved, sides) -> RowScale:
     """Affine y correction from numerals read at ``ys_solved`` on rows
-    ``sides`` (+1 / -1). Both rows -> scale and offset; one row -> scale
-    alone (offset 0), which is all one row can say."""
+    ``sides`` (+1 / -1). Both rows -> scale and offset through each row's
+    MEDIAN; one row -> scale alone (offset 0), which is all one row can say.
+
+    Medians, not least squares: a frame where the camera track is poor
+    reads its numerals metres off, and on play 1 two such frames out of
+    eight pulled a least-squares scale from 1.27 to 1.12 with a 3.8 m
+    residual. ``residual_m`` is the median absolute deviation of the
+    readings about the fit, so a noisy set still reports itself.
+    """
     y = np.asarray(ys_solved, float)
     side = np.asarray(sides, int)
     if len(y) < MIN_ROW_READINGS:
         raise ValueError(f"{len(y)} numeral readings; need {MIN_ROW_READINGS}")
-    target = side * ROW_Y_M
-    n_far, n_near = int((side > 0).sum()), int((side < 0).sum())
+    far, near = y[side > 0], y[side < 0]
+    n_far, n_near = len(far), len(near)
     if n_far and n_near:
-        A = np.column_stack([y, np.ones_like(y)])
-        (s, o), *_ = np.linalg.lstsq(A, target, rcond=None)
+        y_far, y_near = float(np.median(far)), float(np.median(near))
+        s = 2.0 * ROW_Y_M / (y_far - y_near)
+        o = ROW_Y_M - s * y_far
     else:
-        s = float(np.median(target / y))
+        s = float(np.median(side * ROW_Y_M / y))
         o = 0.0
-    res = float(np.sqrt(np.mean((s * y + o - target) ** 2)))
+    res = float(np.median(np.abs(s * y + o - side * ROW_Y_M)))
     return RowScale(float(s), float(o), n_far, n_near, res)
 
 
