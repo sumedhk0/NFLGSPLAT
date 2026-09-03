@@ -57,13 +57,19 @@ HASH_OFFSET_M: float = 2.8194        # 9.25 ft from centerline
 YARD_TO_M: float = 0.9144
 YARD_LINE_SPACING_M: float = 5.0 * YARD_TO_M                 # 4.572
 
+# The numerals are read from the nearer sideline, so a glyph's BOTTOM is the
+# edge nearer the sideline (12 yd in) and its TOP lies 6 ft farther toward
+# midfield. This had the top 6 ft farther OUT (centre 14.33 m); reading the
+# numerals through a calibrated camera and checking against the hash marks
+# (known at 2.82 m) measured the centre at 12.2-12.7 m from midfield --
+# 12.50 m as the rule book has it, not 14.33 (2026-09-02, play 1).
 NUMBER_BOTTOM_Y_M: float = HALF_WIDTH_M - 12.0 * YARD_TO_M   # 13.4112 (12 yd from sideline)
-NUMBER_TOP_Y_M: float = NUMBER_BOTTOM_Y_M + 6.0 * 0.3048     # 15.24  (numbers are 6 ft tall)
+NUMBER_TOP_Y_M: float = NUMBER_BOTTOM_Y_M - 6.0 * 0.3048     # 11.5824 (numbers are 6 ft tall)
 # Single number anchor = the painted number's CENTER. Avoids the top/bottom
 # labeling ambiguity (the two sidelines' numbers face opposite directions, so
-# "visual top" flips between sides); the center is unambiguous and Y≈14.3 m still
+# "visual top" flips between sides); the center is unambiguous and Y≈12.5 m still
 # gives the vertical spread that conditions the homography.
-NUMBER_CENTER_Y_M: float = 0.5 * (NUMBER_BOTTOM_Y_M + NUMBER_TOP_Y_M)   # 14.3256
+NUMBER_CENTER_Y_M: float = 0.5 * (NUMBER_BOTTOM_Y_M + NUMBER_TOP_Y_M)   # 12.4968
 
 # Goal lines are at the far edges of the playing field, i.e.
 #   X = ± (HALF_LENGTH_M − ENDZONE_DEPTH_M) = ± 45.72
