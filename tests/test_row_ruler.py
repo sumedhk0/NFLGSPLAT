@@ -35,7 +35,8 @@ def test_row_fit_from_both_rows_and_from_one():
     one = rr.fit_row_scale([11.0, 11.2], [1, 1])
     assert one.offset == 0.0 and abs(one.scale - rr.ROW_Y_M / 11.1) < 0.02
     # Two wild readings out of eight (a frame with a poor camera) must not move it.
-    wild = rr.fit_row_scale(ys + [11.0, 11.1, -11.4, -11.6, 25.9, -7.0],
+    far, near = ys
+    wild = rr.fit_row_scale(ys + [far + 0.1, far - 0.1, near + 0.2, near - 0.1, 25.9, -7.0],
                             [1, -1, 1, 1, -1, -1, 1, -1])
     assert abs(wild.scale - s_true) < 0.03 and abs(wild.offset - o_true) < 0.3
     assert wild.residual_m < 0.5
@@ -87,3 +88,42 @@ def test_refine_track_applies_to_every_frame():
     rs = rr.RowScale(1.0, 0.0, 1, 1, 0.0)
     out = rr.refine_track(track, rs)
     assert np.allclose(out.R, track.R, atol=1e-8) and np.allclose(out.t, track.t, atol=1e-6)
+
+
+def test_fit_rows_uses_every_known_row_and_reports_each_ruler():
+    s_true, o_true = 1.06, 0.1
+
+    def solved(yt):
+        return (yt - o_true) / s_true
+
+    ys = [solved(rr.ROW_Y_M), solved(-rr.ROW_Y_M), solved(rr.HASH_Y_M), solved(-rr.HASH_Y_M),
+          solved(rr.HASH_Y_M) + 0.05]
+    yt = [rr.ROW_Y_M, -rr.ROW_Y_M, rr.HASH_Y_M, -rr.HASH_Y_M, rr.HASH_Y_M]
+    rulers = ["numerals", "numerals", "hashes", "hashes", "hashes"]
+    fit = rr.fit_rows(ys, yt, rulers=rulers)
+    assert abs(fit.scale - s_true) < 0.01 and abs(fit.offset - o_true) < 0.05
+    assert set(fit.by_ruler) == {"numerals", "hashes"}
+    assert abs(fit.by_ruler["numerals"] - s_true) < 1e-6
+    assert abs(fit.by_ruler["hashes"] - s_true) < 0.03
+
+
+def test_measure_hash_rows_finds_painted_ticks():
+    """Paint hash ticks at +-HASH_Y_M on a synthetic turf seen by the camera."""
+    import cv2
+
+    K, R, t = _camera()
+    frame = np.zeros((H, W, 3), np.uint8)
+    Hg = rr.ground_homography(K, R, t)
+    for x in np.arange(10.0, 30.0, 0.9144):                # every yard line
+        for side in (1, -1):
+            yc = side * rr.HASH_Y_M
+            pts = np.array([[x - 0.1, yc - 0.3, 1], [x + 0.1, yc - 0.3, 1],
+                            [x + 0.1, yc + 0.3, 1], [x - 0.1, yc + 0.3, 1]])
+            q = pts @ Hg.T
+            poly = (q[:, :2] / q[:, 2:]).astype(np.int32)
+            cv2.fillPoly(frame, [poly], (255, 255, 255))
+    rows = rr.measure_hash_rows(frame, K, R, t)
+    got = {side: y for y, side in rows}
+    assert set(got) == {1, -1}
+    assert abs(got[1] - rr.HASH_Y_M) < 0.15 and abs(got[-1] + rr.HASH_Y_M) < 0.15, got
+
