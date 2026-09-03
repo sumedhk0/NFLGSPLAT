@@ -136,30 +136,35 @@ def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
     opt = torch.optim.Adam(groups)
     edges = torch.as_tensor(mesh_edges(faces), device=dev)
     hist = {"loss": []}
+    n_f = len(frames)
     for it in range(cfg.iters):
         opt.zero_grad(set_to_none=True)
         total = 0.0
+        # One frame's graph at a time: summing every render into one loss kept
+        # tens of GB alive for backward (54 GB on a 60-frame body). Gradients
+        # accumulate across frames; one optimiser step per iteration.
         for fi, (base, crop, target, K, R, t) in enumerate(frames):
             scene = st.SceneParams(xyz=base.xyz, rot=base.rot, log_scale=base.log_scale,
                                    colour=colour, log_scale_mult=log_scale_mult,
                                    opacity_logit=opacity_logit, sh_k=base.sh_k)
             Kf = K
             if cfg.translation:
-                Kf = K.clone()
-                Kf = Kf + torch.zeros_like(Kf).index_put(
+                Kf = K + torch.zeros_like(K).index_put(
                     (torch.tensor([0, 1], device=dev), torch.tensor([2, 2], device=dev)), shift[fi])
             img = st.render(scene, Kf, R, t, crop=crop, background=target)
-            total = total + (img - target).abs().mean()
-        loss = total / len(frames)
+            part = (img - target).abs().mean() / n_f
+            part.backward()
+            total += part.item()
         if cfg.tv_weight > 0:
-            loss = loss + cfg.tv_weight * (colour[edges[:, 0]] - colour[edges[:, 1]]).abs().mean()
-        loss.backward()
+            tv = cfg.tv_weight * (colour[edges[:, 0]] - colour[edges[:, 1]]).abs().mean()
+            tv.backward()
+            total += tv.item()
         opt.step()
         with torch.no_grad():
             colour.clamp_(0.0, 1.0)
-        hist["loss"].append(loss.item())
+        hist["loss"].append(total)
         if cfg.log_every and it % cfg.log_every == 0:
-            _LOG.info("fit: iter %d loss %.4f", it, loss.item())
+            _LOG.info("fit: iter %d loss %.4f", it, total)
     hist["shift"] = shift.detach().cpu().numpy().tolist()
     return BodyAppearance(colour.detach(), log_scale_mult.detach(), opacity_logit.detach(),
                           shift.detach() if cfg.translation else None, hist), hist

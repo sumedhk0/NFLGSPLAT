@@ -33,6 +33,10 @@ PIXEL_EPS = 0.3
 MIN_DEPTH = 0.1
 ALPHA_MAX = 0.99
 ALPHA_CUT = 1.0 / 255.0
+# A Gaussian is evaluated within this many standard deviations of its
+# centre (3DGS uses 3), never beyond MAX_WINDOW_PX pixels.
+WINDOW_SIGMAS = 3.0
+MAX_WINDOW_PX = 40
 
 
 @dataclass
@@ -119,45 +123,81 @@ def project(scene: SceneParams, K, R, t):
 
 
 def render(scene: SceneParams, K, R, t, *, crop, background=(0.10, 0.12, 0.14),
-           chunk: int = 256) -> torch.Tensor:
+           chunk: int = 2048) -> torch.Tensor:
     """``[h, w, 3]`` linear RGB of the crop ``(x0, y0, w, h)``, differentiable
     in colour, scale multiplier and opacity. Pixel ``(i, j)`` of the crop is
     image coordinate ``(x0 + j, y0 + i)``. ``background`` is an RGB triple or
     an ``[h, w, 3]`` image the body is composited over (the fit passes the
-    frame crop itself, so uncovered pixels cost nothing)."""
+    frame crop itself, so uncovered pixels cost nothing).
+
+    Sparse throughout: a Gaussian contributes only to the pixels within
+    WINDOW_SIGMAS of its centre, the (pixel, Gaussian) pairs are sorted by
+    pixel then depth, and the front-to-back transmittance is a segmented
+    cumulative sum of ``log(1 - alpha)`` per pixel. A dense pixels x
+    Gaussians pass was 226M entries for a 10k-vertex body in a 120x180 crop
+    and took 0.3-0.5 s per render; the pairs number about 500k.
+    """
     x0, y0, w, h = [int(v) for v in crop]
     dev = scene.xyz.device
     means, cov, depth = project(scene, K, R, t)
     keep = depth > MIN_DEPTH
     order = torch.argsort(depth[keep])
-    idx = torch.nonzero(keep, as_tuple=True)[0][order]
+    idx = torch.nonzero(keep, as_tuple=True)[0][order]       # depth rank == position
     means, cov = means[idx], cov[idx]
     colour = scene.colour[idx].clamp(0.0, 1.0)
     opacity = torch.sigmoid(scene.opacity_logit[idx])
+    n_g = means.shape[0]
+    n_px = w * h
 
     a, b, c, d = cov[:, 0, 0], cov[:, 0, 1], cov[:, 1, 0], cov[:, 1, 1]
     det = (a * d - b * c).clamp_min(1e-8)
     inv = torch.stack([torch.stack([d, -b], 1), torch.stack([-c, a], 1)], 1) / det[:, None, None]
+    sig_max = torch.sqrt(torch.clamp(torch.maximum(a, d), min=1e-6)).detach()   # window size only
 
-    ys, xs = torch.meshgrid(torch.arange(h, device=dev, dtype=torch.float32) + y0,
-                            torch.arange(w, device=dev, dtype=torch.float32) + x0, indexing="ij")
-    P = torch.stack([xs.reshape(-1), ys.reshape(-1)], 1)        # [P, 2]
-
-    T = torch.ones(P.shape[0], device=dev)
-    C = torch.zeros(P.shape[0], 3, device=dev)
-    for s in range(0, means.shape[0], chunk):
-        m, iv = means[s:s + chunk], inv[s:s + chunk]
-        dlt = P[:, None, :] - m[None, :, :]                     # [P, c, 2]
-        power = -0.5 * torch.einsum("pci,cij,pcj->pc", dlt, iv, dlt)
-        alpha = (opacity[None, s:s + chunk] * torch.exp(power)).clamp(max=ALPHA_MAX)
-        alpha = torch.where(alpha < ALPHA_CUT, torch.zeros_like(alpha), alpha)
-        one_minus = 1.0 - alpha
-        trans = torch.cumprod(one_minus, dim=1)
-        prev = torch.cat([torch.ones_like(trans[:, :1]), trans[:, :-1]], 1) * T[:, None]
-        C = C + (prev * alpha)[:, :, None].mul(colour[None, s:s + chunk, :]).sum(1)
-        T = T * trans[:, -1]
+    # (pixel, gaussian, alpha) pairs inside the windows, built per chunk of
+    # Gaussians so the window tensors stay small.
+    pix_l, g_l, alpha_l = [], [], []
+    for s0 in range(0, n_g, chunk):
+        m, iv = means[s0:s0 + chunk], inv[s0:s0 + chunk]
+        n_c = m.shape[0]
+        r = int(min(MAX_WINDOW_PX,
+                    max(1.0, float(torch.ceil(WINDOW_SIGMAS * sig_max[s0:s0 + chunk].max())))))
+        offs = torch.arange(-r, r + 1, device=dev, dtype=torch.float32)
+        oy, ox = torch.meshgrid(offs, offs, indexing="ij")
+        offsets = torch.stack([ox.reshape(-1), oy.reshape(-1)], 1)      # [Wn, 2]
+        pix = torch.round(m)[:, None, :] + offsets[None, :, :]          # [c, Wn, 2]
+        dlt = pix - m[:, None, :]
+        power = -0.5 * torch.einsum("cwi,cij,cwj->cw", dlt, iv, dlt)
+        alpha_w = (opacity[s0:s0 + chunk, None] * torch.exp(power)).clamp(max=ALPHA_MAX)
+        col = (pix[..., 0] - x0).long()
+        row = (pix[..., 1] - y0).long()
+        inside = (col >= 0) & (col < w) & (row >= 0) & (row < h) & (alpha_w >= ALPHA_CUT)
+        gidx = (torch.arange(n_c, device=dev) + s0)[:, None].expand(-1, offsets.shape[0])
+        pix_l.append((row * w + col)[inside])
+        g_l.append(gidx[inside])
+        alpha_l.append(alpha_w[inside])
     bg = (background.to(dev, torch.float32) if torch.is_tensor(background)
           else torch.as_tensor(np.asarray(background, np.float32), device=dev))
-    bg = bg.reshape(-1, 3) if bg.ndim == 3 else bg[None, :]
-    out = C + T[:, None] * bg
+    bg = bg.reshape(-1, 3) if bg.ndim == 3 else bg[None, :].expand(n_px, 3)
+    if not pix_l or sum(int(t_.numel()) for t_ in pix_l) == 0:
+        return bg.reshape(h, w, 3).clone()
+    pidx = torch.cat(pix_l)
+    gidx = torch.cat(g_l)
+    alpha = torch.cat(alpha_l)
+
+    # Sort by pixel, then depth (gidx is already the depth rank).
+    key = pidx * n_g + gidx
+    order = torch.argsort(key)
+    pidx, gidx, alpha = pidx[order], gidx[order], alpha[order]
+    log_t = torch.log1p(-alpha)                                          # log(1 - a)
+    cs = torch.cumsum(log_t, 0)
+    excl = cs - log_t                                                    # exclusive
+    _vals, counts = torch.unique_consecutive(pidx, return_counts=True)
+    starts = torch.cumsum(counts, 0) - counts
+    seg_start = torch.repeat_interleave(starts, counts)
+    t_prev = torch.exp(excl - excl[seg_start])                          # transmittance before
+    contrib = (t_prev * alpha)[:, None] * colour[gidx]
+    C = torch.zeros(n_px, 3, device=dev).index_add(0, pidx, contrib)
+    log_T = torch.zeros(n_px, device=dev).index_add(0, pidx, log_t)
+    out = C + torch.exp(log_T)[:, None] * bg
     return out.reshape(h, w, 3)
