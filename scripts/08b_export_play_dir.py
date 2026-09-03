@@ -162,6 +162,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path, required=True, help="play-dir to write")
     ap.add_argument("--model", default="yolov8m.pt")
     ap.add_argument("--fps", type=float, default=59.94)
+    ap.add_argument("--device", default="cuda:0", help="YOLO device; 'cpu' when the GPU is off limits")
     args = ap.parse_args()
 
     from ultralytics import YOLO
@@ -174,8 +175,8 @@ def main() -> None:
     print(f"cameras: sideline {len(cams_s)} solved frames, endzone {len(cams_e)}")
 
     model = YOLO(args.model)
-    det_s, (w_s, h_s, n_s) = detect_all_frames(model, args.root / args.sideline)
-    det_e, (w_e, h_e, n_e) = detect_all_frames(model, args.root / args.endzone)
+    det_s, (w_s, h_s, n_s) = detect_all_frames(model, args.root / args.sideline, device=args.device)
+    det_e, (w_e, h_e, n_e) = detect_all_frames(model, args.root / args.endzone, device=args.device)
     n = min(n_s, n_e)
     print(f"detections: sideline {len(det_s)} frames, endzone {len(det_e)} frames, "
           f"{n} frames in common")
