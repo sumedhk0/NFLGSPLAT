@@ -61,7 +61,7 @@ def test_build_timeline_gives_every_player_a_body_every_frame():
     ground = {f: {1: np.array([f * 0.1, 1.0]), 2: np.array([0.0, 6.0 + f * 0.05])} for f in frames}
     for f in range(20, 25):                      # player 2 undetected briefly
         del ground[f][2]
-    tipped = (Rotation.from_euler("x", 60, degrees=True) *
+    tipped = (Rotation.from_euler("x", 75, degrees=True) *              # past the two-view limit
               Rotation.from_rotvec(tl.upright_from_yaw(0.0))).as_rotvec()
     poses = {1: {0: (np.zeros((21, 3)), tl.upright_from_yaw(0.0), np.zeros(10), "fused"),
                  30: (np.ones((21, 3)) * 0.2, tipped, np.zeros(10), "fused")}}
