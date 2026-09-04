@@ -126,7 +126,8 @@ def main() -> None:
                     team_of.get(s.pid, ""))
         colour = fitted[owner]["colour"] if owner is not None else TEAM_RGB.get(team, BODY_RGB)
         if args.helmets:
-            verts, colour = hm.wear_helmet(verts, colour, head, hm.HELMET_RGB.get(team, hm.DEFAULT_HELMET_RGB))
+            shell = hm.HELMET_RGB.get(team, hm.DEFAULT_HELMET_RGB)
+            verts, colour = hm.wear_helmet(verts, colour, head, shell)
         return mesh_to_gaussians(verts, faces, colour=colour)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

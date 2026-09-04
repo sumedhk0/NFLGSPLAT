@@ -100,33 +100,52 @@ under numpy 1** — the pose caches (`poses_*.json` are pickles) must be written
 in smplx312. `08c --cpu` still opens a CUDA context: treat 08, 08c, 08d and
 05c as GPU stages.
 
-## Current state (2026-09-03)
+## Current state (2026-09-04)
 
-Two plays of BAL@KC 2024 wk1 run end to end unattended:
-`data/all22/bal_at_kc_2024_wk1/play_001` = `001_Sideline_KC_2-20_BLT_24` +
-`002_Endzone_KC_2-20_BLT_24` (KC 2nd-and-20 at the BAL 24); `play_002` =
-`004_Sideline_KC_3-9_BLT_13` + `003_Endzone_KC_3-9_BLT_13`. The clip numbers
-pair by PLAY DESCRIPTION, not by number.
+Two plays of BAL@KC 2024 wk1 run end to end unattended through
+`scripts/pipeline_play.sh`: `data/all22/bal_at_kc_2024_wk1/play_001` =
+`001_Sideline_KC_2-20_BLT_24` + `002_Endzone_KC_2-20_BLT_24` (KC 2nd-and-20
+at the BAL 24); `play_002` = `004_Sideline_KC_3-9_BLT_13` +
+`003_Endzone_KC_3-9_BLT_13`. The clip numbers pair by PLAY DESCRIPTION, not
+by number. Play 3 (`010_Sideline_BLT_1-10_BLT_30`) fails the sideline paint
+gates (players 2.8 m) and is parked.
 
-Measured, per play: sideline from paint (12 deg lens, ~100 m out, 50 m up);
-endzone reconciles 12–15 of ~20 players per frame at 0.6–0.9 m; heights
-1.85 m both views; 5-yard shift −32.0 m / −41.15 m, formation lands at
-23.3 / 14.1 yd from the goal line against the descriptions' 24 / 13; fused
-pose shape agrees between views to 0.19 / 0.16 m; refit rms 0.036 / 0.040 m.
+Calibration, measured per play: sideline from paint with the rulebook
+constants (hash tick centre 3.1242 m, numeral centre 12.50 m) reads both
+rulers at 1.00; three judges pick the sideline candidate (rulers agree,
+players 1.55–2.15 m, grid-on-paint ≤ 25 px); per-frame refinement to paint
+(08e) takes play 1's grid from 9.5 to 5.4 px and play 2's from 12.7 to 9.0;
+5-yard shift lands the formation at 23.3 / 14.1 yd from the goal line
+against the descriptions' 24 / 13 (LOS check from the filename, with a LATE
+guard when tracks start after frame 120). Endzone side of play 1 had been
+mirrored; fixed.
 
-**In flight when the GPU went off (2026-09-02 23:00):** play 1 rebuilt with the
-endzone on the correct side (it had been MIRRORED: feet reconcile equally from
-either end; numerals and the frame — KC backs toward the camera — settled it),
-markers through `pose_e`; resumes at identity. Play 2 not rebuilt yet.
+Fidelity rework (user: "players falling over, not every player visible,
+not smooth"): `render/timeline.py` draws every detected player every
+frame (26–27 bodies/frame; 22 play, two deep officials, ~2 cross-camera
+ghosts), ground from both views' feet, poses fused → single-view → median
+stance facing velocity, per-joint SLERP, tilt clamp 35° (median tilt had
+been 39°), view-aware dedupe. `05k_render_hifi.py` renders 1920×1080 on the
+GPU at the source rate over the stride, ~6 s/frame, resumable.
 
-**Pending verification:** `HASH_OFFSET_M` changed 2.8194 → 3.1242 (the rulebook
-measures 70'9" to the inbound edge of a 2-ft tick, so the tick's centre is a
-foot farther out) and the numeral row 14.33 → 12.50 m (pre-2020 vs current
-rule). With the old constants the two rulers disagreed by 7% on both plays;
-with the new ones they agree that the paint solve's cross-field axis is ~10%
-short. Next: re-solve play 1's sideline from paint with the new constant and
-read both rulers through it (scratchpad `resolve_sideline_rulers.py`; GPU);
-if they read ~1.0, both plays get `--fresh --from-paint`.
+Appearance: `05i` fits per-vertex colours to the footage (sparse torch
+splatter, coverage-weighted loss, colour prior). v2 textures (60/106 and
+53/85 ids) still rendered khaki: at 140 px a limb is 3–5 px wide and its
+vertices sample turf-mixed pixels. v3 (commit ebd0355) drops samples within
+0.12 of the frame's turf colour before the median (turf-likeness 0.72–0.84
+→ 0.01 on the two bodies measured; held-out crop L1 gets slightly WORSE,
+the instrument rewarded the bleed). The v3 re-fit of both plays and the
+`render_hifi_v3` renders take ~5–6 h locally (2.5 min/body) and resume.
+
+`--helmets` (render.helmet) dresses the head vertices in the team's shell,
+default off until measured on a clip.
+
+Still open, in value order: identity/texture continuity across track
+breaks (stitching measured no better than none, see below); the two deep
+officials render as team players (stripe score and torso colour both
+measured non-discriminative; position at the snap is the remaining
+instrument, ~10 m behind the offence); ~2 cross-camera ghost bodies per
+frame; 25–34 default-posed states per play.
 
 ## What has been measured and rejected (do not re-propose without new evidence)
 
