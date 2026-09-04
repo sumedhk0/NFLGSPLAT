@@ -56,8 +56,29 @@ def texture_shape(res_m: float, extent) -> tuple[int, int]:
     return int(round((y_max - y_min) / res_m)), int(round((x_max - x_min) / res_m))
 
 
-def warp_frame(image, K, R, t, *, res_m: float, extent=None, min_px2: float = MIN_PX2):
-    """``(texture [H, W, 3] uint8, valid [H, W] bool)`` of one frame on the ground grid."""
+BOX_DILATE: float = 0.15      # a person box grown by this fraction before it is masked
+
+
+def people_mask(shape, boxes, *, dilate: float = BOX_DILATE) -> np.ndarray:
+    """``[H, W]`` bool, True inside any (dilated) person box. The median
+    over frames removes moving players; those who stand still before the
+    snap (the linemen, ~2 s) it does not, and left a smear of the
+    formation in the ground. Detected boxes are masked out of every
+    frame, so a texel only ever samples frames where nobody stood on it."""
+    m = np.zeros(shape[:2], bool)
+    h, w = shape[:2]
+    for x1, y1, x2, y2 in boxes:
+        bw, bh = (x2 - x1) * dilate, (y2 - y1) * dilate
+        xa, xb = int(max(0, np.floor(x1 - bw))), int(min(w, np.ceil(x2 + bw)))
+        ya, yb = int(max(0, np.floor(y1 - bh))), int(min(h, np.ceil(y2 + bh)))
+        if xb > xa and yb > ya:
+            m[ya:yb, xa:xb] = True
+    return m
+
+
+def warp_frame(image, K, R, t, *, res_m: float, extent=None, min_px2: float = MIN_PX2, boxes=None):
+    """``(texture [H, W, 3] uint8, valid [H, W] bool)`` of one frame on the
+    ground grid; texels under a person box in ``boxes`` are not valid."""
     import cv2
 
     extent = texture_extent() if extent is None else extent
@@ -74,6 +95,11 @@ def warp_frame(image, K, R, t, *, res_m: float, extent=None, min_px2: float = MI
         px2 = np.abs(np.linalg.det(M)) / np.abs(wgt) ** 3                # image area per texel
     ih, iw = img.shape[:2]
     valid = (wgt > 0) & (u >= 0) & (u <= iw - 1) & (v >= 0) & (v <= ih - 1) & (px2 >= min_px2)
+    if boxes is not None and len(boxes):
+        free = (~people_mask(img.shape, boxes)).astype(np.uint8)
+        free_w = cv2.warpPerspective(free, M, (w, h), flags=cv2.INTER_NEAREST | cv2.WARP_INVERSE_MAP,
+                                     borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        valid &= free_w.astype(bool)
     return warped, valid
 
 
@@ -132,10 +158,11 @@ def composite(procedural, footage, count, *, min_count: int = MIN_COUNT,
 
 
 def footage_texture(videos, tracks, *, res_m: float, stride: int = 4, extent=None,
-                    min_px2: float = MIN_PX2, min_count: int = MIN_COUNT):
+                    min_px2: float = MIN_PX2, min_count: int = MIN_COUNT, boxes=None):
     """Median ground texture over the play from ``{cam: video_path}`` and
-    ``{cam: CameraTrack}``. Returns ``(median, count)``; the texture is BGR
-    like procedural_field's, so the two composite and render alike."""
+    ``{cam: CameraTrack}``; ``boxes[cam][frame]`` (person boxes, pixels)
+    are masked out. Returns ``(median, count)``; the texture is BGR like
+    procedural_field's, so the two composite and render alike."""
     import cv2
 
     extent = texture_extent() if extent is None else extent
@@ -156,7 +183,9 @@ def footage_texture(videos, tracks, *, res_m: float, stride: int = 4, extent=Non
             intr, pose = tr.at(f)
             K = np.array([[intr.fx, 0, intr.cx], [0, intr.fy, intr.cy], [0, 0, 1.0]])
             # BGR, as procedural_field's texture: texture_to_gaussians flips once.
-            frames.append(warp_frame(bgr, K, pose.R, pose.t, res_m=res_m, extent=extent, min_px2=min_px2))
+            bx = boxes.get(cam, {}).get(f) if boxes else None
+            frames.append(warp_frame(bgr, K, pose.R, pose.t, res_m=res_m, extent=extent,
+                                     min_px2=min_px2, boxes=bx))
             used += 1
         cap.release()
         _LOG.info("footage texture: %s, %d frames warped (stride %d)", cam, used, stride)

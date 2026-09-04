@@ -53,8 +53,19 @@ def main() -> None:
         kw["min_count"] = args.min_count
     if args.min_px2 is not None:
         kw["min_px2"] = args.min_px2
+    boxes = None
+    if (P / "tracks.parquet").exists():
+        import pandas as pd
+
+        df = pd.read_parquet(P / "tracks.parquet")
+        boxes = {c: {int(f): g[["bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]].to_numpy().tolist()
+                     for f, g in dv.groupby("frame")}
+                 for c, dv in df.groupby("cam")}
+        print("person boxes masked out of the frames: "
+              + ", ".join(f"{c} {len(b)} frames" for c, b in boxes.items()))
     t0 = time.time()
-    median, count = ft.footage_texture(videos, tracks, res_m=args.res_m, stride=args.stride, **kw)
+    median, count = ft.footage_texture(videos, tracks, res_m=args.res_m, stride=args.stride,
+                                       boxes=boxes, **kw)
     turf, paint = ft.footage_colours(median, count, min_count=kw.get("min_count", ft.MIN_COUNT))
     # footage_colours are BGR (the texture's order); render_field_texture takes RGB.
     procedural = (render_field_texture(args.res_m, turf_rgb=turf[::-1], paint_rgb=paint[::-1])

@@ -77,3 +77,21 @@ def test_footage_colours_split_turf_from_paint():
     assert turf == (70, 130, 60) and paint == (230, 235, 230)
     assert ft.footage_colours(foot, np.zeros((40, 40), int), min_count=8) == (None, None)
 
+
+def test_person_boxes_are_not_sampled():
+    import cv2
+
+    res = 0.5
+    extent = texture_extent()
+    field = render_field_texture(res)
+    K, R, t = _camera()
+    M = ft.ground_homography(K, R, t) @ ft.texel_to_ground(res, extent)
+    image = cv2.warpPerspective(field, M, (640, 360), flags=cv2.INTER_LINEAR)
+    _tex, valid_all = ft.warp_frame(image, K, R, t, res_m=res, extent=extent)
+    box = (300.0, 150.0, 340.0, 250.0)                       # a person mid-frame
+    _tex, valid_box = ft.warp_frame(image, K, R, t, res_m=res, extent=extent, boxes=[box])
+    lost = valid_all & ~valid_box
+    assert 0 < lost.sum() < valid_all.sum()
+    mask = ft.people_mask((360, 640, 3), [box])
+    assert mask[200, 320] and not mask[50, 50]
+
