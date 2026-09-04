@@ -166,9 +166,10 @@ instrument, ~10 m behind the offence, and play 2's clip starts mid-play
 so it only helps play 1); cross-camera ghosts (measured 2026-09-04: a
 sideline-only and an endzone-only id that project into each other's
 boxes average 0.8/frame on play 1, 0.6 on play 2, before the timeline's
-dedupe -- scratchpad `ghost_crosscam.py`; a reprojection merge is the
-fix, worth about one body per frame); 25–34 default-posed states per
-play. `05k --follow` dollies the virtual camera with the play's smoothed
+dedupe -- scratchpad `ghost_crosscam.py`; a reprojection merge was built
+(de1e2c8) and measured: every pair it finds already falls to the
+depth/across rule, bodies per frame and duplicates dropped unchanged on
+both plays, so it was reverted); 25–34 default-posed states per play. `05k --follow` dollies the virtual camera with the play's smoothed
 centroid (render.camera_path); judge on a clip before it goes in the
 pipeline.
 
