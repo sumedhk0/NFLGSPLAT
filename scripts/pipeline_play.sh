@@ -18,11 +18,16 @@
 #   identity  scripts/08c --week 1                                    -> identity_resolved.pkl
 #   fuse      scripts/05e                                             -> poses_fused.json
 #   refit     scripts/05f                                             -> poses_refit.json
-#   render    scripts/05d world mode                                  -> <play-dir>/render_abs/
+#   fit       scripts/05i (appearance fit, held-out L1 vs median)    -> <play-dir>/appearance/
+#   render    scripts/05d world mode, fitted appearance              -> <play-dir>/render_abs/
 #
 # Environments: nflgsplat for calibration/identity, smplx312 for pose/fuse/refit/render
 # (pickles written under numpy 2 do not load under numpy 1 -- keep it that way).
 set -u
+# A stage is a python run piped through grep for the log; without pipefail
+# the grep decided the stage's fate and a traceback that contained the
+# word "shift" passed the shift stage (play 2, 2026-09-03).
+set -o pipefail
 export PYTHONIOENCODING=utf-8 PYTHONPATH="C:/Users/sumedh/NFLGSPLAT"
 PYN="C:/venvs/nflgsplat/Scripts/python.exe"; PYS="C:/venvs/smplx312/Scripts/python.exe"
 cd "C:/Users/sumedh/NFLGSPLAT" || exit 1
@@ -51,7 +56,7 @@ fi
 if [ "$FROM_PAINT" = 1 ] && ! done_ paint; then
   log "paint solve (08)"
   "$PYN" scripts/08_reconstruct_all22.py --root "$ROOT" --sideline "$SIDE" --endzone "$END" --no-mirror-check \
-     --out "$P/recon.npz" 2>&1 | grep -v "Warning\|warn" | grep -E "candidate|gap  |reconciled  |player height|Error|Exit" || fail paint
+     --out "$P/recon.npz" 2>&1 | grep -v "Warning\|warn" | grep -E "candidate|rulers|pass the|gap  |reconciled  |player height|Error|Exit|refus" || fail paint
   rm -f "$P/.done_export" "$P/.done_shift" "$P/.done_endzone"
   mark paint
 fi
@@ -84,8 +89,10 @@ fi
 
 if ! done_ check; then
   log "rulers + line of scrimmage (08d)"
-  "$PYN" scripts/08d_field_offset.py --play-dir "$P" --los-yards "$LOS" \
-     2>&1 | grep -v "Warning\|warn" | grep -E "by ruler|agree|DISAGREE|shift|scrimmage" || fail check
+  out="$("$PYN" scripts/08d_field_offset.py --play-dir "$P" --los-yards "$LOS" 2>&1)" || { echo "$out" | tail -3; fail check; }
+  echo "$out" | grep -E "by ruler|agree|DISAGREE|shift|scrimmage"
+  echo "$out" | grep -q "DISAGREE" && fail "check: the hash and numeral rulers disagree on this calibration"
+  echo "$out" | grep -q "MISMATCH" && fail "check: the formation is not at the play description's line of scrimmage"
   mark check
 fi
 
@@ -123,10 +130,18 @@ if ! done_ refit; then
   mark refit
 fi
 
+if ! done_ fit; then
+  log "appearance fit to the footage (05i; held-out L1 against the median texture)"
+  "$PYS" scripts/05i_fit_appearance.py --play-dir "$P" --poses "$P/poses_refit.json" --out-dir "$P/appearance" \
+     2>&1 | grep -v "Warning\|warn\|nanmedian\|med = " | grep -E "bodies|gain|saved|Error" || fail fit
+  mark fit
+fi
+
 if ! done_ render; then
-  log "render, world mode (05d)"
+  log "render, world mode with the fitted appearance (05d)"
   "$PYS" scripts/05d_render_play.py --play-dir "$P" --poses "$P/poses_refit.json" --identity "$P/identity_resolved.pkl" \
-     --out-dir "$P/render_abs" 2>&1 | grep -v "Warning\|shape fit\|lb (beta" | grep -E "camera fixed|wrote|tracks survive" || fail render
+     --fitted-appearance "$P/appearance" \
+     --out-dir "$P/render_abs" 2>&1 | grep -v "Warning\|shape fit\|lb (beta" | grep -E "camera fixed|wrote|tracks survive|fitted appearance" || fail render
   mark render
 fi
 
