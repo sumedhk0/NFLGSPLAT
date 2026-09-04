@@ -53,6 +53,11 @@ class FitConfig:
     # prior keeps every vertex near its starting colour.
     coverage_power: float = 2.0
     colour_prior: float = 0.02
+    # A target pixel within this distance (RGB, 0..1) of the frame's turf
+    # colour is turf or a turf-mixed silhouette, not the body: it gets no
+    # weight. Measured without it (80 iters): bodies that started at
+    # turf-likeness 0.02 ended at 0.24-0.37 -- the crop L1 rewards bleed.
+    turf_dist: float = 0.12
 
 
 @dataclass
@@ -116,6 +121,15 @@ def mesh_edges(faces) -> np.ndarray:
     return np.unique(e, axis=0)
 
 
+def turf_pixel_weight(target, turf, dist: float):
+    """``[h, w]`` 1 where a target pixel is farther than ``dist`` from the
+    turf colour, else 0; ``dist <= 0`` weights every pixel."""
+    if dist <= 0:
+        return torch.ones(target.shape[:2], device=target.device)
+    turf_t = torch.as_tensor(np.asarray(turf, np.float32), device=target.device)
+    return ((target - turf_t).norm(dim=-1) > dist).to(target.dtype)
+
+
 def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
     """Fit the body's appearance to ``obs``; returns ``(BodyAppearance, history)``."""
     cfg = cfg or FitConfig()
@@ -130,10 +144,12 @@ def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
         batch = mesh_to_gaussians(np.asarray(ob.vertices, float), faces)
         base = st.SceneParams.from_batch(batch, device=dev)
         x0, y0, w, h = crop_for(ob, margin_px=cfg.margin_px)
-        target = torch.as_tensor(_image01(ob.image)[y0:y0 + h, x0:x0 + w], device=dev)
+        image01 = _image01(ob.image)
+        target = torch.as_tensor(image01[y0:y0 + h, x0:x0 + w], device=dev)
+        turf = np.median(image01[::16, ::16].reshape(-1, 3), axis=0)
         frames.append((base, (x0, y0, w, h), target,
                        torch.as_tensor(np.asarray(ob.K, np.float32), device=dev),
-                       ob.R, ob.t))
+                       ob.R, ob.t, turf_pixel_weight(target, turf, cfg.turf_dist)))
     log_scale_mult = torch.zeros(n_v, device=dev, requires_grad=True)
     opacity_logit = frames[0][0].opacity_logit.clone().requires_grad_(True)
     shift = torch.zeros(len(frames), 2, device=dev, requires_grad=cfg.translation)
@@ -151,7 +167,7 @@ def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
         # One frame's graph at a time: summing every render into one loss kept
         # tens of GB alive for backward (54 GB on a 60-frame body). Gradients
         # accumulate across frames; one optimiser step per iteration.
-        for fi, (base, crop, target, K, R, t) in enumerate(frames):
+        for fi, (base, crop, target, K, R, t, not_turf) in enumerate(frames):
             scene = st.SceneParams(xyz=base.xyz, rot=base.rot, log_scale=base.log_scale,
                                    colour=colour, log_scale_mult=log_scale_mult,
                                    opacity_logit=opacity_logit, sh_k=base.sh_k)
@@ -163,7 +179,7 @@ def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
                                return_transmittance=True)
             if not img.requires_grad:                # no Gaussian touched this crop
                 continue
-            weight = (1.0 - T.detach()).clamp(0, 1) ** cfg.coverage_power
+            weight = (1.0 - T.detach()).clamp(0, 1) ** cfg.coverage_power * not_turf
             part = ((img - target).abs().mean(-1) * weight).sum() / (weight.sum() + 1e-6) / n_f
             part.backward()
             total += part.item()

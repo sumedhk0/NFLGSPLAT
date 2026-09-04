@@ -103,3 +103,14 @@ def test_seen_vertices_and_crop_are_sane():
     assert 0 <= x0 < x0 + w <= W and 0 <= y0 < y0 + h <= H and w > 10 and h > 10
     seen = fa.seen_vertices(faces, [ob])
     assert 0.3 < seen.mean() < 0.8            # one camera sees about half a sphere
+
+
+def test_turf_pixels_get_no_weight():
+    import torch
+
+    target = torch.tensor([[[0.30, 0.55, 0.25], [0.95, 0.95, 0.95]],
+                           [[0.35, 0.52, 0.28], [0.85, 0.10, 0.15]]])
+    w = fa.turf_pixel_weight(target, (0.30, 0.55, 0.25), 0.12)
+    assert w.tolist() == [[0.0, 1.0], [0.0, 1.0]]
+    assert fa.turf_pixel_weight(target, (0.30, 0.55, 0.25), 0.0).sum().item() == 4.0
+
