@@ -37,7 +37,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from nfl_gsplat.calibration.field_landmarks import (GOAL_LINE_X_M,
+from nfl_gsplat.calibration.field_landmarks import (GOAL_LINE_X_M, HALF_LENGTH_M,
                                                     HALF_WIDTH_M,
                                                     NUMBER_BOTTOM_Y_M,
                                                     NUMBER_TOP_Y_M,
@@ -92,11 +92,19 @@ def number_row_y() -> float:
     return 0.5 * (NUMBER_BOTTOM_Y_M + NUMBER_TOP_Y_M)
 
 
+# Strips are read one line past each goal line as well: the solved frame
+# can be off by whole lines, and then the numeral that would settle the
+# shift sits where the solver believes the goal line is (play 2: the "20"
+# at +45.5 m was never read, and the "10"s alone back both ends).
+LINES_PAST_GOAL: int = 1
+
+
 def yard_line_xs():
-    """x of every 5-yard line between the goal lines, solved-frame units
-    assumed equal to metres (calibration is metric)."""
+    """x of every 5-yard line from ``LINES_PAST_GOAL`` lines outside one goal
+    line to the same past the other, solved-frame units assumed equal to
+    metres (calibration is metric)."""
     n = int(round(2 * GOAL_LINE_X_M / YARD_LINE_SPACING_M))
-    return -GOAL_LINE_X_M + YARD_LINE_SPACING_M * np.arange(1, n)
+    return -GOAL_LINE_X_M + YARD_LINE_SPACING_M * np.arange(-LINES_PAST_GOAL, n + LINES_PAST_GOAL + 1)
 
 
 def numeral_at(x_abs_m: float) -> int | None:
@@ -293,6 +301,16 @@ def _snap(s: float) -> float | None:
 
 
 WEAK_WEIGHT: float = 0.25
+ROW_TOL_M: float = 2.5          # a numeral's centre is this close to its row
+
+
+def on_row_known(r: Reading) -> bool:
+    return r.y_m is not None and np.isfinite(r.y_m)
+
+
+def on_row(r: Reading) -> bool:
+    """Is the reading's centre on one of the two numeral rows?"""
+    return abs(abs(float(r.y_m)) - number_row_y()) <= ROW_TOL_M
 
 
 def solve_transform(readings: list[Reading], *, lines_x=None,
@@ -301,15 +319,37 @@ def solve_transform(readings: list[Reading], *, lines_x=None,
 
     A reading votes with its confidence, a weak one (a lone '1', as likely
     the arrow) with a quarter of it. A candidate that would push any line
-    in ``lines_x`` (the yard lines seen, default the read ones) past a goal
-    line is impossible and is not voted for -- which often settles a single
-    numeral's two halves. Ambiguous means the winner has no clear margin
-    over the runner-up; a lone weak reading cannot settle anything.
+    in ``lines_x`` past the END line is impossible and is not voted for --
+    which settles a single numeral's two halves when the caller knows the
+    yard lines in view. ``lines_x`` must be PHYSICAL lines, never the read
+    numerals' positions: a misread numeral on a far line would veto the
+    truth (play 2: one "40" read at x = 0 in a zoomed-out frame vetoed the
+    80-yard shift every other reading pointed to). Readings contradict
+    the candidates they do not vote for through the net score instead.
+    The bound is the end line, not the goal line: the end zone's far edge
+    is painted like a yard line.
+
+    Every numeral sits at both ends of the field, so a "10" backs two
+    shifts equally and that shared support says nothing. The margin is
+    therefore on the NET score, support minus the weight of the readings
+    that contradict the candidate: the winner must clear ``win_margin``
+    times the runner-up's net. A lone reading is ambiguous (both ends
+    net the same). Weak readings add to the reported support but never
+    to the decision: only strong readings are netted, so a weak one
+    cannot settle a strong reading's two halves.
     """
     votes: Counter = Counter()
-    xs = list(lines_x) if lines_x is not None else [r.x_m for r in readings]
+    strong: Counter = Counter()
+    # A numeral sits on a numeral row. A reading off the rows (the end-zone
+    # lettering, a zoomed-out frame's junk) is not one, and it must not vote
+    # or veto: play 2's late frames read "40" at y +22 m on a line 87 m
+    # from midfield under the true shift, and vetoed it.
+    readings = [r for r in readings if not on_row_known(r) or on_row(r)]
+    xs = list(lines_x) if lines_x is not None else []
+    total_strong = 0.0
     for r in readings:
         w = r.conf * (WEAK_WEIGHT if r.weak else 1.0)
+        voted = False
         for sign in (-1.0, 1.0):
             x_abs = sign * (50 - r.numeral) * YARD_TO_M
             if r.numeral == 50 and sign > 0:
@@ -317,18 +357,32 @@ def solve_transform(readings: list[Reading], *, lines_x=None,
             s = _snap(x_abs - r.x_m)
             if s is None:
                 continue
-            if max(abs(x + s) for x in xs) > GOAL_LINE_X_M + 0.5:
-                continue                            # a read line beyond the goal line
+            if xs and max(abs(x + s) for x in xs) > HALF_LENGTH_M + 0.5:
+                continue                            # a read line beyond the end line
             votes[s] += w
-    if not votes:
+            if not r.weak:
+                strong[s] += w
+            voted = True
+        if voted and not r.weak:
+            total_strong += w
+    if not strong:
         return None
-    ranked = votes.most_common(2)
-    s, top = ranked[0]
-    second = ranked[1][1] if len(ranked) > 1 else 0.0
-    if second > 0 and top < win_margin * second:
-        _LOG.info("yard numbers: ambiguous, %.2f vs %.2f votes", top, second)
+    net = {s: 2.0 * v - total_strong for s, v in strong.items()}
+    ranked = sorted(net.items(), key=lambda kv: (-kv[1], -votes[kv[0]]))
+    _LOG.info("yard numbers: %d readings on the rows; candidates " + ", ".join(
+        f"{s / YARD_LINE_SPACING_M:+.0f} lines: support {votes[s]:.1f}, net {n:.1f}" for s, n in ranked),
+        len(readings))
+    s, top_net = ranked[0]
+    second_net = ranked[1][1] if len(ranked) > 1 else 0.0
+    if second_net > 0 and top_net < win_margin * second_net:
+        _LOG.info("yard numbers: ambiguous, net %.2f vs %.2f (support %.2f vs %.2f)",
+                  top_net, second_net, votes[s], votes[ranked[1][0]])
         return None
-    return FieldTransform(False, float(s), float(top), float(second), len(readings))
+    if second_net <= 0 and top_net <= 0:
+        _LOG.info("yard numbers: ambiguous, no candidate nets above zero")
+        return None
+    second = votes[ranked[1][0]] if len(ranked) > 1 else 0.0
+    return FieldTransform(False, float(s), float(votes[s]), float(second), len(readings))
 
 
 def transform_camera(R, t, tf: FieldTransform):

@@ -197,7 +197,10 @@ def main() -> None:
     row_fit = None
     agree = True
     sound = True
-    lines_seen = sorted({r.x_m for rs in numerals.values() for r in rs})
+    # No veto lines: the reader's numeral positions are readings, not
+    # physical lines, and one misread on a far line would veto the truth
+    # (play 2). Readings contradict through the vote's net score.
+    lines_seen = None
     if args.rows:
         ys0, yt0, rl0 = row_readings(numerals, hashes)
         row_fit = rr.fit_rows(ys0, yt0, rulers=rl0)

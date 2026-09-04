@@ -212,3 +212,46 @@ def test_apply_points_turn_keeps_z():
     out = tf.apply_points(np.array([[2.0, 3.0, 4.0]]))
     assert np.allclose(out, [[-1.0, -3.0, 4.0]])
 
+
+def test_end_line_does_not_veto_the_far_end():
+    # Play 2 as calibrated: goal line at +27.3 m, end line at +18.2, "10" at
+    # +36.4 and "20" at +45.5 (numbers increasing outward). The true frame
+    # has these at the LEFT end: shift -73.15 m (16 lines). The end line, read
+    # as a yard line, must not veto it; the "10"s back both ends, the "20"s
+    # settle it.
+    tens = [yn.Reading(x_m=36.4, side=s, numeral=10, conf=1.0, turned=False) for s in (-1, 1)]
+    twenty = yn.Reading(x_m=45.5, side=1, numeral=20, conf=0.8, turned=False)
+    lines = [18.2, 27.3] + [27.3 + k * YARD_LINE_SPACING_M for k in range(1, 6)]
+    tf = yn.solve_transform(tens + [twenty], lines_x=lines)
+    assert tf is not None and abs(tf.shift_m + 16 * YARD_LINE_SPACING_M) < 1e-6, tf
+
+
+def test_shared_support_is_not_a_margin():
+    # A lone "10" backs both ends equally: ambiguous, whatever its confidence.
+    r = yn.Reading(x_m=36.4, side=1, numeral=10, conf=1.0, turned=False)
+    assert yn.solve_transform([r]) is None
+
+
+def test_yard_line_xs_reach_one_line_past_the_goal_lines():
+    xs = yn.yard_line_xs()
+    assert np.isclose(xs.min(), -yn.GOAL_LINE_X_M - YARD_LINE_SPACING_M)
+    assert np.isclose(xs.max(), yn.GOAL_LINE_X_M + YARD_LINE_SPACING_M)
+    assert np.allclose(np.diff(xs), YARD_LINE_SPACING_M)
+
+
+def test_off_row_readings_neither_vote_nor_veto():
+    # Play 2 after the strips reached the goal line: "10"s on +40 yd and
+    # "20"s on +50 yd (true shift -73.15 m), plus a zoomed-out frame's "40"
+    # at y +22 on -15 yd, which under the true shift is 87 m from midfield
+    # and used to veto it.
+    row = yn.number_row_y()
+    tens = [yn.Reading(x_m=36.58, side=s, numeral=10, conf=1.0, turned=False, y_m=s * row)
+            for s in (-1, 1)] * 3
+    twenties = [yn.Reading(x_m=45.72, side=1, numeral=20, conf=0.9, turned=False, y_m=row)] * 2
+    junk = yn.Reading(x_m=-13.7, side=1, numeral=40, conf=0.9, turned=False, y_m=22.4)
+    lines = sorted({r.x_m for r in tens + twenties})            # as 08d passes them: on-row only
+    tf = yn.solve_transform(tens + twenties + [junk], lines_x=lines)
+    assert tf is not None and abs(tf.shift_m + 16 * YARD_LINE_SPACING_M) < 1e-6, tf
+    # Without the "20"s the "10"s back both ends: ambiguous.
+    assert yn.solve_transform(tens, lines_x=lines) is None
+
