@@ -70,3 +70,67 @@ def test_number_lands_on_the_jersey_back_and_front():
     ink = un.number_raster(88)
     assert 0.1 < ink.mean() < 0.6
 
+
+def test_decal_pins_ink_to_the_torso_surface():
+    # A flat torso slab: two quads (front z=+0.1, back z=-0.1) over the number window.
+    xs = np.linspace(-0.2, 0.2, 9)
+    ys = np.linspace(-0.4, 0.1, 11)
+    gx, gy = np.meshgrid(xs, ys)
+    front = np.stack([gx.ravel(), gy.ravel(), np.full(gx.size, 0.1)], 1)
+    back = np.stack([gx.ravel(), gy.ravel(), np.full(gx.size, -0.1)], 1)
+    n = len(front)
+    faces = []
+    for i in range(10):
+        for j in range(8):
+            a = i * 9 + j
+            faces += [[a, a + 1, a + 9], [a + 1, a + 10, a + 9]]
+    faces = np.array(faces)
+    faces_all = np.vstack([faces, faces + n])
+    vt = np.vstack([front, back])
+    J = np.zeros((55, 3))
+    J[un.NECK_JOINT] = (0.0, 0.11, 0.0)
+    J[un.PELVIS_JOINT] = (0.0, -0.35, 0.0)
+    masks = {k: np.zeros(len(vt), bool)
+             for k in ("helmet", "jersey", "skin", "gloves", "pants", "socks", "shoes")}
+    masks["jersey"][:] = True
+    decal = un.number_decal(vt, J, faces_all, masks, 76)
+    assert decal.n_back > 100 and len(decal.faces) - decal.n_back > 100      # both sides carry ink
+    xyz, nrm = un.decal_points(decal, vt, faces_all, lift_m=0.0)
+    assert np.allclose(np.abs(xyz[:, 2]), 0.1, atol=1e-6)                   # on the slab surfaces
+    assert (np.abs(xyz[:, 0]) <= un.NUMBER_HALF_WIDTH_M + 1e-6).all()
+    batch = un.decal_gaussians(decal, vt, faces_all, (1.0, 1.0, 1.0))
+    assert batch.num_gaussians == len(decal.faces)
+
+
+def test_digits_read_from_outside_the_body():
+    # A "4": below the crossbar only the stem remains, on the reader's right.
+    # Facing the front, the reader's right is the body's +x; behind it, -x.
+    xs = np.linspace(-0.2, 0.2, 9)
+    ys = np.linspace(-0.4, 0.1, 11)
+    gx, gy = np.meshgrid(xs, ys)
+    front = np.stack([gx.ravel(), gy.ravel(), np.full(gx.size, 0.1)], 1)
+    back = np.stack([gx.ravel(), gy.ravel(), np.full(gx.size, -0.1)], 1)
+    n = len(front)
+    faces = []
+    for i in range(10):
+        for j in range(8):
+            a = i * 9 + j
+            faces += [[a, a + 1, a + 9], [a + 1, a + 10, a + 9]]
+    faces = np.array(faces)
+    faces_all = np.vstack([faces, faces + n])
+    vt = np.vstack([front, back])
+    J = np.zeros((55, 3))
+    J[un.NECK_JOINT] = (0.0, 0.11, 0.0)
+    J[un.PELVIS_JOINT] = (0.0, -0.35, 0.0)
+    masks = {k: np.zeros(len(vt), bool)
+             for k in ("helmet", "jersey", "skin", "gloves", "pants", "socks", "shoes")}
+    masks["jersey"][:] = True
+    decal = un.number_decal(vt, J, faces_all, masks, 4)
+    xyz, _ = un.decal_points(decal, vt, faces_all, lift_m=0.0)
+    top = J[un.NECK_JOINT, 1] - un.NUMBER_TOP_M
+    lower = xyz[:, 1] < top - 0.75 * un.NUMBER_HEIGHT_M              # below the crossbar: the stem
+    back_pts = np.zeros(len(xyz), bool)
+    back_pts[: decal.n_back] = True
+    assert xyz[lower & ~back_pts, 0].mean() > 0.005                    # front: stem right of centre (+x)
+    assert xyz[lower & back_pts, 0].mean() < -0.005                    # back: stem at -x
+

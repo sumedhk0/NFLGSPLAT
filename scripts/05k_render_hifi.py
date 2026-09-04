@@ -181,7 +181,8 @@ def main() -> None:
     head = hm.head_mask(v_t, j_t)
     pads = hm.pads_mask(v_t, j_t)
     kit_colours: dict[str, np.ndarray] = {}
-    numbered: dict[int, np.ndarray] = {}
+    numbered: dict[int, int] = {}
+    decal_of: dict[int, tuple] = {}              # pid -> (Decal, number colour)
     if args.uniforms:
         masks = un.regions(v_t, j_t)
         kit_colours = {team: un.dress(masks, kit) for team, kit in un.KITS.items()}
@@ -193,12 +194,16 @@ def main() -> None:
                  if getattr(p, "player", None) and not str(p.player).startswith("P")
                  and getattr(p, "team", None) in un.KITS}
         claims = collections.Counter((p.team, p.jersey) for p in named.values())
+        decal_cache: dict[int, object] = {}
         for pid, p in named.items():
             if not args.numbers:
                 break
             if claims[(p.team, p.jersey)] == 1 and p.jersey is not None and 0 <= int(p.jersey) <= 99:
-                numbered[pid] = un.paint_number(kit_colours[p.team], v_t, j_t, masks, int(p.jersey),
-                                                un.KITS[p.team].number)
+                num = int(p.jersey)
+                if num not in decal_cache:
+                    decal_cache[num] = un.number_decal(v_t, j_t, faces, masks, num)
+                decal_of[pid] = (decal_cache[num], un.KITS[p.team].number)
+                numbered[pid] = pid                                   # counted below
         print("uniforms: " + ", ".join(f"{t or 'unknown'} kit" for t in kit_colours)
               + f"; numbers on {len(numbered)} sure ids of {len(named)} named")
 
@@ -213,7 +218,7 @@ def main() -> None:
         team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
                     team_of.get(s.pid, ""))
         if args.uniforms:
-            colour = numbered.get(s.pid, kit_colours.get(team, kit_colours[""]))
+            colour = kit_colours.get(team, kit_colours[""])
         elif owner is not None:
             colour = fitted[owner]["colour"]
         else:
@@ -223,7 +228,13 @@ def main() -> None:
         if args.helmets:
             shell = hm.HELMET_RGB.get(team, hm.DEFAULT_HELMET_RGB)
             verts, colour = hm.wear_helmet(verts, colour, head, shell)
-        return tune(mesh_to_gaussians(verts, faces, colour=colour))
+        body = tune(mesh_to_gaussians(verts, faces, colour=colour))
+        if args.uniforms and s.pid in decal_of:
+            decal, num_rgb = decal_of[s.pid]
+            dec = un.decal_gaussians(decal, verts, faces, num_rgb)
+            if dec is not None:
+                return merge([body, dec])
+        return body
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
