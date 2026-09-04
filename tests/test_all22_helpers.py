@@ -31,3 +31,19 @@ def test_sideline_candidate_from_track_uses_only_solved_frames(tmp_path):
     assert np.allclose(cand["centre"], [0.0, -100.0, 50.0], atol=1e-6)
     assert cand["quality"]["player_cost"] == 0.0
     assert abs(cand["quality"]["fov_deg"] - recon.fov_deg(K, 1920)) < 1e-9
+
+
+def test_select_by_rulers_keeps_agreeing_near_unit_scales_best_first():
+    nan = float("nan")
+    scales = [
+        (1.148, {"hashes": 1.001, "numerals": 1.185}, 25),   # rulers disagree 18%
+        (1.046, {"hashes": 1.000, "numerals": 1.052}, 27),   # the right camera
+        (1.226, {"hashes": 3.019, "numerals": 1.255}, 16),   # nonsense
+        (0.985, {"hashes": 0.99, "numerals": 0.98}, 20),     # also fine, closer to 1
+        (nan, {}, 0),                                        # nothing read
+        (1.02, {"numerals": 1.02}, 6),                       # one ruler, in range
+        (1.6, {"numerals": 1.6}, 6),                         # one ruler, out of range
+    ]
+    assert recon.select_by_rulers(scales) == [3, 5, 1]
+    assert recon.select_by_rulers(scales[:1]) == []
+

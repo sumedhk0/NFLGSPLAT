@@ -155,6 +155,72 @@ MIRROR_READ_FACTOR = 1.5
 MIRROR_READ_EXTRA = 2
 
 
+# The two paint rulers must agree on a sideline candidate's cross-field scale
+# this well, and the scale must be this close to 1, for the candidate to go
+# on to an endzone solve. Play 2 (fresh, corrected hash constant): candidate
+# [1] read hashes 1.000 / numerals 1.052 and was the right camera; candidate
+# [2] read 3.02 / 1.26, a 23-degree lens 55 m from the field, and WON the
+# endzone-reconciliation ranking (14 per frame at 0.97 m). Feet from two
+# views do not veto a wrong sideline; the rows on the turf do.
+RULER_AGREE = 0.10
+RULER_SCALE = (0.80, 1.25)
+
+
+def ruler_scales(video_path, cams, frames, *, reader=None):
+    """``(scale, by_ruler, n_readings)`` of the hash and numeral rows read
+    through ``cams`` on ``frames``; ``by_ruler`` maps ruler -> its scale."""
+    import cv2
+
+    from nfl_gsplat.calibration import row_ruler as rr
+    from nfl_gsplat.field import yard_numbers as yn
+
+    if reader is None:
+        import easyocr
+        reader = easyocr.Reader(["en"], gpu=True, verbose=False)
+    cap = cv2.VideoCapture(str(video_path))
+    ys, yt, rl = [], [], []
+    for f in frames:
+        f = min(cams, key=lambda k: abs(k - f))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(f))
+        ok, img = cap.read()
+        if not ok:
+            continue
+        K, Rm, t = cams[f]
+        for r in yn.read_line_strips(img, K, Rm, t, reader):
+            if getattr(r, "weak", False):
+                continue
+            ys.append(r.y_m)
+            yt.append(r.side * rr.ROW_Y_M)
+            rl.append("numerals")
+        for y, side in rr.measure_hash_rows(img, K, Rm, t):
+            ys.append(y)
+            yt.append(side * rr.HASH_Y_M)
+            rl.append("hashes")
+    cap.release()
+    if len(ys) < 4:
+        return float("nan"), {}, len(ys)
+    fit = rr.fit_rows(ys, yt, rulers=rl)
+    return float(fit.scale), dict(fit.by_ruler or {}), len(ys)
+
+
+def select_by_rulers(scales, *, agree=RULER_AGREE, scale_range=RULER_SCALE):
+    """Indices of candidates whose two rulers agree and whose scale is near 1,
+    best first (closest to 1). ``scales`` is ``[(scale, by_ruler, n)]``.
+    A candidate with only one ruler read is kept only if that ruler is in
+    range; one with none read is dropped."""
+    keep = []
+    for i, (scale, by, n) in enumerate(scales):
+        if not np.isfinite(scale) or n == 0:
+            continue
+        vals = [v for v in by.values() if np.isfinite(v)]
+        if len(vals) >= 2 and abs(vals[0] - vals[1]) > agree * max(vals):
+            continue
+        if not (scale_range[0] <= scale <= scale_range[1]):
+            continue
+        keep.append((abs(scale - 1.0), i))
+    return [i for _d, i in sorted(keep)]
+
+
 def frame_count(path):
     import cv2
 
@@ -188,6 +254,9 @@ def main() -> None:
                     help="play-dir whose cameras.npz sideline track is used as the one "
                          "sideline candidate (e.g. after scripts/08d refined it) instead "
                          "of solving from paint; the endzone is then solved against it")
+    ap.add_argument("--no-ruler-gate", action="store_true",
+                    help="skip reading the hash and numeral rows through each sideline "
+                         "candidate before the endzone solves")
     ap.add_argument("--no-mirror-check", action="store_true",
                     help="skip the second endzone solve at the mirrored mount and the "
                          "numeral read that decides which end the camera is behind")
@@ -227,6 +296,22 @@ def main() -> None:
             "on this clip.")
     cands = believed
     print(f"   {len(cands)} candidate cameras")
+
+    # The rows on the turf judge each candidate before any endzone solve.
+    if not args.no_ruler_gate and len(cands) > 1:
+        probe = [int(f) for f in np.linspace(0.2, 0.8, 5) * frame_count(side_path)]
+        scales = [ruler_scales(side_path, c["cams"], probe) for c in cands]
+        for i, (c, (sc, by, n)) in enumerate(zip(cands, scales)):
+            print(f"   [{i}] {np.round(c['centre'], 1)} {c['quality']['fov_deg']:.1f} deg: rulers "
+                  + ", ".join(f"{k} {v:.3f}" for k, v in by.items())
+                  + f" -> scale {sc:.3f} over {n} readings")
+        order = select_by_rulers(scales)
+        if not order:
+            raise SystemExit("no sideline candidate passes the ruler gate (hash and numeral "
+                             f"rows must agree within {RULER_AGREE:.0%} and read a scale in "
+                             f"{RULER_SCALE}); the paint solve is wrong on this clip")
+        cands = [cands[i] for i in order]
+        print(f"   {len(cands)} pass the ruler gate; order {order}")
 
     # The same moments in both clips, away from the ends of the play.
     total = min(frame_count(side_path), frame_count(end_path))
