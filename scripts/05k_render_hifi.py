@@ -61,6 +61,8 @@ def main() -> None:
     ap.add_argument("--fov", type=float, default=55.0, help="horizontal field of view, degrees")
     ap.add_argument("--follow", action="store_true",
                     help="the virtual camera dollies with the play's smoothed centroid (render.camera_path)")
+    ap.add_argument("--pads", action="store_true",
+                    help="shoulder vertices pushed out and up (render.helmet.wear_pads)")
     ap.add_argument("--helmets", action="store_true",
                     help="head vertices wear the team's helmet colour, inflated 2 cm (render.helmet)")
     ap.add_argument("--stitch", action="store_true",
@@ -137,8 +139,10 @@ def main() -> None:
                            eye_offset=tuple(args.eye_offset))
         print("camera follows the play (smoothed centroid dolly)")
 
-    head = hm.head_mask(model.v_template.detach().cpu().numpy(),
-                        (model.J_regressor @ model.v_template).detach().cpu().numpy())
+    v_t = model.v_template.detach().cpu().numpy()
+    j_t = (model.J_regressor @ model.v_template).detach().cpu().numpy()
+    head = hm.head_mask(v_t, j_t)
+    pads = hm.pads_mask(v_t, j_t)
 
     def body_batch(s):
         verts = placed_vertices(s, model)
@@ -151,6 +155,8 @@ def main() -> None:
         team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
                     team_of.get(s.pid, ""))
         colour = fitted[owner]["colour"] if owner is not None else TEAM_RGB.get(team, BODY_RGB)
+        if args.pads:
+            verts = hm.wear_pads(verts, pads)
         if args.helmets:
             shell = hm.HELMET_RGB.get(team, hm.DEFAULT_HELMET_RGB)
             verts, colour = hm.wear_helmet(verts, colour, head, shell)
