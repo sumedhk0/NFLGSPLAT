@@ -165,6 +165,17 @@ three faults (commit 8877612): strips only inside the goal lines, a
 margin on shared support, and readings vetoing candidates. Play 2 now
 solves −80 yd at net 11.6 vs −1.3; LOS 13.1 yd vs 13.
 
+**Renderer (2026-09-04, 7688363).** Every body and the field rendered as
+per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black
+pixels), unchanged by splat size or opacity. The sparse splatter's
+running sum of log(1 − α) spans every pair of the frame and reached
+tens of millions, where float32 resolves to ~4; the per-pixel exclusive
+difference was noise. Summed in float64 now; a dense uniform plane must
+render flat (test). Every hi-fi render before this carried it. The
+textures are also mesh-Laplacian smoothed (aca87c2: speckle from one to
+three valid samples per vertex; roughness halves) and the fit's held-out
+measure skips turf pixels like the loss (59d31e3).
+
 The same texture is the hi-fi render's field (`05k --field-texture`,
 pipeline stage `hifi`): real paint, end zones and night lighting, the
 procedural field colour-matched where the cameras never looked. Against
