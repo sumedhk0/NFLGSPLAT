@@ -68,6 +68,7 @@ def main() -> None:
     from nfl_gsplat.compositing.mesh_to_gaussians import merge, mesh_to_gaussians
     from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
     from nfl_gsplat.field.procedural_field import render_field_texture, texture_to_gaussians
+    from nfl_gsplat.render import helmet as hm
     from nfl_gsplat.render.play_timeline import load_play_timeline, placed_vertices
 
     P = args.play_dir
@@ -110,6 +111,9 @@ def main() -> None:
     K_v = intrinsics(args.width, args.height, fov_deg=55.0)
     print(f"camera on ({centre[0]:.1f}, {centre[1]:.1f}) m")
 
+    head = hm.head_mask(model.v_template.detach().cpu().numpy(),
+                        (model.J_regressor @ model.v_template).detach().cpu().numpy())
+
     def body_batch(s):
         verts = placed_vertices(s, model)
         # Fitted COLOUR only: the fit's scale and opacity were tuned to blurry
@@ -121,6 +125,8 @@ def main() -> None:
         team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
                     team_of.get(s.pid, ""))
         colour = fitted[owner]["colour"] if owner is not None else TEAM_RGB.get(team, BODY_RGB)
+        if args.helmets:
+            verts, colour = hm.wear_helmet(verts, colour, head, hm.HELMET_RGB.get(team, hm.DEFAULT_HELMET_RGB))
         return mesh_to_gaussians(verts, faces, colour=colour)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
