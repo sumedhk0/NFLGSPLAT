@@ -153,6 +153,8 @@ def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
                     (torch.tensor([0, 1], device=dev), torch.tensor([2, 2], device=dev)), shift[fi])
             img = st.render(scene, Kf, R, t, crop=crop, background=target)
             part = (img - target).abs().mean() / n_f
+            if not part.requires_grad:               # no Gaussian touched this crop
+                continue
             part.backward()
             total += part.item()
         if cfg.tv_weight > 0:

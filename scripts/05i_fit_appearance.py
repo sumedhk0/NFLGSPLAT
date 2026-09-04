@@ -175,6 +175,8 @@ def main() -> None:
                          torch.tensor([2, 2], device=args.device)), shift)
                     img = st.render(scene, Kf, ob.R, ob.t, crop=crop, background=target)
                     loss = (img - target).abs().mean()
+                    if not loss.requires_grad:
+                        break                        # nothing of the body in this crop
                     loss.backward()
                     opt.step()
                 K = (K + torch.zeros_like(K).index_put(
@@ -200,6 +202,16 @@ def main() -> None:
                 K, R, t = intr.K(), pose.R, pose.t
                 img = reader.get(cam, f)
                 ob = fa.FrameObs(image=img, K=K, R=R, t=t, vertices=verts)
+                # A body outside the frame, or clipped to a sliver, renders to
+                # background with no gradient and crashes the fit.
+                q = (K @ (R @ verts.T + t.reshape(3, 1))).T
+                inside = (q[:, 2] > 0.1)
+                uv = q[inside, :2] / np.maximum(q[inside, 2:], 1e-9)
+                frac_in = float(((uv[:, 0] >= 0) & (uv[:, 0] < img.shape[1]) &
+                                 (uv[:, 1] >= 0) & (uv[:, 1] < img.shape[0])).mean()) if len(uv) else 0.0
+                cw, ch = fa.crop_for(ob, margin_px=6)[2:]
+                if frac_in < 0.5 or cw < 16 or ch < 16:
+                    continue
                 (obs_test if (args.holdout and i % args.holdout == 0) else obs_train).append(ob)
                 if not (args.holdout and i % args.holdout == 0):
                     samples.append(vertex_colours_from_view(verts, faces, K, R, t, img,
