@@ -15,6 +15,13 @@ over bodies (median, worst). Colour of vertices no camera ever faced is
 reported so turf bleed shows up. Nothing replaces the median texture in the
 render unless 05d is told to (--fitted-appearance <dir>).
 
+Defaults are the winner of a four-variant ablation on one body (play 2,
+player 10, 76 train / 20 held-out crops, held-out L1 with a test-time shift
+for both sides): 50 it lr 0.02 tv 0.01 +3%; the same without the training
+shift +0%; 150 it tv 0.05 +4%; 150 it tv 0.05 lr 0.005 +6%. The nuisance is
+what makes the fit beat the median texture; the gain is modest because the
+median texture is a strong baseline at 140-px bodies.
+
 Runs in the smplx env (SMPL-X forward; torch with CUDA).
 
     python scripts/05i_fit_appearance.py --play-dir <P> --poses <P>/poses_refit.json \\
@@ -69,16 +76,16 @@ def main() -> None:
     ap.add_argument("--poses", required=True, type=Path, help="05f world-mode cache")
     ap.add_argument("--out-dir", required=True, type=Path)
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
-    ap.add_argument("--iters", type=int, default=200)
-    ap.add_argument("--lr", type=float, default=0.02)
-    ap.add_argument("--tv-weight", type=float, default=0.01)
+    ap.add_argument("--iters", type=int, default=120)
+    ap.add_argument("--lr", type=float, default=0.005)
+    ap.add_argument("--tv-weight", type=float, default=0.05)
     ap.add_argument("--holdout", type=int, default=5, help="every n-th frame is held out")
     ap.add_argument("--min-facing", type=float, default=0.1)
     ap.add_argument("--limit", type=int, default=0, help="fit at most this many bodies")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--no-translation", dest="translation", action="store_false",
                     help="no per-frame shift nuisance during the fit")
-    ap.add_argument("--eval-shift", type=int, default=0,
+    ap.add_argument("--eval-shift", type=int, default=30,
                     help="iterations of a 2-parameter shift fitted per HELD-OUT crop with the "
                          "appearance frozen, for both the median texture and the fit; 0 = none")
     args = ap.parse_args()
