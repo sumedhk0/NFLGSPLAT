@@ -119,6 +119,9 @@ def composite(procedural, footage, count, *, min_count: int = MIN_COUNT,
     import cv2
 
     alpha = (np.asarray(count) >= min_count).astype(np.float32)
+    # The median is noisy texel to texel and the splatter draws each texel as
+    # a dot; a one-texel blur reads as turf instead of a grid.
+    footage = cv2.GaussianBlur(np.asarray(footage, np.float32), (3, 3), 0)
     if feather_px > 0:
         k = 2 * feather_px + 1
         eroded = cv2.erode(alpha, np.ones((k, k), np.uint8))

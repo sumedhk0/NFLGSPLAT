@@ -137,8 +137,26 @@ vertices sample turf-mixed pixels. v3 (commit ebd0355) drops samples within
 the instrument rewarded the bleed). The v3 re-fit of both plays and the
 `render_hifi_v3` renders take ~5–6 h locally (2.5 min/body) and resume.
 
-`--helmets` (render.helmet) dresses the head vertices in the team's shell,
-default off until measured on a clip.
+`--helmets` (render.helmet) dresses the head vertices in the team's shell;
+on in the pipeline's hifi stage (a red or black shell reads as a football
+player where a bare head reads as a mannequin).
+
+**Field frame (2026-09-04).** Play 2's cameras were 80 YARDS off along
+the field and every gate passed: paint is periodic and end-symmetric, a
+"10" numeral backs both ends, the LOS check measures to the nearest goal
+line. The footage warped onto the ground plane (`05l_field_from_footage.py`,
+pipeline stage `field`, PNG in diag) is the check that caught it: the
+footage's goal line, numerals and end zone must sit on the drawn ones.
+Play 1 did; play 2 did not until a −73.15 m shift was applied (cameras,
+poses_refit, poses_fused; `*_before_80yd.*` kept). The shift solver had
+three faults (commit 8877612): strips only inside the goal lines, a
+margin on shared support, and readings vetoing candidates. Play 2 now
+solves −80 yd at net 11.6 vs −1.3; LOS 13.1 yd vs 13.
+
+The same texture is the hi-fi render's field (`05k --field-texture`,
+pipeline stage `hifi`): real paint, end zones and night lighting, the
+procedural field colour-matched where the cameras never looked. Against
+real turf the v2 khaki bodies vanish; the v3 textures are required.
 
 Still open, in value order: identity/texture continuity across track
 breaks (stitching measured no better than none, see below); the two deep

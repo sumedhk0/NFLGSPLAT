@@ -54,6 +54,8 @@ def main() -> None:
                     help="05l field_texture.npz (the footage's field); default procedural")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--helmets", action="store_true",
+                    help="head vertices wear the team's helmet colour, inflated 2 cm (render.helmet)")
     ap.add_argument("--stitch", action="store_true",
                     help="join the linker's fragments into players (tracking.stitch) so a "
                          "player keeps one id and one texture across breaks")
