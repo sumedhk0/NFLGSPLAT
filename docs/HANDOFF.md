@@ -166,6 +166,28 @@ three faults (commit 8877612): strips only inside the goal lines, a
 margin on shared support, and readings vetoing candidates. Play 2 now
 solves −80 yd at net 11.6 vs −1.3; LOS 13.1 yd vs 13.
 
+**Joints decision (2026-09-04 night, a17c5af..459bc45).** The 3-D joints
+now come from GEOMETRY: 2-D keypoints per view (05m, YOLOv8-pose,
+matched to the tracked boxes) triangulated with both calibrated cameras
+(05n, through pose.triangulate) and refit to SMPL-X unchanged (05f on
+`poses_tri.json`). The monocular regressor per view fused across views
+(05e) is opt-in (FUSE=1). The camera ruler (05o: both refits projected
+into both views against the detector keypoints) on play 1: monocular
+22.7 / 40.7 px (sideline / endzone), triangulated 8.8 / 12.1 px, every
+joint group, posed every frame instead of every sixth; play 2: 28 / 55
+→ 9 / 11 px. Ground ruler: planted feet reach the turf under play 1's
+cameras (raw triangulated lower ankle p10 +0.02 m), so no endzone pitch
+correction there; play 2's fitted bodies float (p10 +0.22 m): its
+endzone pitch is off by a few tenths of a degree and only the ankle
+ruler sees it (the box-bottom gap is minimal at the current pitch by
+construction; the endzone paint runs across the image and grid_fit finds
+no lines) -- OPEN, needs a second ruler (a horizontal-line grid fit).
+Two-view bodies now stand at their refit's translation (median shift
+0.58 m from the box-bottom point); the tilt clamp is 60° for two-view
+poses (measured p90 38°, none past 60), 35° for single-view. Play 2's
+triangulation covers fewer players (23 % of joints pass; the refit's
+joint minimum lowered to 6 with --min-valid-joints).
+
 **Appearance decision (2026-09-04 evening, e37176c).** The hi-fi render
 wears SYNTHETIC UNIFORMS by body region from identity's team
 (render.uniform: helmet, jersey with sleeves to the elbow, forearm skin,
