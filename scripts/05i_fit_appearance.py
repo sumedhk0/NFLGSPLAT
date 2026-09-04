@@ -197,7 +197,12 @@ def main() -> None:
                      torch.tensor([2, 2], device=args.device)), shift.detach()))
             with torch.no_grad():
                 img = st.render(scene, K, ob.R, ob.t, crop=crop, background=target)
-            vals.append((img - target).abs().mean().item())
+                # Turf pixels are not evidence about the body (the loss skips
+                # them, fit_appearance.turf_pixel_weight); the measure must
+                # skip them too, or a khaki body wins the held-out L1.
+                keep = fa.turf_pixel_weight(target, turf_colour(ob.image), TURF_DIST)
+                err = ((img - target).abs().mean(-1) * keep).sum() / keep.sum().clamp(min=1.0)
+            vals.append(err.item())
         return float(np.mean(vals)) if vals else float("nan")
 
     summary = {}
