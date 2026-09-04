@@ -34,6 +34,12 @@ _LOG = get_logger(__name__)
 
 MAX_TILT_DEG: float = 35.0       # a lineman's stance; nobody stands past this
 DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one player
+# An id seen by ONE view only is that view's unreconciled detection; its
+# position is poor along that view's depth axis (the endzone's is x, the
+# sideline's is y). Within these distances of a two-view id it is the same
+# man: play 2 drew six red bodies strung along x from one group of players.
+ONE_VIEW_DEPTH_M: float = 4.0
+ONE_VIEW_ACROSS_M: float = 1.5
 MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
 MIN_FRAMES: int = 6              # shorter fragments are noise
 VEL_WINDOW: int = 12             # frames over which yaw follows the travel direction
@@ -49,6 +55,7 @@ class PlayerState:
     betas: np.ndarray            # [10]
     source: str                  # fused | sideline | default
     clamped: bool = False
+    views: tuple = ("sideline", "endzone")   # which cameras saw this id on this frame
 
 
 @dataclass
@@ -178,25 +185,37 @@ def yaw_from_motion(xy, *, window: int = VEL_WINDOW, fallback: float = 0.0):
 _SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
 
 
-def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M) -> int:
-    """Drop, per frame, states within ``radius_m`` of a better one.
+def _within(s, k) -> bool:
+    """Is one-view state ``s`` a duplicate of kept state ``k``?"""
+    d = np.abs(s.xy - k.xy)
+    if len(s.views) >= 2:
+        return float(np.hypot(*d)) < DUPLICATE_M
+    depth_axis = 0 if "endzone" in s.views else 1          # endzone depth is x
+    across = 1 - depth_axis
+    return d[depth_axis] < ONE_VIEW_DEPTH_M and d[across] < ONE_VIEW_ACROSS_M
 
-    The two views' unreconciled detections of one player get separate ids
-    from the linker, so a frame can hold two bodies a metre apart for one
-    man (play 1: a median of 36 bodies where 21-23 are detected). Keep the
-    posed one (fused over sideline over default), then the earlier id.
-    Returns the number of states dropped."""
+
+def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M) -> int:
+    """Drop, per frame, states that are another state's duplicate.
+
+    Two-view (reconciled) states are kept first, best pose first; a one-view
+    state within its view's depth/across radii of a kept state is the same
+    player seen by the other camera and dropped; one-view states among
+    themselves dedupe at ``radius_m``. Returns the number dropped."""
     dropped = 0
     for f, states in tl.states.items():
-        order = sorted(states, key=lambda s: (_SOURCE_RANK.get(s.source, 3), s.pid))
+        order = sorted(states, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
         kept: list = []
         for s in order:
-            if any(np.linalg.norm(s.xy - k.xy) < radius_m for k in kept):
+            dup = any(_within(s, k) for k in kept) if len(s.views) < 2 else \
+                any(float(np.hypot(*(s.xy - k.xy))) < radius_m for k in kept)
+            if dup:
                 dropped += 1
                 continue
             kept.append(s)
         tl.states[f] = sorted(kept, key=lambda s: s.pid)
     return dropped
+
 
 def median_pose(records):
     """Element-wise median body pose over ``records`` (each ``[21, 3]``), a
@@ -208,7 +227,7 @@ def median_pose(records):
 
 def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
-                   min_frames: int = MIN_FRAMES) -> Timeline:
+                   min_frames: int = MIN_FRAMES, views_by_frame=None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -247,9 +266,11 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                 continue
             orient, clamped = clamp_tilt(go[i], max_tilt_deg)
             tl.n_clamped += int(clamped)
+            views = (tuple(views_by_frame.get(f, {}).get(pid, ("sideline", "endzone")))
+                     if views_by_frame else ("sideline", "endzone"))
             tl.states.setdefault(f, []).append(PlayerState(
                 pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
-                source=source, clamped=clamped))
+                source=source, clamped=clamped, views=views))
     tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M)
     _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
               "%d frames tilt-clamped", len(pids), len(frames),

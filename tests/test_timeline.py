@@ -87,3 +87,18 @@ def test_dedupe_keeps_the_posed_body_of_two_ids_on_one_spot():
         assert pids == [2, 3], pids                  # 1 (default-posed) dropped for 2 (fused)
     assert out.n_duplicates == len(frames)
 
+
+def test_one_view_ids_along_the_depth_axis_are_duplicates_of_two_view_ids():
+    frames = list(range(0, 12))
+    ground = {f: {1: np.array([10.0, 2.0]), 2: np.array([13.0, 2.4]), 3: np.array([10.3, 5.5]),
+                  4: np.array([30.0, 0.0])} for f in frames}
+    views = {f: {1: ("endzone", "sideline"), 2: ("endzone",), 3: ("sideline",), 4: ("endzone",)}
+             for f in frames}
+    out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
+    for f in frames:
+        pids = sorted(s.pid for s in out.states[f])
+        # 2: endzone-only 3 m along x (its depth) from 1 -> dropped
+        # 3: sideline-only 3.5 m along y (its depth) from 1 -> dropped
+        # 4: far from everyone -> kept
+        assert pids == [1, 4], pids
+

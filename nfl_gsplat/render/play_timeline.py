@@ -16,11 +16,13 @@ from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
 
 
-def ground_positions(df, tracks):
-    """frame -> {pid: xy}: each view's foot through its camera, both averaged."""
+def ground_positions(df, tracks, *, with_views: bool = False):
+    """frame -> {pid: xy}: each view's foot through its camera, both averaged.
+    With ``with_views``, also frame -> {pid: (views seen,)}."""
     from nfl_gsplat.pose.place_on_field import ground_point
 
     out: dict[int, dict[int, list]] = {}
+    seen: dict[int, dict[int, list]] = {}
     for cam, sub in df.groupby("cam"):
         tr = tracks[cam]
         for f, rows in sub.groupby("frame"):
@@ -36,7 +38,12 @@ def ground_positions(df, tracks):
                     continue
                 if abs(g[0]) < 60 and abs(g[1]) < 30:
                     out.setdefault(f, {}).setdefault(int(r.track_id), []).append(np.asarray(g[:2], float))
-    return {f: {pid: np.mean(v, axis=0) for pid, v in d.items()} for f, d in out.items()}
+                    seen.setdefault(f, {}).setdefault(int(r.track_id), []).append(str(cam))
+    ground = {f: {pid: np.mean(v, axis=0) for pid, v in d.items()} for f, d in out.items()}
+    if not with_views:
+        return ground
+    views = {f: {pid: tuple(sorted(set(v))) for pid, v in d.items()} for f, d in seen.items()}
+    return ground, views
 
 
 def poses_from_caches(refit, side_blob, tracks, model):
@@ -100,7 +107,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     side_blob = pickle.load(open(side_path, "rb")) if side_path.exists() else None
     if not refit and side_blob is None:
         raise SetupError("no pose cache: need poses_refit.json (05f) or poses_sideline.json (05c)")
-    ground = ground_positions(df, tracks)
+    ground, views = ground_positions(df, tracks, with_views=True)
     frames_all = sorted(ground)
     poses = poses_from_caches(refit, side_blob, tracks, model)
     all_bp = [v[0] for d in poses.values() for v in d.values() if v[3] == "fused"]
@@ -108,7 +115,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     default_pose = tlm.median_pose(all_bp) if all_bp else np.zeros((21, 3))
     default_betas = np.median(np.stack(all_betas), axis=0) if all_betas else np.zeros(10)
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
-                            default_betas=default_betas)
+                            default_betas=default_betas, views_by_frame=views)
     return tl, tracks, df, frames_all, poses
 
 
