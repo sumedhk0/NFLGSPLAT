@@ -99,7 +99,7 @@ hifi      scripts/05k_render_hifi.py          THE DELIVERABLE: render.timeline g
                                               shell on the head), --follow --eye-offset 2 -26 10
                                               --fov 50 (dolly on the smoothed centroid, ~16 s/frame;
                                               the 34 m camera is 10 s, a 20 m one 50 s); --pads
-                                              (shoulders out) built, unjudged
+                                              (shoulders out) judged on a frame: negligible at 150 px, off
 render    scripts/05d_render_play.py          preview, world mode: bodies at the fused placement with the
                                               fitted appearance (--fitted-appearance); CPU preview
                                               splatter; --ply-dir writes scene PLYs for 05h (gsplat)
