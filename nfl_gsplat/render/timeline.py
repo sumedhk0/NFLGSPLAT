@@ -232,20 +232,27 @@ def _within(s, k) -> bool:
     return d[depth_axis] < ONE_VIEW_DEPTH_M and d[across] < ONE_VIEW_ACROSS_M
 
 
-def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M) -> int:
+def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, ghost_pairs=None) -> int:
     """Drop, per frame, states that are another state's duplicate.
 
     Two-view (reconciled) states are kept first, best pose first; a one-view
     state within its view's depth/across radii of a kept state is the same
     player seen by the other camera and dropped; one-view states among
-    themselves dedupe at ``radius_m``. Returns the number dropped."""
+    themselves dedupe at ``radius_m``. ``ghost_pairs`` (frame -> set of
+    (pid, pid)) names pairs known to be one person -- a sideline-only and
+    an endzone-only id whose ground points land in each other's boxes
+    (play_timeline.cross_view_ghosts) -- whatever their distance: single-
+    view placement can put the same person 2-5 m apart along a camera's
+    depth axis. Returns the number dropped."""
     dropped = 0
     for f, states in tl.states.items():
         order = sorted(states, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
         kept: list = []
+        ghosts = ghost_pairs.get(f, set()) if ghost_pairs else set()
         for s in order:
             dup = any(_within(s, k) for k in kept) if len(s.views) < 2 else \
                 any(float(np.hypot(*(s.xy - k.xy))) < radius_m for k in kept)
+            dup = dup or any((s.pid, k.pid) in ghosts or (k.pid, s.pid) in ghosts for k in kept)
             if dup:
                 dropped += 1
                 continue
@@ -264,7 +271,7 @@ def median_pose(records):
 
 def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
-                   min_frames: int = MIN_FRAMES, views_by_frame=None) -> Timeline:
+                   min_frames: int = MIN_FRAMES, views_by_frame=None, ghost_pairs=None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -308,7 +315,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             tl.states.setdefault(f, []).append(PlayerState(
                 pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
                 source=source, clamped=clamped, views=views))
-    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M)
+    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, ghost_pairs=ghost_pairs)
     _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
               "%d frames tilt-clamped", len(pids), len(frames),
               float(np.median([len(v) for v in tl.states.values()])) if tl.states else 0,
