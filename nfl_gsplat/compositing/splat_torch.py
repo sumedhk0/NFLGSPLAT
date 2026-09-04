@@ -191,12 +191,18 @@ def render(scene: SceneParams, K, R, t, *, crop, background=(0.10, 0.12, 0.14),
     order = torch.argsort(key)
     pidx, gidx, alpha = pidx[order], gidx[order], alpha[order]
     log_t = torch.log1p(-alpha)                                          # log(1 - a)
-    cs = torch.cumsum(log_t, 0)
-    excl = cs - log_t                                                    # exclusive
+    # The running sum spans every pair of the frame: at opacity 0.99 each
+    # adds -4.6 and a 1080p frame has millions of pairs, so it reaches
+    # tens of millions, where float32 resolves to ~4. The per-pixel
+    # difference below was then noise of order units -- every body and
+    # the field rendered as per-pixel salt-and-pepper, worse with more
+    # overlap (measured 2026-09-04). Summed in float64.
+    cs = torch.cumsum(log_t.double(), 0)
+    excl = cs - log_t.double()                                           # exclusive
     _vals, counts = torch.unique_consecutive(pidx, return_counts=True)
     starts = torch.cumsum(counts, 0) - counts
     seg_start = torch.repeat_interleave(starts, counts)
-    t_prev = torch.exp(excl - excl[seg_start])                          # transmittance before
+    t_prev = torch.exp((excl - excl[seg_start]).float())                 # transmittance before
     contrib = (t_prev * alpha)[:, None] * colour[gidx]
     C = torch.zeros(n_px, 3, device=dev).index_add(0, pidx, contrib)
     log_T = torch.zeros(n_px, device=dev).index_add(0, pidx, log_t)

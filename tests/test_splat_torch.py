@@ -95,3 +95,21 @@ def test_to_batch_round_trips_and_applies_the_fit():
     assert np.allclose(0.5 + st.SH_C0 * out.sh[0, :, 0], [0.9, 0.1, 0.1], atol=1e-6)
     assert np.allclose(np.exp(out.scale[1]), 2.0 * np.exp(batch.scale[1]), atol=1e-6)
     assert np.allclose(out.opacity, batch.opacity, atol=1e-6)
+
+
+def test_a_dense_opaque_plane_renders_flat():
+    # Millions of pairs per frame: the running log-transmittance sum reaches
+    # tens of millions, where float32 resolves to ~4 and the per-pixel
+    # difference turned into salt-and-pepper (every body, the whole field,
+    # 2026-09-04). A dense uniform plane must come out uniform.
+    K, R, t = _camera()
+    n = 300_000
+    rng = np.random.default_rng(0)
+    xyz = np.column_stack([rng.uniform(-3, 3, n), rng.uniform(-3, 3, n), np.zeros(n)])
+    batch = _batch(xyz, np.tile([0.8, 0.2, 0.1], (n, 1)), sigma=0.03, opacity=0.99)
+    scene = st.SceneParams.from_batch(batch, device="cpu")
+    img = st.render(scene, K, R, t, crop=(0, 0, W, H), background=(0.0, 0.0, 0.0))
+    interior = img[80:115, 40:120]                            # the plane fills rows 70 and below
+    assert interior.mean(dim=(0, 1))[0] > 0.7
+    assert interior.std(dim=(0, 1)).max() < 0.02, interior.std(dim=(0, 1))
+
