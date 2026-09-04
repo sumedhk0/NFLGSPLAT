@@ -162,8 +162,15 @@ Still open, in value order: identity/texture continuity across track
 breaks (stitching measured no better than none, see below); the two deep
 officials render as team players (stripe score and torso colour both
 measured non-discriminative; position at the snap is the remaining
-instrument, ~10 m behind the offence); ~2 cross-camera ghost bodies per
-frame; 25–34 default-posed states per play.
+instrument, ~10 m behind the offence, and play 2's clip starts mid-play
+so it only helps play 1); cross-camera ghosts (measured 2026-09-04: a
+sideline-only and an endzone-only id that project into each other's
+boxes average 0.8/frame on play 1, 0.6 on play 2, before the timeline's
+dedupe -- scratchpad `ghost_crosscam.py`; a reprojection merge is the
+fix, worth about one body per frame); 25–34 default-posed states per
+play. `05k --follow` dollies the virtual camera with the play's smoothed
+centroid (render.camera_path); judge on a clip before it goes in the
+pipeline.
 
 ## What has been measured and rejected (do not re-propose without new evidence)
 

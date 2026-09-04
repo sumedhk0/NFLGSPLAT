@@ -54,6 +54,8 @@ def main() -> None:
                     help="05l field_texture.npz (the footage's field); default procedural")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--follow", action="store_true",
+                    help="the virtual camera dollies with the play's smoothed centroid (render.camera_path)")
     ap.add_argument("--helmets", action="store_true",
                     help="head vertices wear the team's helmet colour, inflated 2 cm (render.helmet)")
     ap.add_argument("--stitch", action="store_true",
@@ -121,6 +123,13 @@ def main() -> None:
     R_v, t_v = look_at(eye, target)
     K_v = intrinsics(args.width, args.height, fov_deg=55.0)
     print(f"camera on ({centre[0]:.1f}, {centre[1]:.1f}) m")
+    path = None
+    if args.follow:
+        from nfl_gsplat.render.camera_path import follow_path
+
+        path = follow_path(frames_all, {f: np.mean([s.xy for s in tl.states[f]], axis=0)
+                                        for f in frames_all if tl.states.get(f)})
+        print("camera follows the play (smoothed centroid dolly)")
 
     head = hm.head_mask(model.v_template.detach().cpu().numpy(),
                         (model.J_regressor @ model.v_template).detach().cpu().numpy())
@@ -152,6 +161,8 @@ def main() -> None:
         states = tl.states.get(f, [])
         scene = merge([field] + [body_batch(s) for s in states])
         sp = st.SceneParams.from_batch(scene, device=args.device)
+        if path is not None and f in path:
+            R_v, t_v = look_at(*path[f])
         with torch.no_grad():
             img = st.render(sp, K_v, R_v, t_v, crop=(0, 0, args.width, args.height),
                             background=(0.06, 0.06, 0.08))
