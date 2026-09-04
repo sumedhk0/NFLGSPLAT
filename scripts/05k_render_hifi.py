@@ -54,6 +54,11 @@ def main() -> None:
                     help="05l field_texture.npz (the footage's field); default procedural")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--eye-offset", type=float, nargs=3, default=(2.0, -34.0, 13.0),
+                    metavar=("DX", "DY", "DZ"),
+                    help="virtual camera eye relative to its target, metres "
+                         "(x along the field, y across, z up)")
+    ap.add_argument("--fov", type=float, default=55.0, help="horizontal field of view, degrees")
     ap.add_argument("--follow", action="store_true",
                     help="the virtual camera dollies with the play's smoothed centroid (render.camera_path)")
     ap.add_argument("--helmets", action="store_true",
@@ -119,16 +124,17 @@ def main() -> None:
     centre = np.median(np.concatenate([np.stack([s.xy for s in tl.states[f]])
                                        for f in frames if f in tl.states]), axis=0)
     target = np.array([centre[0], centre[1], 1.0])
-    eye = target + np.array([2.0, -34.0, 13.0])
+    eye = target + np.array(args.eye_offset, float)
     R_v, t_v = look_at(eye, target)
-    K_v = intrinsics(args.width, args.height, fov_deg=55.0)
+    K_v = intrinsics(args.width, args.height, fov_deg=args.fov)
     print(f"camera on ({centre[0]:.1f}, {centre[1]:.1f}) m")
     path = None
     if args.follow:
         from nfl_gsplat.render.camera_path import follow_path
 
         path = follow_path(frames_all, {f: np.mean([s.xy for s in tl.states[f]], axis=0)
-                                        for f in frames_all if tl.states.get(f)})
+                                        for f in frames_all if tl.states.get(f)},
+                           eye_offset=tuple(args.eye_offset))
         print("camera follows the play (smoothed centroid dolly)")
 
     head = hm.head_mask(model.v_template.detach().cpu().numpy(),
