@@ -185,8 +185,13 @@ no lines) -- OPEN, needs a second ruler (a horizontal-line grid fit).
 Two-view bodies now stand at their refit's translation (median shift
 0.58 m from the box-bottom point); the tilt clamp is 60° for two-view
 poses (measured p90 38°, none past 60), 35° for single-view. Play 2's
-triangulation covers fewer players (23 % of joints pass; the refit's
-joint minimum lowered to 6 with --min-valid-joints).
+triangulation covers fewer players (23 % of joints pass); with `05f
+--min-valid-joints 6 --min-frame-frac 0.5` all 30 refit, reprojection
+13.4 / 12.2 px against 28 / 55 monocular, the head weakest (27 px
+sideline: sparse joints), feet mixed (p10 −0.20, median +0.24 m) -- the
+renderer drops bodies to the turf regardless. Renders `render_hifi_v5`:
+play 1 from `poses_refit_tri.json`, play 2 from `poses_refit_tri6.json`
+with `--team-by-colour`.
 
 **Appearance decision (2026-09-04 evening, e37176c).** The hi-fi render
 wears SYNTHETIC UNIFORMS by body region from identity's team
