@@ -10,6 +10,7 @@
 # Stages (play-dir relative):
 #   paint     scripts/08 (full paint solve of the sideline + endzone)  -> recon.npz     [--from-paint only]
 #   export    scripts/08b                                             -> cameras.npz, tracks.parquet
+#   refine    scripts/08e (every frame's camera to the paint)     -> cameras.npz
 #   shift     scripts/08d --no-rows --apply                           -> cameras.npz in the field frame
 #   endzone   scripts/08 --sideline-from (mirror check)               -> recon_abs.npz, then 08b again
 #   check     scripts/08d --los-yards (prints rulers, LOS)            -> field_offset.json
@@ -57,7 +58,7 @@ if [ "$FROM_PAINT" = 1 ] && ! done_ paint; then
   log "paint solve (08)"
   "$PYN" scripts/08_reconstruct_all22.py --root "$ROOT" --sideline "$SIDE" --endzone "$END" --no-mirror-check \
      --out "$P/recon.npz" 2>&1 | grep -v "Warning\|warn" | grep -E "candidate|rulers|pass the|gap  |reconciled  |player height|Error|Exit|refus" || fail paint
-  rm -f "$P/.done_export" "$P/.done_shift" "$P/.done_endzone"
+  rm -f "$P/.done_export" "$P/.done_refine" "$P/.done_shift" "$P/.done_endzone"
   mark paint
 fi
 
@@ -67,6 +68,12 @@ if ! done_ export; then
   "$PYN" scripts/08b_export_play_dir.py --recon "$RECON" --root "$ROOT" --sideline "$SIDE" --endzone "$END" --out "$P" \
      2>&1 | grep -v "Warning\|warn" | grep -E "cameras:|linked|tracks.parquet" || fail export
   mark export
+fi
+
+if ! done_ refine; then
+  log "refine every frame's camera to the paint (08e)"
+  "$PYN" scripts/08e_refine_cameras.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "grid|rewritten|Error" || fail refine
+  mark refine
 fi
 
 if ! done_ shift; then
