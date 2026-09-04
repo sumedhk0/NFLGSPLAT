@@ -51,6 +51,10 @@ paint     scripts/08_reconstruct_all22.py     sideline cameras per frame from th
                                               camera reads 149 px, a right one 10). Endzone
                                               reconciliation cannot veto a wrong sideline. Player
                                               cost is a loose 0.75 pre-filter.
+refine    scripts/08e_refine_cameras.py       every frame's camera onto the painted yard lines
+                                              (calibration.refine_paint: rotation + focal per frame,
+                                              centre fixed, deltas smoothed along the track); play 1
+                                              grid 9.5 -> 4.0 px, jitter p95 0.10 deg
 shift     scripts/08d_field_offset.py --no-rows --apply
                                               reads the painted NUMERALS through the camera and
                                               votes the 5-yard shift -> cameras in the rule-book
@@ -75,7 +79,12 @@ fit       scripts/05i_fit_appearance.py       per-body Gaussian colour/scale/opa
                                               footage (compositing.splat_torch, sparse differentiable
                                               splatter; fit_appearance), held-out L1 vs the median
                                               texture printed per body -> <play>/appearance/
-render    scripts/05d_render_play.py          world mode: bodies at the fused placement with the
+hifi      scripts/05k_render_hifi.py          THE DELIVERABLE: render.timeline gives every detected
+                                              player a body every frame (fused / single-view / median
+                                              stance, SLERP between posed frames, tilt clamped 35 deg,
+                                              duplicates within 0.9 m merged); sparse GPU splatter at
+                                              1920x1080, ~6 s/frame, mp4 out
+render    scripts/05d_render_play.py          preview, world mode: bodies at the fused placement with the
                                               fitted appearance (--fitted-appearance); CPU preview
                                               splatter; --ply-dir writes scene PLYs for 05h (gsplat)
 ```
