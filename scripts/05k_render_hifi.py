@@ -124,6 +124,8 @@ def main() -> None:
     ap.add_argument("--field-res-m", type=float, default=0.12)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--no-resume", dest="resume", action="store_false",
+                    help="re-render frames whose PNG already exists (default: skip them)")
     args = ap.parse_args()
 
     import imageio.v2 as imageio
@@ -211,13 +213,16 @@ def main() -> None:
     t0 = time.time()
     written = []
     for i, f in enumerate(frames):
+        out = args.out_dir / f"frame_{f:05d}.png"
+        if args.resume and out.exists():
+            written.append(out)                      # a stalled or interrupted run resumes here
+            continue
         states = tl.states.get(f, [])
         scene = merge([field] + [body_batch(s) for s in states])
         sp = st.SceneParams.from_batch(scene, device=args.device)
         with torch.no_grad():
             img = st.render(sp, K_v, R_v, t_v, crop=(0, 0, args.width, args.height),
                             background=(0.06, 0.06, 0.08))
-        out = args.out_dir / f"frame_{f:05d}.png"
         imageio.imwrite(out, (255 * img.clamp(0, 1).cpu().numpy()).astype(np.uint8))
         written.append(out)
         if i % 20 == 0:

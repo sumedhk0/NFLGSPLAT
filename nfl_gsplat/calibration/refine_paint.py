@@ -31,6 +31,20 @@ _LOG = get_logger(__name__)
 
 SOFT_L1_PX: float = 4.0
 ROUNDS: int = 2
+# The nearest projected line is the wrong line when the starting camera has
+# drifted by about half a line spacing (play 1's tail, frame 655: the six
+# segments went to lines 0,1,2,3,5,6 and the continuous fit chased that into
+# 12-degree rotations at 64 px). The assignment is searched over these
+# whole-line offsets and the lowest final residual wins.
+ASSIGN_OFFSETS = (-1, 0, 1)
+# A pencil of near-parallel lines is fit equally well by a rotation about
+# their direction traded against the focal length: frame 630 of play 1
+# reached 2 px by rotating 7.5 degrees and zooming 40%. A refinement that
+# moves the camera more than this is that degeneracy, not a correction.
+# Measured degenerate fits: 4.5-7.9 degrees, 12-40% zoom; a real correction
+# on play 1 was under 1 degree and 5%.
+MAX_APPLIED_ROT_DEG: float = 3.0
+MAX_APPLIED_FOCAL: float = 0.20
 MAX_ROT_DEG: float = 6.0        # a frame's camera is never rotated more than this
 MAX_FOCAL_CHANGE: float = 0.40  # the lens may change this much: the camera ZOOMS OUT at
                                 # the end of a play (play 1 frames 600-655 needed -15% and
@@ -63,6 +77,27 @@ def _camera_from(params, K0, R0, centre):
     return K, R, t
 
 
+def _fit_assignment(p0, p1, assign, K0, R0, centre, n_lines, *, focal):
+    """Continuous fit for one fixed segment-to-line assignment."""
+    n = p0.shape[0]
+
+    def resid(x):
+        Kx, Rx, tx = _camera_from(x, K0, R0, centre)
+        L = projected_lines(Kx, Rx, tx)
+        if len(L) != n_lines:
+            return np.full(2 * n, 1e3)
+        Ls = L[assign]
+        return np.concatenate([np.einsum("ij,ij->i", p0, Ls), np.einsum("ij,ij->i", p1, Ls)])
+
+    lo = np.array([-np.radians(MAX_ROT_DEG)] * 3 + [np.log(1 - MAX_FOCAL_CHANGE)])
+    hi = np.array([np.radians(MAX_ROT_DEG)] * 3 + [np.log(1 + MAX_FOCAL_CHANGE)])
+    if not focal:
+        lo[3], hi[3] = -1e-9, 1e-9
+    sol = least_squares(resid, np.zeros(4), loss="soft_l1", f_scale=SOFT_L1_PX, bounds=(lo, hi),
+                        max_nfev=200)
+    return sol.x
+
+
 def refine_frame(segments, K, R, t, *, focal: bool = True) -> RefineResult:
     """Refine one camera to ``segments`` (YardLineSeg list) -- see module doc."""
     K0 = np.asarray(K, float)
@@ -79,33 +114,34 @@ def refine_frame(segments, K, R, t, *, focal: bool = True) -> RefineResult:
     p1 = np.asarray([[s.p1[0], s.p1[1], 1.0] for s in segments])
     mids = 0.5 * (p0 + p1)
     mids[:, 2] = 1.0
-    params = np.zeros(4)
-    for _round in range(ROUNDS):
-        Kc, Rc, tc = _camera_from(params, K0, R0, centre)
-        lines = projected_lines(Kc, Rc, tc)
-        if len(lines) == 0:
-            break
-        assign = np.argmin(np.abs(mids @ lines.T), axis=1)
-
-        def resid(x):
-            Kx, Rx, tx = _camera_from(x, K0, R0, centre)
-            L = projected_lines(Kx, Rx, tx)
-            if len(L) != len(lines):
-                return np.full(2 * n, 1e3)
-            Ls = L[assign]
-            return np.concatenate([np.einsum("ij,ij->i", p0, Ls), np.einsum("ij,ij->i", p1, Ls)])
-
-        lo = np.array([-np.radians(MAX_ROT_DEG)] * 3 + [np.log(1 - MAX_FOCAL_CHANGE)])
-        hi = np.array([np.radians(MAX_ROT_DEG)] * 3 + [np.log(1 + MAX_FOCAL_CHANGE)])
-        if not focal:
-            lo[3], hi[3] = -1e-9, 1e-9
-        sol = least_squares(resid, params, loss="soft_l1", f_scale=SOFT_L1_PX, bounds=(lo, hi),
-                            max_nfev=200)
-        params = sol.x
-    Kr, Rr, tr = _camera_from(params, K0, R0, centre)
-    after = float(np.median(segment_distances_px(segments, projected_lines(Kr, Rr, tr))))
-    if not np.isfinite(after) or after >= before:
+    lines0 = projected_lines(K0, R0, t0)
+    if len(lines0) == 0:
         return RefineResult(K0, R0, t0, before, before, n, False)
+    nearest = np.argmin(np.abs(mids @ lines0.T), axis=1)
+    best = (before, K0, R0, t0)
+    for offset in ASSIGN_OFFSETS:
+        assign = nearest + offset
+        if assign.min() < 0 or assign.max() >= len(lines0):
+            continue
+        params = np.zeros(4)
+        for _round in range(ROUNDS):
+            params = _fit_assignment(p0, p1, assign, K0, R0, centre, len(lines0), focal=focal)
+            Kc, Rc, tc = _camera_from(params, K0, R0, centre)
+            Lc = projected_lines(Kc, Rc, tc)
+            if len(Lc) != len(lines0):
+                break
+            assign = np.argmin(np.abs(mids @ Lc.T), axis=1)     # re-assign, then refit once
+        Kr, Rr, tr = _camera_from(params, K0, R0, centre)
+        after = float(np.median(segment_distances_px(segments, projected_lines(Kr, Rr, tr))))
+        if np.isfinite(after) and after < best[0]:
+            best = (after, Kr, Rr, tr)
+    after, Kr, Rr, tr = best
+    if after >= before:
+        return RefineResult(K0, R0, t0, before, before, n, False)
+    moved = np.degrees(np.linalg.norm(Rotation.from_matrix(Rr @ R0.T).as_rotvec()))
+    zoomed = abs(np.log(Kr[0, 0] / K0[0, 0]))
+    if moved > MAX_APPLIED_ROT_DEG or zoomed > np.log(1 + MAX_APPLIED_FOCAL):
+        return RefineResult(K0, R0, t0, before, before, n, False)      # degenerate
     return RefineResult(Kr, Rr, tr, before, after, n, True)
 
 
