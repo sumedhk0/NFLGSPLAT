@@ -164,6 +164,7 @@ MIRROR_READ_EXTRA = 2
 # views do not veto a wrong sideline; the rows on the turf do.
 RULER_AGREE = 0.10
 RULER_SCALE = (0.80, 1.25)
+LOOSE_PLAYER_COST = 0.75
 
 
 def ruler_scales(video_path, cams, frames, *, reader=None):
@@ -285,11 +286,16 @@ def main() -> None:
     # player at an impossible height and the render laid every body flat on
     # the turf -- body orientation comes through the camera. Prefer the
     # candidates the players believe; fall back to all only if none do.
+    # With the ruler gate on, the player cost is a loose pre-filter: play 2's
+    # right and wrong sideline cameras scored 0.45 and 0.58, both under the
+    # gate, and play 3's only candidates scored 0.62 -- the rows on the turf
+    # decide, the players only weed out the impossible.
+    player_gate = MAX_PLAYER_COST if args.no_ruler_gate else LOOSE_PLAYER_COST
     believed = [c for c in cands
-                if c["quality"]["player_cost"] <= MAX_PLAYER_COST]
+                if c["quality"]["player_cost"] <= player_gate]
     if not believed:
         raise SystemExit(
-            f"no sideline candidate passes the player gate ({MAX_PLAYER_COST}); "
+            f"no sideline candidate passes the player gate ({player_gate}); "
             f"best {min(c['quality']['player_cost'] for c in cands):.2f}. "
             "Refusing: a camera the players do not believe lays every body "
             "flat in the render. The sideline paint solve is the weak stage "
