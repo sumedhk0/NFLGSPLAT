@@ -50,6 +50,7 @@ from nfl_gsplat.utils.logging import get_logger
 _LOG = get_logger(__name__)
 EXPECTED_HEIGHT_M = 1.85
 RULER_TOL = 0.05          # the numeral and hash rulers must agree on the scale this well
+SNAP_LATE_FRAME = 120     # tracks starting after this frame (2 s) are mid-play
 # The row fit is applied only when it is also internally sound: the readings
 # sit on the fitted line (MAD), the offset is a camera-sized error not a
 # misread, the rows re-read under the refined camera land near the rule
@@ -262,9 +263,18 @@ def main() -> None:
     if args.los_yards is not None:
         # On the track --apply would write: refined only when rows are applied.
         got = snap_yards(yn.transform_track(refined, tf), df)
+        first = int(df["frame"].min()) if len(df) else -1
+        # The check compares the FORMATION to the description's yard line, so it
+        # needs pre-snap frames. Clips start 2-3 s before the snap; when the
+        # camera track (and so the tracks) begins later, the players measured
+        # are mid-play (play 2: first frame 188, "6.7 yd" against 13) and the
+        # number is informational, not a verdict.
+        if first > SNAP_LATE_FRAME:
+            verdict = f"LATE: first tracked frame {first} is mid-play; not judged"
+        else:
+            verdict = "ok" if abs(got - args.los_yards) <= 1.5 else "MISMATCH"
         print(f"line of scrimmage: formation at {got:.1f} yd from the nearest goal line; "
-              f"play description says {args.los_yards:.0f} "
-              f"({'ok' if abs(got - args.los_yards) <= 1.5 else 'MISMATCH'})")
+              f"play description says {args.los_yards:.0f} ({verdict})")
 
     out = {"cam": args.cam, "shift_m": tf.shift_m, "turn": tf.turn, "votes": tf.votes,
            "runner_up": tf.runner_up, "n_readings": tf.n_readings,
