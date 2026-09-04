@@ -20,6 +20,8 @@
 #   fuse      scripts/05e                                             -> poses_fused.json
 #   refit     scripts/05f                                             -> poses_refit.json
 #   fit       scripts/05i (appearance fit, held-out L1 vs median)    -> <play-dir>/appearance/
+#   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
+#   hifi      scripts/05k 1080p GPU render on the footage field        -> <play-dir>/render_hifi/
 #   render    scripts/05d world mode, fitted appearance              -> <play-dir>/render_abs/
 #
 # Environments: nflgsplat for calibration/identity, smplx312 for pose/fuse/refit/render
@@ -34,6 +36,7 @@ PYN="C:/venvs/nflgsplat/Scripts/python.exe"; PYS="C:/venvs/smplx312/Scripts/pyth
 cd "C:/Users/sumedh/NFLGSPLAT" || exit 1
 
 P="$1"; SIDE="$2"; END="$3"; LOS="$4"; shift 4
+DIAG="C:/Users/sumedh/diag"; PLAY="$(basename "$P")"
 FRESH=0; FROM_PAINT=0
 for a in "$@"; do
   case "$a" in --fresh) FRESH=1;; --from-paint) FROM_PAINT=1;; esac
@@ -103,6 +106,12 @@ if ! done_ check; then
   mark check
 fi
 
+if ! done_ field; then
+  log "field texture from the footage (05l; LOOK at the PNG: paint must land on the drawn field)"
+  "$PYN" scripts/05l_field_from_footage.py --play-dir "$P" --preview "$DIAG/${PLAY}_field_texture.png"      2>&1 | grep -v "Warning\|warn\|nanmedian" | grep -E "field texture|footage turf|Error" || fail field
+  mark field
+fi
+
 if ! done_ pose_s; then
   log "pose sideline (05c, resumes per frame)"
   "$PYS" scripts/05c_pose_play.py --play-dir "$P" --cam sideline --out "$P/poses_sideline.json" \
@@ -142,6 +151,12 @@ if ! done_ fit; then
   "$PYS" scripts/05i_fit_appearance.py --play-dir "$P" --poses "$P/poses_refit.json" --out-dir "$P/appearance" \
      2>&1 | grep -v "Warning\|warn\|nanmedian\|med = " | grep -E "bodies|gain|saved|Error" || fail fit
   mark fit
+fi
+
+if ! done_ hifi; then
+  log "hi-fi render on the footage field (05k; resumable)"
+  "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|Error" || fail hifi
+  mark hifi
 fi
 
 if ! done_ render; then

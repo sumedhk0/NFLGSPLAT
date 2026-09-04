@@ -67,3 +67,13 @@ def test_composite_uses_footage_only_where_seen():
     out = ft.composite(proc, foot, count, min_count=8, feather_px=2)
     assert (out[:, :6] == 50).all() and (out[:, 15:] == 200).all()
     assert 50 < out[10, 11].mean() < 200                      # the seam is soft
+
+
+def test_footage_colours_split_turf_from_paint():
+    foot = np.full((40, 40, 3), (70, 130, 60), np.uint8)
+    foot[:, ::10] = (230, 235, 230)                            # 10 % lines
+    count = np.full((40, 40), 20)
+    turf, paint = ft.footage_colours(foot, count, min_count=8)
+    assert turf == (70, 130, 60) and paint == (230, 235, 230)
+    assert ft.footage_colours(foot, np.zeros((40, 40), int), min_count=8) == (None, None)
+

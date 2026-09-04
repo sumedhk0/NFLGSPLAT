@@ -55,13 +55,17 @@ def main() -> None:
         kw["min_px2"] = args.min_px2
     t0 = time.time()
     median, count = ft.footage_texture(videos, tracks, res_m=args.res_m, stride=args.stride, **kw)
-    procedural = render_field_texture(args.res_m)
+    turf, paint = ft.footage_colours(median, count, min_count=kw.get("min_count", ft.MIN_COUNT))
+    # footage_colours are BGR (the texture's order); render_field_texture takes RGB.
+    procedural = (render_field_texture(args.res_m, turf_rgb=turf[::-1], paint_rgb=paint[::-1])
+                  if turf is not None else render_field_texture(args.res_m))
+    print(f"footage turf {turf}, paint {paint}; the procedural remainder is drawn in them")
     comp = ft.composite(procedural, median, count, min_count=kw.get("min_count", ft.MIN_COUNT))
     seen = float((count >= kw.get("min_count", ft.MIN_COUNT)).mean())
     out = args.out or P / "field_texture.npz"
     ft.save_texture(out, comp, count, res_m=args.res_m)
     preview = args.preview or out.with_suffix(".png")
-    imageio.imwrite(preview, np.ascontiguousarray(comp))
+    imageio.imwrite(preview, np.ascontiguousarray(comp[:, :, ::-1]))       # BGR -> RGB for the eye
     print(f"field texture {comp.shape[1]}x{comp.shape[0]} at {args.res_m} m; footage covers "
           f"{100 * seen:.0f}% of the extent (median count where seen "
           f"{np.median(count[count > 0]):.0f} frames); {time.time() - t0:.0f} s -> {out}, preview {preview}")

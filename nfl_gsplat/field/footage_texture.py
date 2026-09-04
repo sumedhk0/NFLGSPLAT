@@ -32,7 +32,7 @@ _LOG = get_logger(__name__)
 
 MIN_PX2: float = 0.2          # square image pixels per texel; below this the ground is smeared
 MIN_COUNT: int = 8            # frames that must have seen a texel for its median to count
-FEATHER_PX: int = 6           # seam between footage and procedural, in texels
+FEATHER_PX: int = 16          # seam between footage and procedural, in texels (~2 m)
 MAX_STACK_BYTES = 1_500_000_000
 
 
@@ -97,6 +97,22 @@ def median_texture(frames, *, min_count: int = MIN_COUNT):
     return out, count
 
 
+def footage_colours(footage, count, *, min_count: int = MIN_COUNT):
+    """``(turf, paint)`` of the footage, uint8 triples in the texture's own
+    channel order (BGR from footage_texture): the median
+    of the seen texels is turf; the paint is the median of the brightest
+    2 % (lines and numerals). The procedural remainder of a composite is
+    drawn in these so the seam is a change of detail, not of colour."""
+    seen = np.asarray(footage)[np.asarray(count) >= min_count].astype(np.float32)
+    if len(seen) < 100:
+        return None, None
+    lum = seen.mean(axis=1)
+    turf = np.median(seen[lum <= np.percentile(lum, 90)], axis=0)
+    bright = seen[lum >= np.percentile(lum, 98)]
+    paint = np.median(bright, axis=0) if len(bright) >= 20 else np.array([240.0, 240.0, 240.0])
+    return tuple(int(round(v)) for v in turf), tuple(int(round(v)) for v in paint)
+
+
 def composite(procedural, footage, count, *, min_count: int = MIN_COUNT,
               feather_px: int = FEATHER_PX) -> np.ndarray:
     """Footage where enough frames saw the ground, procedural elsewhere, feathered."""
@@ -115,7 +131,8 @@ def composite(procedural, footage, count, *, min_count: int = MIN_COUNT,
 def footage_texture(videos, tracks, *, res_m: float, stride: int = 4, extent=None,
                     min_px2: float = MIN_PX2, min_count: int = MIN_COUNT):
     """Median ground texture over the play from ``{cam: video_path}`` and
-    ``{cam: CameraTrack}``. Returns ``(median, count)``."""
+    ``{cam: CameraTrack}``. Returns ``(median, count)``; the texture is BGR
+    like procedural_field's, so the two composite and render alike."""
     import cv2
 
     extent = texture_extent() if extent is None else extent
@@ -135,8 +152,8 @@ def footage_texture(videos, tracks, *, res_m: float, stride: int = 4, extent=Non
                 continue
             intr, pose = tr.at(f)
             K = np.array([[intr.fx, 0, intr.cx], [0, intr.fy, intr.cy], [0, 0, 1.0]])
-            rgb = bgr[:, :, ::-1]
-            frames.append(warp_frame(rgb, K, pose.R, pose.t, res_m=res_m, extent=extent, min_px2=min_px2))
+            # BGR, as procedural_field's texture: texture_to_gaussians flips once.
+            frames.append(warp_frame(bgr, K, pose.R, pose.t, res_m=res_m, extent=extent, min_px2=min_px2))
             used += 1
         cap.release()
         _LOG.info("footage texture: %s, %d frames warped (stride %d)", cam, used, stride)
