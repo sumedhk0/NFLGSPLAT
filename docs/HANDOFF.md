@@ -41,12 +41,16 @@ viewpoint. Everything runs on the local machine.
 ```
 paint     scripts/08_reconstruct_all22.py     sideline cameras per frame from the yard-line grid,
                                               lens/distance from player box heights. Candidates are
-                                              then GATED by the paint rulers (hash rows 3.124 m,
-                                              numeral rows 12.50 m read through each candidate;
-                                              must agree within 10% and read a scale in 0.80-1.25)
-                                              before any endzone solve -- endzone reconciliation
-                                              cannot veto a wrong sideline (play 2: a 23-deg lens
-                                              55 m out won it). Player cost is a loose 0.75 pre-filter.
+                                              then judged by THREE independent tests before any
+                                              endzone solve (each has caught a camera the other two
+                                              passed): paint rulers (hash rows 3.124 m, numeral rows
+                                              12.50 m; agree within 10%, scale 0.80-1.25), player
+                                              height (1.55-2.15 m; catches the wrong lens branch),
+                                              grid-on-paint (calibration.grid_fit: projected 5-yd
+                                              lines within 25 px of the detected ones; a skewed
+                                              camera reads 149 px, a right one 10). Endzone
+                                              reconciliation cannot veto a wrong sideline. Player
+                                              cost is a loose 0.75 pre-filter.
 shift     scripts/08d_field_offset.py --no-rows --apply
                                               reads the painted NUMERALS through the camera and
                                               votes the 5-yard shift -> cameras in the rule-book
