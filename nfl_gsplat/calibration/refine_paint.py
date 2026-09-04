@@ -32,7 +32,9 @@ _LOG = get_logger(__name__)
 SOFT_L1_PX: float = 4.0
 ROUNDS: int = 2
 MAX_ROT_DEG: float = 6.0        # a frame's camera is never rotated more than this
-MAX_FOCAL_CHANGE: float = 0.15  # nor its lens changed more than this fraction
+MAX_FOCAL_CHANGE: float = 0.40  # the lens may change this much: the camera ZOOMS OUT at
+                                # the end of a play (play 1 frames 600-655 needed -15% and
+                                # hit a 15% bound at 44 px); rotation was never the limit
 # The camera pans smoothly; refined frame by frame the rotation about the
 # yard lines' own direction wanders (play 1: frame-to-frame rotation p95
 # 0.03 -> 2.3 degrees). The per-frame deltas are smoothed along the track.
