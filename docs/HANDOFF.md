@@ -175,8 +175,14 @@ over black). Textures fitted from the footage cannot give a jersey at
 de-mixing and smoothing the fit's gain over the plain median is ~0) and
 flat team colours with a helmet read cleaner than any of them. The fit
 stage (05i) is opt-in in the pipeline (FIT=1); the fitted textures stay
-on disk for side-by-sides. Numbers on the jerseys are the next step, for
-ids whose identity is sure. The footage keeps the field.
+on disk for side-by-sides. Jersey numbers (c586cc2) go on ids whose
+identity is sure -- a roster name and a (team, number) no other id of the
+play claims (18/106 in play 1, 12/85 in play 2) -- as a surface decal:
+ink texels of a 64-px raster pinned to jersey faces by barycentric
+weights, 4 mm Gaussians lifted 8 mm off the posed surface (vertex
+colours smeared: the torso lattice is 2.5 cm). The footage keeps the
+field. Pipeline hifi flags: `--uniforms --numbers --helmets --follow
+--eye-offset 2 -26 10 --fov 50 --field-texture`.
 
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
 per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black
