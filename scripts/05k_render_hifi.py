@@ -59,6 +59,13 @@ def main() -> None:
                     help="virtual camera eye relative to its target, metres "
                          "(x along the field, y across, z up)")
     ap.add_argument("--fov", type=float, default=55.0, help="horizontal field of view, degrees")
+    ap.add_argument("--splat-sigma", type=float, default=1.0,
+                    help="multiplier on every splat's in-plane extent (bodies and field)")
+    ap.add_argument("--splat-opacity", type=float, default=None,
+                    help="per-splat opacity for bodies and field (default: each builder's own, ~0.99); "
+                         "lower with a larger --splat-sigma so neighbouring splats blend per pixel")
+    ap.add_argument("--post-blur", type=float, default=0.0,
+                    help="Gaussian blur of the rendered frame, sigma in px (0 = none)")
     ap.add_argument("--follow", action="store_true",
                     help="the virtual camera dollies with the play's smoothed centroid (render.camera_path)")
     ap.add_argument("--pads", action="store_true",
@@ -134,6 +141,17 @@ def main() -> None:
         field_tex, field_res = render_field_texture(res_m=args.field_res_m), args.field_res_m
     f_xyz, f_rot, f_scale, f_opac, f_dc = texture_to_gaussians(field_tex, field_res)
     field = batch_from_arrays(f_xyz, f_rot, f_scale, f_opac, np.asarray(f_dc, np.float32)[:, :, None])
+
+    def tune(batch):
+        """--splat-sigma / --splat-opacity applied to a batch in place."""
+        if args.splat_sigma != 1.0:
+            batch.scale[:, :2] += np.log(args.splat_sigma)
+        if args.splat_opacity is not None:
+            a = float(np.clip(args.splat_opacity, 1e-4, 1 - 1e-4))
+            batch.opacity[:] = np.log(a / (1 - a))
+        return batch
+
+    field = tune(field)
     centre = np.median(np.concatenate([np.stack([s.xy for s in tl.states[f]])
                                        for f in frames if f in tl.states]), axis=0)
     target = np.array([centre[0], centre[1], 1.0])
@@ -174,7 +192,7 @@ def main() -> None:
         if args.helmets:
             shell = hm.HELMET_RGB.get(team, hm.DEFAULT_HELMET_RGB)
             verts, colour = hm.wear_helmet(verts, colour, head, shell)
-        return mesh_to_gaussians(verts, faces, colour=colour)
+        return tune(mesh_to_gaussians(verts, faces, colour=colour))
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -192,7 +210,12 @@ def main() -> None:
         with torch.no_grad():
             img = st.render(sp, K_v, R_v, t_v, crop=(0, 0, args.width, args.height),
                             background=(0.06, 0.06, 0.08))
-        imageio.imwrite(out, (255 * img.clamp(0, 1).cpu().numpy()).astype(np.uint8))
+        frame = (255 * img.clamp(0, 1).cpu().numpy()).astype(np.uint8)
+        if args.post_blur > 0:
+            import cv2
+
+            frame = cv2.GaussianBlur(frame, (0, 0), args.post_blur)
+        imageio.imwrite(out, frame)
         written.append(out)
         if i % 20 == 0:
             _LOG.info("rendered %d/%d (%d bodies, %.2f s/frame)", i + 1, len(frames), len(states),
