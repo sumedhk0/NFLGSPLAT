@@ -97,14 +97,8 @@ def assign_players(df_view, cams, track, offset, *, gate_m=GATE_M):
     return player, dist, ground
 
 
-def team_labels(df_view, video_path, *, max_per_frame=64):
-    """Per-detection team label from jersey colour: 0/1, or -1 when unknown.
-
-    The one cue position-only linking cannot supply. Dominant colour of the
-    torso crop per detection, then one balanced two-way split over the whole
-    view -- the same split identity uses per track, here per detection so the
-    linker can refuse to join a red box to a white track.
-    """
+def detection_colours(df_view, video_path, *, max_per_frame=64):
+    """``[N, 3]`` HSV torso colour per detection (NaN where unknown)."""
     import cv2
 
     cap = cv2.VideoCapture(str(video_path))
@@ -131,8 +125,22 @@ def team_labels(df_view, video_path, *, max_per_frame=64):
             except Exception:                              # noqa: BLE001
                 continue
     cap.release()
+    return colours
+
+
+def team_labels(df_view, video_path, *, max_per_frame=64, colours=None):
+    """Per-detection team label from jersey colour: 0/1, or -1 when unknown.
+
+    The one cue position-only linking cannot supply. Dominant colour of the
+    torso crop per detection, then one balanced two-way split over the whole
+    view -- the same split identity uses per track, here per detection so the
+    linker can refuse to join a red box to a white track.
+    """
+    if colours is None:
+        colours = detection_colours(df_view, video_path, max_per_frame=max_per_frame)
     ok = np.isfinite(colours).all(1)
     labels = np.full(len(df_view), -1, int)
+    team_gap = float("nan")
     if ok.sum() >= 4:
         lab = split_two_teams_balanced(colours[ok]).astype(int)
         # A label only where the colour is CLEARLY one side. Forcing a label
@@ -146,6 +154,8 @@ def team_labels(df_view, video_path, *, max_per_frame=64):
         margin = np.abs(d[:, 0] - d[:, 1]) / (d.sum(1) + 1e-9)       # 0..1
         lab[margin < 0.25] = -1
         labels[ok] = lab
+        team_gap = float(np.linalg.norm(centres[0] - centres[1]))
+    team_labels.last_team_gap = team_gap
     return labels
 
 
@@ -258,7 +268,9 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         # once with position only, once with a team label per detection.
         frs = df["frame"].to_numpy()
         placements = {int(f): ground[frs == f] for f in np.unique(frs)}
-        det_labels_all = team_labels(df, root / "video" / name)
+        det_colours = detection_colours(df, root / "video" / name)
+        det_labels_all = team_labels(df, root / "video" / name, colours=det_colours)
+        team_gap = getattr(team_labels, "last_team_gap", float("nan"))
         det_labels = {int(f): det_labels_all[frs == f] for f in np.unique(frs)}
         m["team_label_frac"] = float((det_labels_all >= 0).mean())
         feats_all = reid.embed_detections(root / "video" / name, df, device=cfg.device,
@@ -292,13 +304,29 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
                     for k, tid in enumerate(ids_by_frame[f]):
                         if tid >= 0:
                             pos.setdefault(int(tid), []).append((int(f), float(pts[k][0]), float(pts[k][1])))
-                player_of = stitch(pos, fps=VIDEO_FPS)
-                df4 = df3.copy()
-                df4["ground_track"] = [player_of.get(int(t), int(t)) if t >= 0 else -1 for t in linked]
-                m_s = track_metrics(df4, player, track, offset, id_col="ground_track")
-                m["ground_linker_stitched"] = {k: m_s[k] for k in
-                                               ("tracks", "purity_median", "purity_p10", "switches",
-                                                "fragments_per_player", "coverage")}
+                # Per-fragment median jersey colour (HSV): the cue that per-
+                # detection colour lacked -- one frame flips, a track's median
+                # does not. Joins are refused across half the team separation.
+                track_colour = {}
+                for tid in pos:
+                    rows_t = np.flatnonzero(linked == tid)
+                    c = det_colours[rows_t]
+                    c = c[np.isfinite(c).all(1)]
+                    track_colour[int(tid)] = np.median(c, axis=0) if len(c) >= 3 else None
+                variants = {"ground_linker_stitched": stitch(pos, fps=VIDEO_FPS)}
+                if np.isfinite(team_gap):
+                    variants["ground_linker_stitched_colour"] = stitch(
+                        pos, fps=VIDEO_FPS, colours=track_colour,
+                        colour_dist=lambda a, b: float(np.linalg.norm(np.asarray(a) - np.asarray(b))),
+                        max_colour_dist=0.5 * team_gap)
+                for vname, player_of in variants.items():
+                    df4 = df3.copy()
+                    df4["ground_track"] = [player_of.get(int(t), int(t)) if t >= 0 else -1
+                                           for t in linked]
+                    m_s = track_metrics(df4, player, track, offset, id_col="ground_track")
+                    m[vname] = {k: m_s[k] for k in
+                                ("tracks", "purity_median", "purity_p10", "switches",
+                                 "fragments_per_player", "coverage")}
         out[view] = m
     return out
 
@@ -368,6 +396,7 @@ def main() -> None:
             pad = len(f"[{i}/{len(usable)}] {game}/{play} {view:8s}")
             for tag, label in (("ground_linker", "ground: "),
                                ("ground_linker_stitched", "+stitch: "),
+                               ("ground_linker_stitched_colour", "+stitch+colour: "),
                                ("ground_linker_teams", "+teams: "),
                                ("ground_linker_reid", "+re-id: ")):
                 g = m.get(tag, {})

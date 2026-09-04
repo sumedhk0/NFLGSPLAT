@@ -7,6 +7,8 @@ the joins.
 """
 from __future__ import annotations
 
+import numpy as np
+
 from nfl_gsplat.tracking.stitch import stitch, track_endpoints
 
 FPS = 60.0
@@ -83,3 +85,19 @@ def test_a_chain_of_three_collapses_to_one_player():
 
 def test_empty_input_is_not_an_error():
     assert stitch({}) == {}
+
+
+def test_colour_gate_refuses_a_join_between_different_jerseys():
+    positions = {1: [(0, 0.0, 0.0), (10, 1.0, 0.0)],
+                 2: [(20, 2.0, 0.0), (30, 3.0, 0.0)]}          # continues 1 in position
+    dist = lambda a, b: float(np.linalg.norm(np.asarray(a) - np.asarray(b)))  # noqa: E731
+    joined = stitch(positions, fps=60.0, colours={1: [10.0, 0.0, 0.0], 2: [12.0, 0.0, 0.0]},
+                    colour_dist=dist, max_colour_dist=5.0)
+    assert joined[2] == joined[1]
+    refused = stitch(positions, fps=60.0, colours={1: [10.0, 0.0, 0.0], 2: [90.0, 0.0, 0.0]},
+                     colour_dist=dist, max_colour_dist=5.0)
+    assert refused[2] != refused[1]
+    unknown = stitch(positions, fps=60.0, colours={1: [10.0, 0.0, 0.0], 2: None},
+                     colour_dist=dist, max_colour_dist=5.0)
+    assert unknown[2] == unknown[1]                            # no colour, no veto
+

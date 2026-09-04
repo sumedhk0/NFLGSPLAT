@@ -55,8 +55,16 @@ def track_endpoints(positions):
 
 
 def stitch(positions, *, fps: float = 59.94, max_gap_s: float = MAX_GAP_S,
-           max_speed: float = MAX_SPEED_M_S, min_radius_m: float = MIN_RADIUS_M):
+           max_speed: float = MAX_SPEED_M_S, min_radius_m: float = MIN_RADIUS_M,
+           colours=None, colour_dist=None, max_colour_dist=None):
     """Link fragments into players. Returns ``{track_id: player_id}``.
+
+    ``colours`` optionally maps track -> a colour vector (None where unknown);
+    with ``colour_dist(a, b)`` and ``max_colour_dist`` a join between two
+    fragments whose colours are both known and farther apart than that is
+    refused. Position alone welds wrong players about as often as right ones
+    (measured: fragments 4.51 -> 4.36 per player, purity 0.78 -> 0.75); a
+    fragment's median jersey colour over its frames is the cue position lacks.
 
     Greedy in time: fragments are considered in the order they end, and each is
     joined to the best still-unclaimed fragment that starts after it. A global
@@ -89,6 +97,10 @@ def stitch(positions, *, fps: float = 59.94, max_gap_s: float = MAX_GAP_S,
             dist = float(np.hypot(*(start_xy - end_xy)))
             if dist > reach:
                 continue
+            if colours is not None and max_colour_dist is not None:
+                ca, cb = colours.get(a), colours.get(b)
+                if ca is not None and cb is not None and colour_dist(ca, cb) > max_colour_dist:
+                    continue
             # Prefer the nearest continuation, then the soonest.
             cost = dist + 0.5 * gap_s
             if cost < best_cost:
