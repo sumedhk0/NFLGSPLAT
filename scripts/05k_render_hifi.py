@@ -116,14 +116,16 @@ def main() -> None:
         import json
 
         tbc_path = P / "team_by_colour.json"
-        if not tbc_path.exists():
-            raise SystemExit(f"--team-by-colour: {tbc_path} missing; run scripts/08f_team_by_colour.py")
-        tbc = json.loads(tbc_path.read_text())
-        colour_team = {int(k): r["team"] for k, r in tbc["teams"].items()}
-        changed = sum(1 for pid, t in colour_team.items() if team_of.get(pid) not in (None, t))
-        team_of.update(colour_team)
-        print(f"teams by colour: {len(colour_team)} ids (threshold {tbc['threshold']:.0f}), "
-              f"{changed} differ from identity")
+        if tbc_path.exists():
+            tbc = json.loads(tbc_path.read_text())
+            colour_team = {int(k): r["team"] for k, r in tbc["teams"].items()}
+            changed = sum(1 for pid, t in colour_team.items() if team_of.get(pid) not in (None, t))
+            team_of.update(colour_team)
+            print(f"teams by colour: {len(colour_team)} ids (threshold {tbc['threshold']:.0f}), "
+                  f"{changed} differ from identity")
+        else:
+            # 08f refuses when the colours are not bimodal; identity's teams stand.
+            print(f"teams by colour: {tbc_path.name} absent (08f refused or not run); identity teams kept")
     fitted: dict[int, dict] = {}
     app_dir = args.appearance or (P / "appearance")
     if app_dir.exists():
