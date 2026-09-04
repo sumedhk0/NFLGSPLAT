@@ -24,6 +24,12 @@ from nfl_gsplat.calibration.field_landmarks import (GOAL_LINE_X_M, HALF_WIDTH_M,
 # camera 10.1 px (line width, detector jitter, interpolated per-frame
 # cameras); play 2's skewed one 148.9 px.
 MAX_GRID_PX_1080: float = 25.0
+# Yard lines may lean this far from vertical (08's default; the detector's own
+# 35 left a dead zone on red-zone views), and fewer detected segments than
+# this is no measurement: on play 2 the frames with two segments read 150 px
+# off two edges that were not yard lines, the frames with three read 8 px.
+GRID_VERTICAL_DEG: float = 45.0
+MIN_SEGMENTS: int = 4
 
 
 def projected_lines(K, R, t, *, half_width_m: float = HALF_WIDTH_M):
@@ -68,11 +74,11 @@ def grid_distance_px(image_bgr, K, R, t, *, cfg=None, player_boxes=None):
     """``(median_px, n_segments)`` for one frame. NaN when no segment is found."""
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig, detect_lines
 
-    cfg = cfg or FieldDetectConfig()
+    cfg = cfg or FieldDetectConfig(vertical_deg=GRID_VERTICAL_DEG)
     segs = detect_lines(np.asarray(image_bgr), cfg, player_boxes)
     d = segment_distances_px(segs, projected_lines(K, R, t))
-    if len(d) == 0:
-        return float("nan"), 0
+    if len(d) < MIN_SEGMENTS:
+        return float("nan"), int(len(d))
     return float(np.median(d)), int(len(d))
 
 
