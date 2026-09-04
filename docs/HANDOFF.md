@@ -1,6 +1,6 @@
 # NFLGSPLAT — Project Handoff / Agent Context
 
-**Last updated:** 2026-09-03 (branch `pipeline/avatar-twin`; `main` at `93e4cf5`).
+**Last updated:** 2026-09-04 (branch `pipeline/avatar-twin`; `main` at `93e4cf5`).
 Purpose: give any agent full working context WITHOUT the chat history. Read
 this, then the memory index the harness loads, then `docs/agent-context/`.
 
@@ -79,6 +79,13 @@ fit       scripts/05i_fit_appearance.py       per-body Gaussian colour/scale/opa
                                               footage (compositing.splat_torch, sparse differentiable
                                               splatter; fit_appearance), held-out L1 vs the median
                                               texture printed per body -> <play>/appearance/
+field     scripts/05l_field_from_footage.py   every 4th calibrated frame of each camera warped onto
+                                              the ground plane, person boxes masked, per-texel median
+                                              (players move out), procedural field colour-matched
+                                              where the cameras never looked -> <play>/field_texture.npz
+                                              and a PNG in diag: LOOK -- the footage's goal line,
+                                              numerals and end zone must sit on the drawn ones (this
+                                              caught play 2's 80-yard frame error)
 hifi      scripts/05k_render_hifi.py          THE DELIVERABLE: render.timeline gives every detected
                                               player a body every frame (fused / single-view / median
                                               stance, SLERP between posed frames, tilt clamped 35 deg,
@@ -87,7 +94,12 @@ hifi      scripts/05k_render_hifi.py          THE DELIVERABLE: render.timeline g
                                               same man); --stitch joins fragments (tracking.stitch)
                                               so a player keeps one id and texture -- OFF until the
                                               harness says the joins are right; sparse GPU splatter
-                                              at 1920x1080, ~6 s/frame, --resume, mp4 out
+                                              at 1920x1080, --resume, mp4 out. Pipeline flags:
+                                              --field-texture (the footage field), --helmets (team
+                                              shell on the head), --follow --eye-offset 2 -26 10
+                                              --fov 50 (dolly on the smoothed centroid, ~16 s/frame;
+                                              the 34 m camera is 10 s, a 20 m one 50 s); --pads
+                                              (shoulders out) built, unjudged
 render    scripts/05d_render_play.py          preview, world mode: bodies at the fused placement with the
                                               fitted appearance (--fitted-appearance); CPU preview
                                               splatter; --ply-dir writes scene PLYs for 05h (gsplat)
