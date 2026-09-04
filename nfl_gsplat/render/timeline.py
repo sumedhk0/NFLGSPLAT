@@ -33,6 +33,7 @@ from nfl_gsplat.utils.logging import get_logger
 _LOG = get_logger(__name__)
 
 MAX_TILT_DEG: float = 35.0       # a lineman's stance; nobody stands past this
+DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one player
 MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
 MIN_FRAMES: int = 6              # shorter fragments are noise
 VEL_WINDOW: int = 12             # frames over which yaw follows the travel direction
@@ -56,6 +57,7 @@ class Timeline:
     states: dict[int, list[PlayerState]] = field(default_factory=dict)
     n_clamped: int = 0
     n_default: int = 0
+    n_duplicates: int = 0
 
 
 # ---- orientation helpers ---------------------------------------------------
@@ -173,6 +175,29 @@ def yaw_from_motion(xy, *, window: int = VEL_WINDOW, fallback: float = 0.0):
 
 # ---- the timeline -------------------------------------------------------------
 
+_SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
+
+
+def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M) -> int:
+    """Drop, per frame, states within ``radius_m`` of a better one.
+
+    The two views' unreconciled detections of one player get separate ids
+    from the linker, so a frame can hold two bodies a metre apart for one
+    man (play 1: a median of 36 bodies where 21-23 are detected). Keep the
+    posed one (fused over sideline over default), then the earlier id.
+    Returns the number of states dropped."""
+    dropped = 0
+    for f, states in tl.states.items():
+        order = sorted(states, key=lambda s: (_SOURCE_RANK.get(s.source, 3), s.pid))
+        kept: list = []
+        for s in order:
+            if any(np.linalg.norm(s.xy - k.xy) < radius_m for k in kept):
+                dropped += 1
+                continue
+            kept.append(s)
+        tl.states[f] = sorted(kept, key=lambda s: s.pid)
+    return dropped
+
 def median_pose(records):
     """Element-wise median body pose over ``records`` (each ``[21, 3]``), a
     data-driven stance to give players who were never posed."""
@@ -225,6 +250,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             tl.states.setdefault(f, []).append(PlayerState(
                 pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
                 source=source, clamped=clamped))
+    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M)
     _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
               "%d frames tilt-clamped", len(pids), len(frames),
               float(np.median([len(v) for v in tl.states.values()])) if tl.states else 0,

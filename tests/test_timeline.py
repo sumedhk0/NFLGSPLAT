@@ -58,7 +58,7 @@ def test_yaw_from_motion_follows_travel_and_holds_when_still():
 
 def test_build_timeline_gives_every_player_a_body_every_frame():
     frames = list(range(0, 60))
-    ground = {f: {1: np.array([f * 0.1, 1.0]), 2: np.array([0.0, f * 0.05])} for f in frames}
+    ground = {f: {1: np.array([f * 0.1, 1.0]), 2: np.array([0.0, 6.0 + f * 0.05])} for f in frames}
     for f in range(20, 25):                      # player 2 undetected briefly
         del ground[f][2]
     tipped = (Rotation.from_euler("x", 60, degrees=True) *
@@ -74,3 +74,16 @@ def test_build_timeline_gives_every_player_a_body_every_frame():
     assert out.n_clamped > 0
     assert s2[22].source == "default" and np.isfinite(s2[22].xy).all()
     assert abs(tl.yaw_of(s2[40].global_orient) - np.pi / 2) < 0.2    # travelling +y
+
+
+def test_dedupe_keeps_the_posed_body_of_two_ids_on_one_spot():
+    frames = list(range(0, 20))
+    ground = {f: {1: np.array([1.0, 1.0]), 2: np.array([1.3, 1.2]), 3: np.array([8.0, 0.0])}
+              for f in frames}
+    poses = {2: {0: (np.zeros((21, 3)), tl.upright_from_yaw(0.0), np.zeros(10), "fused")}}
+    out = tl.build_timeline(frames, ground, poses)
+    for f in frames:
+        pids = sorted(s.pid for s in out.states[f])
+        assert pids == [2, 3], pids                  # 1 (default-posed) dropped for 2 (fused)
+    assert out.n_duplicates == len(frames)
+
