@@ -222,6 +222,49 @@ def select_by_rulers(scales, *, agree=RULER_AGREE, scale_range=RULER_SCALE):
     return [i for _d, i in sorted(keep)]
 
 
+# Player height a sideline candidate must imply (median over boxes): the
+# rulers pass a camera on the wrong lens/distance branch (play 3: rulers
+# 0.99/0.99, players 2.77 m); the players catch that.
+HEIGHT_RANGE_M = (1.55, 2.15)
+
+
+def select_candidates(scales, heights, grids, *, agree=RULER_AGREE, scale_range=RULER_SCALE,
+                      height_range=HEIGHT_RANGE_M, max_grid_px=None):
+    """Indices passing all three judges, best first by ruler scale.
+
+    ``scales``: ``[(scale, by_ruler, n)]`` from the paint rows; ``heights``:
+    median implied player height per candidate (m); ``grids``: median pixel
+    distance of the projected 5-yard lines from the painted ones (1080p).
+    Rulers test row positions along the lines the camera believes in, the
+    height tests the lens, the grid tests whether the lines are on the paint
+    at all; play 2 passed the first two with a grid 149 px off.
+    """
+    from nfl_gsplat.calibration.grid_fit import MAX_GRID_PX_1080
+
+    max_grid_px = MAX_GRID_PX_1080 if max_grid_px is None else max_grid_px
+    order = select_by_rulers(scales, agree=agree, scale_range=scale_range)
+    out = []
+    for i in order:
+        h = heights[i]
+        g = grids[i]
+        if np.isfinite(h) and not (height_range[0] <= h <= height_range[1]):
+            continue
+        if np.isfinite(g) and g > max_grid_px:
+            continue
+        out.append(i)
+    return out
+
+
+def candidate_heights(cams, boxes_by_frame_):
+    """Median implied player height (m) of a candidate over the sampled frames."""
+    hs = []
+    for f, boxes in boxes_by_frame_.items():
+        K, Rm, t = nearest(cams, f)
+        h = np.asarray(implied_heights(K, Rm, t, boxes))
+        hs.extend(h[(h > 0.5) & (h < 4.0)].tolist())
+    return float(np.median(hs)) if hs else float("nan")
+
+
 def frame_count(path):
     import cv2
 
@@ -303,22 +346,6 @@ def main() -> None:
     cands = believed
     print(f"   {len(cands)} candidate cameras")
 
-    # The rows on the turf judge each candidate before any endzone solve.
-    if not args.no_ruler_gate and len(cands) > 1:
-        probe = [int(f) for f in np.linspace(0.2, 0.8, 5) * frame_count(side_path)]
-        scales = [ruler_scales(side_path, c["cams"], probe) for c in cands]
-        for i, (c, (sc, by, n)) in enumerate(zip(cands, scales)):
-            print(f"   [{i}] {np.round(c['centre'], 1)} {c['quality']['fov_deg']:.1f} deg: rulers "
-                  + ", ".join(f"{k} {v:.3f}" for k, v in by.items())
-                  + f" -> scale {sc:.3f} over {n} readings")
-        order = select_by_rulers(scales)
-        if not order:
-            raise SystemExit("no sideline candidate passes the ruler gate (hash and numeral "
-                             f"rows must agree within {RULER_AGREE:.0%} and read a scale in "
-                             f"{RULER_SCALE}); the paint solve is wrong on this clip")
-        cands = [cands[i] for i in order]
-        print(f"   {len(cands)} pass the ruler gate; order {order}")
-
     # The same moments in both clips, away from the ends of the play.
     total = min(frame_count(side_path), frame_count(end_path))
     want = np.linspace(int(0.15 * total), int(0.85 * total),
@@ -326,6 +353,32 @@ def main() -> None:
 
     boxes_s, _w_s, _h_s = boxes_by_frame(model, side_path, want)
     boxes_e, w_e, h_e = boxes_by_frame(model, end_path, want)
+
+    # Three judges on every candidate before any endzone solve: the paint
+    # rows (cross-field scale), the players (lens/distance), and the grid on
+    # the paint (is the camera on the field at all). Each has caught a camera
+    # the other two passed.
+    if not args.no_ruler_gate and len(cands) > 1:
+        from nfl_gsplat.calibration.grid_fit import MAX_GRID_PX_1080, grid_scores
+
+        probe = [int(f) for f in np.linspace(0.2, 0.8, 5) * frame_count(side_path)]
+        scales = [ruler_scales(side_path, c["cams"], probe) for c in cands]
+        heights = [candidate_heights(c["cams"], boxes_s) for c in cands]
+        grids = [grid_scores(side_path, c["cams"], probe)[0] for c in cands]
+        for i, c in enumerate(cands):
+            sc, by, n = scales[i]
+            print(f"   [{i}] {np.round(c['centre'], 1)} {c['quality']['fov_deg']:.1f} deg: rulers "
+                  + ", ".join(f"{k} {v:.3f}" for k, v in by.items())
+                  + f" -> scale {sc:.3f} ({n} readings); players {heights[i]:.2f} m; "
+                  f"grid {grids[i]:.1f} px; paint rms {c['quality'].get('rms_px', float('nan')):.1f} px")
+        order = select_candidates(scales, heights, grids)
+        if not order:
+            raise SystemExit("no sideline candidate passes the gates (rulers agree within "
+                             f"{RULER_AGREE:.0%} with scale in {RULER_SCALE}; players "
+                             f"{HEIGHT_RANGE_M} m; grid within {MAX_GRID_PX_1080} px of the "
+                             "paint); the sideline paint solve is wrong on this clip")
+        cands = [cands[i] for i in order]
+        print(f"   {len(cands)} pass; order {order}")
     feet_s = {f: feet_of(b) for f, b in boxes_s.items()}
     feet_e = {f: feet_of(b) for f, b in boxes_e.items()}
     print(f"   detections per frame: sideline "

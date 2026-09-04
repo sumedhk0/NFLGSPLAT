@@ -20,8 +20,10 @@ from nfl_gsplat.calibration.field_landmarks import (GOAL_LINE_X_M, HALF_WIDTH_M,
                                                     YARD_LINE_SPACING_M)
 
 # A candidate whose grid sits farther than this from the paint (median over
-# detected segments, 1080p) is not on the field.
-MAX_GRID_PX_1080: float = 8.0
+# detected segments, 1080p) is not on the field. Measured: play 1's right
+# camera 10.1 px (line width, detector jitter, interpolated per-frame
+# cameras); play 2's skewed one 148.9 px.
+MAX_GRID_PX_1080: float = 25.0
 
 
 def projected_lines(K, R, t, *, half_width_m: float = HALF_WIDTH_M):

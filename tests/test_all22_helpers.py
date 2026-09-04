@@ -47,3 +47,15 @@ def test_select_by_rulers_keeps_agreeing_near_unit_scales_best_first():
     assert recon.select_by_rulers(scales) == [3, 5, 1]
     assert recon.select_by_rulers(scales[:1]) == []
 
+
+def test_select_candidates_needs_rulers_height_and_grid():
+    scales = [(1.008, {"hashes": 0.997, "numerals": 1.009}, 18),   # play 2 [0]: skewed grid
+              (1.011, {"hashes": 1.000, "numerals": 1.012}, 20),   # play 2 [1]: the right one
+              (0.986, {"hashes": 0.990, "numerals": 0.986}, 28),   # play 3 [1]: wrong lens branch
+              (1.038, {"hashes": 0.842, "numerals": 1.253}, 21)]   # rulers disagree
+    heights = [1.82, 1.82, 2.77, 1.9]
+    grids = [148.9, 10.1, 12.0, 9.0]
+    assert recon.select_candidates(scales, heights, grids) == [1]
+    # Unknown height or grid (NaN) does not veto.
+    assert recon.select_candidates(scales[1:2], [float("nan")], [float("nan")]) == [0]
+
