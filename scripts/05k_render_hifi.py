@@ -68,6 +68,9 @@ def main() -> None:
                     help="Gaussian blur of the rendered frame, sigma in px (0 = none)")
     ap.add_argument("--follow", action="store_true",
                     help="the virtual camera dollies with the play's smoothed centroid (render.camera_path)")
+    ap.add_argument("--uniforms", action="store_true",
+                    help="every body wears its team's synthetic kit by region (render.uniform); the "
+                         "fitted textures are ignored")
     ap.add_argument("--pads", action="store_true",
                     help="shoulder vertices pushed out and up (render.helmet.wear_pads)")
     ap.add_argument("--helmets", action="store_true",
@@ -89,6 +92,7 @@ def main() -> None:
     from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
     from nfl_gsplat.field.procedural_field import render_field_texture, texture_to_gaussians
     from nfl_gsplat.render import helmet as hm
+    from nfl_gsplat.render import uniform as un
     from nfl_gsplat.render.play_timeline import load_play_timeline, placed_vertices
 
     P = args.play_dir
@@ -172,6 +176,12 @@ def main() -> None:
     j_t = (model.J_regressor @ model.v_template).detach().cpu().numpy()
     head = hm.head_mask(v_t, j_t)
     pads = hm.pads_mask(v_t, j_t)
+    kit_colours: dict[str, np.ndarray] = {}
+    if args.uniforms:
+        masks = un.regions(v_t, j_t)
+        kit_colours = {team: un.dress(masks, kit) for team, kit in un.KITS.items()}
+        kit_colours[""] = un.dress(masks, un.DEFAULT_KIT)
+        print("uniforms: " + ", ".join(f"{t or 'unknown'} kit" for t in kit_colours))
 
     def body_batch(s):
         verts = placed_vertices(s, model)
@@ -183,7 +193,9 @@ def main() -> None:
                      s.pid if s.pid in fitted else None)
         team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
                     team_of.get(s.pid, ""))
-        if owner is not None:
+        if args.uniforms:
+            colour = kit_colours.get(team, kit_colours[""])
+        elif owner is not None:
             colour = fitted[owner]["colour"]
         else:
             colour = team_texture.get(team, TEAM_RGB.get(team, BODY_RGB))
