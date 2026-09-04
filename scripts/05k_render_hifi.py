@@ -50,6 +50,8 @@ def main() -> None:
     ap.add_argument("--stride", type=int, default=2, help="render every n-th source frame")
     ap.add_argument("--fps", type=float, default=59.94)
     ap.add_argument("--field-res-m", type=float, default=0.12)
+    ap.add_argument("--field-texture", type=Path, default=None,
+                    help="05l field_texture.npz (the footage's field); default procedural")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--stitch", action="store_true",
@@ -100,8 +102,15 @@ def main() -> None:
           f"appearance for {len(fitted)} players, teams for {len(team_of)}")
 
     # Field once; virtual camera on the players' centroid over the play.
-    f_xyz, f_rot, f_scale, f_opac, f_dc = texture_to_gaussians(
-        render_field_texture(res_m=args.field_res_m), args.field_res_m)
+    if args.field_texture is not None:
+        from nfl_gsplat.field.footage_texture import load_texture
+
+        field_tex, field_res = load_texture(args.field_texture)
+        print(f"field from footage: {args.field_texture} "
+              f"({field_tex.shape[1]}x{field_tex.shape[0]} at {field_res} m)")
+    else:
+        field_tex, field_res = render_field_texture(res_m=args.field_res_m), args.field_res_m
+    f_xyz, f_rot, f_scale, f_opac, f_dc = texture_to_gaussians(field_tex, field_res)
     field = batch_from_arrays(f_xyz, f_rot, f_scale, f_opac, np.asarray(f_dc, np.float32)[:, :, None])
     centre = np.median(np.concatenate([np.stack([s.xy for s in tl.states[f]])
                                        for f in frames if f in tl.states]), axis=0)
