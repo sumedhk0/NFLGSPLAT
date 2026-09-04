@@ -85,6 +85,12 @@ def main() -> None:
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--no-translation", dest="translation", action="store_false",
                     help="no per-frame shift nuisance during the fit")
+    ap.add_argument("--from-timeline", action="store_true",
+                    help="fit EVERY timeline player (render.play_timeline: fused, single-view "
+                         "and default-posed) from its placed vertices, not only the fused "
+                         "refit cache; the render (05k) places bodies the same way")
+    ap.add_argument("--only-missing", action="store_true",
+                    help="skip players that already have appearance_<pid>.npz in --out-dir")
     ap.add_argument("--eval-shift", type=int, default=30,
                     help="iterations of a 2-parameter shift fitted per HELD-OUT crop with the "
                          "appearance frozen, for both the median texture and the fit; 0 = none")
@@ -99,20 +105,34 @@ def main() -> None:
                                                    vertex_colours_from_view)
     from nfl_gsplat.compositing.mesh_to_gaussians import mesh_to_gaussians
 
-    blob = pickle.load(open(args.poses, "rb"))
-    if not blob.get("world"):
-        raise SetupError("05i needs the world-mode cache from 05f (transl in metres)")
-    cache = blob["frames"]
-    tracks_cam = load_camera_track(args.play_dir / "cameras.npz")
-    cams = [c for c in ("sideline", "endzone") if c in tracks_cam]
     model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral",
                          use_pca=False, batch_size=1)
     faces = model.faces.astype(np.int64)
+    tracks_cam = load_camera_track(args.play_dir / "cameras.npz")
+    cams = [c for c in ("sideline", "endzone") if c in tracks_cam]
     frames_of: dict[int, list[int]] = {}
-    for f in sorted(cache):
-        for pid in cache[f]:
-            frames_of.setdefault(pid, []).append(f)
+    if args.from_timeline:
+        from nfl_gsplat.render.play_timeline import load_play_timeline, placed_vertices
+
+        tl, tracks_cam, _df, _frames_all, _poses = load_play_timeline(args.play_dir, model)
+        # Every 6th frame, as the pose caches are; the timeline has all of them.
+        state_of: dict[tuple[int, int], object] = {}
+        for f in sorted(tl.states)[::6]:
+            for s in tl.states[f]:
+                frames_of.setdefault(s.pid, []).append(f)
+                state_of[(s.pid, f)] = s
+    else:
+        blob = pickle.load(open(args.poses, "rb"))
+        if not blob.get("world"):
+            raise SetupError("05i needs the world-mode cache from 05f (transl in metres)")
+        cache = blob["frames"]
+        for f in sorted(cache):
+            for pid in cache[f]:
+                frames_of.setdefault(pid, []).append(f)
     bodies = [(pid, fs) for pid, fs in frames_of.items() if len(fs) >= MIN_FRAMES]
+    if args.only_missing:
+        bodies = [(pid, fs) for pid, fs in bodies
+                  if not (args.out_dir / f"appearance_{pid}.npz").exists()]
     bodies.sort(key=lambda kv: -len(kv[1]))
     if args.limit:
         bodies = bodies[:args.limit]
@@ -120,7 +140,10 @@ def main() -> None:
     reader = FrameCache(args.play_dir, cams)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    def placed(pid, rec):
+    def placed(pid, f):
+        if args.from_timeline:
+            return placed_vertices(state_of[(pid, f)], model)
+        rec = cache[f][pid]
         with torch.no_grad():
             betas = np.asarray(rec["betas"], np.float32)[None, :model.num_betas]
             body_pose = np.asarray(rec["body_pose"], np.float32).reshape(1, -1)
@@ -168,7 +191,7 @@ def main() -> None:
         obs_train, obs_test = [], []
         samples = []
         for i, f in enumerate(fs):
-            verts = placed(pid, cache[f][pid])
+            verts = placed(pid, f)
             for cam in cams:
                 tr = tracks_cam[cam]
                 if tr.conf[f] <= 0:

@@ -27,84 +27,12 @@ from pathlib import Path
 
 import numpy as np
 
-from nfl_gsplat.calibration.cameras_io import load_camera_track
-from nfl_gsplat.errors import SetupError
 from nfl_gsplat.utils.logging import get_logger
 
 _LOG = get_logger(__name__)
 BODY_RGB = (0.72, 0.62, 0.55)
 TEAM_RGB = {"KC": (0.89, 0.09, 0.22), "BAL": (0.95, 0.95, 0.95), "ARI": (0.62, 0.11, 0.22),
             "SEA": (0.11, 0.22, 0.34)}
-
-
-def ground_positions(df, tracks):
-    """frame -> {pid: xy}: each view's foot through its camera, both averaged."""
-    from nfl_gsplat.pose.place_on_field import ground_point
-
-    out: dict[int, dict[int, list]] = {}
-    for cam, sub in df.groupby("cam"):
-        tr = tracks[cam]
-        for f, rows in sub.groupby("frame"):
-            f = int(f)
-            if f >= len(tr.conf) or tr.conf[f] <= 0:
-                continue
-            intr, pose = tr.at(f)
-            K, R, t = intr.K(), pose.R, pose.t
-            for r in rows.itertuples():
-                try:
-                    g = ground_point((0.5 * (r.bbox_x1 + r.bbox_x2), float(r.bbox_y2)), K, R, t)
-                except Exception:
-                    continue
-                if abs(g[0]) < 60 and abs(g[1]) < 30:
-                    out.setdefault(f, {}).setdefault(int(r.track_id), []).append(np.asarray(g[:2], float))
-    return {f: {pid: np.mean(v, axis=0) for pid, v in d.items()} for f, d in out.items()}
-
-
-def poses_from_caches(refit, side_blob, tracks, model):
-    """pid -> {frame: (body_pose, global_orient_world, betas, source)}."""
-    import torch
-
-    from nfl_gsplat.pose.place_on_field import placement_transform
-    from scipy.spatial.transform import Rotation
-
-    out: dict[int, dict[int, tuple]] = {}
-    for f, recs in refit.items():
-        for pid, r in recs.items():
-            out.setdefault(int(pid), {})[int(f)] = (
-                np.asarray(r["body_pose"], float).reshape(21, 3),
-                np.asarray(r["global_orient"], float).reshape(3),
-                np.asarray(r["betas"], float)[:10], "fused")
-    if side_blob is not None:
-        cam = side_blob["cam"]
-        tr = tracks[cam]
-        for f, recs in side_blob["frames"].items():
-            f = int(f)
-            if f >= len(tr.conf) or tr.conf[f] <= 0:
-                continue
-            intr, pose = tr.at(f)
-            K, R, t = intr.K(), pose.R, pose.t
-            for pid, r in recs.items():
-                pid = int(pid)
-                if f in out.get(pid, {}):
-                    continue                                  # fused wins
-                betas = np.asarray(r["betas"], np.float32)[None, :model.num_betas]
-                body_pose = np.asarray(r["body_pose"], np.float32).reshape(1, -1)
-                orient = np.asarray(r["global_orient"], np.float32).reshape(1, 3)
-                with torch.no_grad():
-                    res = model(betas=torch.tensor(betas), body_pose=torch.tensor(body_pose),
-                                global_orient=torch.tensor(orient))
-                joints = res.joints[0].numpy().astype(float)
-                b = r["bbox"]
-                foot = (0.5 * (b[0] + b[2]), float(b[3]))
-                try:
-                    rot_world, _off = placement_transform(joints, foot, K, R, t)
-                except Exception:
-                    continue
-                go_cam = Rotation.from_rotvec(np.asarray(r["global_orient"], float).reshape(3))
-                go_world = (Rotation.from_matrix(rot_world) * go_cam).as_rotvec()
-                out.setdefault(pid, {})[f] = (np.asarray(r["body_pose"], float).reshape(21, 3),
-                                              go_world, np.asarray(r["betas"], float)[:10], "sideline")
-    return out
 
 
 def main() -> None:
@@ -129,7 +57,6 @@ def main() -> None:
     args = ap.parse_args()
 
     import imageio.v2 as imageio
-    import pandas as pd
     import smplx
     import torch
 
@@ -138,18 +65,9 @@ def main() -> None:
     from nfl_gsplat.compositing.mesh_to_gaussians import merge, mesh_to_gaussians
     from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
     from nfl_gsplat.field.procedural_field import render_field_texture, texture_to_gaussians
-    from nfl_gsplat.render import timeline as tlm
+    from nfl_gsplat.render.play_timeline import load_play_timeline, placed_vertices
 
     P = args.play_dir
-    tracks = load_camera_track(P / "cameras.npz")
-    df = pd.read_parquet(P / "tracks.parquet")
-    df = df[df["track_id"] >= 0]
-    refit_path = args.poses_refit or (P / "poses_refit.json")
-    side_path = args.poses_sideline or (P / "poses_sideline.json")
-    refit = pickle.load(open(refit_path, "rb"))["frames"] if refit_path.exists() else {}
-    side_blob = pickle.load(open(side_path, "rb")) if side_path.exists() else None
-    if not refit and side_blob is None:
-        raise SetupError("no pose cache: need poses_refit.json (05f) or poses_sideline.json (05c)")
     model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral",
                          use_pca=False, batch_size=1)
     faces = model.faces.astype(np.int64)
@@ -167,18 +85,11 @@ def main() -> None:
             fitted[int(path.stem.split("_")[1])] = {k: np.asarray(z[k], np.float32)
                                                     for k in ("colour", "log_scale_mult", "opacity_logit")}
 
-    ground = ground_positions(df, tracks)
-    frames_all = sorted(ground)
+    tl, tracks, df, frames_all, poses = load_play_timeline(
+        P, model, poses_refit=args.poses_refit, poses_sideline=args.poses_sideline)
     frames = frames_all[:: max(1, args.stride)]
     if args.limit:
         frames = frames[: args.limit]
-    poses = poses_from_caches(refit, side_blob, tracks, model)
-    all_bp = [v[0] for d in poses.values() for v in d.values() if v[3] == "fused"]
-    all_betas = [v[2] for d in poses.values() for v in d.values() if v[3] == "fused"]
-    default_pose = tlm.median_pose(all_bp) if all_bp else np.zeros((21, 3))
-    default_betas = np.median(np.stack(all_betas), axis=0) if all_betas else np.zeros(10)
-    tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
-                            default_betas=default_betas)
     print(f"timeline: {len(frames_all)} frames, {len(poses)} posed players, "
           f"{tl.n_default} default-posed, {tl.n_clamped} tilt-clamped states; "
           f"appearance for {len(fitted)} players, teams for {len(team_of)}")
@@ -195,13 +106,8 @@ def main() -> None:
     K_v = intrinsics(args.width, args.height, fov_deg=55.0)
     print(f"camera on ({centre[0]:.1f}, {centre[1]:.1f}) m")
 
-    def body_batch(s: tlm.PlayerState):
-        with torch.no_grad():
-            res = model(betas=torch.tensor(s.betas[None, :model.num_betas].astype(np.float32)),
-                        body_pose=torch.tensor(s.body_pose.reshape(1, -1).astype(np.float32)),
-                        global_orient=torch.tensor(s.global_orient.reshape(1, 3).astype(np.float32)))
-        verts = res.vertices[0].numpy().astype(np.float64)
-        verts = verts + np.array([s.xy[0], s.xy[1], -verts[:, 2].min()])   # feet on the turf
+    def body_batch(s):
+        verts = placed_vertices(s, model)
         # Fitted COLOUR only: the fit's scale and opacity were tuned to blurry
         # 140-px crops and read as translucent bodies at this distance; the
         # colours were the acceptance-tested part.
