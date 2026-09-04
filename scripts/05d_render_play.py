@@ -83,6 +83,9 @@ def main() -> None:
     ap.add_argument("--no-appearance", dest="appearance", action="store_false",
                     help="flat team colours instead of colours sampled from "
                          "the footage (compositing.appearance)")
+    ap.add_argument("--fitted-appearance", type=Path, default=None,
+                    help="directory of appearance_<pid>.npz from scripts/05i; bodies "
+                         "with a file use the fitted colour, scale and opacity")
     ap.add_argument("--min-cutoff", type=float, default=2.0,
                     help="zero-phase filters twice, so this runs HIGHER than a "
                          "causal cutoff would")
@@ -333,6 +336,19 @@ def main() -> None:
                                 else np.nanmedian(stack, axis=0))
     t0 = time.time()
 
+    # Fitted appearance (scripts/05i) replaces the sampled colour AND adjusts
+    # each Gaussian's scale and opacity, for the bodies that have a file.
+    fitted: dict[int, dict] = {}
+    if args.fitted_appearance is not None:
+        for tid in tracks:
+            path = args.fitted_appearance / f"appearance_{tid}.npz"
+            if path.exists():
+                z = np.load(path)
+                fitted[tid] = {k: np.asarray(z[k], np.float32)
+                               for k in ("colour", "log_scale_mult", "opacity_logit")}
+        _LOG.info("fitted appearance for %d of %d bodies from %s", len(fitted),
+                  len(tracks), args.fitted_appearance)
+
     for n, f in enumerate(frames):
         if f not in smoothed:
             continue
@@ -344,6 +360,12 @@ def main() -> None:
             player = player_of.get(tid)
             colour = (TEAM_RGB.get(player.team, BODY_RGB) if player is not None
                       else BODY_RGB)
+            if tid in fitted:
+                body = mesh_to_gaussians(placed, faces, colour=fitted[tid]["colour"])
+                body.scale = body.scale + fitted[tid]["log_scale_mult"][:, None]
+                body.opacity = fitted[tid]["opacity_logit"]
+                batches.append(body)
+                continue
             if tid in body_colour:
                 colour, _unseen = median_colours(body_colour[tid][None],
                                                  fallback=colour)

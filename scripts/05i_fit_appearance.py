@@ -76,6 +76,11 @@ def main() -> None:
     ap.add_argument("--min-facing", type=float, default=0.1)
     ap.add_argument("--limit", type=int, default=0, help="fit at most this many bodies")
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--no-translation", dest="translation", action="store_false",
+                    help="no per-frame shift nuisance during the fit")
+    ap.add_argument("--eval-shift", type=int, default=0,
+                    help="iterations of a 2-parameter shift fitted per HELD-OUT crop with the "
+                         "appearance frozen, for both the median texture and the fit; 0 = none")
     args = ap.parse_args()
 
     import smplx
@@ -118,7 +123,10 @@ def main() -> None:
         return res.vertices[0].numpy().astype(np.float64) + np.asarray(rec["transl"], float)
 
     def crop_l1(colour, obs):
-        """Held-out L1 of a body with per-vertex ``colour`` over ``obs``."""
+        """Held-out L1 of a body with per-vertex ``colour`` over ``obs``. With
+        --eval-shift, each crop first gets a 2-parameter principal-point shift
+        fitted with the appearance frozen, so placement error is charged
+        equally to whatever appearance is being judged."""
         vals = []
         for ob in obs:
             batch = mesh_to_gaussians(ob.vertices, faces, colour=colour)
@@ -126,8 +134,24 @@ def main() -> None:
             crop = fa.crop_for(ob, margin_px=6)
             x0, y0, w, h = crop
             target = torch.as_tensor(ob.image[y0:y0 + h, x0:x0 + w], device=args.device)
+            K = torch.as_tensor(np.asarray(ob.K, np.float32), device=args.device)
+            if args.eval_shift:
+                shift = torch.zeros(2, device=args.device, requires_grad=True)
+                opt = torch.optim.Adam([shift], lr=0.3)
+                for _ in range(args.eval_shift):
+                    opt.zero_grad(set_to_none=True)
+                    Kf = K + torch.zeros_like(K).index_put(
+                        (torch.tensor([0, 1], device=args.device),
+                         torch.tensor([2, 2], device=args.device)), shift)
+                    img = st.render(scene, Kf, ob.R, ob.t, crop=crop, background=target)
+                    loss = (img - target).abs().mean()
+                    loss.backward()
+                    opt.step()
+                K = (K + torch.zeros_like(K).index_put(
+                    (torch.tensor([0, 1], device=args.device),
+                     torch.tensor([2, 2], device=args.device)), shift.detach()))
             with torch.no_grad():
-                img = st.render(scene, ob.K, ob.R, ob.t, crop=crop, background=target)
+                img = st.render(scene, K, ob.R, ob.t, crop=crop, background=target)
             vals.append((img - target).abs().mean().item())
         return float(np.mean(vals)) if vals else float("nan")
 
@@ -158,7 +182,7 @@ def main() -> None:
         colour0 = np.asarray(colour0, np.float32)
         l1_median = crop_l1(colour0, obs_test)
         cfg = fa.FitConfig(iters=args.iters, lr=args.lr, tv_weight=args.tv_weight,
-                           device=args.device, log_every=0)
+                           device=args.device, log_every=0, translation=args.translation)
         fit, hist = fa.fit_body(colour0, faces, obs_train, cfg)
         fitted = fit.colour.cpu().numpy()
         l1_fit = crop_l1(fitted, obs_test)
@@ -173,7 +197,8 @@ def main() -> None:
                              "loss_first": hist["loss"][0], "loss_last": hist["loss"][-1],
                              "unseen_rgb": [float(x) for x in unseen_colour]}
         print(f"[{bi + 1}/{len(bodies)}] player {pid}: {len(obs_train)} train / {len(obs_test)} held-out "
-              f"crops; held-out L1 median-texture {l1_median:.4f} -> fitted {l1_fit:.4f} "
+              f"crops; train loss {hist['loss'][0]:.4f} -> {hist['loss'][-1]:.4f}; held-out L1 "
+              f"median-texture {l1_median:.4f} -> fitted {l1_fit:.4f} "
               f"({100 * (1 - l1_fit / max(l1_median, 1e-9)):+.0f}%); unseen rgb "
               f"{np.round(unseen_colour, 2)}; {time.time() - t0:.0f} s")
     if not summary:
