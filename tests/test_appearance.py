@@ -1,6 +1,7 @@
 """Colours must come from the pixels the calibration says a vertex is under."""
 import numpy as np
 
+from nfl_gsplat.compositing import appearance as ap
 from nfl_gsplat.compositing.appearance import (
     median_colours,
     project,
@@ -86,3 +87,20 @@ def test_the_fallback_fills_what_no_view_saw():
     col, unseen = median_colours(a[None], fallback=(0.2, 0.3, 0.4))
     assert unseen.all()
     assert np.allclose(col, [0.2, 0.3, 0.4])
+
+
+
+def test_mask_turf_drops_grass_samples_and_keeps_the_jersey():
+    img = np.full((64, 64, 3), (0.30, 0.55, 0.25), np.float32)       # a turf frame
+    img[20:40, 20:40] = (0.95, 0.95, 0.95)                             # a white jersey
+    turf = ap.turf_colour(img, step=4)
+    assert np.allclose(turf, (0.30, 0.55, 0.25), atol=0.01)
+    sample = np.array([[0.31, 0.54, 0.26],       # grass
+                       [0.95, 0.95, 0.95],       # jersey
+                       [0.45, 0.55, 0.35],       # half grass, half jersey: still turf-like
+                       [np.nan, np.nan, np.nan]])
+    out = ap.mask_turf(sample, turf, dist=0.12)
+    assert np.isnan(out[0]).all() and np.allclose(out[1], sample[1]) and np.isnan(out[3]).all()
+    assert np.isnan(out[2]).all() is False or np.isfinite(out[2]).all()   # 0.19 away: kept
+    assert np.isfinite(sample[0]).all()                                    # input untouched
+

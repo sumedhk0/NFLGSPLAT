@@ -83,6 +83,24 @@ def vertex_colours_from_view(vertices, faces, K, R, t, image_rgb, *,
     return sample_bilinear(img, uv)
 
 
+def turf_colour(image_rgb, *, step: int = 16):
+    """Median colour of a subsampled frame: the field fills most of an All-22 frame."""
+    return np.median(np.asarray(image_rgb, np.float32)[::step, ::step].reshape(-1, 3), axis=0)
+
+
+def mask_turf(sample, turf, *, dist: float):
+    """NaN out vertex samples within ``dist`` (RGB, 0..1) of the turf colour.
+
+    At 140 px a limb is 3-5 px wide and most of its vertices sample pixels
+    mixed with grass; a median over frames of those is khaki, not white or
+    red (measured: 72-84 % of a body's vertices within 0.12 of turf, and the
+    body rendered olive). A grass-coloured sample is not the body."""
+    sample = np.array(sample, np.float32, copy=True)
+    near = np.linalg.norm(sample - np.asarray(turf, np.float32)[None, :], axis=1) < dist
+    sample[near] = np.nan
+    return sample
+
+
 def median_colours(samples, *, fallback):
     """Median over ``[F, V, 3]`` frame samples, ignoring NaN; ``fallback`` where none."""
     samples = np.asarray(samples, np.float64)

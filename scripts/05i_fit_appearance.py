@@ -44,6 +44,11 @@ from nfl_gsplat.utils.logging import get_logger
 _LOG = get_logger(__name__)
 MIN_FRAMES = 8
 BODY_RGB = (0.7, 0.7, 0.7)
+# A sample this close (RGB, 0..1) to the frame's turf colour is turf, not the
+# body: at 140 px a limb is 3-5 px wide and most of its vertices sample
+# pixels mixed with grass, which made whole bodies khaki. Dropped before the
+# median; a vertex left with nothing takes the body's dominant non-turf colour.
+TURF_DIST = 0.12
 
 
 class FrameCache:
@@ -92,6 +97,8 @@ def main() -> None:
                     help="fit EVERY timeline player (render.play_timeline: fused, single-view "
                          "and default-posed) from its placed vertices, not only the fused "
                          "refit cache; the render (05k) places bodies the same way")
+    ap.add_argument("--no-turf-mask", dest="turf_mask", action="store_false",
+                    help="keep samples near the frame's turf colour in the start colour")
     ap.add_argument("--only-missing", action="store_true",
                     help="skip players that already have appearance_<pid>.npz in --out-dir")
     ap.add_argument("--eval-shift", type=int, default=30,
@@ -104,7 +111,7 @@ def main() -> None:
 
     from nfl_gsplat.compositing import fit_appearance as fa
     from nfl_gsplat.compositing import splat_torch as st
-    from nfl_gsplat.compositing.appearance import (median_colours,
+    from nfl_gsplat.compositing.appearance import (mask_turf, median_colours, turf_colour,
                                                    vertex_colours_from_view)
     from nfl_gsplat.compositing.mesh_to_gaussians import mesh_to_gaussians
 
@@ -217,14 +224,24 @@ def main() -> None:
                     continue
                 (obs_test if (args.holdout and i % args.holdout == 0) else obs_train).append(ob)
                 if not (args.holdout and i % args.holdout == 0):
-                    samples.append(vertex_colours_from_view(verts, faces, K, R, t, img,
-                                                            min_facing=args.min_facing).astype(np.float16))
+                    sample = vertex_colours_from_view(verts, faces, K, R, t, img,
+                                                      min_facing=args.min_facing)
+                    if args.turf_mask:
+                        sample = mask_turf(sample, turf_colour(img), dist=TURF_DIST)
+                    samples.append(sample.astype(np.float16))
         if len(obs_train) < 4 or not obs_test:
             continue
         stack = np.stack(samples).astype(np.float32)
         with np.errstate(all="ignore"):
-            colour0, _unseen = median_colours(np.nanmedian(stack, axis=0)[None], fallback=BODY_RGB)
+            med = np.nanmedian(stack, axis=0)
+        valid = np.isfinite(med).all(1)
+        # The body's dominant non-turf colour dresses the vertices that never
+        # sampled anything but grass (thin limbs, the far side).
+        body_colour = np.median(med[valid], axis=0) if valid.sum() >= 50 else np.asarray(BODY_RGB)
+        colour0, _unseen = median_colours(med[None], fallback=body_colour)
         colour0 = np.asarray(colour0, np.float32)
+        turf_ref = turf_colour(obs_train[0].image)
+        turf_like0 = float((np.linalg.norm(colour0 - turf_ref[None], axis=1) < TURF_DIST).mean())
         l1_median = crop_l1(colour0, obs_test)
         cfg = fa.FitConfig(iters=args.iters, lr=args.lr, tv_weight=args.tv_weight,
                            device=args.device, log_every=0, translation=args.translation)
@@ -238,6 +255,8 @@ def main() -> None:
         c0, c1 = colour0[seen], fitted[seen]
         green0 = float(np.mean(np.clip(c0[:, 1] - c0[:, [0, 2]].max(1), 0, 1)))
         green1 = float(np.mean(np.clip(c1[:, 1] - c1[:, [0, 2]].max(1), 0, 1)))
+        turf_like1 = float((np.linalg.norm(fitted - turf_ref[None], axis=1) < TURF_DIST).mean())
+        mean_rgb = np.round(fitted[seen].mean(0), 2)
         np.savez(args.out_dir / f"appearance_{pid}.npz", colour=fitted,
                  log_scale_mult=fit.log_scale_mult.cpu().numpy(),
                  opacity_logit=fit.opacity_logit.cpu().numpy(),
@@ -251,8 +270,9 @@ def main() -> None:
               f"crops; train loss {hist['loss'][0]:.4f} -> {hist['loss'][-1]:.4f}; held-out L1 "
               f"median-texture {l1_median:.4f} -> fitted {l1_fit:.4f} "
               f"({100 * (1 - l1_fit / max(l1_median, 1e-9)):+.0f}%); greenness "
-              f"{green0:.3f} -> {green1:.3f}; unseen rgb "
-              f"{np.round(unseen_colour, 2)}; {time.time() - t0:.0f} s")
+              f"{green0:.3f} -> {green1:.3f}; turf-like {turf_like0:.2f} -> {turf_like1:.2f}; "
+              f"mean rgb {mean_rgb}; unseen rgb {np.round(unseen_colour, 2)}; "
+              f"{time.time() - t0:.0f} s")
     if not summary:
         raise SetupError("no body had enough frames in both the train and held-out sets")
     gains = np.array([1 - v["l1_fit"] / max(v["l1_median"], 1e-9) for v in summary.values()])
