@@ -102,3 +102,16 @@ def test_one_view_ids_along_the_depth_axis_are_duplicates_of_two_view_ids():
         # 4: far from everyone -> kept
         assert pids == [1, 4], pids
 
+
+def test_relabel_merges_fragments_under_the_stitch_map():
+    ground = {0: {1: np.array([0.0, 0.0]), 5: np.array([9.0, 9.0])},
+              1: {2: np.array([0.2, 0.0]), 5: np.array([9.1, 9.0])}}
+    views = {0: {1: ("sideline",), 5: ("endzone", "sideline")}, 1: {2: ("endzone",), 5: ("sideline",)}}
+    poses = {1: {0: ("bp1", "go1", "b1", "sideline")}, 2: {0: ("bp2", "go2", "b2", "fused"),
+                                                          1: ("bp2b", "go2b", "b2", "sideline")}}
+    g, v, p, members = tl.relabel(ground, views, poses, {2: 1})
+    assert sorted(g[1]) == [1, 5] and np.allclose(g[1][1], [0.2, 0.0])
+    assert v[1][1] == ("endzone",) and v[0][5] == ("endzone", "sideline")
+    assert p[1][0][3] == "fused" and p[1][1][3] == "sideline"      # fused wins the collision
+    assert members == {1: [1, 2], 5: [5]}
+

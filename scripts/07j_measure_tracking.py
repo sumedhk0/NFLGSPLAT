@@ -282,6 +282,23 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
             m[tag] = {k: m_g[k] for k in
                       ("tracks", "purity_median", "purity_p10", "switches",
                        "fragments_per_player", "coverage")}
+            if tag == "ground_linker":
+                # The position-only stitcher on the ground linker's own pieces,
+                # in field metres: does joining fragments buy fewer pieces per
+                # player without welding different players (purity)?
+                pos = {}
+                for f in placements:
+                    pts = placements[f]
+                    for k, tid in enumerate(ids_by_frame[f]):
+                        if tid >= 0:
+                            pos.setdefault(int(tid), []).append((int(f), float(pts[k][0]), float(pts[k][1])))
+                player_of = stitch(pos, fps=VIDEO_FPS)
+                df4 = df3.copy()
+                df4["ground_track"] = [player_of.get(int(t), int(t)) if t >= 0 else -1 for t in linked]
+                m_s = track_metrics(df4, player, track, offset, id_col="ground_track")
+                m["ground_linker_stitched"] = {k: m_s[k] for k in
+                                               ("tracks", "purity_median", "purity_p10", "switches",
+                                                "fragments_per_player", "coverage")}
         out[view] = m
     return out
 
@@ -350,6 +367,7 @@ def main() -> None:
                      if "tracks" in s else ""), flush=True)
             pad = len(f"[{i}/{len(usable)}] {game}/{play} {view:8s}")
             for tag, label in (("ground_linker", "ground: "),
+                               ("ground_linker_stitched", "+stitch: "),
                                ("ground_linker_teams", "+teams: "),
                                ("ground_linker_reid", "+re-id: ")):
                 g = m.get(tag, {})

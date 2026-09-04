@@ -52,6 +52,9 @@ def main() -> None:
     ap.add_argument("--field-res-m", type=float, default=0.12)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--stitch", action="store_true",
+                    help="join the linker's fragments into players (tracking.stitch) so a "
+                         "player keeps one id and one texture across breaks")
     ap.add_argument("--no-resume", dest="resume", action="store_false",
                     help="re-render frames whose PNG already exists (default: skip them)")
     args = ap.parse_args()
@@ -86,7 +89,8 @@ def main() -> None:
                                                     for k in ("colour", "log_scale_mult", "opacity_logit")}
 
     tl, tracks, df, frames_all, poses = load_play_timeline(
-        P, model, poses_refit=args.poses_refit, poses_sideline=args.poses_sideline)
+        P, model, poses_refit=args.poses_refit, poses_sideline=args.poses_sideline,
+        stitch_ids=args.stitch)
     frames = frames_all[:: max(1, args.stride)]
     if args.limit:
         frames = frames[: args.limit]
@@ -111,8 +115,12 @@ def main() -> None:
         # Fitted COLOUR only: the fit's scale and opacity were tuned to blurry
         # 140-px crops and read as translucent bodies at this distance; the
         # colours were the acceptance-tested part.
-        colour = (fitted[s.pid]["colour"] if s.pid in fitted
-                  else TEAM_RGB.get(team_of.get(s.pid, ""), BODY_RGB))
+        # A stitched player wears the texture fitted to any of its member ids.
+        owner = next((m for m in tl.members.get(s.pid, [s.pid]) if m in fitted),
+                     s.pid if s.pid in fitted else None)
+        team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
+                    team_of.get(s.pid, ""))
+        colour = fitted[owner]["colour"] if owner is not None else TEAM_RGB.get(team, BODY_RGB)
         return mesh_to_gaussians(verts, faces, colour=colour)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)

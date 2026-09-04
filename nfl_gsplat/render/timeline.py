@@ -65,6 +65,7 @@ class Timeline:
     n_clamped: int = 0
     n_default: int = 0
     n_duplicates: int = 0
+    members: dict = field(default_factory=dict)   # player id -> member ids (after stitching)
 
 
 # ---- orientation helpers ---------------------------------------------------
@@ -178,6 +179,42 @@ def yaw_from_motion(xy, *, window: int = VEL_WINDOW, fallback: float = 0.0):
             yaw[i] = last
         last = yaw[i]
     return yaw
+
+
+# ---- stitching ------------------------------------------------------------------
+
+def relabel(ground_by_frame, views_by_frame, poses_by_pid, player_of):
+    """Merge ids under ``player_of`` (id -> player id, from tracking.stitch).
+
+    Positions: one per player per frame (mean when two members share a
+    frame); views: the union; poses: fused wins over single-view, else the
+    earlier id. Returns ``(ground, views, poses, members)`` with ``members``
+    mapping player id -> sorted member ids, so a texture fitted to any
+    member can dress the player."""
+    rank = {"fused": 0, "sideline": 1, "default": 2}
+    members: dict[int, list] = {}
+    ground, views, poses = {}, {}, {}
+    for f, d in ground_by_frame.items():
+        acc: dict[int, list] = {}
+        vs: dict[int, set] = {}
+        for pid, xy in d.items():
+            new = int(player_of.get(pid, pid))
+            members.setdefault(new, set()).add(int(pid))
+            acc.setdefault(new, []).append(np.asarray(xy, float))
+            if views_by_frame and pid in views_by_frame.get(f, {}):
+                vs.setdefault(new, set()).update(views_by_frame[f][pid])
+        ground[f] = {new: np.mean(v, axis=0) for new, v in acc.items()}
+        if views_by_frame:
+            views[f] = {new: tuple(sorted(v)) for new, v in vs.items()}
+    for pid, byf in poses_by_pid.items():
+        new = int(player_of.get(pid, pid))
+        members.setdefault(new, set()).add(int(pid))
+        dst = poses.setdefault(new, {})
+        for f, rec in byf.items():
+            if f not in dst or (rank.get(rec[3], 3), pid) < (rank.get(dst[f][3], 3), dst[f][4]):
+                dst[f] = (rec[0], rec[1], rec[2], rec[3], int(pid))
+    poses = {pid: {f: rec[:4] for f, rec in byf.items()} for pid, byf in poses.items()}
+    return ground, (views if views_by_frame else None), poses, {k: sorted(v) for k, v in members.items()}
 
 
 # ---- the timeline -------------------------------------------------------------

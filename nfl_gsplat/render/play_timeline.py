@@ -93,8 +93,12 @@ def poses_from_caches(refit, side_blob, tracks, model):
     return out
 
 
-def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None):
-    """``(timeline, tracks, df, frames_all, poses)`` for a play-dir."""
+def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
+                       stitch_ids: bool = False):
+    """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
+    ``stitch_ids`` the linker's fragments are joined by tracking.stitch
+    (position and speed, in field metres) and every state carries the
+    player id; the timeline's ``members`` maps it back to the fragments."""
     import pandas as pd
 
     P = Path(play_dir)
@@ -110,12 +114,25 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     ground, views = ground_positions(df, tracks, with_views=True)
     frames_all = sorted(ground)
     poses = poses_from_caches(refit, side_blob, tracks, model)
+    members = {}
+    if stitch_ids:
+        from nfl_gsplat.tracking.stitch import stitch
+
+        pos: dict[int, list] = {}
+        for f in frames_all:
+            for pid, xy in ground[f].items():
+                pos.setdefault(int(pid), []).append((int(f), float(xy[0]), float(xy[1])))
+        player_of = stitch(pos, fps=59.94)
+        n_before = len(pos)
+        ground, views, poses, members = tlm.relabel(ground, views, poses, player_of)
+        print(f"stitch: {n_before} ids -> {len(members)} players")
     all_bp = [v[0] for d in poses.values() for v in d.values() if v[3] == "fused"]
     all_betas = [v[2] for d in poses.values() for v in d.values() if v[3] == "fused"]
     default_pose = tlm.median_pose(all_bp) if all_bp else np.zeros((21, 3))
     default_betas = np.median(np.stack(all_betas), axis=0) if all_betas else np.zeros(10)
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
                             default_betas=default_betas, views_by_frame=views)
+    tl.members = members
     return tl, tracks, df, frames_all, poses
 
 
