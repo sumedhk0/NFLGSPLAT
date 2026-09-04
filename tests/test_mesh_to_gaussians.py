@@ -88,3 +88,22 @@ def test_bad_vertex_shape_is_rejected():
     _v, faces = _quad()
     with pytest.raises(ValueError, match=r"\[V, 3\]"):
         mesh_to_gaussians(np.zeros((4, 2)), faces)
+
+
+def test_splat_extent_follows_the_local_vertex_spacing():
+    # Two fans: a coarse one (spacing 0.10) and a fine one (spacing 0.01),
+    # each a hub with a ring of 8 vertices.
+    def fan(centre, r, offset):
+        hub = np.array(centre)
+        ring = hub + np.stack([r * np.cos(np.linspace(0, 2 * np.pi, 9)[:-1]),
+                               r * np.sin(np.linspace(0, 2 * np.pi, 9)[:-1]), np.zeros(8)], axis=1)
+        verts = np.vstack([hub, ring])
+        faces = np.array([[0, 1 + i, 1 + (i + 1) % 8] for i in range(8)]) + offset
+        return verts, faces
+    v1, f1 = fan((0.0, 0.0, 0.0), 0.10, 0)
+    v2, f2 = fan((5.0, 0.0, 0.0), 0.01, 9)
+    batch = mesh_to_gaussians(np.vstack([v1, v2]), np.vstack([f1, f2]))
+    sig = np.exp(batch.scale[:, 0])
+    assert sig[0] > 5 * sig[9]                      # coarse hub vs fine hub
+    assert np.all(sig[:9] > 0.05) and np.all(sig[9:] < 0.02)
+
