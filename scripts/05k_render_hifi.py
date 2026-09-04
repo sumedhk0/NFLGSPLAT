@@ -72,6 +72,9 @@ def main() -> None:
     ap.add_argument("--uniforms", action="store_true",
                     help="every body wears its team's synthetic kit by region (render.uniform); the "
                          "fitted textures are ignored")
+    ap.add_argument("--team-by-colour", action="store_true",
+                    help="teams from <play-dir>/team_by_colour.json (08f) instead of identity; "
+                         "numbers only where identity's team agrees")
     ap.add_argument("--numbers", action="store_true",
                     help="with --uniforms: jersey numbers on ids whose identity is sure")
     ap.add_argument("--pads", action="store_true",
@@ -109,6 +112,18 @@ def main() -> None:
     if ident_path.exists():
         merged = pickle.load(open(ident_path, "rb")).get("merged", {})
         team_of = {int(pid): p.team for pid, p in merged.items() if getattr(p, "team", None)}
+    if args.team_by_colour:
+        import json
+
+        tbc_path = P / "team_by_colour.json"
+        if not tbc_path.exists():
+            raise SystemExit(f"--team-by-colour: {tbc_path} missing; run scripts/08f_team_by_colour.py")
+        tbc = json.loads(tbc_path.read_text())
+        colour_team = {int(k): r["team"] for k, r in tbc["teams"].items()}
+        changed = sum(1 for pid, t in colour_team.items() if team_of.get(pid) not in (None, t))
+        team_of.update(colour_team)
+        print(f"teams by colour: {len(colour_team)} ids (threshold {tbc['threshold']:.0f}), "
+              f"{changed} differ from identity")
     fitted: dict[int, dict] = {}
     app_dir = args.appearance or (P / "appearance")
     if app_dir.exists():
@@ -192,7 +207,8 @@ def main() -> None:
         # after one player; those stay blank rather than wrong).
         named = {int(pid): p for pid, p in merged.items()
                  if getattr(p, "player", None) and not str(p.player).startswith("P")
-                 and getattr(p, "team", None) in un.KITS}
+                 and getattr(p, "team", None) in un.KITS
+                 and team_of.get(int(pid), getattr(p, "team", None)) == getattr(p, "team", None)}
         claims = collections.Counter((p.team, p.jersey) for p in named.values())
         decal_cache: dict[int, object] = {}
         for pid, p in named.items():
