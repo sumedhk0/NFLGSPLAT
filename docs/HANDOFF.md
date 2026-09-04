@@ -40,7 +40,13 @@ viewpoint. Everything runs on the local machine.
 
 ```
 paint     scripts/08_reconstruct_all22.py     sideline cameras per frame from the yard-line grid,
-                                              lens/distance from player box heights
+                                              lens/distance from player box heights. Candidates are
+                                              then GATED by the paint rulers (hash rows 3.124 m,
+                                              numeral rows 12.50 m read through each candidate;
+                                              must agree within 10% and read a scale in 0.80-1.25)
+                                              before any endzone solve -- endzone reconciliation
+                                              cannot veto a wrong sideline (play 2: a 23-deg lens
+                                              55 m out won it). Player cost is a loose 0.75 pre-filter.
 shift     scripts/08d_field_offset.py --no-rows --apply
                                               reads the painted NUMERALS through the camera and
                                               votes the 5-yard shift -> cameras in the rule-book
@@ -54,14 +60,20 @@ endzone   scripts/08 --sideline-from <play>   endzone camera from the players (f
 export    scripts/08b_export_play_dir.py      cameras.npz for every frame + YOLO on every frame,
                                               feet fused across views, linked on the turf
                                               (tracking.link3d) -> tracks.parquet, track_id == player
-check     scripts/08d --los-yards N           rulers + line of scrimmage, nothing applied
+check     scripts/08d --los-yards N           rulers + line of scrimmage, nothing applied. The
+                                              pipeline FAILS the play here on DISAGREE (rulers) or
+                                              MISMATCH (formation vs the description's yard line).
 pose      scripts/05c_pose_play.py x2         SMPLest-X per view (endzone with --match-frames)
 identity  scripts/08c_identity_all22.py       OCR votes per player (both views), roster (nflverse)
 fuse      scripts/05e_fuse_views.py           joints both views agree on, placed at the compromise
 refit     scripts/05f_refit_fused.py          SMPL-X params refit to the fused joints (FK forward)
-render    scripts/05d_render_play.py          world mode: bodies at the fused placement; per-vertex
-                                              median colours from the footage; CPU preview splatter;
-                                              --ply-dir writes scene PLYs for 05h (gsplat orbit)
+fit       scripts/05i_fit_appearance.py       per-body Gaussian colour/scale/opacity fitted to the
+                                              footage (compositing.splat_torch, sparse differentiable
+                                              splatter; fit_appearance), held-out L1 vs the median
+                                              texture printed per body -> <play>/appearance/
+render    scripts/05d_render_play.py          world mode: bodies at the fused placement with the
+                                              fitted appearance (--fitted-appearance); CPU preview
+                                              splatter; --ply-dir writes scene PLYs for 05h (gsplat)
 ```
 `bash scripts/pipeline_play.sh <play-dir> <side.mp4> <end.mp4> <los-yards> [--fresh] [--from-paint]`
 runs all of it, resumable. Two environments: `C:\venvs\nflgsplat` (py3.14,
