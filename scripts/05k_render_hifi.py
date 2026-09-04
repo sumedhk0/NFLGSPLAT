@@ -21,6 +21,7 @@ Runs in the smplx env (SMPL-X forward; torch with CUDA).
 from __future__ import annotations
 
 import argparse
+import collections
 import pickle
 import time
 from pathlib import Path
@@ -101,6 +102,7 @@ def main() -> None:
     faces = model.faces.astype(np.int64)
 
     team_of: dict[int, str] = {}
+    merged: dict = {}
     ident_path = args.identity or (P / "identity_resolved.pkl")
     if ident_path.exists():
         merged = pickle.load(open(ident_path, "rb")).get("merged", {})
@@ -177,11 +179,24 @@ def main() -> None:
     head = hm.head_mask(v_t, j_t)
     pads = hm.pads_mask(v_t, j_t)
     kit_colours: dict[str, np.ndarray] = {}
+    numbered: dict[int, np.ndarray] = {}
     if args.uniforms:
         masks = un.regions(v_t, j_t)
         kit_colours = {team: un.dress(masks, kit) for team, kit in un.KITS.items()}
         kit_colours[""] = un.dress(masks, un.DEFAULT_KIT)
-        print("uniforms: " + ", ".join(f"{t or 'unknown'} kit" for t in kit_colours))
+        # Numbers only where identity is sure: a roster name AND a (team,
+        # number) no other id of the play claims (the OCR names several ids
+        # after one player; those stay blank rather than wrong).
+        named = {int(pid): p for pid, p in merged.items()
+                 if getattr(p, "player", None) and not str(p.player).startswith("P")
+                 and getattr(p, "team", None) in un.KITS}
+        claims = collections.Counter((p.team, p.jersey) for p in named.values())
+        for pid, p in named.items():
+            if claims[(p.team, p.jersey)] == 1 and p.jersey is not None and 0 <= int(p.jersey) <= 99:
+                numbered[pid] = un.paint_number(kit_colours[p.team], v_t, j_t, masks, int(p.jersey),
+                                                un.KITS[p.team].number)
+        print("uniforms: " + ", ".join(f"{t or 'unknown'} kit" for t in kit_colours)
+              + f"; numbers on {len(numbered)} sure ids of {len(named)} named")
 
     def body_batch(s):
         verts = placed_vertices(s, model)
@@ -194,7 +209,7 @@ def main() -> None:
         team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
                     team_of.get(s.pid, ""))
         if args.uniforms:
-            colour = kit_colours.get(team, kit_colours[""])
+            colour = numbered.get(s.pid, kit_colours.get(team, kit_colours[""]))
         elif owner is not None:
             colour = fitted[owner]["colour"]
         else:

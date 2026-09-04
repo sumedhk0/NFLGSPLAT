@@ -78,6 +78,57 @@ def regions(v_template, joints_template) -> dict[str, np.ndarray]:
             "pants": pants, "socks": socks, "shoes": shoes}
 
 
+NUMBER_HEIGHT_M: float = 0.24      # NFL back numerals are 10 in; the front 8 in, drawn the same here
+NUMBER_TOP_M: float = 0.06         # below the neck joint, in the template
+NUMBER_HALF_WIDTH_M: float = 0.17
+
+
+def number_raster(number: int, size: int = 96) -> np.ndarray:
+    """``[size, size]`` bool: the digits of ``number`` as ink, centred, bold."""
+    import cv2
+
+    img = np.zeros((size, size), np.uint8)
+    text = str(int(number))
+    scale = 1.0
+    thick = max(2, size // 12)
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, thick)
+    scale = 0.8 * size / max(tw, th * 1.3)
+    (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, scale, thick)
+    org = ((size - tw) // 2, (size + th) // 2)
+    cv2.putText(img, text, org, cv2.FONT_HERSHEY_DUPLEX, scale, 255, thick, cv2.LINE_AA)
+    return img > 127
+
+
+def paint_number(colours, v_template, joints_template, masks, number: int, colour, *,
+                 height_m: float = NUMBER_HEIGHT_M) -> np.ndarray:
+    """Copy of ``colours`` with ``number`` painted on the jersey's back and
+    front in the template plane (x across, y up), for ids whose identity is
+    sure. The digits are a raster sampled at each jersey vertex."""
+    out = np.array(colours, np.float32, copy=True)
+    vt = np.asarray(v_template, float)
+    J = np.asarray(joints_template, float)
+    top = J[NECK_JOINT, 1] - NUMBER_TOP_M
+    bottom = top - height_m
+    ink = number_raster(int(number))
+    size = ink.shape[0]
+    jersey = masks["jersey"]
+    for side in (-1.0, 1.0):                                # back (z < 0) and front (z > 0)
+        sel = (jersey & (np.sign(vt[:, 2]) == side) & (vt[:, 1] <= top) & (vt[:, 1] >= bottom)
+               & (np.abs(vt[:, 0]) <= NUMBER_HALF_WIDTH_M))
+        idx = np.flatnonzero(sel)
+        if not len(idx):
+            continue
+        # Digits read left-to-right from OUTSIDE the body: from the front +x
+        # is the viewer's left, from the back it is the viewer's right.
+        u = (side * -vt[idx, 0] / NUMBER_HALF_WIDTH_M + 1.0) * 0.5 * (size - 1)
+        v = (top - vt[idx, 1]) / height_m * (size - 1)
+        ui = np.clip(np.rint(u).astype(int), 0, size - 1)
+        vi = np.clip(np.rint(v).astype(int), 0, size - 1)
+        hit = ink[vi, ui]
+        out[idx[hit]] = np.asarray(colour, np.float32)
+    return out
+
+
 def dress(masks: dict[str, np.ndarray], kit: Kit) -> np.ndarray:
     """``[V, 3]`` colours for the regions under ``kit``."""
     n = len(next(iter(masks.values())))

@@ -51,3 +51,22 @@ def test_dress_paints_the_kit():
     assert np.allclose(c[masks["skin"]], un.SKIN_RGB)
     d = un.dress(masks, un.KITS["BAL"])
     assert not np.allclose(c[masks["jersey"]], d[masks["jersey"]])
+
+
+def test_number_lands_on_the_jersey_back_and_front():
+    rng = np.random.default_rng(1)
+    vt, J = _template()
+    # give the torso a front and a back
+    vt = vt.copy()
+    vt[:200, 2] = rng.choice([-0.1, 0.1], size=200)
+    masks = un.regions(vt, J)
+    base = un.dress(masks, un.KITS["KC"])
+    out = un.paint_number(base, vt, J, masks, 15, un.KITS["KC"].number)
+    changed = np.any(out != base, axis=1)
+    assert changed.sum() > 10
+    assert not changed[~masks["jersey"]].any()                        # only the jersey
+    assert (vt[changed, 2] < 0).any() and (vt[changed, 2] > 0).any()  # back and front
+    assert (vt[changed, 1] <= J[un.NECK_JOINT, 1] - un.NUMBER_TOP_M + 1e-9).all()
+    ink = un.number_raster(88)
+    assert 0.1 < ink.mean() < 0.6
+
