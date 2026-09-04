@@ -98,8 +98,9 @@ hifi      scripts/05k_render_hifi.py          THE DELIVERABLE: render.timeline g
                                               --field-texture (the footage field), --helmets (team
                                               shell on the head), --follow --eye-offset 2 -26 10
                                               --fov 50 (dolly on the smoothed centroid, ~16 s/frame;
-                                              the 34 m camera is 10 s, a 20 m one 50 s); --pads
-                                              (shoulders out) judged on a frame: negligible at 150 px, off
+                                              the 34 m camera is 10 s, a 20 m one 50 s); --uniforms
+                                              (synthetic kit by region, THE look); --pads (shoulders
+                                              out) judged on a frame: negligible at 150 px, off
 render    scripts/05d_render_play.py          preview, world mode: bodies at the fused placement with the
                                               fitted appearance (--fitted-appearance); CPU preview
                                               splatter; --ply-dir writes scene PLYs for 05h (gsplat)
@@ -164,6 +165,18 @@ poses_refit, poses_fused; `*_before_80yd.*` kept). The shift solver had
 three faults (commit 8877612): strips only inside the goal lines, a
 margin on shared support, and readings vetoing candidates. Play 2 now
 solves −80 yd at net 11.6 vs −1.3; LOS 13.1 yd vs 13.
+
+**Appearance decision (2026-09-04 evening, e37176c).** The hi-fi render
+wears SYNTHETIC UNIFORMS by body region from identity's team
+(render.uniform: helmet, jersey with sleeves to the elbow, forearm skin,
+gloves, pants, socks, shoes; kits for KC red over white and BAL white
+over black). Textures fitted from the footage cannot give a jersey at
+140 px (one to three clean samples per vertex, turf bleed, speckle; after
+de-mixing and smoothing the fit's gain over the plain median is ~0) and
+flat team colours with a helmet read cleaner than any of them. The fit
+stage (05i) is opt-in in the pipeline (FIT=1); the fitted textures stay
+on disk for side-by-sides. Numbers on the jerseys are the next step, for
+ids whose identity is sure. The footage keeps the field.
 
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
 per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black

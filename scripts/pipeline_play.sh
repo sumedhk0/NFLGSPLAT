@@ -19,7 +19,8 @@
 #   identity  scripts/08c --week 1                                    -> identity_resolved.pkl
 #   fuse      scripts/05e                                             -> poses_fused.json
 #   refit     scripts/05f                                             -> poses_refit.json
-#   fit       scripts/05i (appearance fit, held-out L1 vs median)    -> <play-dir>/appearance/
+#   fit       scripts/05i (appearance fit from the footage) -- OPT-IN, FIT=1: the hi-fi render
+#             wears synthetic uniforms (render.uniform); fitted textures measured no better
 #   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
 #   hifi      scripts/05k 1080p GPU render on the footage field        -> <play-dir>/render_hifi/
 #   render    scripts/05d world mode, fitted appearance              -> <play-dir>/render_abs/
@@ -146,7 +147,7 @@ if ! done_ refit; then
   mark refit
 fi
 
-if ! done_ fit; then
+if [ "${FIT:-0}" = "1" ] && ! done_ fit; then
   log "appearance fit to the footage (05i; held-out L1 against the median texture)"
   "$PYS" scripts/05i_fit_appearance.py --play-dir "$P" --poses "$P/poses_refit.json" --out-dir "$P/appearance" \
      2>&1 | grep -v "Warning\|warn\|nanmedian\|med = " | grep -E "bodies|gain|saved|Error" || fail fit
@@ -155,7 +156,7 @@ fi
 
 if ! done_ hifi; then
   log "hi-fi render on the footage field (05k; resumable)"
-  "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" --helmets --follow --eye-offset 2 -26 10 --fov 50 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|Error" || fail hifi
+  "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" --uniforms --helmets --follow --eye-offset 2 -26 10 --fov 50 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|Error" || fail hifi
   mark hifi
 fi
 
