@@ -70,7 +70,7 @@ def test_build_timeline_gives_every_player_a_body_every_frame():
     s1 = {f: [s for s in out.states[f] if s.pid == 1][0] for f in frames}
     s2 = {f: [s for s in out.states[f] if s.pid == 2][0] for f in frames}
     assert abs(np.linalg.norm(s1[15].body_pose) - 0.5 * np.linalg.norm(s1[30].body_pose)) < 1e-3
-    assert all(tl.tilt_deg(s1[f].global_orient) <= tl.MAX_TILT_DEG + 1e-6 for f in frames)
+    assert all(tl.tilt_deg(s1[f].global_orient) <= tl.MAX_TILT_TWO_VIEW_DEG + 1e-6 for f in frames)
     assert out.n_clamped > 0
     assert s2[22].source == "default" and np.isfinite(s2[22].xy).all()
     assert abs(tl.yaw_of(s2[40].global_orient) - np.pi / 2) < 0.2    # travelling +y
@@ -127,4 +127,19 @@ def test_place_from_refit_moves_two_view_bodies_to_the_refit_translation():
     assert np.allclose(out[1][1], [0.5, 0.0])
     assert len(shifts) == 1 and abs(shifts[0] - np.hypot(0.6, 0.2)) < 1e-9
     assert np.allclose(ground[0][1], [0.0, 0.0])                       # input untouched
+
+
+def test_two_view_poses_keep_a_45_degree_bend_single_view_do_not():
+    from scipy.spatial.transform import Rotation
+
+    # An upright body (Rx(90) stands SMPL-X up) bent 45 deg forward.
+    bent = (Rotation.from_euler("y", 45, degrees=True)
+            * Rotation.from_euler("x", 90, degrees=True)).as_rotvec()
+    ground = {0: {1: np.array([0.0, 0.0]), 2: np.array([5.0, 0.0])}}
+    poses = {1: {0: (np.zeros((21, 3)), bent, np.zeros(10), "fused")},
+             2: {0: (np.zeros((21, 3)), bent, np.zeros(10), "sideline")}}
+    out = tl.build_timeline([0], ground, poses, default_pose=np.zeros((21, 3)), default_betas=np.zeros(10),
+                            min_frames=1)
+    by = {s.pid: s for s in out.states[0]}
+    assert not by[1].clamped and by[2].clamped
 

@@ -32,7 +32,12 @@ from nfl_gsplat.utils.logging import get_logger
 
 _LOG = get_logger(__name__)
 
-MAX_TILT_DEG: float = 35.0       # a lineman's stance; nobody stands past this
+MAX_TILT_DEG: float = 35.0       # single-view poses: a lineman's stance; nobody stands past this
+# Two-view poses (fused, or triangulated from keypoints) are measured, not
+# guessed: on play 1 the triangulated refit tilts p50 16 deg, p90 38, none
+# past 60 -- bent linemen and lunges, not bodies falling over. The 35 deg
+# clamp built for monocular garbage trimmed 13 % of them.
+MAX_TILT_TWO_VIEW_DEG: float = 60.0
 DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one player
 # An id seen by ONE view only is that view's unreconciled detection; its
 # position is poor along that view's depth axis (the endzone's is x, the
@@ -301,7 +306,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         for i, f in enumerate(frames):
             if not np.isfinite(xy[i]).all():
                 continue
-            orient, clamped = clamp_tilt(go[i], max_tilt_deg)
+            limit = max(max_tilt_deg, MAX_TILT_TWO_VIEW_DEG) if source == "fused" else max_tilt_deg
+            orient, clamped = clamp_tilt(go[i], limit)
             tl.n_clamped += int(clamped)
             views = (tuple(views_by_frame.get(f, {}).get(pid, ("sideline", "endzone")))
                      if views_by_frame else ("sideline", "endzone"))

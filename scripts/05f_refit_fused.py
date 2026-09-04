@@ -49,6 +49,10 @@ def main() -> None:
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--max-iter", type=int, default=50)
+    ap.add_argument("--min-valid-joints", type=int, default=10,
+                    help="joints a frame needs to be fitted (triangulated joints are sparser: 6)")
+    ap.add_argument("--min-frame-frac", type=float, default=0.7,
+                    help="fraction of a player's frames that must fit, else the player is skipped")
     args = ap.parse_args()
 
     fused = pickle.load(open(args.fused, "rb"))["fused"]      # pid -> {frame: [J, 3]}
@@ -58,7 +62,8 @@ def main() -> None:
     if not fused:
         raise SetupError(f"{args.fused} holds no fused players")
 
-    cfg = SMPLXFitConfig(max_iter=args.max_iter)
+    cfg = SMPLXFitConfig(max_iter=args.max_iter, min_valid_joints=args.min_valid_joints,
+                         min_frame_validity_frac=args.min_frame_frac)
     fits, betas_of, rms_all, skipped = {}, {}, [], []
     for pid, by_frame in sorted(fused.items()):
         fs = sorted(by_frame)

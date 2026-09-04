@@ -17,7 +17,9 @@
 #   pose_s    scripts/05c sideline (resumes per frame)                -> poses_sideline.json
 #   pose_e    scripts/05c endzone --match-frames                      -> poses_endzone.json
 #   identity  scripts/08c --week 1                                    -> identity_resolved.pkl
-#   fuse      scripts/05e                                             -> poses_fused.json
+#   keypoints scripts/05m (YOLOv8-pose per tracked person, both views)  -> keypoints_2d.parquet
+#   tri       scripts/05n (joints triangulated with both cameras)       -> poses_tri.json
+#   fuse      scripts/05e (monocular joints fused) -- OPT-IN, FUSE=1; 2.6-3.4x worse than tri
 #   refit     scripts/05f                                             -> poses_refit.json
 #   fit       scripts/05i (appearance fit from the footage) -- OPT-IN, FIT=1: the hi-fi render
 #             wears synthetic uniforms (render.uniform); fitted textures measured no better
@@ -93,7 +95,7 @@ if ! done_ endzone; then
      --out "$P/recon_abs.npz" 2>&1 | grep -v "Warning\|warn" | grep -E "mount side|mirror|gap  |reconciled  |player height|Error|Exit" || fail endzone
   "$PYN" scripts/08b_export_play_dir.py --recon "$P/recon_abs.npz" --root "$ROOT" --sideline "$SIDE" --endzone "$END" --out "$P" \
      2>&1 | grep -v "Warning\|warn" | grep -E "cameras:|linked|tracks.parquet" || fail endzone-export
-  rm -f "$P"/.done_pose_s "$P"/.done_pose_e "$P"/.done_identity "$P"/.done_fuse "$P"/.done_refit "$P"/.done_render \
+  rm -f "$P"/.done_pose_s "$P"/.done_pose_e "$P"/.done_identity "$P"/.done_keypoints "$P"/.done_tri "$P"/.done_fuse "$P"/.done_refit "$P"/.done_hifi "$P"/.done_render \
         "$P/poses_sideline.json" "$P/poses_endzone.json"
   mark endzone
 fi
@@ -133,7 +135,19 @@ if ! done_ identity; then
   mark identity
 fi
 
-if ! done_ fuse; then
+if ! done_ keypoints; then
+  log "2-D keypoints per tracked person in both views (05m, YOLOv8-pose)"
+  "$PYN" scripts/05m_keypoints_2d.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "keypoints:|matched|Error" || fail keypoints
+  mark keypoints
+fi
+
+if ! done_ tri; then
+  log "joints triangulated from the keypoints with both cameras (05n)"
+  "$PYS" scripts/05n_triangulate_keypoints.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "offset|triangulated|Error" || fail tri
+  mark tri
+fi
+
+if [ "${FUSE:-0}" = "1" ] && ! done_ fuse; then
   log "fuse views (05e)"
   "$PYS" scripts/05e_fuse_views.py --play-dir "$P" --poses "$P/poses_sideline.json" "$P/poses_endzone.json" \
      --identity "$P/identity_resolved.pkl" --out "$P/poses_fused.json" 2>&1 | grep -v Warning | grep "median across" || fail fuse
@@ -142,7 +156,7 @@ fi
 
 if ! done_ refit; then
   log "refit SMPL-X to fused joints (05f)"
-  "$PYS" scripts/05f_refit_fused.py --play-dir "$P" --fused "$P/poses_fused.json" --poses "$P/poses_sideline.json" \
+  "$PYS" scripts/05f_refit_fused.py --play-dir "$P" --fused "$P/poses_tri.json" --poses "$P/poses_sideline.json" \
      --identity "$P/identity_resolved.pkl" --out "$P/poses_refit.json" 2>&1 | grep -v Warning | grep "refit" || fail refit
   mark refit
 fi
