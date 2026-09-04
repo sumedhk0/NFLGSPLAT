@@ -90,6 +90,9 @@ def main() -> None:
                          "colour; 0.5 cut the start greenness by a third against 0.1 (turf at "
                          "the silhouette) and raised the held-out gain")
     ap.add_argument("--limit", type=int, default=0, help="fit at most this many bodies")
+    ap.add_argument("--max-train", type=int, default=0,
+                    help="cap the training crops per body (even-spaced over the play; 0 = all). "
+                         "The iterations over the crops are the cost: 44 crops x 40 iters = 3.5 min a body")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--no-translation", dest="translation", action="store_false",
                     help="no per-frame shift nuisance during the fit")
@@ -231,6 +234,9 @@ def main() -> None:
                     samples.append(sample.astype(np.float16))
         if len(obs_train) < 4 or not obs_test:
             continue
+        if args.max_train and len(obs_train) > args.max_train:
+            keep = np.linspace(0, len(obs_train) - 1, args.max_train).round().astype(int)
+            obs_train = [obs_train[i] for i in keep]
         stack = np.stack(samples).astype(np.float32)
         with np.errstate(all="ignore"):
             med = np.nanmedian(stack, axis=0)
