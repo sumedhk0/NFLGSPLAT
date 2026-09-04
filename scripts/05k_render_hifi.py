@@ -108,6 +108,17 @@ def main() -> None:
     frames = frames_all[:: max(1, args.stride)]
     if args.limit:
         frames = frames[: args.limit]
+    # An id without a fit (a short fragment) wears its team's mean fitted
+    # texture, not a flat colour: at a track break the body then keeps its
+    # shading and skin instead of flipping to a paint-bucket player.
+    team_texture: dict[str, np.ndarray] = {}
+    for team in {t for t in team_of.values() if t}:
+        members_ = [fitted[p]["colour"] for p in fitted if team_of.get(p) == team]
+        if len(members_) >= 3:
+            team_texture[team] = np.mean(np.stack(members_), axis=0).astype(np.float32)
+    if team_texture:
+        print("team mean textures for " + ", ".join(
+            f"{t} ({sum(1 for p in fitted if team_of.get(p) == t)} fits)" for t in sorted(team_texture)))
     print(f"timeline: {len(frames_all)} frames, {len(poses)} posed players, "
           f"{tl.n_default} default-posed, {tl.n_clamped} tilt-clamped states; "
           f"appearance for {len(fitted)} players, teams for {len(team_of)}")
@@ -154,7 +165,10 @@ def main() -> None:
                      s.pid if s.pid in fitted else None)
         team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
                     team_of.get(s.pid, ""))
-        colour = fitted[owner]["colour"] if owner is not None else TEAM_RGB.get(team, BODY_RGB)
+        if owner is not None:
+            colour = fitted[owner]["colour"]
+        else:
+            colour = team_texture.get(team, TEAM_RGB.get(team, BODY_RGB))
         if args.pads:
             verts = hm.wear_pads(verts, pads)
         if args.helmets:
