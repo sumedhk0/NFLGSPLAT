@@ -115,3 +115,16 @@ def test_relabel_merges_fragments_under_the_stitch_map():
     assert p[1][0][3] == "fused" and p[1][1][3] == "sideline"      # fused wins the collision
     assert members == {1: [1, 2], 5: [5]}
 
+
+def test_place_from_refit_moves_two_view_bodies_to_the_refit_translation():
+    from nfl_gsplat.render.play_timeline import place_from_refit
+
+    ground = {0: {1: np.array([0.0, 0.0]), 2: np.array([5.0, 5.0])}, 1: {1: np.array([0.5, 0.0])}}
+    refit = {0: {1: {"transl": np.array([0.6, -0.2, 0.9])}, 3: {"transl": np.array([9.0, 9.0, 0.9])}},
+             1: {1: {"transl": np.array([8.0, 0.0, 0.9])}}}             # frame 1: 7.5 m away, refused
+    out, shifts = place_from_refit(ground, refit)
+    assert np.allclose(out[0][1], [0.6, -0.2]) and np.allclose(out[0][2], [5.0, 5.0])
+    assert np.allclose(out[1][1], [0.5, 0.0])
+    assert len(shifts) == 1 and abs(shifts[0] - np.hypot(0.6, 0.2)) < 1e-9
+    assert np.allclose(ground[0][1], [0.0, 0.0])                       # input untouched
+

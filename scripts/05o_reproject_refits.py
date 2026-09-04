@@ -97,7 +97,7 @@ def main() -> None:
                                  np.asarray(r["transl"], float))
                 joints = forward_cache[pid](p)[:22]
                 n_states += 1
-                stature.append((pid, float(joints[HEAD, 2] - joints[list(ANKLES), 2].mean())))
+                stature.append((pid, float(joints[list(ANKLES), 2].min())))      # lowest ankle above turf
                 for cam in ("sideline", "endzone"):
                     obs = views.get(pid, {}).get(cam, {}).get(int(f) + (offset if cam == "endzone" else 0))
                     if obs is None:
@@ -118,13 +118,12 @@ def main() -> None:
             allv = [v for g in GROUPS for v in err[cam][g]]
             line = "  " + ", ".join(f"{g} {np.median(err[cam][g]):.1f}" for g in GROUPS if err[cam][g])
             print(f"  {cam}: median {np.median(allv):.1f} px over {len(allv)} joints;" + line)
-        st = np.array([h for pid, h in stature if pid in roster_h])
-        ro = np.array([roster_h[pid] for pid, h in stature if pid in roster_h])
-        if len(st):
-            ratio = st / ro
-            n_ids = len({pid for pid, _ in stature if pid in roster_h})
-            print(f"  stature / roster: median {np.median(ratio):.3f}, IQR {np.percentile(ratio, 25):.3f}-"
-                  f"{np.percentile(ratio, 75):.3f} over {len(st)} states of {n_ids} named ids")
+        # The ground is a ruler the keypoints never touched: a standing or
+        # running player's lower ankle sits ~0.08 m above the turf.
+        ank = np.array([h for _pid, h in stature])
+        if len(ank):
+            print(f"  lower ankle above turf: p10 {np.percentile(ank, 10):+.2f}, median {np.median(ank):+.2f} m, IQR {np.percentile(ank, 25):+.2f}"
+                  f"..{np.percentile(ank, 75):+.2f}, |z| > 0.3 m in {100 * np.mean(np.abs(ank) > 0.3):.0f}% of states")
 
 
 if __name__ == "__main__":

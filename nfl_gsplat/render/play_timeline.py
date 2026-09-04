@@ -46,6 +46,30 @@ def ground_positions(df, tracks, *, with_views: bool = False):
     return ground, views
 
 
+def place_from_refit(ground, refit, *, max_shift_m: float = 3.0):
+    """Ground positions with two-view bodies moved to their refit's own
+    translation (metres on the field). The linker's box-bottom placement
+    carries 0.5-1 m of depth error; a triangulated refit's pelvis is metric.
+    A shift beyond ``max_shift_m`` is a wrong record and is not applied.
+    Returns ``(ground, shifts)`` where ``shifts`` are the metres moved."""
+    out = {f: dict(d) for f, d in ground.items()}
+    shifts = []
+    for f, recs in refit.items():
+        f = int(f)
+        if f not in out:
+            continue
+        for pid, r in recs.items():
+            pid = int(pid)
+            if pid not in out[f]:
+                continue
+            xy = np.asarray(r["transl"], float)[:2]
+            d = float(np.hypot(*(xy - np.asarray(out[f][pid], float))))
+            if np.isfinite(d) and d <= max_shift_m:
+                out[f][pid] = xy
+                shifts.append(d)
+    return out, np.asarray(shifts)
+
+
 def poses_from_caches(refit, side_blob, tracks, model):
     """pid -> {frame: (body_pose, global_orient_world, betas, source)}."""
     import torch
@@ -94,7 +118,7 @@ def poses_from_caches(refit, side_blob, tracks, model):
 
 
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
-                       stitch_ids: bool = False):
+                       stitch_ids: bool = False, place_from_refit_transl: bool = True):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -112,6 +136,11 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     if not refit and side_blob is None:
         raise SetupError("no pose cache: need poses_refit.json (05f) or poses_sideline.json (05c)")
     ground, views = ground_positions(df, tracks, with_views=True)
+    if place_from_refit_transl and refit:
+        ground, shifts = place_from_refit(ground, refit)
+        if len(shifts):
+            print(f"placement from the refit for {len(shifts)} body-frames (median shift "
+                  f"{np.median(shifts):.2f} m from the box-bottom point)")
     frames_all = sorted(ground)
     poses = poses_from_caches(refit, side_blob, tracks, model)
     # Roster height is the one shape fact worth imposing: the regressor's
