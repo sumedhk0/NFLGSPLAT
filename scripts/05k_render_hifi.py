@@ -72,6 +72,8 @@ def main() -> None:
     ap.add_argument("--uniforms", action="store_true",
                     help="every body wears its team's synthetic kit by region (render.uniform); the "
                          "fitted textures are ignored")
+    ap.add_argument("--numbers", action="store_true",
+                    help="with --uniforms: jersey numbers on ids whose identity is sure")
     ap.add_argument("--pads", action="store_true",
                     help="shoulder vertices pushed out and up (render.helmet.wear_pads)")
     ap.add_argument("--helmets", action="store_true",
@@ -192,6 +194,8 @@ def main() -> None:
                  and getattr(p, "team", None) in un.KITS}
         claims = collections.Counter((p.team, p.jersey) for p in named.values())
         for pid, p in named.items():
+            if not args.numbers:
+                break
             if claims[(p.team, p.jersey)] == 1 and p.jersey is not None and 0 <= int(p.jersey) <= 99:
                 numbered[pid] = un.paint_number(kit_colours[p.team], v_t, j_t, masks, int(p.jersey),
                                                 un.KITS[p.team].number)
