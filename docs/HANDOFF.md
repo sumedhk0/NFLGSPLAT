@@ -227,7 +227,14 @@ boxes average 0.8/frame on play 1, 0.6 on play 2, before the timeline's
 dedupe -- scratchpad `ghost_crosscam.py`; a reprojection merge was built
 (de1e2c8) and measured: every pair it finds already falls to the
 depth/across rule, bodies per frame and duplicates dropped unchanged on
-both plays, so it was reverted); 25–34 default-posed states per play. `05k --follow` dollies the virtual camera with the play's smoothed
+both plays, so it was reverted); 25–34 default-posed states per play; identity's TEAM labels: 08c splits each
+track's torso colour two ways (team_color.split_two_teams_balanced) and
+votes the clusters onto the real teams by roster overlap, and on play 2
+that disagreed with the per-id saturation gap on 22 of 52 ids (47/35 by
+colour against identity's 62/23); the render takes teams from 08f where
+the saturation is bimodal, but identity itself should adopt the gap split
+where it passes -- a re-run of 08c re-keys the fused/refit caches, so it
+waits for a pose-chain rebuild. `05k --follow` dollies the virtual camera with the play's smoothed
 centroid (render.camera_path); judge on a clip before it goes in the
 pipeline.
 
