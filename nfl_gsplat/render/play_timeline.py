@@ -114,6 +114,27 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     ground, views = ground_positions(df, tracks, with_views=True)
     frames_all = sorted(ground)
     poses = poses_from_caches(refit, side_blob, tracks, model)
+    # Roster height is the one shape fact worth imposing: the regressor's
+    # betas sit near neutral (1.72 m) and these players median 1.85 m.
+    ident_path = P / "identity_resolved.pkl"
+    heights = {}
+    if ident_path.exists():
+        from nfl_gsplat.render.roster_shape import betas_for_height, heights_from_identity
+
+        heights = heights_from_identity(pickle.load(open(ident_path, "rb")).get("merged", {}))
+        n_adj = 0
+        for pid, byf in poses.items():
+            h = heights.get(int(pid))
+            if h is None:
+                continue
+            cache: dict = {}
+            for f, rec in byf.items():
+                key = tuple(np.round(np.asarray(rec[2], float), 3))
+                if key not in cache:
+                    cache[key] = betas_for_height(model, rec[2], h)
+                byf[f] = (rec[0], rec[1], cache[key], rec[3])
+                n_adj += 1
+        print(f"roster heights: {len(heights)} ids known, {n_adj} posed records set to them")
     members = {}
     if stitch_ids:
         from nfl_gsplat.tracking.stitch import stitch
