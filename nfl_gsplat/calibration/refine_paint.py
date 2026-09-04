@@ -45,6 +45,12 @@ ASSIGN_OFFSETS = (-1, 0, 1)
 # on play 1 was under 1 degree and 5%.
 MAX_APPLIED_ROT_DEG: float = 3.0
 MAX_APPLIED_FOCAL: float = 0.20
+# Priors that make the fit take the SMALLEST camera motion along that valley:
+# one degree of rotation and ten percent of focal length each cost as much as
+# these many pixels of line residual. Play 2 without them: every frame
+# "wanted" 4.5-7 degrees and up to 35% zoom to go from 10 px to 3.
+PRIOR_PX_PER_DEG: float = 20.0
+PRIOR_PX_PER_10PCT_FOCAL: float = 20.0
 MAX_ROT_DEG: float = 6.0        # a frame's camera is never rotated more than this
 MAX_FOCAL_CHANGE: float = 0.40  # the lens may change this much: the camera ZOOMS OUT at
                                 # the end of a play (play 1 frames 600-655 needed -15% and
@@ -81,13 +87,17 @@ def _fit_assignment(p0, p1, assign, K0, R0, centre, n_lines, *, focal):
     """Continuous fit for one fixed segment-to-line assignment."""
     n = p0.shape[0]
 
+    prior_rot = PRIOR_PX_PER_DEG * np.degrees(1.0)          # px per radian
+    prior_f = PRIOR_PX_PER_10PCT_FOCAL / np.log(1.1)         # px per unit log-focal
+
     def resid(x):
         Kx, Rx, tx = _camera_from(x, K0, R0, centre)
         L = projected_lines(Kx, Rx, tx)
         if len(L) != n_lines:
-            return np.full(2 * n, 1e3)
+            return np.full(2 * n + 4, 1e3)
         Ls = L[assign]
-        return np.concatenate([np.einsum("ij,ij->i", p0, Ls), np.einsum("ij,ij->i", p1, Ls)])
+        return np.concatenate([np.einsum("ij,ij->i", p0, Ls), np.einsum("ij,ij->i", p1, Ls),
+                               prior_rot * x[:3], [prior_f * x[3]]])
 
     lo = np.array([-np.radians(MAX_ROT_DEG)] * 3 + [np.log(1 - MAX_FOCAL_CHANGE)])
     hi = np.array([np.radians(MAX_ROT_DEG)] * 3 + [np.log(1 + MAX_FOCAL_CHANGE)])
