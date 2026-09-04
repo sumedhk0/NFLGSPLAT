@@ -82,8 +82,12 @@ fit       scripts/05i_fit_appearance.py       per-body Gaussian colour/scale/opa
 hifi      scripts/05k_render_hifi.py          THE DELIVERABLE: render.timeline gives every detected
                                               player a body every frame (fused / single-view / median
                                               stance, SLERP between posed frames, tilt clamped 35 deg,
-                                              duplicates within 0.9 m merged); sparse GPU splatter at
-                                              1920x1080, ~6 s/frame, mp4 out
+                                              view-aware de-duplication: a one-view id within 4 m
+                                              along its camera's depth axis of a two-view id is the
+                                              same man); --stitch joins fragments (tracking.stitch)
+                                              so a player keeps one id and texture -- OFF until the
+                                              harness says the joins are right; sparse GPU splatter
+                                              at 1920x1080, ~6 s/frame, --resume, mp4 out
 render    scripts/05d_render_play.py          preview, world mode: bodies at the fused placement with the
                                               fitted appearance (--fitted-appearance); CPU preview
                                               splatter; --ply-dir writes scene PLYs for 05h (gsplat)
@@ -125,6 +129,12 @@ read both rulers through it (scratchpad `resolve_sideline_rulers.py`; GPU);
 if they read ~1.0, both plays get `--fresh --from-paint`.
 
 ## What has been measured and rejected (do not re-propose without new evidence)
+
+- Officials by shirt stripes (horizontal-gradient energy of the torso band): a
+  continuum on real crops, players on top, at 140 and 200-260 px bodies.
+- Per-frame camera refinement to the yard lines alone: the pencil of near-parallel
+  lines trades rotation about their direction against focal length; it needs
+  priors, a 3 deg / 20% reject and along-track smoothing, or it wanders 2 deg.
 
 Memory `measured-dead-ends.md` has the numbers. Headlines: endzone from paint
 (dead); per-detection team labels and looser gates in the linker (worse);
