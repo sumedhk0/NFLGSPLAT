@@ -90,6 +90,9 @@ def main() -> None:
                          "colour; 0.5 cut the start greenness by a third against 0.1 (turf at "
                          "the silhouette) and raised the held-out gain")
     ap.add_argument("--limit", type=int, default=0, help="fit at most this many bodies")
+    ap.add_argument("--smooth-iters", type=int, default=4,
+                    help="mesh-Laplacian smoothing steps on the start colours (and half as many on the "
+                         "fit): the per-vertex median is speckle at 140 px; 0 disables")
     ap.add_argument("--max-train", type=int, default=0,
                     help="cap the training crops per body (even-spaced over the play; 0 = all). "
                          "The iterations over the crops are the cost: 44 crops x 40 iters = 3.5 min a body")
@@ -114,7 +117,8 @@ def main() -> None:
 
     from nfl_gsplat.compositing import fit_appearance as fa
     from nfl_gsplat.compositing import splat_torch as st
-    from nfl_gsplat.compositing.appearance import (mask_turf, median_colours, turf_colour,
+    from nfl_gsplat.compositing.appearance import (mask_turf, median_colours, roughness,
+                                                   smooth_colours, turf_colour,
                                                    vertex_colours_from_view)
     from nfl_gsplat.compositing.mesh_to_gaussians import mesh_to_gaussians
 
@@ -250,7 +254,11 @@ def main() -> None:
         # sampled anything but grass (thin limbs, the far side).
         body_colour = np.median(med[valid], axis=0) if valid.sum() >= 50 else np.asarray(BODY_RGB)
         colour0, _unseen = median_colours(med[None], fallback=body_colour)
-        colour0 = np.asarray(colour0, np.float32)
+        rough_raw = roughness(colour0, faces)
+        if args.smooth_iters > 0:
+            colour0 = smooth_colours(colour0, faces, iters=args.smooth_iters)
+        colour0 = np.asarray(np.clip(colour0, 0, 1), np.float32)
+        rough0 = roughness(colour0, faces)
         turf_ref = turf_colour(obs_train[0].image)
         turf_like0 = float((np.linalg.norm(colour0 - turf_ref[None], axis=1) < TURF_DIST).mean())
         l1_median = crop_l1(colour0, obs_test)
@@ -258,6 +266,10 @@ def main() -> None:
                            device=args.device, log_every=0, translation=args.translation)
         fit, hist = fa.fit_body(colour0, faces, obs_train, cfg)
         fitted = fit.colour.cpu().numpy()
+        if args.smooth_iters > 0:
+            fitted = smooth_colours(fitted, faces, iters=max(1, args.smooth_iters // 2))
+            fitted = np.asarray(np.clip(fitted, 0, 1), np.float32)
+        rough1 = roughness(fitted, faces)
         l1_fit = crop_l1(fitted, obs_test)
         seen = fa.seen_vertices(faces, obs_train)
         unseen_colour = fitted[~seen].mean(0) if (~seen).any() else np.full(3, np.nan)
@@ -283,6 +295,7 @@ def main() -> None:
               f"({100 * (1 - l1_fit / max(l1_median, 1e-9)):+.0f}%); greenness "
               f"{green0:.3f} -> {green1:.3f}; turf-like {turf_like0:.2f} -> {turf_like1:.2f}; "
               f"mean rgb {mean_rgb}; unseen rgb {np.round(unseen_colour, 2)}; "
+              f"roughness {rough_raw:.3f} -> {rough0:.3f} -> {rough1:.3f}; "
               f"{time.time() - t0:.0f} s")
     if not summary:
         raise SetupError("no body had enough frames in both the train and held-out sets")

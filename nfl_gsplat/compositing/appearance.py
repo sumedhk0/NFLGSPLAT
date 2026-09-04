@@ -101,6 +101,46 @@ def mask_turf(sample, turf, *, dist: float):
     return sample
 
 
+def mesh_edges(faces) -> np.ndarray:
+    """Unique undirected edges ``[E, 2]`` of a triangle mesh."""
+    f = np.asarray(faces, np.int64)
+    e = np.concatenate([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]], axis=0)
+    e = np.sort(e, axis=1)
+    return np.unique(e, axis=0)
+
+
+def roughness(colours, faces) -> float:
+    """Mean colour difference across mesh edges: speckle scores high, a
+    jersey scores low. The measure for the smoothing below."""
+    e = mesh_edges(faces)
+    c = np.asarray(colours, np.float64)
+    return float(np.abs(c[e[:, 0]] - c[e[:, 1]]).mean())
+
+
+def smooth_colours(colours, faces, *, iters: int = 4, lam: float = 0.5) -> np.ndarray:
+    """Laplacian smoothing of per-vertex colours over the mesh: each step
+    moves a vertex ``lam`` of the way to the mean of its neighbours.
+
+    WHY. At 140 px a vertex samples one to three valid pixels over the
+    play and the per-vertex median is salt-and-pepper: red, white and
+    green speckle across one jersey (the v3 fit, 2026-09-04). Four steps
+    at 0.5 blend over a few centimetres, below the jersey-to-pants scale,
+    and the speckle averages out. Not the fit's job: its smoothness term
+    fights the data term on every noisy pixel."""
+    c = np.array(colours, np.float64, copy=True)
+    e = mesh_edges(faces)
+    n = len(c)
+    deg = np.bincount(e.ravel(), minlength=n).astype(np.float64)
+    for _ in range(int(iters)):
+        acc = np.zeros_like(c)
+        np.add.at(acc, e[:, 0], c[e[:, 1]])
+        np.add.at(acc, e[:, 1], c[e[:, 0]])
+        mean = acc / np.maximum(deg, 1.0)[:, None]
+        has = deg > 0
+        c[has] = (1.0 - lam) * c[has] + lam * mean[has]
+    return c
+
+
 def median_colours(samples, *, fallback):
     """Median over ``[F, V, 3]`` frame samples, ignoring NaN; ``fallback`` where none."""
     samples = np.asarray(samples, np.float64)

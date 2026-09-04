@@ -104,3 +104,18 @@ def test_mask_turf_drops_grass_samples_and_keeps_the_jersey():
     assert np.isnan(out[2]).all() is False or np.isfinite(out[2]).all()   # 0.19 away: kept
     assert np.isfinite(sample[0]).all()                                    # input untouched
 
+
+def test_smooth_colours_removes_speckle_and_keeps_a_flat_colour():
+    rng = np.random.default_rng(0)
+    # A strip of triangles: vertices 0..n-1 in a row, two triangles per quad.
+    n = 40
+    faces = np.array([[i, i + 1, i + 2] for i in range(n - 2)])
+    flat = np.tile([0.8, 0.1, 0.1], (n, 1))
+    assert np.allclose(ap.smooth_colours(flat, faces, iters=4), flat)
+    speckle = flat + rng.normal(0, 0.3, size=flat.shape)
+    r0 = ap.roughness(speckle, faces)
+    out = ap.smooth_colours(speckle, faces, iters=4)
+    assert ap.roughness(out, faces) < 0.4 * r0
+    assert np.abs(out.mean(0) - speckle.mean(0)).max() < 0.02       # the mean colour survives
+    assert np.allclose(speckle, flat + (speckle - flat))              # input untouched (copy)
+
