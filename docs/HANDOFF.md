@@ -184,6 +184,22 @@ colours smeared: the torso lattice is 2.5 cm). The footage keeps the
 field. Pipeline hifi flags: `--uniforms --numbers --helmets --follow
 --eye-offset 2 -26 10 --fov 50 --field-texture`.
 
+**Joints from geometry (2026-09-04 evening, 0036731).** `05m_triangulate_compare.py`
+triangulates the regressor's 2-D joints (per-view caches; SMPLest-X's own
+137 layout, 17 SMPL-X body joints mapped by NAME, and mirrored about the
+box centre because the caches predate the runner's Y-up flip) through the
+per-frame cameras and scores against the fused monocular lift on rulers
+neither optimises. Play 1, 50 two-view players: the fused lift is 20–25 %
+SHORT of anatomy on every bone (thigh 0.39 m, shank 0.41, ear-to-ankle
+1.20 for a 1.85 roster median); triangulation has the metric scale (0.45,
+0.50, 1.48) and is noisier per frame (bone variation 0.14 vs 0.10, ankles
+0.32 vs 0.16 m off the turf). Next source for the refit: triangulated
+joints with bone lengths held constant. `render.roster_shape` (dbcf29e)
+already sets every avatar's stature to the roster height (the regressor
+betas gave 1.71 m; roster 1.85). `08f_team_by_colour.py` (team from torso
+saturation where bimodal: play 2 47/35 against identity's 62/23; play 1
+refuses) feeds `05k --team-by-colour`.
+
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
 per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black
 pixels), unchanged by splat size or opacity. The sparse splatter's
