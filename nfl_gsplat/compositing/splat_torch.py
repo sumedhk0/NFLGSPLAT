@@ -123,7 +123,7 @@ def project(scene: SceneParams, K, R, t):
 
 
 def render(scene: SceneParams, K, R, t, *, crop, background=(0.10, 0.12, 0.14),
-           chunk: int = 2048) -> torch.Tensor:
+           chunk: int = 2048, return_transmittance: bool = False):
     """``[h, w, 3]`` linear RGB of the crop ``(x0, y0, w, h)``, differentiable
     in colour, scale multiplier and opacity. Pixel ``(i, j)`` of the crop is
     image coordinate ``(x0 + j, y0 + i)``. ``background`` is an RGB triple or
@@ -180,7 +180,8 @@ def render(scene: SceneParams, K, R, t, *, crop, background=(0.10, 0.12, 0.14),
           else torch.as_tensor(np.asarray(background, np.float32), device=dev))
     bg = bg.reshape(-1, 3) if bg.ndim == 3 else bg[None, :].expand(n_px, 3)
     if not pix_l or sum(int(t_.numel()) for t_ in pix_l) == 0:
-        return bg.reshape(h, w, 3).clone()
+        empty = bg.reshape(h, w, 3).clone()
+        return (empty, torch.ones(h, w, device=dev)) if return_transmittance else empty
     pidx = torch.cat(pix_l)
     gidx = torch.cat(g_l)
     alpha = torch.cat(alpha_l)
@@ -199,5 +200,8 @@ def render(scene: SceneParams, K, R, t, *, crop, background=(0.10, 0.12, 0.14),
     contrib = (t_prev * alpha)[:, None] * colour[gidx]
     C = torch.zeros(n_px, 3, device=dev).index_add(0, pidx, contrib)
     log_T = torch.zeros(n_px, device=dev).index_add(0, pidx, log_t)
-    out = C + torch.exp(log_T)[:, None] * bg
+    T = torch.exp(log_T)
+    out = C + T[:, None] * bg
+    if return_transmittance:
+        return out.reshape(h, w, 3), T.reshape(h, w)
     return out.reshape(h, w, 3)

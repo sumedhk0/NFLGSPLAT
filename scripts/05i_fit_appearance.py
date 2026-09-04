@@ -80,7 +80,10 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=0.005)
     ap.add_argument("--tv-weight", type=float, default=0.05)
     ap.add_argument("--holdout", type=int, default=5, help="every n-th frame is held out")
-    ap.add_argument("--min-facing", type=float, default=0.1)
+    ap.add_argument("--min-facing", type=float, default=0.5,
+                    help="cosine a vertex must face the camera by to be sampled for the START "
+                         "colour; 0.5 cut the start greenness by a third against 0.1 (turf at "
+                         "the silhouette) and raised the held-out gain")
     ap.add_argument("--limit", type=int, default=0, help="fit at most this many bodies")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--no-translation", dest="translation", action="store_false",
@@ -230,6 +233,11 @@ def main() -> None:
         l1_fit = crop_l1(fitted, obs_test)
         seen = fa.seen_vertices(faces, obs_train)
         unseen_colour = fitted[~seen].mean(0) if (~seen).any() else np.full(3, np.nan)
+        # Turf bleed on the SEEN vertices: how green the body is. Turf is
+        # (g - max(r, b)) well above zero; a jersey is not.
+        c0, c1 = colour0[seen], fitted[seen]
+        green0 = float(np.mean(np.clip(c0[:, 1] - c0[:, [0, 2]].max(1), 0, 1)))
+        green1 = float(np.mean(np.clip(c1[:, 1] - c1[:, [0, 2]].max(1), 0, 1)))
         np.savez(args.out_dir / f"appearance_{pid}.npz", colour=fitted,
                  log_scale_mult=fit.log_scale_mult.cpu().numpy(),
                  opacity_logit=fit.opacity_logit.cpu().numpy(),
@@ -237,11 +245,13 @@ def main() -> None:
         summary[int(pid)] = {"frames": len(fs), "train": len(obs_train), "test": len(obs_test),
                              "l1_median": l1_median, "l1_fit": l1_fit,
                              "loss_first": hist["loss"][0], "loss_last": hist["loss"][-1],
+                             "greenness_median": green0, "greenness_fit": green1,
                              "unseen_rgb": [float(x) for x in unseen_colour]}
         print(f"[{bi + 1}/{len(bodies)}] player {pid}: {len(obs_train)} train / {len(obs_test)} held-out "
               f"crops; train loss {hist['loss'][0]:.4f} -> {hist['loss'][-1]:.4f}; held-out L1 "
               f"median-texture {l1_median:.4f} -> fitted {l1_fit:.4f} "
-              f"({100 * (1 - l1_fit / max(l1_median, 1e-9)):+.0f}%); unseen rgb "
+              f"({100 * (1 - l1_fit / max(l1_median, 1e-9)):+.0f}%); greenness "
+              f"{green0:.3f} -> {green1:.3f}; unseen rgb "
               f"{np.round(unseen_colour, 2)}; {time.time() - t0:.0f} s")
     if not summary:
         raise SetupError("no body had enough frames in both the train and held-out sets")

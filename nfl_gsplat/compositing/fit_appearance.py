@@ -46,6 +46,13 @@ class FitConfig:
     translation: bool = True
     device: str = "cpu"
     log_every: int = 50
+    # Turf bleed: a silhouette pixel is half grass, and an L1 over the crop
+    # paints the edge vertices green (play 2's bodies came out olive). Each
+    # pixel's error is weighted by the body's coverage there, (1 - T)^p, so
+    # interior pixels decide the colours and edges barely count; and a weak
+    # prior keeps every vertex near its starting colour.
+    coverage_power: float = 2.0
+    colour_prior: float = 0.02
 
 
 @dataclass
@@ -114,7 +121,8 @@ def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
     cfg = cfg or FitConfig()
     dev = torch.device(cfg.device)
     faces = np.asarray(faces, np.int64)
-    colour = torch.as_tensor(np.asarray(colour0, np.float32), device=dev).clone().requires_grad_(True)
+    colour0_t = torch.as_tensor(np.asarray(colour0, np.float32), device=dev)
+    colour = colour0_t.clone().requires_grad_(True)
     n_v = colour.shape[0]
 
     frames = []
@@ -151,16 +159,22 @@ def fit_body(colour0, faces, obs: list[FrameObs], cfg: FitConfig | None = None):
             if cfg.translation:
                 Kf = K + torch.zeros_like(K).index_put(
                     (torch.tensor([0, 1], device=dev), torch.tensor([2, 2], device=dev)), shift[fi])
-            img = st.render(scene, Kf, R, t, crop=crop, background=target)
-            part = (img - target).abs().mean() / n_f
-            if not part.requires_grad:               # no Gaussian touched this crop
+            img, T = st.render(scene, Kf, R, t, crop=crop, background=target,
+                               return_transmittance=True)
+            if not img.requires_grad:                # no Gaussian touched this crop
                 continue
+            weight = (1.0 - T.detach()).clamp(0, 1) ** cfg.coverage_power
+            part = ((img - target).abs().mean(-1) * weight).sum() / (weight.sum() + 1e-6) / n_f
             part.backward()
             total += part.item()
         if cfg.tv_weight > 0:
             tv = cfg.tv_weight * (colour[edges[:, 0]] - colour[edges[:, 1]]).abs().mean()
             tv.backward()
             total += tv.item()
+        if cfg.colour_prior > 0:
+            prior = cfg.colour_prior * (colour - colour0_t).abs().mean()
+            prior.backward()
+            total += prior.item()
         opt.step()
         with torch.no_grad():
             colour.clamp_(0.0, 1.0)
