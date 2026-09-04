@@ -115,15 +115,3 @@ def test_relabel_merges_fragments_under_the_stitch_map():
     assert p[1][0][3] == "fused" and p[1][1][3] == "sideline"      # fused wins the collision
     assert members == {1: [1, 2], 5: [5]}
 
-
-def test_ghost_pairs_drop_the_second_id_whatever_the_distance():
-    ground = {0: {1: np.array([0.0, 0.0]), 2: np.array([4.0, 0.0]), 3: np.array([20.0, 0.0])}}
-    views = {0: {1: ("sideline",), 2: ("endzone",), 3: ("endzone",)}}
-    kw = dict(default_pose=np.zeros((21, 3)), default_betas=np.zeros(10), views_by_frame=views,
-              min_frames=1)
-    plain = tl.build_timeline([0], ground, {}, **kw)
-    assert sorted(s.pid for s in plain.states[0]) == [1, 2, 3]          # 4 m apart: both kept
-    merged = tl.build_timeline([0], ground, {}, ghost_pairs={0: {(1, 2)}}, **kw)
-    assert sorted(s.pid for s in merged.states[0]) == [1, 3]
-    assert merged.n_duplicates == plain.n_duplicates + 1
-

@@ -46,53 +46,6 @@ def ground_positions(df, tracks, *, with_views: bool = False):
     return ground, views
 
 
-GHOST_HEIGHT_M: float = 0.9      # the ground point is lifted to mid-body before projection
-GHOST_SLACK: float = 1.0         # a box grown by this fraction of its width sideways, 20 % of its height
-
-
-def _in_box(uv, box, *, slack: float = GHOST_SLACK) -> bool:
-    x1, y1, x2, y2 = box
-    w, h = x2 - x1, y2 - y1
-    return (x1 - slack * w <= uv[0] <= x2 + slack * w) and \
-        (y1 - 0.2 * slack * h <= uv[1] <= y2 + 0.2 * slack * h)
-
-
-def cross_view_ghosts(df, tracks, ground, views) -> dict:
-    """``{frame: {(pid_a, pid_b)}}``: a sideline-only and an endzone-only id
-    that are one person -- each one's ground point, projected into the
-    other's camera, lands inside the other's box. Measured 2026-09-04:
-    0.8 such pairs per frame on play 1, 0.6 on play 2, at 1-5 m apart
-    after single-view placement, which no distance rule can tell from
-    two linemen."""
-    from nfl_gsplat.compositing.appearance import project
-
-    boxes = {(int(r.frame), r.cam, int(r.global_player_id)): (r.bbox_x1, r.bbox_y1, r.bbox_x2, r.bbox_y2)
-             for r in df.itertuples()}
-    out: dict = {}
-    for f in ground:
-        vs = views.get(f, {})
-        S = [pid for pid, v in vs.items() if tuple(v) == ("sideline",)]
-        E = [pid for pid, v in vs.items() if tuple(v) == ("endzone",)]
-        if not S or not E:
-            continue
-        for s_ in S:
-            for e_ in E:
-                hits = 0
-                for src, dst_cam, dst in ((s_, "endzone", e_), (e_, "sideline", s_)):
-                    box = boxes.get((f, dst_cam, dst))
-                    if box is None:
-                        break
-                    intr, pose = tracks[dst_cam].at(f)
-                    K = np.array([[intr.fx, 0, intr.cx], [0, intr.fy, intr.cy], [0, 0, 1.0]])
-                    xy = ground[f][src]
-                    uv, z = project(np.array([[xy[0], xy[1], GHOST_HEIGHT_M]]), K, pose.R, pose.t)
-                    if z[0] > 0 and _in_box(uv[0], box):
-                        hits += 1
-                if hits == 2:
-                    out.setdefault(f, set()).add((int(s_), int(e_)))
-    return out
-
-
 def poses_from_caches(refit, side_blob, tracks, model):
     """pid -> {frame: (body_pose, global_orient_world, betas, source)}."""
     import torch
@@ -177,11 +130,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     all_betas = [v[2] for d in poses.values() for v in d.values() if v[3] == "fused"]
     default_pose = tlm.median_pose(all_bp) if all_bp else np.zeros((21, 3))
     default_betas = np.median(np.stack(all_betas), axis=0) if all_betas else np.zeros(10)
-    ghosts = cross_view_ghosts(df, tracks, ground, views) if not stitch_ids else None
-    if ghosts:
-        print(f"cross-view ghosts: {sum(len(v) for v in ghosts.values())} pairs over {len(ghosts)} frames")
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
-                            default_betas=default_betas, views_by_frame=views, ghost_pairs=ghosts)
+                            default_betas=default_betas, views_by_frame=views)
     tl.members = members
     return tl, tracks, df, frames_all, poses
 
