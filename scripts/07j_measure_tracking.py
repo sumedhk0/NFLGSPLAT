@@ -170,14 +170,20 @@ def kit_labels(colours, *, margin: float = KIT_MARGIN):
     label is 2.3 % wrong on 83 % of the detections, against a near-random
     balanced HSV split that ``team_labels`` gates -- which is why that one
     measured worse in the linker. Returns ``[N]`` ints, -1 unknown."""
-    from nfl_gsplat.identity.team_color import two_means_1d
+    from nfl_gsplat.identity.team_color import KitSplitError, saturation_split
 
     sat = np.asarray(colours, float)[:, 1]
     ok = np.isfinite(sat)
     labels = np.full(len(sat), -1, int)
+    kit_labels.last_centres = (float("nan"), float("nan"))
+    kit_labels.refused = None
     if ok.sum() < 8:
         return labels
-    c, lab = two_means_1d(sat[ok])
+    try:
+        c, lab, _sep = saturation_split(sat[ok])
+    except KitSplitError as exc:
+        kit_labels.refused = str(exc)
+        return labels
     mid, span = 0.5 * (c[0] + c[1]), max(float(c[1] - c[0]), 1e-6)
     m = (sat[ok] - mid) / span
     lab[np.abs(m) < margin] = -1
@@ -304,15 +310,19 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         kit_lab = {int(f): kit_all[frs == f] for f in np.unique(frs)}
         m["kit_label_frac"] = float((kit_all >= 0).mean())
         m["kit_centres"] = list(getattr(kit_labels, "last_centres", (float("nan"),) * 2))
+        m["kit_refused"] = getattr(kit_labels, "refused", None)
+        if m["kit_refused"]:
+            print(f"   kits refused: {m['kit_refused']}")
         feats_all = reid.embed_detections(root / "video" / name, df, device=cfg.device,
                                           weights=REID_WEIGHTS)
         feats = {int(f): feats_all[frs == f] for f in np.unique(frs)}
-        for tag, lab, fe, fw in (("ground_linker", None, None, 0.0),
-                                 ("ground_linker_teams", det_labels, None, 0.0),
-                                 ("ground_linker_kits", kit_lab, None, 0.0),
-                                 ("ground_linker_reid", None, feats, FEATURE_WEIGHT)):
+        for tag, lab, fe, fw, pen in (("ground_linker", None, None, 0.0, None),
+                                      ("ground_linker_teams", det_labels, None, 0.0, None),
+                                      ("ground_linker_kits", kit_lab, None, 0.0, None),
+                                      ("ground_linker_kits_soft", kit_lab, None, 0.0, 1.0),
+                                      ("ground_linker_reid", None, feats, FEATURE_WEIGHT, None)):
             tracks = link3d.link(placements, labels=lab, features=fe, fps=VIDEO_FPS,
-                                 feature_weight=fw, **LINK_KW)
+                                 feature_weight=fw, label_penalty_m=pen, **LINK_KW)
             linked = np.full(len(df), -1, int)
             ids_by_frame = link3d.assignments(tracks, placements)
             for f in placements:
@@ -429,7 +439,8 @@ def main() -> None:
             for tag, label in (("ground_linker", "ground: "),
                                ("ground_linker_stitched", "+stitch: "),
                                ("ground_linker_stitched_colour", "+stitch+colour: "),
-                               ("ground_linker_kits", "kits:   "), ("ground_linker_teams", "+teams: "),
+                               ("ground_linker_kits", "kits:   "), ("ground_linker_kits_soft", "kits~:  "),
+                               ("ground_linker_teams", "+teams: "),
                                ("ground_linker_reid", "+re-id: ")):
                 g = m.get(tag, {})
                 if "tracks" in g:

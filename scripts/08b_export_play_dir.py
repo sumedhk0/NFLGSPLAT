@@ -43,7 +43,7 @@ from nfl_gsplat.calibration.from_players import feet_of
 from nfl_gsplat.calibration.joint_views import MAX_GAP_M, ground_points
 from nfl_gsplat.tracking import link3d
 from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS
-from nfl_gsplat.tracking.kits import KIT_MARGIN, kit_margins, labels_from_margins
+from nfl_gsplat.tracking.kits import KIT_MARGIN, KIT_PENALTY_M, KitError, kit_margins, labels_from_margins
 
 FIELD_HALF_X_M = 56.0
 FIELD_HALF_Y_M = 26.0
@@ -173,8 +173,9 @@ def main() -> None:
     ap.add_argument("--model", default="yolov8m.pt")
     ap.add_argument("--fps", type=float, default=59.94)
     ap.add_argument("--device", default="cuda:0", help="YOLO device; 'cpu' when the GPU is off limits")
-    ap.add_argument("--no-kit-link", action="store_true",
-                    help="keep the kit gate on the cross-camera pairing but give the time linker no labels")
+    ap.add_argument("--kit-link", choices=("off", "block", "soft"), default="soft",
+                    help="the kit in the time linker: off (pairing gate only), block (a mismatch never "
+                         "joins), soft (a mismatch costs KIT_PENALTY_M metres; default)")
     args = ap.parse_args()
 
     from ultralytics import YOLO
@@ -201,14 +202,21 @@ def main() -> None:
 
     # Kit per detection box (tracking.kits): the pairing across cameras and the
     # linking through time both refuse to join different kits.
-    marg_s, cen_s = kit_margins(det_s, args.root / args.sideline)
-    marg_e, cen_e = kit_margins(det_e, args.root / args.endzone)
-    kits_s = {f: labels_from_margins(m) for f, m in marg_s.items()}
-    kits_e = {f: labels_from_margins(m) for f, m in marg_e.items()}
-    n_lab = sum(int((k >= 0).sum()) for k in kits_s.values()) + sum(int((k >= 0).sum()) for k in kits_e.values())
-    n_all = sum(len(k) for k in kits_s.values()) + sum(len(k) for k in kits_e.values())
-    print(f"kits: saturation centres sideline {cen_s[0]:.0f}/{cen_s[1]:.0f}, endzone "
-          f"{cen_e[0]:.0f}/{cen_e[1]:.0f}; {n_lab} of {n_all} boxes labelled at margin {KIT_MARGIN}")
+    try:
+        marg_s, cen_s = kit_margins(det_s, args.root / args.sideline)
+        marg_e, cen_e = kit_margins(det_e, args.root / args.endzone)
+        kits_s = {f: labels_from_margins(m) for f, m in marg_s.items()}
+        kits_e = {f: labels_from_margins(m) for f, m in marg_e.items()}
+        n_lab = sum(int((k >= 0).sum()) for k in kits_s.values()) + sum(int((k >= 0).sum()) for k in kits_e.values())
+        n_all = sum(len(k) for k in kits_s.values()) + sum(len(k) for k in kits_e.values())
+        print(f"kits: saturation centres sideline {cen_s[0]:.0f}/{cen_s[1]:.0f}, endzone "
+              f"{cen_e[0]:.0f}/{cen_e[1]:.0f}; {n_lab} of {n_all} boxes labelled at margin {KIT_MARGIN}")
+    except KitError as exc:
+        # Two kits that saturation cannot tell apart (both white, say): no
+        # labels at all rather than random ones -- measured, random labels
+        # wreck the linker.
+        print(f"kits REFUSED, pairing and linking on position alone: {exc}")
+        marg_s, marg_e, kits_s, kits_e = {}, {}, {}, {}
     # Fuse and link on the turf.
     placements, sources, labels = {}, {}, {}
     for f in range(n):
@@ -233,7 +241,8 @@ def main() -> None:
     n_two = sum(int(((s_ >= 0) & (e_ >= 0)).sum()) for s_, e_ in sources.values())
     print(f"fused: {sum(len(p) for p in placements.values())} placements, {n_two} seen by both cameras, "
           f"{sum(int((l >= 0).sum()) for l in labels.values())} carry a kit")
-    tracks = link3d.link(placements, labels=labels if not args.no_kit_link else None, fps=args.fps)
+    tracks = link3d.link(placements, labels=labels if args.kit_link != "off" else None, fps=args.fps,
+                         label_penalty_m=KIT_PENALTY_M if args.kit_link == "soft" else None)
     print(f"linked {len(tracks)} tracks over {len(placements)} frames; "
           f"{sum(len(t.frames) >= 0.5 * len(placements) for t in tracks)} span half the play")
 

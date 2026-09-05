@@ -11,11 +11,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from nfl_gsplat.identity.team_color import two_means_1d
+from nfl_gsplat.identity.team_color import KitSplitError, saturation_split
 from nfl_gsplat.identity.torso_colours import detection_colours
 
 KIT_MARGIN: float = 0.4      # |(S - midpoint) / (centre_hi - centre_lo)| to carry a label
 MIN_COLOURED: int = 8
+KIT_PENALTY_M: float = 1.0   # metres a kit mismatch adds to the time linker's cost (soft, never a block)
 
 
 class KitError(RuntimeError):
@@ -41,7 +42,10 @@ def kit_margins(det: dict, video) -> tuple[dict, tuple[float, float]]:
     ok = np.isfinite(sat)
     if int(ok.sum()) < MIN_COLOURED:
         raise KitError(f"{video}: only {int(ok.sum())} detections carry a torso colour")
-    c, _ = two_means_1d(sat[ok])
+    try:
+        c, _, _sep = saturation_split(sat[ok])
+    except KitSplitError as exc:
+        raise KitError(f"{video}: {exc}") from None
     mid, span = 0.5 * (c[0] + c[1]), max(float(c[1] - c[0]), 1e-6)
     m = np.full(len(sat), np.nan)
     m[ok] = (sat[ok] - mid) / span

@@ -150,11 +150,16 @@ class Track3D:
 def link(placements, *, labels=None, features=None, fps: float = 59.94,
          max_speed: float = MAX_SPEED_M_S, gate_floor: float = GATE_FLOOR_M,
          max_gap_s: float = MAX_GAP_S, min_frames: int = MIN_TRACK_FRAMES,
-         feature_weight: float = FEATURE_WEIGHT_M) -> list[Track3D]:
+         feature_weight: float = FEATURE_WEIGHT_M, label_penalty_m=None) -> list[Track3D]:
     """``placements`` maps frame -> ``[N, 2]`` ground positions in metres.
 
     ``labels`` optionally maps frame -> ``[N]`` ints (e.g. team; -1 unknown);
-    a detection is never linked to a track whose known label differs.
+    a detection is never linked to a track whose known label differs --
+    unless ``label_penalty_m`` is given, when a mismatch adds that many
+    metres to the cost instead (soft: a mislabelled box still rejoins its
+    own track when nothing else is nearer by that much; measured 2026-09-05,
+    the hard gate on 2-5 % label noise handed blocked boxes to the
+    second-nearest track: helmet set 191 -> 238 switches).
     ``features`` optionally maps frame -> ``[N, D]`` appearance embeddings
     (NaN rows unknown); they add ``feature_weight`` metres per unit cosine
     distance to the cost and never gate. Returns tracks with at least
@@ -208,7 +213,10 @@ def link(placements, *, labels=None, features=None, fps: float = 59.94,
             tl = np.array([tr.label for tr in cands])
             mismatch = ((tl[:, None] >= 0) & (labs[idx][None, :] >= 0)
                         & (tl[:, None] != labs[idx][None, :]))
-            blocked = blocked | mismatch
+            if label_penalty_m is None:
+                blocked = blocked | mismatch
+            else:
+                cost = cost + float(label_penalty_m) * mismatch
             cost = np.where(blocked, 1e6, cost)
             r, c = linear_sum_assignment(cost)
             for i, j in zip(r, c):
