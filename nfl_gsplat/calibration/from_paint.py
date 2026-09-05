@@ -331,7 +331,7 @@ def ladder_indices(ladder, *, min_ratio: float = 1.5):
 
 def frame_homography(features, width: int, height: int, *, gap: int = 1,
                      transposed: bool = False, image=None,
-                     use_hash_points: bool = True):
+                     use_hash_points: bool = True, fov_band=None):
     """``(H, world_y, residual_px)`` for one frame, X ORIGIN ARBITRARY.
 
     The assignment of detected long lines to the field's known Y values is
@@ -444,7 +444,7 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
         # Physical possibility first -- an assignment implying a camera that
         # cannot exist is wrong however well it fits. Then grid consistency for
         # the X scale, focal agreement for Y, and the line residual for ties.
-        possible = assignment_is_possible(H, width, height)
+        possible = assignment_is_possible(H, width, height, fov_band=fov_band)
         # Physical possibility, then grid consistency, then MORE ROWS -- a
         # labelling that uses four field lines is better constrained than one
         # using two, so among equally consistent candidates the fuller one
@@ -465,11 +465,11 @@ def frame_homography(features, width: int, height: int, *, gap: int = 1,
 
 
 def best_frame_homography(features, width: int, height: int, *, gap: int = 1,
-                          image=None, use_hash_points: bool = True):
+                          image=None, use_hash_points: bool = True, fov_band=None):
     """``(H, world_y, residual, transposed)`` -- tries both view orientations."""
     out = []
     for flag in (False, True):
-        got = frame_homography(features, width, height, gap=gap,
+        got = frame_homography(features, width, height, gap=gap, fov_band=fov_band,
                                transposed=flag, image=image,
                                use_hash_points=use_hash_points)
         if got is not None:
@@ -625,8 +625,19 @@ def implied_fov_deg(H, width: int, height: int) -> float:
     return float(np.degrees(2.0 * np.arctan(width / (2.0 * focal))))
 
 
-def assignment_is_possible(H, width: int, height: int) -> bool:
+def assignment_is_possible(H, width: int, height: int, fov_band=None) -> bool:
     """Could a real camera have produced this homography of the field?
+
+    ``fov_band`` (lo, hi) degrees narrows the plausible lens to what is KNOWN
+    before the solve -- the same mount's lens on another play of the game,
+    or the players' boxes. Measured on play 3 (2026-09-05): in two-row
+    frames the reader labelled the far sideline's ticks and the far hash row
+    as the TWO SIDELINES, stretching the field 2.3x across; the implied 41
+    degree lens sat inside the generous (8, 75) band and grid consistency,
+    an X instrument, still scored 0.95, so it won over the hash-pair
+    labelling at 14.9 degrees. With the band from play 1 (11.7 deg x 1/1.6
+    .. 1.6) the sideline-pair labelling is not possible and the right one
+    wins.
 
     This is what separates a wrong row labelling from a right one when both fit
     the lines. Calling the two HASH ROWS the two sidelines stretches world Y by
@@ -638,7 +649,8 @@ def assignment_is_possible(H, width: int, height: int) -> bool:
     fov = implied_fov_deg(H, width, height)
     if not np.isfinite(fov):
         return True          # cannot tell; do not penalise
-    return PLAUSIBLE_FOV_DEG[0] <= fov <= PLAUSIBLE_FOV_DEG[1]
+    lo, hi = fov_band if fov_band is not None else PLAUSIBLE_FOV_DEG
+    return lo <= fov <= hi
 
 
 def focal_disagreement(H, width: int, height: int) -> float:
@@ -976,6 +988,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
                               audit_px: float | None = None,
                               grid: int = 6, half_x_m: float = 30.0,
                               use_hash_points: bool = True, seed_centre=None, fixed_centre=None,
+                              fov_band=None,
                               require_quality: bool = True,
                               max_rms_px: float | None = None,
                               align_origins: bool = False,
@@ -1007,7 +1020,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
     raw, scored = {}, {}
     for frame, feats in features_by_frame.items():
         image = None if images is None else images.get(frame)
-        got = best_frame_homography(feats, width, height, gap=gap, image=image,
+        got = best_frame_homography(feats, width, height, gap=gap, image=image, fov_band=fov_band,
                                     use_hash_points=use_hash_points)
         if got is not None:
             raw[int(frame)] = got[0]

@@ -164,6 +164,7 @@ MIRROR_READ_EXTRA = 2
 # views do not veto a wrong sideline; the rows on the turf do.
 RULER_AGREE = 0.10
 RULER_SCALE = (0.80, 1.25)
+LENS_BAND = 1.6          # a row labelling may imply a lens this far from the seed play's
 LOOSE_PLAYER_COST = 0.75
 
 
@@ -331,11 +332,17 @@ def main() -> None:
             tr = load_camera_track(args.seed_from / "cameras.npz")["sideline"]
             ok = np.flatnonzero(tr.conf > 0)
             seed = np.median(np.stack([-tr.R[f].T @ tr.t[f] for f in ok]), axis=0)
+            fov_seed = float(np.median([fov_deg(tr.K[f], tr.width) for f in ok]))
+            fov_band = (fov_seed / LENS_BAND, fov_seed * LENS_BAND)
             print(f"   joint solve holds the centre at the sideline mount of {args.seed_from.name}: "
-                  f"{np.round(seed, 1)} m")
+                  f"{np.round(seed, 1)} m; row labellings must imply a lens within "
+                  f"{fov_band[0]:.1f}..{fov_band[1]:.1f} deg (seed {fov_seed:.1f})")
+        else:
+            fov_band = None
         cands = candidates_for_video(side_path, attempts=args.attempts,
                                      n_frames=args.calib_frames, model=model,
-                                     vertical_deg=args.vertical_deg, fixed_centre=seed)
+                                     vertical_deg=args.vertical_deg, fixed_centre=seed,
+                                     fov_band=fov_band)
     if not cands:
         raise SystemExit("no sideline camera could be solved from paint")
     # Players gate the pool, as they gate the single-clip path. On play 2 the
