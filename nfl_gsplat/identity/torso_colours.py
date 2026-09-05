@@ -51,8 +51,13 @@ def team_votes(df, videos, *, max_per_frame: int = 64):
     every detection row of ``df`` (tracks.parquet, both cameras) -- see
     ``team_color.split_by_saturation_votes``. Label 1 is the coloured kit.
     Reads each camera's video once (about a minute per camera)."""
-    from nfl_gsplat.identity.team_color import split_by_saturation_votes
+    from nfl_gsplat.identity.team_color import split_by_saturation_votes, votes_from_margins
 
+    if "kit_margin" in df.columns and np.isfinite(df["kit_margin"].to_numpy(float)).mean() > 0.5:
+        # tracks.parquet from 08b carries each box's signed saturation margin
+        # (tracking.kits): the same evidence, no second pass over the videos.
+        keys = [(str(c), int(t)) for c, t in zip(df["cam"], df["track_id"])]
+        return votes_from_margins(keys, df["kit_margin"].to_numpy(float)), {}
     sats = {}
     for cam, dv in df.groupby("cam"):
         cam = str(cam)

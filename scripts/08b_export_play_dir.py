@@ -43,6 +43,7 @@ from nfl_gsplat.calibration.from_players import feet_of
 from nfl_gsplat.calibration.joint_views import MAX_GAP_M, ground_points
 from nfl_gsplat.tracking import link3d
 from nfl_gsplat.tracking.detect_track import TRACK_COLUMNS
+from nfl_gsplat.tracking.kits import KIT_MARGIN, kit_margins, labels_from_margins
 
 FIELD_HALF_X_M = 56.0
 FIELD_HALF_Y_M = 26.0
@@ -105,11 +106,16 @@ def detect_all_frames(model, path, *, conf=0.15, imgsz=1920, device="cuda:0"):
     return out, (w, h, n)
 
 
-def fuse_frame(cam_s, feet_s, cam_e, feet_e, *, gap_m=MAX_GAP_M):
+def fuse_frame(cam_s, feet_s, cam_e, feet_e, *, gap_m=MAX_GAP_M, kit_s=None, kit_e=None):
     """One frame: ground points from both views, reconciled where they agree.
 
     Returns ``(points [M, 2], src_s [M] row index into feet_s or -1,
     src_e [M] row index into feet_e or -1)``.
+
+    ``kit_s`` / ``kit_e`` (``[N]`` ints, -1 unknown; tracking.kits) refuse a
+    pair whose two boxes wear different kits: measured 2026-09-05, 24 %, 53 %
+    and 30 % of the global ids seen in both cameras on plays 1, 2 and 4
+    disagreed on the kit, i.e. the pairing had joined different players.
     """
     from scipy.optimize import linear_sum_assignment
 
@@ -126,6 +132,10 @@ def fuse_frame(cam_s, feet_s, cam_e, feet_e, *, gap_m=MAX_GAP_M):
     used_s, used_e = set(), set()
     if len(ia) and len(ib):
         cost = np.linalg.norm(gs[ia][:, None] - ge[ib][None], axis=2)
+        if kit_s is not None and kit_e is not None:
+            ks, ke = np.asarray(kit_s, int)[ia], np.asarray(kit_e, int)[ib]
+            mismatch = (ks[:, None] >= 0) & (ke[None, :] >= 0) & (ks[:, None] != ke[None, :])
+            cost = np.where(mismatch, 1e6, cost)
         r, c = linear_sum_assignment(cost)
         for i, j in zip(r, c):
             if cost[i, j] < gap_m:
@@ -163,6 +173,8 @@ def main() -> None:
     ap.add_argument("--model", default="yolov8m.pt")
     ap.add_argument("--fps", type=float, default=59.94)
     ap.add_argument("--device", default="cuda:0", help="YOLO device; 'cpu' when the GPU is off limits")
+    ap.add_argument("--no-kit-link", action="store_true",
+                    help="keep the kit gate on the cross-camera pairing but give the time linker no labels")
     args = ap.parse_args()
 
     from ultralytics import YOLO
@@ -187,25 +199,47 @@ def main() -> None:
     write_camera_track(args.out / "cameras.npz",
                        {"sideline": track_s, "endzone": track_e}, fps=args.fps)
 
+    # Kit per detection box (tracking.kits): the pairing across cameras and the
+    # linking through time both refuse to join different kits.
+    marg_s, cen_s = kit_margins(det_s, args.root / args.sideline)
+    marg_e, cen_e = kit_margins(det_e, args.root / args.endzone)
+    kits_s = {f: labels_from_margins(m) for f, m in marg_s.items()}
+    kits_e = {f: labels_from_margins(m) for f, m in marg_e.items()}
+    n_lab = sum(int((k >= 0).sum()) for k in kits_s.values()) + sum(int((k >= 0).sum()) for k in kits_e.values())
+    n_all = sum(len(k) for k in kits_s.values()) + sum(len(k) for k in kits_e.values())
+    print(f"kits: saturation centres sideline {cen_s[0]:.0f}/{cen_s[1]:.0f}, endzone "
+          f"{cen_e[0]:.0f}/{cen_e[1]:.0f}; {n_lab} of {n_all} boxes labelled at margin {KIT_MARGIN}")
     # Fuse and link on the turf.
-    placements, sources = {}, {}
+    placements, sources, labels = {}, {}, {}
     for f in range(n):
         if track_s.conf[f] <= 0 or track_e.conf[f] <= 0:
             continue
         bs = det_s.get(f, np.zeros((0, 4)))
         be = det_e.get(f, np.zeros((0, 4)))
+        ks = kits_s.get(f, np.full(len(bs), -1))
+        ke = kits_e.get(f, np.full(len(be), -1))
         pts, src_s, src_e = fuse_frame((track_s.K[f], track_s.R[f], track_s.t[f]), feet_of(bs),
-                                       (track_e.K[f], track_e.R[f], track_e.t[f]), feet_of(be))
+                                       (track_e.K[f], track_e.R[f], track_e.t[f]), feet_of(be),
+                                       kit_s=ks, kit_e=ke)
         if len(pts):
             placements[f] = pts
             sources[f] = (src_s, src_e)
-    tracks = link3d.link(placements, fps=args.fps)
+            lab = np.full(len(pts), -1, int)
+            for k in range(len(pts)):
+                a = int(ks[src_s[k]]) if src_s[k] >= 0 else -1
+                b = int(ke[src_e[k]]) if src_e[k] >= 0 else -1
+                lab[k] = a if a >= 0 else b            # a pair never disagrees (gated above)
+            labels[f] = lab
+    n_two = sum(int(((s_ >= 0) & (e_ >= 0)).sum()) for s_, e_ in sources.values())
+    print(f"fused: {sum(len(p) for p in placements.values())} placements, {n_two} seen by both cameras, "
+          f"{sum(int((l >= 0).sum()) for l in labels.values())} carry a kit")
+    tracks = link3d.link(placements, labels=labels if not args.no_kit_link else None, fps=args.fps)
     print(f"linked {len(tracks)} tracks over {len(placements)} frames; "
           f"{sum(len(t.frames) >= 0.5 * len(placements) for t in tracks)} span half the play")
 
     # Global id per fused point (index-aligned), then per detection.
     gid_by_frame = link3d.assignments(tracks, placements)
-    rows = []
+    rows, kit_rows = [], []
     for f in placements:
         pts = placements[f]
         src_s, src_e = sources[f]
@@ -217,6 +251,8 @@ def main() -> None:
                 if src < 0:
                     continue
                 b = boxes[src]
+                marg = (marg_s if cam == "sideline" else marg_e).get(f)
+                kit_rows.append(float(marg[src]) if marg is not None else float("nan"))
                 rows.append({
                     "frame": int(f), "cam": cam, "track_id": int(gid),
                     "global_player_id": int(gid),
@@ -226,6 +262,16 @@ def main() -> None:
                     "foot_v": float(b[3]), "jersey_number_ocr": -1,
                 })
     df = pd.DataFrame(rows, columns=TRACK_COLUMNS)
+    # Per detection: the kit its own box wears (signed margin; label at
+    # KIT_MARGIN) so identity votes on the same evidence without re-reading
+    # the videos, and a global id whose two views disagree is visible.
+    df["kit_margin"] = kit_rows
+    df["kit"] = labels_from_margins(df["kit_margin"].to_numpy())
+    per_id = df[df["kit"] >= 0].groupby(["track_id", "cam"])["kit"].agg(lambda s: int(s.mean() > 0.5)).unstack()
+    if {"sideline", "endzone"} <= set(per_id.columns):
+        both = per_id.dropna()
+        n_dis = int((both["sideline"] != both["endzone"]).sum())
+        print(f"kits per global id: {len(both)} ids in both cameras, {n_dis} disagree on the kit")
     df.to_parquet(args.out / "tracks.parquet", index=False)
     per_frame = df.groupby(["frame", "cam"]).size()
     print(f"tracks.parquet: {len(df)} rows, {df['global_player_id'].nunique()} players, "

@@ -215,3 +215,24 @@ def split_by_saturation_votes(sats_by_cam, *, min_detections: int = 8):
         else:
             labels[k] = SATURATED if margin[k] > 0 else 1 - SATURATED
     return labels, centres
+
+
+def votes_from_margins(keys, margins):
+    """``{key: label}`` from per-detection signed saturation margins (the
+    quantity ``split_by_saturation_votes`` computes per camera): each finite
+    margin votes its sign, the majority wins, a tie goes to the mean."""
+    margins = np.asarray(margins, float)
+    counts: dict = {}
+    total: dict = {}
+    for k, m in zip(keys, margins):
+        if not np.isfinite(m):
+            continue
+        counts.setdefault(k, [0, 0])[int(m > 0)] += 1
+        total[k] = total.get(k, 0.0) + m
+    out = {}
+    for k, (n0, n1) in counts.items():
+        if n1 != n0:
+            out[k] = SATURATED if n1 > n0 else 1 - SATURATED
+        else:
+            out[k] = SATURATED if total[k] > 0 else 1 - SATURATED
+    return out
