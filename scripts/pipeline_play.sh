@@ -76,12 +76,23 @@ if ! done_ export; then
   RECON="$P/recon.npz"; [ -f "$RECON" ] || RECON="C:/Users/sumedh/diag/all22_reconstruction.npz"
   "$PYN" scripts/08b_export_play_dir.py --recon "$RECON" --root "$ROOT" --sideline "$SIDE" --endzone "$END" --out "$P" \
      2>&1 | grep -v "Warning\|warn" | grep -E "cameras:|linked|tracks.parquet" || fail export
+  # Every later stage reads the clips from the play-dir (05l, 08e, 05c, 05i,
+  # 05m ...); plays 1 and 2 got theirs by hand on 2026-09-02 and play 4 stopped
+  # at refine reading an absent file (grid NaN on every frame, 2026-09-05).
+  [ -f "$P/sideline.mp4" ] || cp "$ROOT/$SIDE" "$P/sideline.mp4"
+  [ -f "$P/endzone.mp4" ] || cp "$ROOT/$END" "$P/endzone.mp4"
   mark export
 fi
 
 if ! done_ refine; then
   log "refine every frame's camera to the paint (08e)"
-  "$PYN" scripts/08e_refine_cameras.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "grid|rewritten|Error" || fail refine
+  out="$("$PYN" scripts/08e_refine_cameras.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn")"
+  echo "$out" | grep -E "grid|rewritten|Error"
+  if echo "$out" | grep -q "median grid nan"; then
+    log "refine: the grid instrument read NaN on every sampled frame (no segments) -- cameras kept as solved"
+  elif ! echo "$out" | grep -q "rewritten"; then
+    echo "$out" | grep -q "did not lower" && log "refine: not better than the solve; cameras kept as solved" || fail refine
+  fi
   mark refine
 fi
 
