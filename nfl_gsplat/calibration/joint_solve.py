@@ -484,7 +484,7 @@ def _rescue_refit(frame_ids, frame_data, image_size, C, *, view_deg: int = 0):
 def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
                        max_rounds: int = 2, _frame_data_override=None,
                        view_deg: int = 0, center_bounds=None, audit_drop_px=None,
-                       seed_centers=None):
+                       seed_centers=None, fixed_center=None):
     """Joint solve over all usable frames -> (results, mirrored).
 
     ``results`` is a list aligned to ``init_results``' length with a
@@ -511,7 +511,14 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
 
     ``seed_centers`` are extra starting centres tried BEFORE the grid -- see
     ``_candidate_centers``. Use it to carry a camera from one play of a game to
-    the next, since the mount does not move between snaps."""
+    the next, since the mount does not move between snaps.
+    ``fixed_center`` HOLDS the centre there instead: no multi-start, no staged
+    solve; the reflection is resolved against that centre and every frame's
+    (r, f) is refit with C frozen (the rescue refit). Measured 2026-09-05 on
+    play 3: seeding alone let the solve wander to a 41-degree lens 130 m out
+    with the best paint residual of all (4.2 px) -- the paint's minimum is
+    not at the mount, so on a play whose paint admits the wrong lens the
+    centre must be held, and the paint then sets the focal per frame."""
     del max_rounds
     drop_px = AUDIT_DROP_PX if audit_drop_px is None else audit_drop_px
     frame_data = (_frame_data_override if _frame_data_override is not None
@@ -521,6 +528,24 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
     if not frame_ids:
         raise CalibrationError("no usable frames (>=4 correspondences) for the joint solve.")
 
+    if fixed_center is not None:
+        C = np.asarray(fixed_center, float).reshape(3)
+        mirrored, C_win, cost = _resolve_reflection(
+            frame_ids, frame_data, image_size, [C], n_anchor=1, view_deg=view_deg)
+        if not np.isfinite(cost):
+            raise CalibrationError("fixed-centre solve: cost not finite at the given centre.")
+        if mirrored:
+            frame_data = _negate_y(frame_data)
+        refit = _rescue_refit(frame_ids, frame_data, image_size, C, view_deg=view_deg)
+        results = [None] * T
+        for i, (r_i, f_i, med) in refit.items():
+            if med <= drop_px:
+                results[i] = _frame_result(i, frame_data, C, r_i, f_i, image_size)
+        if all(r is None for r in results):
+            raise CalibrationError(
+                f"fixed-centre solve: every frame's median residual > {drop_px} px at "
+                f"C={np.round(C, 1)} -- the paint does not admit a camera on that mount.")
+        return results, mirrored
     candidates = _candidate_centers(init_results, seed_centers)
     candidates = _filter_centers(candidates, center_bounds)
     n_anchor = len(seed_centers or ()) + (

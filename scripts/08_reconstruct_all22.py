@@ -299,9 +299,10 @@ def main() -> None:
                          "sideline candidate (e.g. after scripts/08d refined it) instead "
                          "of solving from paint; the endzone is then solved against it")
     ap.add_argument("--seed-from", type=Path, default=None,
-                    help="a play-dir of the SAME game whose solved sideline camera seeds the joint "
-                         "solve (the mount does not move between snaps): its median camera centre "
-                         "is tried before the grid of starts")
+                    help="a play-dir of the SAME game whose solved sideline camera gives the mount: "
+                         "the joint solve HOLDS the centre there and fits rotation and focal per "
+                         "frame to the paint (seeding the start alone was measured not to help: the "
+                         "paint's minimum is not at the mount)")
     ap.add_argument("--no-ruler-gate", action="store_true",
                     help="skip reading the hash and numeral rows through each sideline "
                          "candidate before the endzone solves")
@@ -330,11 +331,11 @@ def main() -> None:
             tr = load_camera_track(args.seed_from / "cameras.npz")["sideline"]
             ok = np.flatnonzero(tr.conf > 0)
             seed = np.median(np.stack([-tr.R[f].T @ tr.t[f] for f in ok]), axis=0)
-            print(f"   joint solve seeded with the sideline mount of {args.seed_from.name}: "
+            print(f"   joint solve holds the centre at the sideline mount of {args.seed_from.name}: "
                   f"{np.round(seed, 1)} m")
         cands = candidates_for_video(side_path, attempts=args.attempts,
                                      n_frames=args.calib_frames, model=model,
-                                     vertical_deg=args.vertical_deg, seed_centre=seed)
+                                     vertical_deg=args.vertical_deg, fixed_centre=seed)
     if not cands:
         raise SystemExit("no sideline camera could be solved from paint")
     # Players gate the pool, as they gate the single-clip path. On play 2 the

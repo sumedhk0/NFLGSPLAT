@@ -908,7 +908,7 @@ def _enforce_quality(quality, centre, max_rms_px, scale):
             "PAINT_MAX_RMS_PX for the measured operating curve.")
 
 
-def _solve_pooled(raw, world, width, height, seed_centre, audit_px):
+def _solve_pooled(raw, world, width, height, seed_centre, audit_px, fixed_centre=None):
     """The shared-centre solve, given one homography per frame."""
     from nfl_gsplat.calibration.decompose_homography import homography_to_krt
     from nfl_gsplat.calibration.joint_solve import solve_fixed_center
@@ -948,7 +948,7 @@ def _solve_pooled(raw, world, width, height, seed_centre, audit_px):
     results, mirrored = solve_fixed_center(
         {}, (width, height), init_results=[None] * (max(frame_data) + 1),
         _frame_data_override=frame_data, view_deg=0, audit_drop_px=audit_px,
-        seed_centers=seeds)
+        seed_centers=seeds, fixed_center=fixed_centre)
 
     cams = {}
     for frame in frame_data:
@@ -975,7 +975,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
                               gap: int = 1, images=None,
                               audit_px: float | None = None,
                               grid: int = 6, half_x_m: float = 30.0,
-                              use_hash_points: bool = True, seed_centre=None,
+                              use_hash_points: bool = True, seed_centre=None, fixed_centre=None,
                               require_quality: bool = True,
                               max_rms_px: float | None = None,
                               align_origins: bool = False,
@@ -1042,7 +1042,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
         for _spread, ref, carried in screened[:verify_top]:
             try:
                 got = _solve_pooled(carried, world, width, height,
-                                    seed_centre, audit_px)
+                                    seed_centre, audit_px, fixed_centre=fixed_centre)
             except CalibrationError:
                 continue
             q = got[4]
@@ -1065,7 +1065,7 @@ def cameras_from_paint_pooled(features_by_frame, width: int, height: int, *,
         if align_origins:
             raw, _moved = align_x_origins(raw, width, height)
         cams, focal, centre, mirrored, quality = _solve_pooled(
-            raw, world, width, height, seed_centre, audit_px)
+            raw, world, width, height, seed_centre, audit_px, fixed_centre=fixed_centre)
 
     if require_quality:
         _enforce_quality(quality, centre, max_rms_px, scale)
