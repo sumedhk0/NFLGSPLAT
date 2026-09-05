@@ -173,6 +173,10 @@ def main() -> None:
     ap.add_argument("--model", default="yolov8m.pt")
     ap.add_argument("--fps", type=float, default=59.94)
     ap.add_argument("--device", default="cuda:0", help="YOLO device; 'cpu' when the GPU is off limits")
+    ap.add_argument("--pairing", choices=("track", "frame"), default="track",
+                    help="track: per-camera ground tracks paired by trajectory over their overlap "
+                         "(default); frame: the per-frame pairing by ground distance (measured a coin "
+                         "flip on play 2)")
     ap.add_argument("--kit-link", choices=("off", "block", "soft"), default="soft",
                     help="the kit in the time linker: off (pairing gate only), block (a mismatch never "
                          "joins), soft (a mismatch costs KIT_PENALTY_M metres; default)")
@@ -217,59 +221,109 @@ def main() -> None:
         # wreck the linker.
         print(f"kits REFUSED, pairing and linking on position alone: {exc}")
         marg_s, marg_e, kits_s, kits_e = {}, {}, {}, {}
-    # Fuse and link on the turf.
-    placements, sources, labels = {}, {}, {}
-    for f in range(n):
-        if track_s.conf[f] <= 0 or track_e.conf[f] <= 0:
-            continue
-        bs = det_s.get(f, np.zeros((0, 4)))
-        be = det_e.get(f, np.zeros((0, 4)))
-        ks = kits_s.get(f, np.full(len(bs), -1))
-        ke = kits_e.get(f, np.full(len(be), -1))
-        pts, src_s, src_e = fuse_frame((track_s.K[f], track_s.R[f], track_s.t[f]), feet_of(bs),
-                                       (track_e.K[f], track_e.R[f], track_e.t[f]), feet_of(be),
-                                       kit_s=ks, kit_e=ke)
-        if len(pts):
-            placements[f] = pts
-            sources[f] = (src_s, src_e)
-            lab = np.full(len(pts), -1, int)
-            for k in range(len(pts)):
-                a = int(ks[src_s[k]]) if src_s[k] >= 0 else -1
-                b = int(ke[src_e[k]]) if src_e[k] >= 0 else -1
-                lab[k] = a if a >= 0 else b            # a pair never disagrees (gated above)
-            labels[f] = lab
-    n_two = sum(int(((s_ >= 0) & (e_ >= 0)).sum()) for s_, e_ in sources.values())
-    print(f"fused: {sum(len(p) for p in placements.values())} placements, {n_two} seen by both cameras, "
-          f"{sum(int((l >= 0).sum()) for l in labels.values())} carry a kit")
-    tracks = link3d.link(placements, labels=labels if args.kit_link != "off" else None, fps=args.fps,
-                         label_penalty_m=KIT_PENALTY_M if args.kit_link == "soft" else None)
-    print(f"linked {len(tracks)} tracks over {len(placements)} frames; "
-          f"{sum(len(t.frames) >= 0.5 * len(placements) for t in tracks)} span half the play")
+    if args.pairing == "track":
+        # Per-camera tracks paired by trajectory (tracking.pair_tracks): the
+        # per-frame pairing was measured a coin flip (1.4 m between the two
+        # cameras' foot points of one player, players 1-2 m apart).
+        from nfl_gsplat.tracking.pair_tracks import camera_placements, global_ids, pair_tracks
 
-    # Global id per fused point (index-aligned), then per detection.
-    gid_by_frame = link3d.assignments(tracks, placements)
-    rows, kit_rows = [], []
-    for f in placements:
-        pts = placements[f]
-        src_s, src_e = sources[f]
-        bs = det_s.get(f, np.zeros((0, 4)))
-        be = det_e.get(f, np.zeros((0, 4)))
-        for k, p in enumerate(pts):
-            gid = int(gid_by_frame[f][k])
-            for cam, src, boxes in (("sideline", src_s[k], bs), ("endzone", src_e[k], be)):
-                if src < 0:
-                    continue
-                b = boxes[src]
-                marg = (marg_s if cam == "sideline" else marg_e).get(f)
-                kit_rows.append(float(marg[src]) if marg is not None else float("nan"))
-                rows.append({
-                    "frame": int(f), "cam": cam, "track_id": int(gid),
-                    "global_player_id": int(gid),
-                    "bbox_x1": float(b[0]), "bbox_y1": float(b[1]),
-                    "bbox_x2": float(b[2]), "bbox_y2": float(b[3]),
-                    "conf": 1.0, "foot_u": float((b[0] + b[2]) / 2.0),
-                    "foot_v": float(b[3]), "jersey_number_ocr": -1,
-                })
+        def on_field(g):
+            return (np.isfinite(g).all(1) & (np.abs(g[:, 0]) <= FIELD_HALF_X_M)
+                    & (np.abs(g[:, 1]) <= FIELD_HALF_Y_M))
+
+        plc_s, idx_s = camera_placements(det_s, track_s, n, on_field=on_field)
+        plc_e, idx_e = camera_placements(det_e, track_e, n, on_field=on_field)
+        lab_s = {f: kits_s[f][idx_s[f]] for f in plc_s if f in kits_s}
+        lab_e = {f: kits_e[f][idx_e[f]] for f in plc_e if f in kits_e}
+        pen = KIT_PENALTY_M if args.kit_link == "soft" else None
+        tr_s = link3d.link(plc_s, labels=lab_s if args.kit_link != "off" else None, fps=args.fps,
+                           label_penalty_m=pen)
+        tr_e = link3d.link(plc_e, labels=lab_e if args.kit_link != "off" else None, fps=args.fps,
+                           label_penalty_m=pen)
+        pairs, lag = pair_tracks(tr_s, tr_e, fps=args.fps)
+        gid_s, gid_e = global_ids(len(tr_s), len(tr_e), pairs)
+        n_frames = len(set(plc_s) | set(plc_e))
+        print(f"per-camera tracks: sideline {len(tr_s)} over {len(plc_s)} frames, endzone {len(tr_e)} over "
+              f"{len(plc_e)} frames; {len(pairs)} track pairs (mean offset "
+              f"{np.median([q.cost for q in pairs]) if pairs else float('nan'):.2f} m median, overlap "
+              f"{np.median([q.overlap for q in pairs]) if pairs else 0:.0f} frames median) at endzone lag {lag:+d} "
+              f"frames; {len(set(gid_s) | set(gid_e))} global ids, "
+              f"{len(set(gid_s) & set(gid_e))} in both cameras")
+        rows, kit_rows = [], []
+        for cam, tracks, gids, idx, det, marg in (("sideline", tr_s, gid_s, idx_s, det_s, marg_s),
+                                                  ("endzone", tr_e, gid_e, idx_e, det_e, marg_e)):
+            for t, gid in zip(tracks, gids):
+                for f, r in zip(t.frames, t.rows):
+                    src = int(idx[f][r])
+                    b = det[f][src]
+                    m = marg.get(f)
+                    kit_rows.append(float(m[src]) if m is not None else float("nan"))
+                    rows.append({
+                        "frame": int(f), "cam": cam, "track_id": int(gid),
+                        "global_player_id": int(gid),
+                        "bbox_x1": float(b[0]), "bbox_y1": float(b[1]),
+                        "bbox_x2": float(b[2]), "bbox_y2": float(b[3]),
+                        "conf": 1.0, "foot_u": float((b[0] + b[2]) / 2.0),
+                        "foot_v": float(b[3]), "jersey_number_ocr": -1,
+                    })
+        placements = {f: None for f in range(n_frames)}       # for the span print below
+        tracks = tr_s + tr_e
+        print(f"linked {len(tracks)} per-camera tracks; "
+              f"{sum(len(t.frames) >= 0.5 * n_frames for t in tracks)} span half the play")
+    else:
+        # Fuse and link on the turf.
+        placements, sources, labels = {}, {}, {}
+        for f in range(n):
+            if track_s.conf[f] <= 0 or track_e.conf[f] <= 0:
+                continue
+            bs = det_s.get(f, np.zeros((0, 4)))
+            be = det_e.get(f, np.zeros((0, 4)))
+            ks = kits_s.get(f, np.full(len(bs), -1))
+            ke = kits_e.get(f, np.full(len(be), -1))
+            pts, src_s, src_e = fuse_frame((track_s.K[f], track_s.R[f], track_s.t[f]), feet_of(bs),
+                                           (track_e.K[f], track_e.R[f], track_e.t[f]), feet_of(be),
+                                           kit_s=ks, kit_e=ke)
+            if len(pts):
+                placements[f] = pts
+                sources[f] = (src_s, src_e)
+                lab = np.full(len(pts), -1, int)
+                for k in range(len(pts)):
+                    a = int(ks[src_s[k]]) if src_s[k] >= 0 else -1
+                    b = int(ke[src_e[k]]) if src_e[k] >= 0 else -1
+                    lab[k] = a if a >= 0 else b            # a pair never disagrees (gated above)
+                labels[f] = lab
+        n_two = sum(int(((s_ >= 0) & (e_ >= 0)).sum()) for s_, e_ in sources.values())
+        print(f"fused: {sum(len(p) for p in placements.values())} placements, {n_two} seen by both cameras, "
+              f"{sum(int((l >= 0).sum()) for l in labels.values())} carry a kit")
+        tracks = link3d.link(placements, labels=labels if args.kit_link != "off" else None, fps=args.fps,
+                             label_penalty_m=KIT_PENALTY_M if args.kit_link == "soft" else None)
+        print(f"linked {len(tracks)} tracks over {len(placements)} frames; "
+              f"{sum(len(t.frames) >= 0.5 * len(placements) for t in tracks)} span half the play")
+
+        # Global id per fused point (index-aligned), then per detection.
+        gid_by_frame = link3d.assignments(tracks, placements)
+        rows, kit_rows = [], []
+        for f in placements:
+            pts = placements[f]
+            src_s, src_e = sources[f]
+            bs = det_s.get(f, np.zeros((0, 4)))
+            be = det_e.get(f, np.zeros((0, 4)))
+            for k, p in enumerate(pts):
+                gid = int(gid_by_frame[f][k])
+                for cam, src, boxes in (("sideline", src_s[k], bs), ("endzone", src_e[k], be)):
+                    if src < 0:
+                        continue
+                    b = boxes[src]
+                    marg = (marg_s if cam == "sideline" else marg_e).get(f)
+                    kit_rows.append(float(marg[src]) if marg is not None else float("nan"))
+                    rows.append({
+                        "frame": int(f), "cam": cam, "track_id": int(gid),
+                        "global_player_id": int(gid),
+                        "bbox_x1": float(b[0]), "bbox_y1": float(b[1]),
+                        "bbox_x2": float(b[2]), "bbox_y2": float(b[3]),
+                        "conf": 1.0, "foot_u": float((b[0] + b[2]) / 2.0),
+                        "foot_v": float(b[3]), "jersey_number_ocr": -1,
+                    })
     df = pd.DataFrame(rows, columns=TRACK_COLUMNS)
     # Per detection: the kit its own box wears (signed margin; label at
     # KIT_MARGIN) so identity votes on the same evidence without re-reading
