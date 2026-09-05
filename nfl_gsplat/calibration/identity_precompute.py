@@ -26,15 +26,23 @@ def _one_crop_per_track(tracks_df, crop_provider):
     return crops
 
 
-def assign_identity_columns(tracks_df, crop_provider, *, season):
-    """Return a copy of tracks_df with `team` + `player_uid` columns."""
-    crops = _one_crop_per_track(tracks_df, crop_provider)
-    keys = list(crops)
-    team_by_key: dict[tuple[str, int], str] = {}
-    if keys:
-        colors = np.stack([dominant_jersey_color(crops[k]) for k in keys])
-        labels = split_two_teams(colors)          # global split, both cams
-        team_by_key = {k: f"T{int(lbl)}" for k, lbl in zip(keys, labels)}
+def assign_identity_columns(tracks_df, crop_provider, *, season, team_by_key=None):
+    """Return a copy of tracks_df with `team` + `player_uid` columns.
+
+    ``team_by_key`` ``{(cam, track_id): 0 | 1}`` supplies the team labels
+    (``identity.torso_colours.team_votes``: rule D, label 1 = the coloured
+    kit); without it the label is a global two-means on ONE crop per track,
+    which was 44-87 % right against crop-verified kits (2026-09-05)."""
+    if team_by_key is not None:
+        team_by_key = {(str(c), int(t)): f"T{int(v)}" for (c, t), v in team_by_key.items()}
+    else:
+        crops = _one_crop_per_track(tracks_df, crop_provider)
+        keys = list(crops)
+        team_by_key = {}
+        if keys:
+            colors = np.stack([dominant_jersey_color(crops[k]) for k in keys])
+            labels = split_two_teams(colors)          # global split, both cams
+            team_by_key = {k: f"T{int(lbl)}" for k, lbl in zip(keys, labels)}
 
     out = tracks_df.copy()
     out["team"] = [team_by_key.get((c, int(t))) for c, t in

@@ -69,6 +69,10 @@ def main() -> None:
     ap.add_argument("--teams", default="KC,BAL",
                     help="the game's two team codes; the colour split is "
                          "mapped onto them by which roster explains its numbers")
+    ap.add_argument("--saturated", default=None,
+                    help="the team in the COLOURED kit (e.g. KC in red against BAL in white): "
+                         "colour label T1 maps to it outright and the roster vote is printed as "
+                         "a check; without it the roster vote maps the colours")
     ap.add_argument("--from-cache", action="store_true",
                     help="reuse tracks_identity.parquet instead of re-running OCR")
     ap.add_argument("--cpu", action="store_true")
@@ -83,14 +87,28 @@ def main() -> None:
     from nfl_gsplat.tracking.jersey_ocr import JerseyOCRConfig, vote_jersey_numbers
 
     play = args.play_dir
+    from nfl_gsplat.identity.torso_colours import team_votes
+    videos = {cam: play / f"{cam}.mp4" for cam in ("sideline", "endzone")}
     if args.from_cache and (play / "tracks_identity.parquet").exists():
         df = pd.read_parquet(play / "tracks_identity.parquet")
         print(f"{len(df)} detections from cache, {df['track_id'].nunique()} global ids")
+        # The OCR is cached; the kit split is cheap (one pass over the videos)
+        # and is recomputed so the cache carries rule D too.
+        votes, centres = team_votes(df, videos)
+        before = df["team"].copy()
+        df["team"] = [votes.get((str(c), int(t))) for c, t in zip(df["cam"], df["track_id"])]
+        df["team"] = df["team"].map(lambda v: None if v is None else f"T{int(v)}")
+        print("kit split by saturation votes: " + ", ".join(
+            f"{cam} centres {lo:.0f}/{hi:.0f}" for cam, (lo, hi) in centres.items())
+            + f"; {int((before != df['team']).sum())} of {len(df)} detections relabelled")
+        df.to_parquet(play / "tracks_identity.parquet", index=False)
     else:
         df = pd.read_parquet(play / "tracks.parquet")
         df = df[df["track_id"] >= 0].reset_index(drop=True)
-        videos = {cam: play / f"{cam}.mp4" for cam in ("sideline", "endzone")}
         print(f"{len(df)} detections, {df['track_id'].nunique()} global ids")
+        votes, centres = team_votes(df, videos)
+        print("kit split by saturation votes: " + ", ".join(
+            f"{cam} centres {lo:.0f}/{hi:.0f}" for cam, (lo, hi) in centres.items()))
         cfg = JerseyOCRConfig(backend=args.ocr_backend, top_k_frames=args.ocr_top_k,
                               use_gpu=not args.cpu, min_facing=args.facing_min,
                               pool_views=args.pool_views)
@@ -111,7 +129,8 @@ def main() -> None:
                 table, stride = tables[cam]
                 return fc.nearest(table, frame, tid, max_gap=stride)
         df = vote_jersey_numbers(df, videos, cfg, facing_of=facing_of)
-        df = assign_identity_columns(df, crop_provider(videos), season=args.season)
+        df = assign_identity_columns(df, crop_provider(videos), season=args.season,
+                                     team_by_key=votes)
         df.to_parquet(play / "tracks_identity.parquet", index=False)
     read = df.groupby("track_id")["jersey_number_ocr"].agg(
         lambda s: int(s[s >= 0].mode().iloc[0]) if (s >= 0).any() else -1)
@@ -163,7 +182,17 @@ def main() -> None:
         mapping[lab] = max(score, key=score.get) if nums else "?"
         print(f"colour team {lab}: {len(nums)} numbers read; unique to "
               + ", ".join(f"{t} {score[t]}" for t in teams) + f" -> {mapping[lab]}")
-    if args.home is not None and len(labels) == 2 and args.home in teams:
+    if args.saturated is not None:
+        if args.saturated not in teams:
+            raise SetupError(f"--saturated {args.saturated} is not one of {teams}")
+        other = [t for t in teams if t != args.saturated][0]
+        by_colour = {"T1": args.saturated, "T0": other}
+        disagree = [lab for lab in labels if mapping.get(lab) not in ("?", by_colour.get(lab))]
+        print(f"kit colour names the teams: T1 (saturated) = {args.saturated}, T0 = {other}"
+              + (f"; the roster vote DISAGREES on {disagree} (it said {[mapping[l] for l in disagree]})"
+                 if disagree else "; the roster vote agrees"))
+        mapping = {lab: by_colour.get(lab, "?") for lab in labels}
+    elif args.home is not None and len(labels) == 2 and args.home in teams:
         # Uniforms decide. Each colour cluster's mean jersey colour (BGR crops,
         # identity_precompute) against the home team's primary colour; the
         # nearer cluster is home, the other away. The roster vote tied 10-10
@@ -211,6 +240,7 @@ def main() -> None:
         print(f"   tie broken: {mapping}")
 
     merged = {}
+    overruled = []
     for gid in sorted(df["track_id"].unique()):
         gid = int(gid)
         jersey = int(read.get(gid, -1))
@@ -220,7 +250,18 @@ def main() -> None:
         # Mahomes landed on the Ravens' side on play 2), so colour is only
         # the tie-breaker for numbers both rosters carry or none read.
         owners = [t for t in teams if jersey in unique[t]]
-        team = owners[0] if len(owners) == 1 else mapping.get(team_of.get(gid, "?"), "?")
+        colour_team = mapping.get(team_of.get(gid, "?"), "?")
+        if colour_team != "?":
+            # The kit decides (rule D, 88-100 % right per track); the number is
+            # then looked up on THAT roster. A number unique to the other
+            # roster means the OCR misread (75 % per track) or the kit was
+            # misjudged; either way a wrong name paints a wrong number on the
+            # avatar, so the id stays unnamed in the right kit instead.
+            team = colour_team
+            if len(owners) == 1 and owners[0] != team:
+                overruled.append((gid, jersey, owners[0], team))
+        else:
+            team = owners[0] if len(owners) == 1 else "?"
         key = (team, float(jersey))
         row = roster.loc[key] if (jersey >= 0 and key in roster.index) else None
         if row is not None:
@@ -234,6 +275,9 @@ def main() -> None:
                                      tracks={"sideline": gid, "endzone": gid})
     pickle.dump({"merged": merged, "stitch": {}},
                 open(play / "identity_resolved.pkl", "wb"))
+    if overruled:
+        print(f"   kit overruled the number on {len(overruled)} ids: "
+              + ", ".join(f"id {g} #{j} is {o}-only, kit {t}" for g, j, o, t in overruled)[:400])
     n_named = sum(1 for p in merged.values() if not p.player.startswith("P"))
     print(f"identity_resolved.pkl: {len(merged)} players, {n_named} named from the roster")
     if n_named:

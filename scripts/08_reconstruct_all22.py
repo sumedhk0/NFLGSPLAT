@@ -307,6 +307,11 @@ def main() -> None:
     ap.add_argument("--band-from", type=Path, default=None,
                     help="like --seed-from for the LENS BAND only: row labellings must imply a lens near "
                          "that play's, but the centre is free (multi-start) and every candidate is judged")
+    ap.add_argument("--max-grid-px", type=float, default=None,
+                    help="the grid judge's limit (default grid_fit.MAX_GRID_PX_1080, 25 px at 1080p). "
+                         "Play 5 (2026-09-05) missed it by 2 px with both rulers agreeing at 0.95 "
+                         "and players 1.72 m -- two of three witnesses -- so a play may widen it "
+                         "explicitly; the value used is printed with the verdict")
     ap.add_argument("--no-ruler-gate", action="store_true",
                     help="skip reading the hash and numeral rows through each sideline "
                          "candidate before the endzone solves")
@@ -409,11 +414,15 @@ def main() -> None:
                   + ", ".join(f"{k} {v:.3f}" for k, v in by.items())
                   + f" -> scale {sc:.3f} ({n} readings); players {heights[i]:.2f} m; "
                   f"grid {grids[i]:.1f} px; paint rms {c['quality'].get('rms_px', float('nan')):.1f} px")
-        order = select_candidates(scales, heights, grids)
+        max_grid = MAX_GRID_PX_1080 if args.max_grid_px is None else float(args.max_grid_px)
+        if args.max_grid_px is not None:
+            print(f"   grid judge widened to {max_grid:.1f} px by --max-grid-px "
+                  f"(default {MAX_GRID_PX_1080})")
+        order = select_candidates(scales, heights, grids, max_grid_px=max_grid)
         if not order:
             raise SystemExit("no sideline candidate passes the gates (rulers agree within "
                              f"{RULER_AGREE:.0%} with scale in {RULER_SCALE}; players "
-                             f"{HEIGHT_RANGE_M} m; grid within {MAX_GRID_PX_1080} px of the "
+                             f"{HEIGHT_RANGE_M} m; grid within {max_grid} px of the "
                              "paint); the sideline paint solve is wrong on this clip")
         cands = [cands[i] for i in order]
         print(f"   {len(cands)} pass; order {order}")

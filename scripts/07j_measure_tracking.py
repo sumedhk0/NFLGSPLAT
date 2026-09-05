@@ -159,6 +159,33 @@ def team_labels(df_view, video_path, *, max_per_frame=64, colours=None):
     return labels
 
 
+KIT_MARGIN = 0.4       # |(S - midpoint) / (centre_hi - centre_lo)| a detection needs to carry a kit label
+
+
+def kit_labels(colours, *, margin: float = KIT_MARGIN):
+    """Rule D per detection: a two-means on the torso SATURATION alone over
+    the whole view, label 1 = the higher-saturation kit, and a label only
+    where the detection sits ``margin`` of the centre gap from the midpoint.
+    Measured on plays 1, 2 and 4 of the All-22 (2026-09-05): at 0.4 the
+    label is 2.3 % wrong on 83 % of the detections, against a near-random
+    balanced HSV split that ``team_labels`` gates -- which is why that one
+    measured worse in the linker. Returns ``[N]`` ints, -1 unknown."""
+    from nfl_gsplat.identity.team_color import two_means_1d
+
+    sat = np.asarray(colours, float)[:, 1]
+    ok = np.isfinite(sat)
+    labels = np.full(len(sat), -1, int)
+    if ok.sum() < 8:
+        return labels
+    c, lab = two_means_1d(sat[ok])
+    mid, span = 0.5 * (c[0] + c[1]), max(float(c[1] - c[0]), 1e-6)
+    m = (sat[ok] - mid) / span
+    lab[np.abs(m) < margin] = -1
+    labels[ok] = lab
+    kit_labels.last_centres = (float(c[0]), float(c[1]))
+    return labels
+
+
 # A track shorter than this is not scored for purity: one assigned detection
 # is trivially 100% pure, and BoT-SORT's 1-2 frame blips were inflating its
 # number while the ground linker's own min_frames=3 had already removed the
@@ -273,11 +300,16 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         team_gap = getattr(team_labels, "last_team_gap", float("nan"))
         det_labels = {int(f): det_labels_all[frs == f] for f in np.unique(frs)}
         m["team_label_frac"] = float((det_labels_all >= 0).mean())
+        kit_all = kit_labels(det_colours)
+        kit_lab = {int(f): kit_all[frs == f] for f in np.unique(frs)}
+        m["kit_label_frac"] = float((kit_all >= 0).mean())
+        m["kit_centres"] = list(getattr(kit_labels, "last_centres", (float("nan"),) * 2))
         feats_all = reid.embed_detections(root / "video" / name, df, device=cfg.device,
                                           weights=REID_WEIGHTS)
         feats = {int(f): feats_all[frs == f] for f in np.unique(frs)}
         for tag, lab, fe, fw in (("ground_linker", None, None, 0.0),
                                  ("ground_linker_teams", det_labels, None, 0.0),
+                                 ("ground_linker_kits", kit_lab, None, 0.0),
                                  ("ground_linker_reid", None, feats, FEATURE_WEIGHT)):
             tracks = link3d.link(placements, labels=lab, features=fe, fps=VIDEO_FPS,
                                  feature_weight=fw, **LINK_KW)
@@ -397,7 +429,7 @@ def main() -> None:
             for tag, label in (("ground_linker", "ground: "),
                                ("ground_linker_stitched", "+stitch: "),
                                ("ground_linker_stitched_colour", "+stitch+colour: "),
-                               ("ground_linker_teams", "+teams: "),
+                               ("ground_linker_kits", "kits:   "), ("ground_linker_teams", "+teams: "),
                                ("ground_linker_reid", "+re-id: ")):
                 g = m.get(tag, {})
                 if "tracks" in g:

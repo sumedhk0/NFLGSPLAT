@@ -149,3 +149,69 @@ def is_referee(crop: np.ndarray, cfg: RefereeConfig | None = None) -> bool:
     binary = col_mean > thresh
     transitions = int(np.sum(binary[1:] != binary[:-1]))
     return transitions >= cfg.min_stripe_transitions
+
+
+SATURATED = 1        # the label of the higher-saturation cluster: the coloured kit
+
+
+def two_means_1d(x, iters: int = 30):
+    """1-D two-means seeded at the 25th and 75th percentiles. Returns
+    ``(centres, labels)``; a label is 1 above the midpoint of the centres."""
+    x = np.asarray(x, float)
+    if x.size == 0:
+        raise ValueError("two_means_1d: no values")
+    c = np.array([np.percentile(x, 25), np.percentile(x, 75)])
+    for _ in range(iters):
+        lab = (np.abs(x - c[1]) < np.abs(x - c[0])).astype(int)
+        new = c.copy()
+        for j in (0, 1):
+            if (lab == j).any():
+                new[j] = x[lab == j].mean()
+        if np.allclose(new, c):
+            break
+        c = new
+    return c, (x > 0.5 * (c[0] + c[1])).astype(int)
+
+
+def split_by_saturation_votes(sats_by_cam, *, min_detections: int = 8):
+    """Rule D: per CAMERA a 1-D two-means on every detection's torso
+    saturation; each detection votes for its cluster; a track's label is the
+    majority of its detections' votes over the cameras (a tie goes to the
+    side its mean normalised margin lands on). ``SATURATED`` (1) is the
+    higher-saturation cluster in EVERY camera, so the label means the same
+    kit in both views without a global fit.
+
+    ``sats_by_cam``: ``{cam: (keys, S)}`` -- per detection its track key (any
+    hashable, e.g. ``(cam, track_id)``) and its saturation (0-255); NaN
+    abstains. Returns ``({key: label}, {cam: (centre_lo, centre_hi)})``.
+
+    Why per camera and per detection (measured 2026-09-05 against
+    crop-verified kits on plays 1, 2 and 4): the two cameras expose
+    differently, so one global split mixes exposure with team; and ONE crop
+    per track was 44-87 % right where per-detection votes were 88-100 %.
+    """
+    counts: dict = {}
+    margin: dict = {}
+    centres = {}
+    for cam, (keys, sat) in sats_by_cam.items():
+        sat = np.asarray(sat, float)
+        keys = list(keys)
+        if len(keys) != len(sat):
+            raise ValueError(f"{cam}: {len(keys)} keys for {len(sat)} saturations")
+        ok = np.isfinite(sat)
+        if int(ok.sum()) < min_detections:
+            raise ValueError(f"{cam}: only {int(ok.sum())} detections carry a torso colour; "
+                             f"{min_detections} are needed to split the kits")
+        c, lab = two_means_1d(sat[ok])
+        centres[cam] = (float(c[0]), float(c[1]))
+        mid, span = 0.5 * (c[0] + c[1]), max(float(c[1] - c[0]), 1e-6)
+        for k, l, v in zip([k for k, o in zip(keys, ok) if o], lab, sat[ok]):
+            counts.setdefault(k, [0, 0])[int(l)] += 1
+            margin[k] = margin.get(k, 0.0) + (v - mid) / span
+    labels = {}
+    for k, (n0, n1) in counts.items():
+        if n1 != n0:
+            labels[k] = SATURATED if n1 > n0 else 1 - SATURATED
+        else:
+            labels[k] = SATURATED if margin[k] > 0 else 1 - SATURATED
+    return labels, centres

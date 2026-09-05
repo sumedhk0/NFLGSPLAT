@@ -44,3 +44,21 @@ def detection_colours(df_view, video_path, *, max_per_frame: int = 64) -> np.nda
                 continue
     cap.release()
     return colours
+
+
+def team_votes(df, videos, *, max_per_frame: int = 64):
+    """``({(cam, track_id): label}, {cam: (S_lo, S_hi)})`` by rule D over
+    every detection row of ``df`` (tracks.parquet, both cameras) -- see
+    ``team_color.split_by_saturation_votes``. Label 1 is the coloured kit.
+    Reads each camera's video once (about a minute per camera)."""
+    from nfl_gsplat.identity.team_color import split_by_saturation_votes
+
+    sats = {}
+    for cam, dv in df.groupby("cam"):
+        cam = str(cam)
+        if cam not in videos:
+            raise KeyError(f"team_votes: no video for camera {cam!r}")
+        cols = detection_colours(dv, videos[cam], max_per_frame=max_per_frame)
+        keys = [(cam, int(t)) for t in dv["track_id"].to_numpy()]
+        sats[cam] = (keys, cols[:, 1])
+    return split_by_saturation_votes(sats)
