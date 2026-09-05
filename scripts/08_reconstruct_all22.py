@@ -304,6 +304,9 @@ def main() -> None:
                          "the joint solve HOLDS the centre there and fits rotation and focal per "
                          "frame to the paint (seeding the start alone was measured not to help: the "
                          "paint's minimum is not at the mount)")
+    ap.add_argument("--band-from", type=Path, default=None,
+                    help="like --seed-from for the LENS BAND only: row labellings must imply a lens near "
+                         "that play's, but the centre is free (multi-start) and every candidate is judged")
     ap.add_argument("--no-ruler-gate", action="store_true",
                     help="skip reading the hash and numeral rows through each sideline "
                          "candidate before the endzone solves")
@@ -337,6 +340,15 @@ def main() -> None:
             print(f"   joint solve holds the centre at the sideline mount of {args.seed_from.name}: "
                   f"{np.round(seed, 1)} m; row labellings must imply a lens within "
                   f"{fov_band[0]:.1f}..{fov_band[1]:.1f} deg (seed {fov_seed:.1f})")
+        elif args.band_from is not None:
+            from nfl_gsplat.calibration.cameras_io import load_camera_track
+
+            tr = load_camera_track(args.band_from / "cameras.npz")["sideline"]
+            ok = np.flatnonzero(tr.conf > 0)
+            fov_seed = float(np.median([fov_deg(tr.K[f], tr.width) for f in ok]))
+            fov_band = (fov_seed / LENS_BAND, fov_seed * LENS_BAND)
+            print(f"   row labellings must imply a lens within {fov_band[0]:.1f}..{fov_band[1]:.1f} deg "
+                  f"(from {args.band_from.name}); centre free")
         else:
             fov_band = None
         cands = candidates_for_video(side_path, attempts=args.attempts,

@@ -118,8 +118,21 @@ if ! done_ check; then
   log "rulers + line of scrimmage (08d)"
   out="$("$PYN" scripts/08d_field_offset.py --play-dir "$P" --los-yards "$LOS" 2>&1)" || { echo "$out" | tail -3; fail check; }
   echo "$out" | grep -E "by ruler|agree|DISAGREE|shift|scrimmage"
-  echo "$out" | grep -q "DISAGREE" && fail "check: the hash and numeral rulers disagree on this calibration"
   echo "$out" | grep -q "MISMATCH" && fail "check: the formation is not at the play description's line of scrimmage"
+  if echo "$out" | grep -q "DISAGREE"; then
+    # Two of three: the hash ruler is fooled by the midfield logo's white paint
+    # (play 4, KC 49: hashes 1.82, numerals 0.99, LOS 48 vs 49, and the footage
+    # field through the camera landed every numeral on the drawn one). A
+    # disagreement passes only when the numeral ruler reads within 5 % of
+    # unity AND the line of scrimmage matched; otherwise it stops the play.
+    numerals="$(echo "$out" | grep -oE "numerals [0-9.]+" | tail -1 | awk '{print $2}')"
+    los_ok="$(echo "$out" | grep -c "line of scrimmage.*(ok)")"
+    if [ -n "$numerals" ] && [ "$los_ok" -ge 1 ] && awk -v n="$numerals" 'BEGIN{exit !(n>=0.95 && n<=1.05)}'; then
+      log "check: rulers DISAGREE but numerals $numerals and the line of scrimmage agree -- passing on two of three (hash ruler suspect: logo or ticks)"
+    else
+      fail "check: the hash and numeral rulers disagree on this calibration and no second witness backs the numerals"
+    fi
+  fi
   mark check
 fi
 
