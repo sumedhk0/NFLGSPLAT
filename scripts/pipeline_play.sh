@@ -24,6 +24,7 @@
 #   fit       scripts/05i (appearance fit from the footage) -- OPT-IN, FIT=1: the hi-fi render
 #             wears synthetic uniforms (render.uniform); fitted textures measured no better
 #   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
+#   teams     scripts/08f team per id from torso colour (bimodal only) -> <play-dir>/team_by_colour.json
 #   hifi      scripts/05k 1080p GPU render on the footage field        -> <play-dir>/render_hifi/
 #   render    scripts/05d world mode, fitted appearance              -> <play-dir>/render_abs/
 #
@@ -40,6 +41,7 @@ cd "C:/Users/sumedh/NFLGSPLAT" || exit 1
 
 P="$1"; SIDE="$2"; END="$3"; LOS="$4"; shift 4
 DIAG="C:/Users/sumedh/diag"; PLAY="$(basename "$P")"
+RED="${RED:-KC}"; WHITE="${WHITE:-BAL}"          # the saturated and the white kit (08f, render.uniform)
 FRESH=0; FROM_PAINT=0
 for a in "$@"; do
   case "$a" in --fresh) FRESH=1;; --from-paint) FROM_PAINT=1;; esac
@@ -166,6 +168,12 @@ if [ "${FIT:-0}" = "1" ] && ! done_ fit; then
   "$PYS" scripts/05i_fit_appearance.py --play-dir "$P" --poses "$P/poses_refit.json" --out-dir "$P/appearance" \
      2>&1 | grep -v "Warning\|warn\|nanmedian\|med = " | grep -E "bodies|gain|saved|Error" || fail fit
   mark fit
+fi
+
+if ! done_ teams; then
+  log "team per id from torso colour where bimodal (08f; refuses otherwise, identity teams stand)"
+  "$PYN" scripts/08f_team_by_colour.py --play-dir "$P" --red "$RED" --white "$WHITE" 2>&1 | grep -v "Warning\|warn" | grep -E "split|refusing|wrote|Error" || true
+  mark teams
 fi
 
 if ! done_ hifi; then
