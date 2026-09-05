@@ -287,9 +287,9 @@ mount of a solved play of the same game (plays 1 and 2 agree on (-4,
 (5e2a833) did not rescue it: the paint asks for a 21–53° lens from that
 mount while the players' boxes (107 px, against 116 and 122 on plays 1
 and 2) say 12°. The paint READER mislabels this clip; the gates refuse
-correctly and nothing is exported. Next honest step is a correspondence
-diagnostic (which lines and rows the reader labelled, drawn on a frame),
-not more solver work. Play 4 (`025_Sideline_KC_1-10_KC_49` +
+correctly and nothing is exported. The correspondence diagnostic (drawn on
+frames 394 and 622, `diag/play3_corr_*.png`) found the row-labelling trap
+listed under "measured and rejected"; fixed in dd1b95c. Play 4 (`025_Sideline_KC_1-10_KC_49` +
 `026_Endzone`, midfield) runs the whole chain with the mount held.
 
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
@@ -337,6 +337,33 @@ pipeline.
 - Per-frame camera refinement to the yard lines alone: the pencil of near-parallel
   lines trades rotation about their direction against focal length; it needs
   priors, a 3 deg / 20% reject and along-track smoothing, or it wanders 2 deg.
+- The endzone camera refined to its own paint (2026-09-05, 623eab0, kept as
+  `08e --cam endzone --orient-tol 25 --out`): the paint improves (play 1
+  median grid 39 → 23 px) and the feet refuse it -- triangulated lower ankle
+  p10 −0.01 → −0.45 m, ray agreement 7.3 → 10.2 px, joints passing the gate
+  47699 → 9291. The endzone's paint at 23–27 px is not a ruler the geometry
+  trusts, and its residual is not in rotation and focal. Two rulers, one
+  disagreed, nothing applied. `cameras_endzone_refined.npz` is the record.
+- The endzone PITCH from the ankle ruler alone (2026-09-05): +0.2° puts the
+  play 1 lower-ankle median at the turf, but planted feet (p10) are already at
+  the turf at 0°, the median is running players, and on play 2 no pitch moves
+  both p10 and median onto the turf -- the float there is dispersion in a
+  sparse triangulation, not a camera bias. A median is not a stature.
+- Seeding the joint solve with another play's mount and letting it run
+  (2026-09-05, 5e2a833): on play 3 the paint asks for a 21–53° lens from the
+  seeded mount while the boxes say 12°; holding the centre there did not
+  rescue it. The fault was upstream of the solver (next entry).
+- The paint reader's row labelling with two rows only (2026-09-05, diagnosed
+  by drawing the correspondences, `diag/play3_corr_394.png`): the far
+  sideline's yard ticks and the far hash row get labelled as the two sidelines
+  (+24.38 / −24.38), a 2.3× cross-field stretch and a 41° lens, while grid
+  consistency, an x-instrument, still scores 0.95 and the ladder is right
+  (consecutive 5-yd lines). Four-row frames label correctly and give the 12°
+  the boxes ask for; the pooled candidate was the compromise (25°, players
+  2.78 m), and play 4's rulers disagreement (hashes 1.82 vs numerals 0.99) was
+  the same stretch. Fixed in dd1b95c by bounding the implied lens to the seed
+  play's (×1/1.6..1.6) inside `assignment_is_possible`; a labelling's fit to
+  its own lines never ranks above a plausible lens again.
 
 Memory `measured-dead-ends.md` has the numbers. Headlines: endzone from paint
 (dead); per-detection team labels and looser gates in the linker (worse);
