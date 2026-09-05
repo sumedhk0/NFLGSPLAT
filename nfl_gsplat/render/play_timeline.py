@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track
+from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
 
@@ -142,6 +143,9 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")
     frames_all = sorted(ground)
+    clipped = edge_clipped_ids(df, tracks, views)
+    if clipped:
+        print(f"edge-clipped one-view ids left out: {len(clipped)}")
     poses = poses_from_caches(refit, side_blob, tracks, model)
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
@@ -181,7 +185,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     default_pose = tlm.median_pose(all_bp) if all_bp else np.zeros((21, 3))
     default_betas = np.median(np.stack(all_betas), axis=0) if all_betas else np.zeros(10)
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
-                            default_betas=default_betas, views_by_frame=views)
+                            default_betas=default_betas, views_by_frame=views,
+                            exclude=clipped if not stitch_ids else None)
     tl.members = members
     return tl, tracks, df, frames_all, poses
 

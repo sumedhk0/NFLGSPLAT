@@ -143,3 +143,18 @@ def test_two_view_poses_keep_a_45_degree_bend_single_view_do_not():
     by = {s.pid: s for s in out.states[0]}
     assert not by[1].clamped and by[2].clamped
 
+
+def test_interpolated_frames_inherit_the_nearest_recorded_views():
+    ground = {f: {1: np.array([float(f) * 0.1, 0.0])} for f in range(0, 30)}
+    views = {0: {1: ("endzone",)}, 29: {1: ("endzone",)}}       # recorded twice, one camera
+    tl_ = tl.build_timeline(list(range(30)), ground, {}, default_pose=np.zeros((21, 3)),
+                            default_betas=np.zeros(10), views_by_frame=views, min_frames=1)
+    assert all(s.views == ("endzone",) for f in tl_.frames for s in tl_.states[f])
+
+
+def test_excluded_ids_are_left_out():
+    ground = {0: {1: np.array([0.0, 0.0]), 2: np.array([5.0, 0.0])}}
+    tl_ = tl.build_timeline([0], ground, {}, default_pose=np.zeros((21, 3)),
+                            default_betas=np.zeros(10), min_frames=1, exclude={2})
+    assert [s.pid for s in tl_.states[0]] == [1]
+

@@ -267,16 +267,31 @@ def median_pose(records):
     return np.median(np.stack([np.asarray(r, float).reshape(21, 3) for r in records]), axis=0)
 
 
+def _nearest_views(views_by_frame, pid, f, frames_with_record):
+    """The id's recorded views at ``f``, else at its nearest recorded frame,
+    else both cameras (an id nobody recorded is not gated as one-view)."""
+    rec = views_by_frame.get(f, {}).get(pid)
+    if rec:
+        return rec
+    best, best_d = None, None
+    for g in frames_with_record:
+        v = views_by_frame.get(g, {}).get(pid)
+        if v and (best_d is None or abs(g - f) < best_d):
+            best, best_d = v, abs(g - f)
+    return best or ("sideline", "endzone")
+
+
 def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
-                   min_frames: int = MIN_FRAMES, views_by_frame=None) -> Timeline:
+                   min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
     subset). Returns a Timeline with a state per player per frame."""
     frames = [int(f) for f in frames]
     f_index = {f: i for i, f in enumerate(frames)}
-    pids = sorted({pid for g in ground_by_frame.values() for pid in g})
+    exclude = set(int(p) for p in (exclude or ()))
+    pids = sorted({pid for g in ground_by_frame.values() for pid in g} - exclude)
     default_pose = np.zeros((21, 3)) if default_pose is None else np.asarray(default_pose, float)
     default_betas = np.zeros(10) if default_betas is None else np.asarray(default_betas, float)
     tl = Timeline(frames=frames)
@@ -309,7 +324,12 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             limit = max(max_tilt_deg, MAX_TILT_TWO_VIEW_DEG) if source == "fused" else max_tilt_deg
             orient, clamped = clamp_tilt(go[i], limit)
             tl.n_clamped += int(clamped)
-            views = (tuple(views_by_frame.get(f, {}).get(pid, ("sideline", "endzone")))
+            # A frame without a views record for this id (interpolated, filled)
+            # inherits the nearest recorded one: defaulting it to two views let
+            # a one-view id pass as two-view at every interpolated frame --
+            # past the one-view dedupe and under the two-view tilt limit
+            # (measured 2026-09-05: "s/e" printed for one-view ids).
+            views = (tuple(_nearest_views(views_by_frame, pid, f, seen))
                      if views_by_frame else ("sideline", "endzone"))
             tl.states.setdefault(f, []).append(PlayerState(
                 pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
