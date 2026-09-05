@@ -303,7 +303,13 @@ now takes a lens band from the seed play (dd1b95c, `08 --seed-from` /
 paint (play 4 at the KC 49: hashes 1.82, numerals 0.99, LOS 48 vs 49,
 field texture exact), so the pipeline's check passes a disagreement on
 two of three witnesses, loudly (09757f0). Play 4 is the third play
-through the chain. Play 3 under the band with the centre free gives the
+through the chain, delivered 2026-09-05 06:30 (`diag/play_004_hifi_720.mp4`):
+identity 44 of 82 named, 43 players triangulated at 7.7 px, refit 19 of
+43 at the old 70 % frame threshold (the pipeline now uses 6 joints and
+50 %), teams by colour refused (not bimodal), so identity's split stands
+and leans KC. Any further play runs with `scratchpad/run_play.sh <dir>
+<sideline.mp4> <endzone.mp4> <los-yards> --fresh --from-paint`, which
+sets RED/WHITE and SEED_FROM=play_001. Play 3 under the band with the centre free gives the
 right lenses (16–18°) and still fails every judge (rulers 0.78 vs 2.11 on
 one candidate, players 2.55 m on the other, grids 61–95 px): its row
 labelling is wrong beyond the two-row trap. Parked, refused honestly;

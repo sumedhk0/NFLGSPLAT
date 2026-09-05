@@ -184,7 +184,11 @@ fi
 if ! done_ refit; then
   log "refit SMPL-X to fused joints (05f)"
   "$PYS" scripts/05f_refit_fused.py --play-dir "$P" --fused "$P/poses_tri.json" --poses "$P/poses_sideline.json" \
-     --identity "$P/identity_resolved.pkl" --out "$P/poses_refit.json" 2>&1 | grep -v Warning | grep "refit" || fail refit
+     --identity "$P/identity_resolved.pkl" --out "$P/poses_refit.json" \
+     --min-valid-joints 6 --min-frame-frac 0.5 2>&1 | grep -v Warning | grep "refit" || fail refit
+  # 6 joints / half the frames: triangulation passes 23-28 % of joints on plays 2 and 4
+  # and the 10 / 0.7 default refit only 9 of 30 and 19 of 43 players; the rest fell
+  # back to single-view poses (measured 2026-09-05).
   mark refit
 fi
 
@@ -204,6 +208,12 @@ fi
 if ! done_ hifi; then
   log "hi-fi render on the footage field (05k; resumable)"
   "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" --uniforms --numbers --helmets --follow --eye-offset 2 -26 10 --fov 50 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|Error" || fail hifi
+  # A 720p encode next to the diagnostics, so a play's result is a file to look at.
+  FFBIN="$("$PYS" -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())")"
+  if [ -f "$P/render_hifi/play.mp4" ]; then
+    "$FFBIN" -y -loglevel error -i "$P/render_hifi/play.mp4" -vf scale=1280:720 -c:v libx264 -crf 20 -preset medium -pix_fmt yuv420p "$DIAG/${PLAY}_hifi_720.mp4" \
+      && log "encoded $DIAG/${PLAY}_hifi_720.mp4" || log "720p encode failed; the 1080p mp4 and frames are in $P/render_hifi"
+  fi
   mark hifi
 fi
 
