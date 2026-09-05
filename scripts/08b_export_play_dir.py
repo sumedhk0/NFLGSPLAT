@@ -170,6 +170,10 @@ def main() -> None:
     ap.add_argument("--sideline", default="001_Sideline_KC_2-20_BLT_24.mp4")
     ap.add_argument("--endzone", default="002_Endzone_KC_2-20_BLT_24.mp4")
     ap.add_argument("--out", type=Path, required=True, help="play-dir to write")
+    ap.add_argument("--cameras", type=Path, default=None,
+                    help="a cameras.npz with per-frame tracks for both views (08e refine, 08h endzone from "
+                         "the footage) used instead of --recon's sparse solves interpolated; the "
+                         "interpolation was measured to invent metres of endzone motion (play 2)")
     ap.add_argument("--model", default="yolov8m.pt")
     ap.add_argument("--fps", type=float, default=59.94)
     ap.add_argument("--device", default="cuda:0", help="YOLO device; 'cpu' when the GPU is off limits")
@@ -177,19 +181,28 @@ def main() -> None:
                     help="track: per-camera ground tracks paired by trajectory over their overlap "
                          "(default); frame: the per-frame pairing by ground distance (measured a coin "
                          "flip on play 2)")
-    ap.add_argument("--kit-link", choices=("off", "block", "soft"), default="soft",
-                    help="the kit in the time linker: off (pairing gate only), block (a mismatch never "
-                         "joins), soft (a mismatch costs KIT_PENALTY_M metres; default)")
+    ap.add_argument("--kit-link", choices=("off", "block", "soft"), default="off",
+                    help="the kit in the time linker: off (default; the kit only vetoes cross-camera "
+                         "pairs), block (a mismatch never joins), soft (a mismatch costs KIT_PENALTY_M "
+                         "metres). Measured on the helmet set 2026-09-05 with 2-5 %% label noise: block "
+                         "worse (purity p10 0.45 -> 0.37), soft neutral to slightly worse -- off wins")
     args = ap.parse_args()
 
     from ultralytics import YOLO
 
-    z = np.load(args.recon)
-    cams_s = {int(f): (z["side_K"][i], z["side_R"][i], z["side_t"][i])
-              for i, f in enumerate(z["side_frames"])}
-    cams_e = {int(f): (z["end_K"][i], z["end_R"][i], z["end_t"][i])
-              for i, f in enumerate(z["end_frames"])}
-    print(f"cameras: sideline {len(cams_s)} solved frames, endzone {len(cams_e)}")
+    given = None
+    if args.cameras is not None:
+        from nfl_gsplat.calibration.cameras_io import load_camera_track
+        given = load_camera_track(args.cameras)
+        print("cameras: per frame from " + str(args.cameras) + "; " + ", ".join(
+            f"{cam} {int((tr.conf > 0).sum())} of {len(tr.conf)} frames" for cam, tr in given.items()))
+    else:
+        z = np.load(args.recon)
+        cams_s = {int(f): (z["side_K"][i], z["side_R"][i], z["side_t"][i])
+                  for i, f in enumerate(z["side_frames"])}
+        cams_e = {int(f): (z["end_K"][i], z["end_R"][i], z["end_t"][i])
+                  for i, f in enumerate(z["end_frames"])}
+        print(f"cameras: sideline {len(cams_s)} solved frames, endzone {len(cams_e)}")
 
     model = YOLO(args.model)
     det_s, (w_s, h_s, n_s) = detect_all_frames(model, args.root / args.sideline, device=args.device)
@@ -198,11 +211,20 @@ def main() -> None:
     print(f"detections: sideline {len(det_s)} frames, endzone {len(det_e)} frames, "
           f"{n} frames in common")
 
-    track_s = full_track(cams_s, n, w_s, h_s)
-    track_e = full_track(cams_e, n, w_e, h_e)
     args.out.mkdir(parents=True, exist_ok=True)
-    write_camera_track(args.out / "cameras.npz",
-                       {"sideline": track_s, "endzone": track_e}, fps=args.fps)
+    if given is not None:
+        track_s, track_e = given["sideline"], given["endzone"]
+        if len(track_s.conf) < n or len(track_e.conf) < n:
+            n = min(n, len(track_s.conf), len(track_e.conf))
+            print(f"   the given cameras cover {n} frames; linking that many")
+        if args.out / "cameras.npz" != args.cameras:
+            write_camera_track(args.out / "cameras.npz",
+                               {"sideline": track_s, "endzone": track_e}, fps=args.fps)
+    else:
+        track_s = full_track(cams_s, n, w_s, h_s)
+        track_e = full_track(cams_e, n, w_e, h_e)
+        write_camera_track(args.out / "cameras.npz",
+                           {"sideline": track_s, "endzone": track_e}, fps=args.fps)
 
     # Kit per detection box (tracking.kits): the pairing across cameras and the
     # linking through time both refuse to join different kits.
