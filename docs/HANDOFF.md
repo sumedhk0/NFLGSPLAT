@@ -269,6 +269,20 @@ betas gave 1.71 m; roster 1.85). `08f_team_by_colour.py` (team from torso
 saturation where bimodal: play 2 47/35 against identity's 62/23; play 1
 refuses) feeds `05k --team-by-colour`.
 
+**Timeline exclusions and seeds (2026-09-05).** `render.edge_rule`
+(c47e073): a one-view id whose every box touches its frame's top or bottom
+edge is left out (officials at the top of the endzone view, sideline
+personnel, people beyond the end line; measured on both plays, no sure
+identity lost). Interpolated frames now inherit an id's nearest recorded
+views (a one-view id had passed as two-view there). Play 3's sideline
+paint solve refuses: its candidates fit the paint (17 px) with a
+25-degree lens 74 m out and players 2.78 m; a focal sweep along the paint
+was built and FALSIFIED (player height is invariant along it, and the
+paint costs 24 px per 25 % of focal). Remedy: `08 --seed-from <play-dir>`
+(`SEED_FROM=` in the pipeline) seeds the joint solve with the sideline
+mount of a solved play of the same game (plays 1 and 2 agree on (-4,
+-100, 42) m, 12-15 degrees).
+
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
 per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black
 pixels), unchanged by splat size or opacity. The sparse splatter's
