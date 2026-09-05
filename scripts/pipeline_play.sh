@@ -159,7 +159,9 @@ fi
 
 if ! done_ identity; then
   log "identity (08c)"
-  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 2>&1 | grep -v "Warning\|warn" | tail -4 || fail identity
+  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" 2>&1 | grep -v "Warning\|warn" | tail -6 || fail identity
+  # --saturated: the coloured kit's team is RED by construction (rule D, the
+  # kit decides the roster, 2026-09-05); the roster vote prints as a check.
   mark identity
 fi
 
