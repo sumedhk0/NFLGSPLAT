@@ -354,6 +354,63 @@ waits for a pose-chain rebuild. `05k --follow` dollies the virtual camera with t
 centroid (render.camera_path); judge on a clip before it goes in the
 pipeline.
 
+### Kits: the team from saturation votes, and what it exposed (2026-09-05)
+
+The team label every play carried came from ONE crop per track and a global
+two-means on mean HSV (`calibration/identity_precompute`). Against
+crop-verified kits (`diag/sure_id_corrections.json`, sideline crops) it was
+near random: a crosstab against the new rule is 25/31 vs 24/26 on play 1.
+The "sure" identities (roster name from a number unique to one roster)
+inherited it, so 10 of 18, 4 of 12 and 2 of 15 on plays 1, 2, 4 wore the
+other team's kit and had that team's number painted on them.
+
+**Rule D** (`identity/team_color.split_by_saturation_votes`, side agent's
+measured winner): per CAMERA a 1-D two-means on every detection's torso
+SATURATION; each detection votes; a track's label is the majority. The
+higher-saturation cluster is the coloured kit in both cameras (centres
+44/141 sideline, 55/150 endzone on every play so far), so one label means
+one kit in both views without a global fit. Per detection, the label is
+2.3 % wrong at margin 0.4 (`|S - mid| / (hi - lo)`) over 83 % of the boxes
+(sideline 2.1 %, endzone 4.6 %).
+
+**The kit decides the roster** (`08c --saturated KC`, pipeline `RED`): the
+number is looked up on the kit's roster; a number unique to the OTHER roster
+no longer names the player (the OCR is 75 % per track and a wrong name
+paints a wrong number). From cache on plays 1, 2, 4: 31 / 27 / 38 named
+of 106 / 85 / 82, the kit overruling the number on 4 / 2 / 7 ids, mostly
+one-digit reads (#0, #1, #3). The roster vote (numbers unique to a roster)
+"disagrees" on the white cluster on every play -- it rests on 0-2 reads, and
+is printed as a check only.
+
+**What it exposed.** Of the ids seen by both cameras, 24 %, 53 % and 30 %
+(plays 1, 2, 4) wear DIFFERENT kits in the two views: the per-frame pairing
+in `08b` joined different players (play 2 id 7: BAL #44 white on the
+sideline, a KC red jersey in the endzone, `diag/kit_play_002_id7.png`), and
+some sideline tracks switch players mid-track (play 1 id 5,
+`diag/kit_play_001_id5.png`). Every later stage inherited it: triangulation
+across two people (why only 23-28 % of joints pass the gates on plays 2 and
+4), names on the wrong body, 5-7 pieces per player.
+
+**The fix in 08b** (`tracking/kits.py`, commit d74f3b7): each box carries a
+signed saturation margin; `fuse_frame` refuses a cross-kit pair; the fused
+points carry the kit into `link3d` as labels (which it already gates on: a
+track votes its label, a detection never joins a known mismatch);
+`tracks.parquet` gains `kit_margin` and `kit`, and identity's `team_votes`
+reads them. `--no-kit-link` keeps the pairing gate only. NOT yet run end to
+end (the GPU was on play 5): the first run is play 2 against its current
+`tracks.parquet` -- ids disagreeing across cameras, track count,
+triangulated joints passing, names. The earlier "labels in the linker are
+worse" dead end used the balanced HSV split that carried no information;
+`07j` has a fourth variant (`kits`, margin 0.4) re-measuring it on the
+helmet set.
+
+**Play 5** (047/048, BAL 30): the paint judge's grid limit was missed by 2
+px (27 vs 25) with both rulers agreeing at 0.95 and players 1.72 m, so
+`08 --max-grid-px` (pipeline `GRID_PX`) widens it for one play, printed
+with the verdict; the check stage then passed on two of three (numerals
+0.983, LOS ok, hashes 1.043) and the footage field landed on the drawn one
+(logo on the 50, faint yard lines on the drawn lines).
+
 ## What has been measured and rejected (do not re-propose without new evidence)
 
 - Officials by shirt stripes (horizontal-gradient energy of the torso band): a
