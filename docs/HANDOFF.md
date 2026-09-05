@@ -283,6 +283,15 @@ paint costs 24 px per 25 % of focal). Remedy: `08 --seed-from <play-dir>`
 mount of a solved play of the same game (plays 1 and 2 agree on (-4,
 -100, 42) m, 12-15 degrees).
 
+**Play 3 diagnosis (2026-09-05).** Holding the centre at the mount
+(5e2a833) did not rescue it: the paint asks for a 21–53° lens from that
+mount while the players' boxes (107 px, against 116 and 122 on plays 1
+and 2) say 12°. The paint READER mislabels this clip; the gates refuse
+correctly and nothing is exported. Next honest step is a correspondence
+diagnostic (which lines and rows the reader labelled, drawn on a frame),
+not more solver work. Play 4 (`025_Sideline_KC_1-10_KC_49` +
+`026_Endzone`, midfield) runs the whole chain with the mount held.
+
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
 per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black
 pixels), unchanged by splat size or opacity. The sparse splatter's
