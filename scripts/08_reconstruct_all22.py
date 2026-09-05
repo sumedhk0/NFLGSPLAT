@@ -379,7 +379,10 @@ def main() -> None:
     # rows (cross-field scale), the players (lens/distance), and the grid on
     # the paint (is the camera on the field at all). Each has caught a camera
     # the other two passed.
-    if not args.no_ruler_gate and len(cands) > 1:
+    # The judges rule on ONE candidate as much as on many: a single candidate
+    # from a held mount (--seed-from) or --sideline-from skipped them and a
+    # 2.81 m camera went through on play 3 (2026-09-05).
+    if not args.no_ruler_gate and len(cands) >= 1:
         from nfl_gsplat.calibration.grid_fit import MAX_GRID_PX_1080, grid_scores
 
         probe = [int(f) for f in np.linspace(0.2, 0.8, 5) * frame_count(side_path)]
