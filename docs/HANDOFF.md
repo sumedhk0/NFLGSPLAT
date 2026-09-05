@@ -210,7 +210,20 @@ officials, seen at the far top of the endzone view, drawn as default-
 posed KC players. Candidate rules, not applied: a box touching the
 BOTTOM edge has no foot point (drop from placement); a box touching the
 TOP edge keeps its foot but has no height (no height gate; the geometric
-signature for the officials question).
+signature for the officials question). Measured as an exclusion (one-view
+id, never two-view, every box within 8 px of an edge): play 1 drops 23
+ids (4.4 % of states, median 0/frame; 3 on the sideline at y ≈ +25 m, 20
+late in the BAL end zone), play 2 drops 19 (10 % of states, median
+3/frame, all 2–10 m behind the offence); no sure identity hit on either
+play; every dropped id is TOP-clipped. Play 1's late end-zone group is
+people beyond the end line (a seated row of photographers and an official
+with a flag in the endzone frame's top 160 px), not players the sideline
+lost: the sideline keeps 19–22 boxes through its zoom-out, 13 of the 19
+project outside its frame and the 6 inside project onto empty end zone;
+the one real end-zone player (BAL 32, a sure two-view id) is not dropped.
+No time guard needed. The coordinator is adding the exclusion and fixing
+build_timeline's views default (a pid with no views record was treated
+as two-view at interpolated frames).
 Two-view bodies now stand at their refit's translation (median shift
 0.58 m from the box-bottom point); the tilt clamp is 60° for two-view
 poses (measured p90 38°, none past 60), 35° for single-view. Play 2's
