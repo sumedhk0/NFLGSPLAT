@@ -411,6 +411,57 @@ with the verdict; the check stage then passed on two of three (numerals
 0.983, LOS ok, hashes 1.043) and the footage field landed on the drawn one
 (logo on the 50, faint yard lines on the drawn lines).
 
+### The endzone camera track invents motion; the pairing is the wound (2026-09-05, later)
+
+Directive from the user (relayed): play 1 only until it works properly; no
+compute on other plays. Play 5 was delivered (`diag/play_005_hifi_720.mp4`)
+and its chain stopped; play 2 served as the diagnostic bench (CPU only).
+
+**Kit labels in the TIME linker are dead** at any label quality: helmet set,
+five plays, ten views (`07j`, `data/helmet/tracking_accuracy_kits.json`):
+six views refused the saturation split (both teams in white, separation
+1.2-1.4, the refusal in `team_color.saturation_split` at 1.6 / gap 50), and
+on the four that split the hard gate was worse (purity p10 0.45 -> 0.37) and
+a soft 1 m cost neutral to slightly worse. `08b --kit-link` defaults to off.
+The kit's place is the cross-camera pairing veto: 53 % -> 17 % cross-kit ids
+on play 2 (`--kit-link block` reaches 0 of 71 at +15 fragments).
+
+**Why the pairing is a coin flip.** For the same player the two cameras'
+foot points sit 1.4 m apart per frame with no bias; per frame only 10-12 of
+22 players pair; most ids are one-view and render twice. Per-camera tracks
+paired by trajectory (`tracking/pair_tracks.py`, `08b --pairing track`,
+commit 471c6cf) found only 5 pairs on play 2, because the offset between
+the cameras for one player is not noise but a slow swing: pre-snap a
+lineman who is pixel-static in the endzone view (1 px) has a ground point
+wandering 1.7-2.6 m, and a fixed endzone pixel's ground point swings 4 m in
+a second while the sideline's holds to 0.1 m. The picture
+`diag/p2_endzone_353_420.jpg` shows frames 353 and 420 of the endzone with
+the SAME camera pose to the pixel while the old track claims 5.4 deg of
+rotation between them. The endzone track (14 sparse paint solves, focals
+jumping 5-10 % between neighbours, interpolated by 08b) invents motion.
+The sideline is trustworthy (refined every frame; its players are static
+to 0.04 m pre-snap).
+
+**The fix in progress: `scripts/08h_endzone_track.py`.** Every endzone
+frame registers into one reference through `calibration/endzone_mosaic`
+(players masked, 170-1200 inliers, H near identity where the camera is
+still); the motion between frames is the footage's; the absolute pose is
+the open part. Tried and refused by the players ruler (median distance from
+each sideline player's ground point to the nearest kit-consistent endzone
+one, `08h` refuses to write unless it improves): (a) a per-frame focal
+scale (no effect); (b) the mean of the old track's frames transported to
+the reference (2.35 -> 3.07 m on play 2: the anchors scatter 3.7 deg, their
+mean is not a pose); (c) a 4-parameter fit of the reference focal and
+rotation on the players with the centre held (2.35 -> 2.61 m play 2, 1.18
+-> 2.50 m play 1). The old track's per-anchor paint fits compensate a wrong
+centre frame by frame, which a single pose cannot, so the running
+experiment (`scratchpad/endzone_static_pose.py`) fits 7 parameters (focal,
+rotation, centre) on a static pre-snap window where camera and players
+both hold still, with restarts, then propagates through the mosaic and
+scores the whole play. `08b --cameras cameras.npz` (commit da798e5) links
+with per-frame cameras once a track passes. Play 1 is re-rendering
+meanwhile with rule D's kits (keypoints -> tri -> refit -> hifi).
+
 ## What has been measured and rejected (do not re-propose without new evidence)
 
 - Officials by shirt stripes (horizontal-gradient energy of the torso band): a
