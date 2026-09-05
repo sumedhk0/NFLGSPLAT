@@ -27,7 +27,7 @@ from nfl_gsplat.calibration.refine_paint import refine_track
 from nfl_gsplat.errors import CalibrationError
 
 
-def sampled_grid(video, track, frames):
+def sampled_grid(video, track, frames, orient_tol=None):
     import cv2
 
     cap = cv2.VideoCapture(str(video))
@@ -38,7 +38,7 @@ def sampled_grid(video, track, frames):
         if not ok:
             out.append(float("nan"))
             continue
-        out.append(gf.grid_distance_px(img, track.K[f], track.R[f], track.t[f])[0])
+        out.append(gf.grid_distance_px(img, track.K[f], track.R[f], track.t[f], orient_tol_deg=orient_tol)[0])
     cap.release()
     return np.asarray(out)
 
@@ -57,6 +57,12 @@ def main() -> None:
     ap.add_argument("--play-dir", required=True, type=Path)
     ap.add_argument("--cam", default="sideline")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--orient-tol", type=float, default=None,
+                    help="score segments of any orientation within this many degrees of their projected "
+                         "line (the endzone view, whose yard lines run across the image); default: the "
+                         "sideline's near-vertical filter")
+    ap.add_argument("--out", type=Path, default=None,
+                    help="write the refined cameras to this npz instead of cameras.npz (measure first)")
     args = ap.parse_args()
 
     tracks = load_camera_track(args.play_dir / "cameras.npz")
@@ -67,9 +73,9 @@ def main() -> None:
         raise CalibrationError(f"no {args.cam} frame with a camera")
     probe = [int(x) for x in np.linspace(frames[0] + 5, frames[-1] - 5, 9)]
 
-    refined, _after = refine_track(video, track, log_every=0)
-    before = sampled_grid(video, track, probe)
-    after = sampled_grid(video, refined, probe)
+    refined, _after = refine_track(video, track, log_every=0, orient_tol_deg=args.orient_tol)
+    before = sampled_grid(video, track, probe, args.orient_tol)
+    after = sampled_grid(video, refined, probe, args.orient_tol)
     print("grid px at sampled frames (before -> after): " + " ".join(
         f"{f}:{b:.0f}->{a:.0f}" for f, b, a in zip(probe, before, after)))
     jb, ja = jitter_deg(track, frames), jitter_deg(refined, frames)
@@ -79,6 +85,11 @@ def main() -> None:
         raise CalibrationError("refinement did not lower the grid distance; cameras.npz untouched")
     if args.dry_run:
         print("dry run; cameras.npz untouched")
+        return
+    if args.out is not None:
+        tracks[args.cam] = refined
+        write_camera_track(args.out, tracks, fps=59.94)
+        print(f"refined {args.cam} written to {args.out}; cameras.npz untouched")
         return
     backup = args.play_dir / "cameras_unrefined.npz"
     if not backup.exists():

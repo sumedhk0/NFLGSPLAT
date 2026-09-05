@@ -108,12 +108,35 @@ def _fit_assignment(p0, p1, assign, K0, R0, centre, n_lines, *, focal):
     return sol.x
 
 
-def refine_frame(segments, K, R, t, *, focal: bool = True) -> RefineResult:
-    """Refine one camera to ``segments`` (YardLineSeg list) -- see module doc."""
+def gate_by_orientation(segments, lines, tol_deg: float):
+    """The segments whose direction is within ``tol_deg`` of their nearest
+    projected line's direction. The endzone camera sees the yard lines
+    running across the image, where the sideline's near-vertical filter
+    finds nothing; without a gate its hash marks, numerals and sidelines
+    would vote on the fit."""
+    if len(segments) == 0 or len(lines) == 0:
+        return []
+    p0 = np.asarray([[s.p0[0], s.p0[1], 1.0] for s in segments])
+    p1 = np.asarray([[s.p1[0], s.p1[1], 1.0] for s in segments])
+    mids = 0.5 * (p0 + p1)
+    mids[:, 2] = 1.0
+    L = lines[np.argmin(np.abs(mids @ lines.T), axis=1)]
+    seg_ang = np.degrees(np.arctan2(p1[:, 1] - p0[:, 1], p1[:, 0] - p0[:, 0]))
+    line_ang = np.degrees(np.arctan2(L[:, 0], -L[:, 1]))
+    diff = np.abs((seg_ang - line_ang + 90.0) % 180.0 - 90.0)
+    return [s for s, ok in zip(segments, diff <= tol_deg) if ok]
+
+
+def refine_frame(segments, K, R, t, *, focal: bool = True, orient_tol_deg=None) -> RefineResult:
+    """Refine one camera to ``segments`` (YardLineSeg list) -- see module doc.
+    ``orient_tol_deg`` keeps only segments aligned with their nearest
+    projected line under the starting camera (the endzone view)."""
     K0 = np.asarray(K, float)
     R0 = np.asarray(R, float)
     t0 = np.asarray(t, float).reshape(3)
     centre = -R0.T @ t0
+    if orient_tol_deg is not None:
+        segments = gate_by_orientation(segments, projected_lines(K0, R0, t0), orient_tol_deg)
     n = len(segments)
     before = float(np.median(segment_distances_px(segments, projected_lines(K0, R0, t0)))) \
         if n else float("nan")
@@ -181,7 +204,7 @@ def _smooth_deltas(rotvecs, log_f, *, window: int):
 
 
 def refine_track(video_path, track, *, cfg=None, player_boxes_by_frame=None, log_every: int = 100,
-                 smooth_frames: int = SMOOTH_FRAMES):
+                 smooth_frames: int = SMOOTH_FRAMES, orient_tol_deg=None):
     """Every frame of a CameraTrack refined to the paint, the per-frame
     rotation and focal deltas smoothed along the track (the camera pans
     smoothly; the lines do not pin every rotation). Frames with too few
@@ -191,7 +214,7 @@ def refine_track(video_path, track, *, cfg=None, player_boxes_by_frame=None, log
 
     from nfl_gsplat.calibration.cameras_io import CameraTrack
     from nfl_gsplat.calibration.field_detect import FieldDetectConfig, detect_lines
-    from nfl_gsplat.calibration.grid_fit import GRID_VERTICAL_DEG
+    from nfl_gsplat.calibration.grid_fit import GRID_VERTICAL_DEG, detect_segments_any
 
     cfg = cfg or FieldDetectConfig(vertical_deg=GRID_VERTICAL_DEG)
     K = track.K.copy()
@@ -210,7 +233,11 @@ def refine_track(video_path, track, *, cfg=None, player_boxes_by_frame=None, log
         if not ok:
             continue
         boxes = None if player_boxes_by_frame is None else player_boxes_by_frame.get(f)
-        segs = detect_lines(img, cfg, boxes)
+        if orient_tol_deg is not None:
+            segs = gate_by_orientation(detect_segments_any(img, boxes), projected_lines(K[f], R[f], t[f]),
+                                       orient_tol_deg)
+        else:
+            segs = detect_lines(img, cfg, boxes)
         segs_by_frame[f] = segs
         res = refine_frame(segs, K[f], R[f], t[f])
         if res.applied:

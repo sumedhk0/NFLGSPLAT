@@ -66,3 +66,30 @@ def test_too_few_segments_leaves_the_camera_alone():
     segs = detect_lines(np.zeros((H, W, 3), np.uint8), FieldDetectConfig())
     res = rp.refine_frame(segs, K, R, t)
     assert not res.applied and np.allclose(res.R, R) and np.allclose(res.K, K)
+
+
+def test_endzone_view_refines_a_pitched_camera_with_the_orientation_gate():
+    """An endzone-like camera pitched 0.3 deg off: with the orientation gate
+    the any-orientation segments of the synthetic paint pull it back."""
+    import cv2
+    from scipy.spatial.transform import Rotation
+
+    from nfl_gsplat.calibration import grid_fit as gf
+    from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
+    from nfl_gsplat.field import footage_texture as ft
+    from nfl_gsplat.field.procedural_field import render_field_texture, texture_extent
+
+    res = 0.25
+    field = render_field_texture(res, numbers=False)
+    R_true, t_true = look_at(np.array([-75.0, 0.0, 18.0]), np.array([-20.0, 0.0, 0.0]))
+    K = intrinsics(960, 540, fov_deg=30.0)
+    M = ft.ground_homography(K, R_true, t_true) @ ft.texel_to_ground(res, texture_extent())
+    image = cv2.warpPerspective(field, M, (960, 540), flags=cv2.INTER_LINEAR)
+    Rx = Rotation.from_euler("x", 0.3, degrees=True).as_matrix()
+    R_off, t_off = Rx @ R_true, Rx @ t_true                      # pitched about its own axis
+    segs = gf.detect_segments_any(image)
+    res_ = rp.refine_frame(segs, K, R_off, t_off, orient_tol_deg=25.0)
+    assert res_.applied and res_.after_px < 0.5 * res_.before_px, (res_.before_px, res_.after_px)
+    moved = np.degrees(np.linalg.norm(Rotation.from_matrix(res_.R @ R_off.T).as_rotvec()))
+    assert 0.15 < moved < 0.45, moved
+
