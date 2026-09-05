@@ -48,3 +48,26 @@ def test_segment_distances_use_the_nearest_line():
     segs = [YardLineSeg((104.0, 0.0), (104.0, 50.0)), YardLineSeg((290.0, 10.0), (290.0, 90.0))]
     d = gf.segment_distances_px(segs, lines)
     assert np.allclose(d, [4.0, 10.0])
+
+
+def test_endzone_view_scores_its_horizontal_yard_lines():
+    """An endzone-like camera sees the yard lines running across the image;
+    the sideline's vertical filter finds nothing there, the orientation
+    gate against the projected lines scores them."""
+    import cv2
+
+    from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
+    from nfl_gsplat.field import footage_texture as ft
+    from nfl_gsplat.field.procedural_field import render_field_texture, texture_extent
+
+    res = 0.25
+    field = render_field_texture(res, numbers=False)              # BGR, lines and hashes only
+    R, t = look_at(np.array([-75.0, 0.0, 18.0]), np.array([-20.0, 0.0, 0.0]))   # behind an end zone
+    K = intrinsics(960, 540, fov_deg=30.0)
+    M = ft.ground_homography(K, R, t) @ ft.texel_to_ground(res, texture_extent())
+    image = cv2.warpPerspective(field, M, (960, 540), flags=cv2.INTER_LINEAR)
+    d_side, n_side = gf.grid_distance_px(image, K, R, t)
+    d_end, n_end = gf.grid_distance_px(image, K, R, t, orient_tol_deg=25.0)
+    assert n_end >= gf.MIN_SEGMENTS and np.isfinite(d_end) and d_end < 3.0, (d_end, n_end)
+    assert n_end > n_side
+
