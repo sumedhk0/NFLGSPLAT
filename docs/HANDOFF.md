@@ -303,8 +303,12 @@ now takes a lens band from the seed play (dd1b95c, `08 --seed-from` /
 paint (play 4 at the KC 49: hashes 1.82, numerals 0.99, LOS 48 vs 49,
 field texture exact), so the pipeline's check passes a disagreement on
 two of three witnesses, loudly (09757f0). Play 4 is the third play
-through the chain; play 3's paint is being re-solved under the band with
-the centre free.
+through the chain. Play 3 under the band with the centre free gives the
+right lenses (16–18°) and still fails every judge (rulers 0.78 vs 2.11 on
+one candidate, players 2.55 m on the other, grids 61–95 px): its row
+labelling is wrong beyond the two-row trap. Parked, refused honestly;
+the next instrument there is the reader's per-frame labelling drawn on
+the frames (`scratchpad/play3_correspondences.py`).
 
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
 per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black
