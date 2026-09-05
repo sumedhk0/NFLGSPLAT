@@ -335,10 +335,12 @@ def main() -> None:
             tr = load_camera_track(args.seed_from / "cameras.npz")["sideline"]
             ok = np.flatnonzero(tr.conf > 0)
             seed = np.median(np.stack([-tr.R[f].T @ tr.t[f] for f in ok]), axis=0)
+            seed[0] = np.nan          # x along the field is scanned: the paint frame's x origin is arbitrary
             fov_seed = float(np.median([fov_deg(tr.K[f], tr.width) for f in ok]))
             fov_band = (fov_seed / LENS_BAND, fov_seed * LENS_BAND)
-            print(f"   joint solve holds the centre at the sideline mount of {args.seed_from.name}: "
-                  f"{np.round(seed, 1)} m; row labellings must imply a lens within "
+            print(f"   joint solve holds the mount's distance and height from {args.seed_from.name} "
+                  f"(y {seed[1]:.1f} m, z {seed[2]:.1f} m; x along the field scanned); "
+                  f"row labellings must imply a lens within "
                   f"{fov_band[0]:.1f}..{fov_band[1]:.1f} deg (seed {fov_seed:.1f})")
         elif args.band_from is not None:
             from nfl_gsplat.calibration.cameras_io import load_camera_track

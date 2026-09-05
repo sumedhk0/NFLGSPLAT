@@ -481,6 +481,35 @@ def _rescue_refit(frame_ids, frame_data, image_size, C, *, view_deg: int = 0):
     return out
 
 
+X_SCAN_M = np.arange(-60.0, 60.5, 2.0)
+X_FINE_M = np.arange(-3.0, 3.25, 0.25)
+
+
+def _scan_x(frame_ids, frame_data, image_size, C_yz, *, view_deg: int = 0):
+    """The centre ``(x, y, z)`` with ``y, z`` from ``C_yz`` and ``x`` the value
+    along the field at which the fixed-centre per-frame refit leaves the
+    lowest median residual: a coarse scan, then a fine one around the best.
+    Both reflections are tried at each x by the caller's reflection resolve;
+    here the data is scored as given and with world Y negated."""
+    sub = _subsample(frame_ids)
+    variants = [frame_data, _negate_y(frame_data)]
+
+    def score(x):
+        C = np.array([x, C_yz[1], C_yz[2]], float)
+        best = np.inf
+        for fd in variants:
+            refit = _rescue_refit(sub, fd, image_size, C, view_deg=view_deg)
+            if refit:
+                best = min(best, float(np.median([m for (_r, _f, m) in refit.values()])))
+        return best
+
+    coarse = [(score(x), x) for x in X_SCAN_M]
+    _c, x0 = min(coarse)
+    fine = [(score(x0 + dx), x0 + dx) for dx in X_FINE_M]
+    _f, x1 = min(fine)
+    return np.array([x1, C_yz[1], C_yz[2]], float)
+
+
 def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
                        max_rounds: int = 2, _frame_data_override=None,
                        view_deg: int = 0, center_bounds=None, audit_drop_px=None,
@@ -530,6 +559,14 @@ def solve_fixed_center(corrs_by_frame, image_size, *, init_results,
 
     if fixed_center is not None:
         C = np.asarray(fixed_center, float).reshape(3)
+        if not np.isfinite(C[0]):
+            # x along the field is NOT carried between plays: the paint solve's
+            # frame has an arbitrary x origin (the 5-yard ambiguity the shift
+            # stage resolves later), so holding play 1's x forced play 5's
+            # camera 5+ yards from where its paint sits (paint 212 px with the
+            # right lens and player height, 2026-09-05). Distance across and
+            # height are the mount's invariants; x is scanned.
+            C = _scan_x(frame_ids, frame_data, image_size, C, view_deg=view_deg)
         mirrored, C_win, cost = _resolve_reflection(
             frame_ids, frame_data, image_size, [C], n_anchor=1, view_deg=view_deg)
         if not np.isfinite(cost):

@@ -44,3 +44,18 @@ def test_fixed_centre_recovers_the_lens_per_frame():
             continue
         f = float(r.intrinsics.fx)
         assert abs(f / truth[i] - 1.0) < 0.02, (i, f, truth[i])
+
+
+def test_x_along_the_field_is_scanned_when_not_given():
+    rng = np.random.default_rng(1)
+    C = np.array([11.0, -100.0, 42.0])                       # the mount, 11 m along the field
+    focals = [9000.0 + 300.0 * i for i in range(12)]
+    frame_data, image_size, truth = _camera_frames(C, focals, rng)
+    results, _m = js.solve_fixed_center(
+        {}, image_size, init_results=[None] * len(focals), _frame_data_override=frame_data,
+        view_deg=0, audit_drop_px=3.0, fixed_center=np.array([np.nan, -100.0, 42.0]))
+    got = [r for r in results if r is not None]
+    assert len(got) >= 10
+    centres = np.array([-np.asarray(r.pose.R).T @ np.asarray(r.pose.t) for r in got])
+    assert abs(np.median(centres[:, 0]) - 11.0) < 0.5, centres[:, 0]
+
