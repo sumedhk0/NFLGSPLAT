@@ -292,6 +292,20 @@ frames 394 and 622, `diag/play3_corr_*.png`) found the row-labelling trap
 listed under "measured and rejected"; fixed in dd1b95c. Play 4 (`025_Sideline_KC_1-10_KC_49` +
 `026_Endzone`, midfield) runs the whole chain with the mount held.
 
+**Gates that lied by omission (2026-09-05).** `08` judged candidates only
+when there were more than one, so a single held-mount candidate skipped
+the three judges (play 3 went through at 2.81 m); fixed 55764d0. The
+paint reader's row labelling in two-row frames called the far sideline
+plus the far hash row the two sidelines (2.3x stretch, 41° lens) and grid
+consistency cannot see a cross-field stretch; `assignment_is_possible`
+now takes a lens band from the seed play (dd1b95c, `08 --seed-from` /
+`--band-from`). The hash ruler is fooled by the midfield logo's white
+paint (play 4 at the KC 49: hashes 1.82, numerals 0.99, LOS 48 vs 49,
+field texture exact), so the pipeline's check passes a disagreement on
+two of three witnesses, loudly (09757f0). Play 4 is the third play
+through the chain; play 3's paint is being re-solved under the band with
+the centre free.
+
 **Renderer (2026-09-04, 7688363).** Every body and the field rendered as
 per-pixel salt-and-pepper (a flat red body: std 34/255, 1 % near-black
 pixels), unchanged by splat size or opacity. The sparse splatter's
