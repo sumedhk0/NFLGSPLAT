@@ -180,8 +180,19 @@ cameras (raw triangulated lower ankle p10 +0.02 m), so no endzone pitch
 correction there; play 2's fitted bodies float (p10 +0.22 m): its
 endzone pitch is off by a few tenths of a degree and only the ankle
 ruler sees it (the box-bottom gap is minimal at the current pitch by
-construction; the endzone paint runs across the image and grid_fit finds
-no lines) -- OPEN, needs a second ruler (a horizontal-line grid fit).
+construction). The second ruler now exists (efaed88: grid_fit scores the
+endzone view's across-the-image yard lines, any orientation gated
+against the projected lines) and settles it differently: on play 2 the
+planted feet sit UNDER the turf at the current pitch (raw triangulated
+lower ankle p10 −0.22 m) while the median floats (+0.20), and no pitch
+moves both to the turf -- the float is dispersion in a sparse
+triangulation, not a camera bias; the endzone paint reads 60–77 px there,
+flat. On play 1 the feet are right at 0° (p10 −0.01) while the paint
+prefers +0.3..0.5° (41 → 27 px): a 27 px residual is an error in another
+parameter (roll, yaw, focal) a pitch cannot absorb. No pitch correction
+on either play. Next honest step: a full endzone refinement against its
+paint (rotation + focal, as 08e does the sideline, with the
+any-orientation segments) with the ankle p10 as the check.
 Two-view bodies now stand at their refit's translation (median shift
 0.58 m from the box-bottom point); the tilt clamp is 60° for two-view
 poses (measured p90 38°, none past 60), 35° for single-view. Play 2's
