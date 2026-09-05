@@ -42,6 +42,7 @@ cd "C:/Users/sumedh/NFLGSPLAT" || exit 1
 P="$1"; SIDE="$2"; END="$3"; LOS="$4"; shift 4
 DIAG="C:/Users/sumedh/diag"; PLAY="$(basename "$P")"
 RED="${RED:-KC}"; WHITE="${WHITE:-BAL}"          # the saturated and the white kit (08f, render.uniform)
+SEED_FROM="${SEED_FROM:-}"                       # a solved play-dir of the same game: its sideline mount seeds 08
 FRESH=0; FROM_PAINT=0
 for a in "$@"; do
   case "$a" in --fresh) FRESH=1;; --from-paint) FROM_PAINT=1;; esac
@@ -64,7 +65,7 @@ fi
 
 if [ "$FROM_PAINT" = 1 ] && ! done_ paint; then
   log "paint solve (08)"
-  "$PYN" scripts/08_reconstruct_all22.py --root "$ROOT" --sideline "$SIDE" --endzone "$END" --no-mirror-check \
+  "$PYN" scripts/08_reconstruct_all22.py --root "$ROOT" --sideline "$SIDE" --endzone "$END" --no-mirror-check ${SEED_FROM:+--seed-from "$SEED_FROM"} \
      --out "$P/recon.npz" 2>&1 | grep -v "Warning\|warn" | grep -E "candidate|rulers|pass the|gap  |reconciled  |player height|Error|Exit|refus" || fail paint
   rm -f "$P/.done_export" "$P/.done_refine" "$P/.done_shift" "$P/.done_endzone"
   mark paint
