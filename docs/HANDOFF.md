@@ -190,9 +190,27 @@ triangulation, not a camera bias; the endzone paint reads 60–77 px there,
 flat. On play 1 the feet are right at 0° (p10 −0.01) while the paint
 prefers +0.3..0.5° (41 → 27 px): a 27 px residual is an error in another
 parameter (roll, yaw, focal) a pitch cannot absorb. No pitch correction
-on either play. Next honest step: a full endzone refinement against its
-paint (rotation + focal, as 08e does the sideline, with the
-any-orientation segments) with the ankle p10 as the check.
+on either play. The full endzone refinement against its paint was then
+built (623eab0: `08e --cam endzone --orient-tol 25 --out`) and REFUSED
+by the ankle ruler on play 1: paint 39.3 → 22.6 px, but the triangulated
+lower ankle p10 −0.01 → −0.45 m, ray agreement 7.3 → 10.2 px, joints
+passing the gate 47699 → 9291. The paint pulls the endzone away from
+where the sideline's rays cross; the endzone's residual is not in
+rotation+focal and its paint at 23–27 px is not a ruler the geometry
+trusts. cameras.npz untouched (`cameras_endzone_refined.npz` kept for
+the record). Do not pursue the endzone paint further.
+
+**Play 2's right-edge column (2026-09-05).** Not one lineage at several
+depths: 2–3 endzone-ONLY bodies per frame, each its own endzone track,
+all placed at x ≈ −24 m because their endzone boxes are clipped by the
+TOP of the frame (y1 = 0, 55–80 px tall, foot at the frame's top edge,
+which maps to one ground line); 45 % of endzone boxes in frames 250–450
+touch the top or bottom edge. x = −24 is 8–9 m behind the offence: the
+officials, seen at the far top of the endzone view, drawn as default-
+posed KC players. Candidate rules, not applied: a box touching the
+BOTTOM edge has no foot point (drop from placement); a box touching the
+TOP edge keeps its foot but has no height (no height gate; the geometric
+signature for the officials question).
 Two-view bodies now stand at their refit's translation (median shift
 0.58 m from the box-bottom point); the tilt clamp is 60° for two-view
 poses (measured p90 38°, none past 60), 35° for single-view. Play 2's
