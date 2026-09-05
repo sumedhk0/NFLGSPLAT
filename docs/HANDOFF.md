@@ -411,6 +411,16 @@ with the verdict; the check stage then passed on two of three (numerals
 0.983, LOS ok, hashes 1.043) and the footage field landed on the drawn one
 (logo on the 50, faint yard lines on the drawn lines).
 
+### Play 1 v8 (2026-09-05 19:32): kits from the saturation vote
+
+`diag/play_001_hifi_720.mp4`, 255 frames. Identity from cache with the kit
+deciding (31 of 106 named, the OCR overruled on 4), keypoints and
+triangulation again (47 players of 83 with keypoints, 42 % valid joints at
+8.3 px), refit 47 players over 443 frames at 0.091 m rms, 08f refused
+(gap 10), so identity's teams stand. Frame `diag/play_001_v8_a.jpg`: the
+red cluster sits on the ball, white spread; numbers on the sure ids;
+officials still white; one-view duplicates remain (the endzone track).
+
 ### The endzone camera track invents motion; the pairing is the wound (2026-09-05, later)
 
 Directive from the user (relayed): play 1 only until it works properly; no
