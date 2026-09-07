@@ -14,6 +14,7 @@ import numpy as np
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import endzone_only_ids
+from nfl_gsplat.render.offfield_rule import sideline_dwellers, striped_ids
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
 
@@ -152,7 +153,18 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     ghosts = endzone_only_ids(df, views)
     if ghosts:
         print(f"endzone-only ids left out: {len(ghosts)}")
-    clipped = set(clipped) | ghosts
+    # Not players: staff at the boundary (position) and officials (stripes),
+    # offfield_rule; measured on play 1 against the roster-named ids.
+    dwellers = sideline_dwellers(ground)
+    if dwellers:
+        print(f"sideline dwellers left out: {len(dwellers)}")
+    striped = set()
+    side_video = P / "sideline.mp4"
+    if side_video.exists():
+        striped = striped_ids(df, side_video) - dwellers
+        if striped:
+            print(f"striped (officials) left out: {len(striped)}")
+    clipped = set(clipped) | ghosts | dwellers | striped
     poses = poses_from_caches(refit, side_blob, tracks, model)
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
