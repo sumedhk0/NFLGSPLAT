@@ -185,7 +185,9 @@ def main() -> None:
                     help="scale each camera's ground points along its depth axis by this before linking "
                          "(1 = off); a box bottom is poor along the depth and fine across it, so a round "
                          "gate breaks tracks on depth jitter. Measured on play 1: 1/3 cut the sideline "
-                         "79 -> 64 tracks, the endzone 104 -> 82; purity on the helmet set pending")
+                         "79 -> 64 tracks, the endzone 104 -> 82 -- by WELDING: on the helmet set purity "
+                         "p10 fell 0.49 -> 0.44 and 0.48 -> 0.41 with switches 191 -> 245 and 216 -> 253 "
+                         "(2026-09-07). Keep it at 1.0")
     ap.add_argument("--pair-gap", type=float, default=1.0,
                     help="track pairing: accept a pair whose mean offset over the overlap is within this "
                          "(m). Measured on play 1 with the footage-driven endzone track: at 1.0 m only 17 "
