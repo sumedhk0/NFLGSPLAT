@@ -421,6 +421,31 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### Who is drawn: four exclusion rules, and v10's order (2026-09-07)
+
+`play_timeline` now leaves out, in this order, each a set of ids: edge-clipped
+one-view ids (`edge_rule`), endzone-only ids (`endzone_only_rule`, one avatar
+per sideline track), sideline dwellers (`offfield_rule.sideline_dwellers`:
+share of frames at |y| >= 23.5 m of at least 0.8 -- play 1: 26 ids, staff
+in dark jackets and the sideline official, no roster-named player) and
+striped officials (`offfield_rule.striped_ids`: torso gradient ratio 2.5
+with a dark share 0.25; play 1: none beyond the dwellers). Measured
+against the roster-named ids: none touched.
+
+Appearance pairing (`tracking/pair_by_appearance`, `08i`): per-camera
+tracks pair on the jersey number read in both cameras (3.5 m), else on
+kit agreement (2.0 m), never across a kit or number conflict, never on
+position alone. Dry run on play 1 (kit only): 44 pairs, 0 cross-kit, 10
+paired per frame (the per-frame link: 84 two-camera ids, 23 cross-kit).
+v10 is the first play through the new order: `08b --cameras --pairing
+track --pair-gap 0` (camera tracks keep their ids) -> `08c` (OCR per
+camera track) -> `08i` -> `08c --from-cache` -> pose -> keypoints -> tri
+-> refit -> hifi. The pipeline patch for these stages
+(`scratchpad/patch_pipeline_stages.py`) adds `endzone_track` and `link`
+stages after the check and moves identity ahead of the pose stages
+(pairing changes ids; pose caches are keyed by id); apply it when no
+`pipeline_play.sh` instance runs.
+
 ### The 42 % triangulation figure has a structural ceiling (2026-09-07)
 
 On play 1 v9 (58 two-view players, 104k joint-frames): 8 of the 22 SMPL-X
