@@ -153,7 +153,7 @@ def main() -> None:
 
     fused: dict = {}
     stats: dict = {}
-    n_joints = n_valid = 0
+    n_joints = n_valid = n_obs_joints = 0
     for pid, v in views.items():
         frames, obs = stack_pair(v, cam_a, cam_b, offset)
         if not frames:
@@ -170,14 +170,23 @@ def main() -> None:
                                "reproj_px_median": float(np.nanmedian(res.reproj[res.valid]))}
         n_joints += res.valid.size
         n_valid += int(res.valid.sum())
+        # joints COCO-17 can reach at all: confident in either view somewhere on this player
+        seen = (obs[cam_a]["conf"] > 0).any(0) | (obs[cam_b]["conf"] > 0).any(0)
+        n_obs_joints += int(seen.sum()) * len(frames)
     out = args.out or P / "poses_tri.json"
     blob = {"fused": fused, "stats": stats, "cameras": (cam_a, cam_b), "offset": int(offset),
             "source": "05n keypoints triangulation"}
     with open(out, "wb") as fh:
         pickle.dump(blob, fh)
     med = float(np.median([s["reproj_px_median"] for s in stats.values()])) if stats else float("nan")
+    # 8 of the 22 SMPL-X body joints (spine x3, collars x2, feet x2, and the
+    # head only through the face) have no COCO keypoint, so the raw share
+    # tops out near 64 %; the share over observable joints is the one that
+    # says how the triangulation did (measured 2026-09-07, play 1: 43 % raw,
+    # 66 % observable; the loss there is reprojection over 20 px, median 13).
     print(f"triangulated {len(fused)} players ({len(views)} had keypoints), valid joints "
-          f"{100 * n_valid / max(1, n_joints):.0f}%, median reprojection {med:.1f} px, "
+          f"{100 * n_valid / max(1, n_joints):.0f}% of all, {100 * n_valid / max(1, n_obs_joints):.0f}% of the "
+          f"COCO-observable ones, median reprojection {med:.1f} px, "
           f"{time.time() - t0:.0f} s -> {out}")
 
 

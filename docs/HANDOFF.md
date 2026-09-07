@@ -421,6 +421,19 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### The 42 % triangulation figure has a structural ceiling (2026-09-07)
+
+On play 1 v9 (58 two-view players, 104k joint-frames): 8 of the 22 SMPL-X
+body joints (spine x3, collars x2, feet x2; the head only through the
+face, 37 % confident) have no COCO-17 keypoint and never triangulate, so
+the raw share tops out near 64 %. Over the 14 observable joints: 61 % are
+confident (>= 0.3) in both views and 68 % of those reproject within 20 px
+(median 13 px, p75 23, p90 37) -- 13 px at these focals is 0.15 m at the
+player, keypoint noise not camera error. So the triangulation passes 66 %
+of what is observable; `05n` now prints both shares. The endzone track
+change moved neither (v8 42 %, v9 43 %). Chasing this further means better
+2-D keypoints on 140 px people, not geometry.
+
 ### One avatar per sideline track; the pairing stays ambiguous (2026-09-07)
 
 Play 1 with the footage-driven endzone track written (`cameras.npz`, old
