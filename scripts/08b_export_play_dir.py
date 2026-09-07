@@ -181,6 +181,10 @@ def main() -> None:
                     help="track: per-camera ground tracks paired by trajectory over their overlap "
                          "(default); frame: the per-frame pairing by ground distance (measured a coin "
                          "flip on play 2)")
+    ap.add_argument("--pair-gap", type=float, default=1.0,
+                    help="track pairing: accept a pair whose mean offset over the overlap is within this "
+                         "(m). Measured on play 1 with the footage-driven endzone track: at 1.0 m only 17 "
+                         "track pairs, 5 players paired per frame against 15 by per-frame pairing at 2.5 m")
     ap.add_argument("--kit-link", choices=("off", "block", "soft"), default="off",
                     help="the kit in the time linker: off (default; the kit only vetoes cross-camera "
                          "pairs), block (a mismatch never joins), soft (a mismatch costs KIT_PENALTY_M "
@@ -262,7 +266,7 @@ def main() -> None:
                            label_penalty_m=pen)
         tr_e = link3d.link(plc_e, labels=lab_e if args.kit_link != "off" else None, fps=args.fps,
                            label_penalty_m=pen)
-        pairs, lag = pair_tracks(tr_s, tr_e, fps=args.fps)
+        pairs, lag = pair_tracks(tr_s, tr_e, fps=args.fps, max_offset_m=args.pair_gap)
         gid_s, gid_e = global_ids(len(tr_s), len(tr_e), pairs)
         n_frames = len(set(plc_s) | set(plc_e))
         print(f"per-camera tracks: sideline {len(tr_s)} over {len(plc_s)} frames, endzone {len(tr_e)} over "
