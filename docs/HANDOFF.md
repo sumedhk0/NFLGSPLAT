@@ -421,6 +421,37 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### One avatar per sideline track; the pairing stays ambiguous (2026-09-07)
+
+Play 1 with the footage-driven endzone track written (`cameras.npz`, old
+track in `cameras_endzone_interp.npz`) and re-linked three ways on the same
+cameras (`diag/p1_frame`, `p1_track`, `p1_track25`):
+
+| link | ids | in both cams | cross-kit | paired / frame | one-view / frame |
+|---|---|---|---|---|---|
+| old cameras, per frame | 106 | 62 | 24 % | 15 | 14 |
+| new cameras, per frame + kit gate | 176 | 84 | 23 (27 %) | 13 | 17 |
+| new cameras, track pairing 2.5 m | 147 | 29 | 8 (28 %) | 9 | 23 |
+| new cameras, track pairing 1.0 m | 166 | 17 | 6 (35 %) | 5 | 31 |
+
+The better endzone track did not make pairing decisive: box bottoms give
+about 1 m of depth error per camera and players stand 1-2 m apart, so a
+third to a half of the players stay unpaired in each camera and the
+cross-kit share of the pairs made is unchanged. The kit gate only bites
+where both boxes carry a label (63 %), and the position-only linker joins
+across kits over time. What the numbers do say: the timeline was drawing
+both copies of every unpaired player -- 37 ids a frame, 18 endzone-only,
+each a ghost at the endzone's poor x. `render/endzone_only_rule.py`: an id
+the endzone alone sees, never two-view, is left out (same shape as the
+edge rule); one avatar per sideline track, the endzone kept for
+triangulation where it pairs. Play 1 v9 runs on the per-frame kit-gated
+link with the new cameras: rulers are triangulated joints passing (v8:
+42 %) and avatars per frame (v8: about 29 for 29 people plus ghosts).
+
+Next for pairing: appearance at track level -- the jersey number read in
+both cameras must agree and the kit must match -- before position decides;
+the OCR runs after the link today (08c), so the order changes.
+
 ### 08h works once the camera-from-homography step is a ray fit (2026-09-06/07)
 
 Every "pose fit refused" verdict on 08h was scored on broken motion.
