@@ -206,6 +206,77 @@ def _propagate(H_full, f_ref, R_ref, C, cx, cy, n, *, band=FOCAL_BAND, max_rms_p
     return K, R, t, conf, dropped
 
 
+def anchored_chain(feats, ref, lo, hi, f_ref, R_ref, cx, cy, *, scale: float, every: int = 10,
+                   max_rms_px: float = 2.0, min_inliers: int = 12):
+    """``{frame: H}`` into the reference: a DIRECT link every ``every`` frames
+    where its ray fit is within ``max_rms_px`` (an anchor), consecutive steps
+    composed outward from the nearest anchor elsewhere. Measured on play 1
+    (2026-09-07): single steps fit at 0.1-1 px everywhere, but 200 composed
+    steps through the second half drifted to 7-90 px; direct links hold at
+    0.2-2 px there except across a 60-frame span (475-535) where the
+    periodic yard lines alias them (7-21 px) -- which is where the chain
+    carries. Returns ``(H_by, anchors, inliers)`` at the feature scale."""
+    from nfl_gsplat.calibration.endzone_mosaic import _homography
+
+    D = np.diag([scale, scale, 1.0])
+    Di = np.linalg.inv(D)
+    anchors = {ref: np.eye(3)}
+    for f in range(lo, hi + 1, every):
+        if f == ref or f not in feats:
+            continue
+        hom, n_inl = _homography(feats[ref], feats[f], min_inliers)
+        if hom is None:
+            continue
+        _R, _f, rms = rot_focal_from_homography(Di @ hom @ D, f_ref, R_ref, cx, cy)
+        if rms <= max_rms_px:
+            anchors[f] = hom
+    H_by = dict(anchors)
+    inliers = {}
+    order = sorted(anchors)
+
+    def chain(start, stop, step):
+        """{frame: H into the reference} by consecutive steps from an anchor."""
+        out = {}
+        prev = start
+        for f in range(start + step, stop, step):
+            if f not in feats:
+                continue
+            hom, n_inl = _homography(feats[prev], feats[f], min_inliers)
+            if hom is None:
+                break
+            out[f] = (H_by[prev] if prev in H_by and prev == start else out[prev]) @ hom
+            inliers[f] = max(inliers.get(f, 0), n_inl)
+            prev = f
+        return out
+
+    for i, a in enumerate(order):
+        nxt = order[i + 1] if i + 1 < len(order) else None
+        fwd = chain(a, nxt if nxt is not None else hi + 1, +1)
+        if nxt is None:
+            H_by.update(fwd)
+            continue
+        bwd = chain(nxt, a, -1)
+        for f in range(a + 1, nxt):
+            if f in fwd and f in bwd:
+                w = (f - a) / (nxt - a)
+                H_by[f] = _blend(fwd[f], bwd[f], w)
+            elif f in fwd:
+                H_by[f] = fwd[f]
+            elif f in bwd:
+                H_by[f] = bwd[f]
+    H_by.update(chain(order[0], lo - 1, -1))
+    return H_by, sorted(anchors), inliers
+
+
+def _blend(Ha, Hb, w):
+    """Homography between two estimates of the same frame's link, ``w`` the
+    weight of the second (0 at the first anchor, 1 at the next): both are
+    normalised so the blend is well posed near the identity."""
+    Ha = Ha / Ha[2, 2]
+    Hb = Hb / Hb[2, 2]
+    return (1.0 - w) * Ha + w * Hb
+
+
 def chain_homographies(imgs, feats, ref, lo, hi, *, min_inliers: int = 12):
     """``{frame: H}`` mapping each frame INTO the reference by composing
     CONSECUTIVE-frame homographies outward from ``ref`` (one step is a few
@@ -347,13 +418,17 @@ def main() -> None:
         ref = min(imgs, key=lambda f: abs(f - ref))
     from nfl_gsplat.calibration.endzone_mosaic import _features, keep_mask
     feats = {f: _features(img, keep_mask(img.shape, boxes.get(f))) for f, img in imgs.items()}
-    H_by, inliers = chain_homographies(imgs, feats, ref, lo, hi, min_inliers=args.min_inliers)
+    cx0, cy0 = old.K[ref][0, 2], old.K[ref][1, 2]
+    H_by, anchors, inliers = anchored_chain(feats, ref, lo, hi, old.K[ref][0, 0], old.R[ref], cx0, cy0,
+                                            scale=args.scale, min_inliers=args.min_inliers)
+    print(f"anchored chain: {len(anchors)} direct anchors to reference {ref} "
+          f"(gaps up to {max(np.diff(anchors)) if len(anchors) > 1 else 0} frames), {len(H_by)} frames")
     # half-resolution homographies to full resolution: p_half = D p_full
     D = np.diag([args.scale, args.scale, 1.0])
     Dinv = np.linalg.inv(D)
     H_full = {f: Dinv @ H @ D for f, H in H_by.items()}
-    inl = np.array([inliers.get(f, 0) for f in H_full])
-    print(f"registered {len(H_full)} of {len(imgs)} frames to reference {ref}; inliers p10/p50 "
+    inl = np.array([inliers[f] for f in H_full if f in inliers])
+    print(f"registered {len(H_full)} of {len(imgs)} frames to reference {ref}; chain-step inliers p10/p50 "
           f"{np.percentile(inl, 10):.0f}/{np.median(inl):.0f}")
     cx, cy = old.K[ref][0, 2], old.K[ref][1, 2]
     # the reference camera implied by every existing solved frame

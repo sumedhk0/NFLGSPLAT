@@ -421,6 +421,29 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### 08h works once the camera-from-homography step is a ray fit (2026-09-06/07)
+
+Every "pose fit refused" verdict on 08h was scored on broken motion.
+Bisected on play 2 frames 353-360: a 0.4 px homography step came out of the
+matrix route (K_t R_t = H^-1 K_ref R_ref, rows normalised, SVD polish) as
+0.18 deg of rotation, 0.9 m on the ground at 300 m; the polish, not the
+translation, set the rotation near the identity. `rot_focal_from_homography`
+fits (rotation, log focal) to a pixel grid's rays instead: a pixel-static
+player holds to 1 cm (commit a2fc4ee, tests in
+`tests/test_endzone_track_rayfit.py`). Motion by consecutive-frame steps
+composed outward (394-482 inliers per step); direct links to the reference
+alias on the periodic yard lines at long gaps (play 1, 475-535: 7-21 px).
+Composed steps drift over a play's second half (play 1: 7-90 px by frame
+655, with the anchors right there), so the chain is anchored every 10
+frames where a direct link's ray fit is under 2 px and blended between
+anchors. First passing players rulers: play 1 1.19 -> 0.90 m (share within
+1 m 0.43 -> 0.55) on the plain chain over 353 frames; play 2 2.35 -> 1.68 m.
+Also measured: on play 2's reference frame the old endzone camera has the
+field rolled 6 deg and the hash columns 200 px inside the painted ones
+(`diag/p2_ref353_overlay.jpg`); paint alone cannot fix the focal at a 4 deg
+lens (six points over 6 x 9 m at 300 m ran the solver to its bound), so
+depth stays with the sideline's players.
+
 ### The endzone camera track invents motion; the pairing is the wound (2026-09-05, later)
 
 Directive from the user (relayed): play 1 only until it works properly; no
