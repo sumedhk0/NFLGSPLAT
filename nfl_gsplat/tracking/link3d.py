@@ -290,3 +290,28 @@ def to_rows(tracks: list[Track3D], *, fps: float = 59.94, smoothed: bool = True)
         for f, p in zip(tr.frames, xy):
             rows.append((int(f), int(tr.id), float(p[0]), float(p[1])))
     return rows
+
+
+def depth_direction(R) -> np.ndarray:
+    """Unit vector on the ground along the camera's forward axis (world ->
+    camera rotation ``R``: its third row is the optical axis in world
+    coordinates)."""
+    fwd = np.asarray(R, float)[2, :2]
+    n = np.linalg.norm(fwd)
+    return fwd / n if n > 1e-9 else np.array([1.0, 0.0])
+
+
+def whiten_depth(placements, direction, factor: float):
+    """Scale every placement's coordinate ALONG ``direction`` by ``factor``,
+    leaving the across component alone. A box bottom's ground point is
+    poor along the camera's depth (1 m at 100 m on a 12 deg lens) and fine
+    across it, so a round gate breaks tracks on depth jitter: measured on
+    play 1 (2026-09-07), a factor of 1/3 took the sideline from 79 to 64
+    tracks (median span 109 -> 152 frames) and the endzone from 104 to 82.
+    Ids from ``assignments`` on the whitened placements are index-aligned
+    with the originals, so nothing needs un-whitening."""
+    d = np.asarray(direction, float)
+    d = d / np.linalg.norm(d)
+    P = np.outer(d, d)
+    M = np.eye(2) + (factor - 1.0) * P
+    return {f: (np.asarray(pts, float).reshape(-1, 2) @ M.T) for f, pts in placements.items()}

@@ -181,6 +181,11 @@ def main() -> None:
                     help="track: per-camera ground tracks paired by trajectory over their overlap "
                          "(default); frame: the per-frame pairing by ground distance (measured a coin "
                          "flip on play 2)")
+    ap.add_argument("--depth-whiten", type=float, default=1.0,
+                    help="scale each camera's ground points along its depth axis by this before linking "
+                         "(1 = off); a box bottom is poor along the depth and fine across it, so a round "
+                         "gate breaks tracks on depth jitter. Measured on play 1: 1/3 cut the sideline "
+                         "79 -> 64 tracks, the endzone 104 -> 82; purity on the helmet set pending")
     ap.add_argument("--pair-gap", type=float, default=1.0,
                     help="track pairing: accept a pair whose mean offset over the overlap is within this "
                          "(m). Measured on play 1 with the footage-driven endzone track: at 1.0 m only 17 "
@@ -262,9 +267,16 @@ def main() -> None:
         lab_s = {f: kits_s[f][idx_s[f]] for f in plc_s if f in kits_s}
         lab_e = {f: kits_e[f][idx_e[f]] for f in plc_e if f in kits_e}
         pen = KIT_PENALTY_M if args.kit_link == "soft" else None
-        tr_s = link3d.link(plc_s, labels=lab_s if args.kit_link != "off" else None, fps=args.fps,
+        lk_s, lk_e = plc_s, plc_e
+        if args.depth_whiten != 1.0:
+            mid_s = int(np.median(np.flatnonzero(track_s.conf > 0)))
+            mid_e = int(np.median(np.flatnonzero(track_e.conf > 0)))
+            lk_s = link3d.whiten_depth(plc_s, link3d.depth_direction(track_s.R[mid_s]), args.depth_whiten)
+            lk_e = link3d.whiten_depth(plc_e, link3d.depth_direction(track_e.R[mid_e]), args.depth_whiten)
+            print(f"linking with the depth axis scaled by {args.depth_whiten:.2f} per camera")
+        tr_s = link3d.link(lk_s, labels=lab_s if args.kit_link != "off" else None, fps=args.fps,
                            label_penalty_m=pen)
-        tr_e = link3d.link(plc_e, labels=lab_e if args.kit_link != "off" else None, fps=args.fps,
+        tr_e = link3d.link(lk_e, labels=lab_e if args.kit_link != "off" else None, fps=args.fps,
                            label_penalty_m=pen)
         pairs, lag = pair_tracks(tr_s, tr_e, fps=args.fps, max_offset_m=args.pair_gap)
         gid_s, gid_e = global_ids(len(tr_s), len(tr_e), pairs)

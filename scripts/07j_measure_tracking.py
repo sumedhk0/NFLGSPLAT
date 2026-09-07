@@ -316,12 +316,17 @@ def measure_play(labels, track, game, play, offset, *, cfg, stride, root):
         feats_all = reid.embed_detections(root / "video" / name, df, device=cfg.device,
                                           weights=REID_WEIGHTS)
         feats = {int(f): feats_all[frs == f] for f in np.unique(frs)}
+        # depth-whitened placements: the view's forward axis on the ground, factor 1/3
+        cam_mid = cams[sorted(cams)[len(cams) // 2]]
+        placements_w = link3d.whiten_depth(placements, link3d.depth_direction(cam_mid[1]), 1.0 / 3.0)
         for tag, lab, fe, fw, pen in (("ground_linker", None, None, 0.0, None),
+                                      ("ground_linker_whitened", None, None, 0.0, None),
                                       ("ground_linker_teams", det_labels, None, 0.0, None),
                                       ("ground_linker_kits", kit_lab, None, 0.0, None),
                                       ("ground_linker_kits_soft", kit_lab, None, 0.0, 1.0),
                                       ("ground_linker_reid", None, feats, FEATURE_WEIGHT, None)):
-            tracks = link3d.link(placements, labels=lab, features=fe, fps=VIDEO_FPS,
+            tracks = link3d.link(placements_w if tag == "ground_linker_whitened" else placements,
+                                 labels=lab, features=fe, fps=VIDEO_FPS,
                                  feature_weight=fw, label_penalty_m=pen, **LINK_KW)
             linked = np.full(len(df), -1, int)
             ids_by_frame = link3d.assignments(tracks, placements)
@@ -439,6 +444,7 @@ def main() -> None:
             for tag, label in (("ground_linker", "ground: "),
                                ("ground_linker_stitched", "+stitch: "),
                                ("ground_linker_stitched_colour", "+stitch+colour: "),
+                               ("ground_linker_whitened", "whiten: "),
                                ("ground_linker_kits", "kits:   "), ("ground_linker_kits_soft", "kits~:  "),
                                ("ground_linker_teams", "+teams: "),
                                ("ground_linker_reid", "+re-id: ")):
