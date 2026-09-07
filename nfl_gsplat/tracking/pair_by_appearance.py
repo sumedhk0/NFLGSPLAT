@@ -163,3 +163,87 @@ def cam_tracks_from_frame(df, cams, *, kit_margin: float = 0.4, min_number_votes
                 number = int(vals[np.argmax(counts)])
         out[cam].append(CamTrack(cam, int(tid), fr, pts, kit, number))
     return out["sideline"], out["endzone"]
+
+
+STITCH_GAP_S: float = 1.0        # fragments further apart in time are not joined
+STITCH_SPEED_M_S: float = 9.0    # a player covers at most this much per second across the gap
+STITCH_FLOOR_M: float = 1.0      # and this much regardless (box-bottom noise)
+
+
+def stitch_by_appearance(tracks: list, *, fps: float = 59.94, gap_s: float = STITCH_GAP_S,
+                         speed: float = STITCH_SPEED_M_S, floor_m: float = STITCH_FLOOR_M):
+    """Same-camera fragments joined end to start: no time overlap, a gap under
+    ``gap_s``, no kit or number conflict, and the later fragment's first point
+    within ``floor_m + speed * gap`` of the earlier one's last point (constant
+    position across the gap: velocity extrapolation was measured to weld the
+    wrong players). A number match on both sides is taken first; then kit
+    agreement; a fragment with neither known joins nothing. Greedy by
+    (evidence, distance), each end used once. Returns ``[(i_earlier, i_later)]``.
+
+    WHY position alone is not enough (measured 2026-09-04, helmet set):
+    position-only stitching cut pieces per player 4.51 -> 4.36 while purity
+    fell 0.78 -> 0.75 -- it welded wrong players about as often as right
+    ones. The kit and the number are the vetoes that were missing.
+
+    NOT ADOPTED (measured 2026-09-07, play 1 v9, roster-named fragments as
+    the truth): sideline 15 joins, 0 right and 1 wrong among named-both
+    pairs, 14 with an unnamed side; endzone 11 joins, 1 right, 1 wrong;
+    fragments per named player 1.69 -> 1.69 and 1.71 -> 1.68. With the kit
+    and number vetoes it still welds a wrong pair per right one on the
+    little evidence there is, and most fragments carry neither name nor
+    number. Kept as tested code; 08i does not call it."""
+    order = sorted(range(len(tracks)), key=lambda i: int(tracks[i].frames.min()))
+    cands = []
+    for a_idx in range(len(order)):
+        a = tracks[order[a_idx]]
+        a_end = int(a.frames.max())
+        for b_idx in range(len(order)):
+            b = tracks[order[b_idx]]
+            b_start = int(b.frames.min())
+            gap = (b_start - a_end) / fps
+            if gap <= 0 or gap > gap_s:
+                continue
+            if a.kit >= 0 and b.kit >= 0 and a.kit != b.kit:
+                continue
+            if a.number >= 0 and b.number >= 0 and a.number != b.number:
+                continue
+            d = float(np.linalg.norm(b.xy[0] - a.xy[-1]))
+            if d > floor_m + speed * gap:
+                continue
+            if a.number >= 0 and b.number >= 0:
+                ev = "number"
+            elif a.kit >= 0 and b.kit >= 0:
+                ev = "kit"
+            else:
+                continue
+            cands.append((0 if ev == "number" else 1, d, order[a_idx], order[b_idx], ev))
+    cands.sort()
+    used_end, used_start, out = set(), set(), []
+    for _, d, i, j, ev in cands:
+        if i in used_end or j in used_start:
+            continue
+        used_end.add(i)
+        used_start.add(j)
+        out.append((i, j, ev, d))
+    return out
+
+
+def chains_from_joins(n: int, joins):
+    """Union-find over ``(i, j, ...)`` joins -> dense group id per track."""
+    parent = list(range(n))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for i, j, *_ in joins:
+        ra, rb = find(i), find(j)
+        if ra != rb:
+            parent[rb] = ra
+    roots = [find(a) for a in range(n)]
+    order: dict = {}
+    for r in roots:
+        order.setdefault(r, len(order))
+    return np.array([order[r] for r in roots], int)
