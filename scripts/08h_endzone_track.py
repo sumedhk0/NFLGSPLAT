@@ -147,39 +147,89 @@ def player_ruler(cams, tracks_parquet, *, kit_margin=0.3):
     return (float(np.median(nn)), float(np.mean(nn < 1.0)), len(nn)) if len(nn) else (float("nan"), 0.0, 0)
 
 
-def _propagate(H_full, f_ref, R_ref, C, cx, cy, n, *, aspect=ASPECT_RANGE, band=FOCAL_BAND):
-    """Per-frame (K, R, t, conf) from a reference camera and the homographies INTO the reference."""
-    K_ref = np.array([[f_ref, 0.0, cx], [0.0, f_ref, cy], [0.0, 0.0, 1.0]])
-    M_ref = K_ref @ R_ref
-    K_pp = np.array([[1.0, 0.0, cx], [0.0, 1.0, cy], [0.0, 0.0, 1.0]])
+def rot_focal_from_homography(H, f_ref, R_ref, cx, cy):
+    """The frame camera (R_t, f_t) whose rays agree with the reference's
+    through ``H`` (frame pixels INTO the reference), principal point held.
+
+    A pixel grid is mapped through H into the reference, lifted to world
+    directions by the reference camera, and (rotation, log focal) are fitted
+    so those directions project back onto the grid. Measured 2026-09-06: the
+    matrix route (K_t R_t = H^-1 K_ref R_ref, RQ-style split with an SVD
+    polish) turned a 0.4 px homography step into 0.18 deg of rotation --
+    0.9 m on the ground at 300 m -- because the polish, not the translation,
+    set the rotation; the ray fit holds a pixel-static ground point to 1 cm
+    over the same frames. Returns ``(R_t, f_t, rms_px)``."""
+    import cv2
+    from scipy.optimize import least_squares
+
+    gu, gv = np.meshgrid(np.linspace(100, 2 * cx - 100, 7), np.linspace(100, 2 * cy - 100, 5))
+    pts = np.column_stack([gu.ravel(), gv.ravel(), np.ones(gu.size)])
+    q = (H @ pts.T).T
+    q = q[:, :2] / q[:, 2:3]
+    rays = np.column_stack([(q[:, 0] - cx) / f_ref, (q[:, 1] - cy) / f_ref, np.ones(len(q))])
+    rays /= np.linalg.norm(rays, axis=1, keepdims=True)
+    world = (R_ref.T @ rays.T).T
+
+    def resid(x):
+        Rt = cv2.Rodrigues(x[:3])[0] @ R_ref
+        ft = f_ref * np.exp(x[3])
+        cam = (Rt @ world.T).T
+        proj = np.column_stack([cam[:, 0] / cam[:, 2] * ft + cx, cam[:, 1] / cam[:, 2] * ft + cy])
+        return (proj - pts[:, :2]).ravel()
+
+    r = least_squares(resid, np.zeros(4), method="lm")
+    Rt = cv2.Rodrigues(r.x[:3])[0] @ R_ref
+    return Rt, float(f_ref * np.exp(r.x[3])), float(np.sqrt(np.mean(r.fun ** 2)))
+
+
+def _propagate(H_full, f_ref, R_ref, C, cx, cy, n, *, band=FOCAL_BAND, max_rms_px: float = 3.0):
+    """Per-frame (K, R, t, conf) from a reference camera and the homographies
+    INTO the reference, by ``rot_focal_from_homography`` per frame; a frame
+    whose fit is worse than ``max_rms_px`` or whose focal leaves ``band`` is
+    dropped (conf 0)."""
     K = np.zeros((n, 3, 3))
     R = np.zeros((n, 3, 3))
     t = np.zeros((n, 3))
     conf = np.zeros(n)
     dropped = 0
     for f, H in H_full.items():
-        M = np.linalg.inv(H) @ M_ref
-        nmat = np.linalg.solve(K_pp, M)
-        sc = np.linalg.norm(nmat[2])
-        if not np.isfinite(sc) or sc < 1e-12:
+        if not (0 <= f < n):
+            continue
+        Rf, ff, rms = rot_focal_from_homography(H, f_ref, R_ref, cx, cy)
+        if not np.isfinite(ff) or rms > max_rms_px or not (band[0] <= ff / f_ref <= band[1]):
             dropped += 1
             continue
-        nmat = nmat / sc
-        fx, fy = np.linalg.norm(nmat[0]), np.linalg.norm(nmat[1])
-        if not (aspect[0] <= fx / fy <= aspect[1]) or not (band[0] <= fx / f_ref <= band[1]):
-            dropped += 1
-            continue
-        Rf = np.stack([nmat[0] / fx, nmat[1] / fy, nmat[2]])
-        U, _, Vt = np.linalg.svd(Rf)
-        Rf = U @ Vt
-        if np.linalg.det(Rf) < 0:
-            Rf = -Rf
-        ff = 0.5 * (fx + fy)
         K[f] = np.array([[ff, 0.0, cx], [0.0, ff, cy], [0.0, 0.0, 1.0]])
         R[f] = Rf
         t[f] = -Rf @ C
         conf[f] = 1.0
     return K, R, t, conf, dropped
+
+
+def chain_homographies(imgs, feats, ref, lo, hi, *, min_inliers: int = 12):
+    """``{frame: H}`` mapping each frame INTO the reference by composing
+    CONSECUTIVE-frame homographies outward from ``ref`` (one step is a few
+    pixels: no aliasing on the periodic yard lines, which broke the direct
+    registration at a 100-frame gap on play 2). Returns ``(H_by, inliers)``."""
+    from nfl_gsplat.calibration.endzone_mosaic import _homography
+
+    H_by = {ref: np.eye(3)}
+    inl = {}
+    for direction in (+1, -1):
+        prev = ref
+        f = ref + direction
+        while lo <= f <= hi:
+            if f not in feats:
+                f += direction
+                continue
+            hom, n_inl = _homography(feats[prev], feats[f], min_inliers)
+            if hom is None:
+                break
+            H_by[f] = H_by[prev] @ hom
+            inl[f] = n_inl
+            prev = f
+            f += direction
+    return H_by, inl
 
 
 def _player_frames(tracks_parquet, side, *, kit_margin=0.3):
@@ -275,8 +325,6 @@ def main() -> None:
     ap.add_argument("--min-inliers", type=int, default=25)
     ap.add_argument("--no-write", action="store_true", help="measure only")
     args = ap.parse_args()
-    from nfl_gsplat.calibration.endzone_mosaic import register_to_reference
-
     play = args.play_dir
     video = args.video or play / f"{args.cam}.mp4"
     tracks = args.tracks or play / "tracks.parquet"
@@ -297,8 +345,9 @@ def main() -> None:
     ref = int(solved[len(solved) // 2])
     if ref not in imgs:
         ref = min(imgs, key=lambda f: abs(f - ref))
-    H_by, inliers = register_to_reference(imgs, ref_idx=ref, min_inliers=args.min_inliers,
-                                          boxes_by_frame=boxes)
+    from nfl_gsplat.calibration.endzone_mosaic import _features, keep_mask
+    feats = {f: _features(img, keep_mask(img.shape, boxes.get(f))) for f, img in imgs.items()}
+    H_by, inliers = chain_homographies(imgs, feats, ref, lo, hi, min_inliers=args.min_inliers)
     # half-resolution homographies to full resolution: p_half = D p_full
     D = np.diag([args.scale, args.scale, 1.0])
     Dinv = np.linalg.inv(D)
