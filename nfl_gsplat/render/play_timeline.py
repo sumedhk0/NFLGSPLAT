@@ -150,7 +150,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         print(f"edge-clipped one-view ids left out: {len(clipped)}")
     # One avatar per sideline track: an id the endzone alone sees is the
     # sideline's player unpaired, drawn twice (endzone_only_rule).
-    ghosts = endzone_only_ids(df, views)
+    ghosts = endzone_only_ids(df, views, ground=ground, sideline=tracks.get("sideline"))
     if ghosts:
         print(f"endzone-only ids left out: {len(ghosts)}")
     # Not players: staff at the boundary (position) and officials (stripes),
