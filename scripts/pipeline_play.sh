@@ -24,6 +24,7 @@
 #   tri       scripts/05n (joints triangulated with both cameras)       -> poses_tri.json
 #   fuse      scripts/05e (monocular joints fused) -- OPT-IN, FUSE=1; 2.6-3.4x worse than tri
 #   refit     scripts/05f                                             -> poses_refit.json
+#   refit_mono scripts/05p one-view bodies refit to the sideline keypoints -> poses_refit.json (+ _fused.json kept)
 #   fit       scripts/05i (appearance fit from the footage) -- OPT-IN, FIT=1: the hi-fi render
 #             wears synthetic uniforms (render.uniform); fitted textures measured no better
 #   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
@@ -63,7 +64,7 @@ fail() { echo "FAILED at $1 -- re-run the same command to resume"; exit 1; }
 if [ "$FRESH" = 1 ]; then
   log "fresh: wiping markers and stage outputs"
   rm -f "$P"/.done_* "$P/poses_sideline.json" "$P/poses_endzone.json" "$P/poses_fused.json" \
-        "$P/poses_refit.json" "$P/identity_resolved.pkl" "$P/identity_unnamed.pkl" "$P/identity_fused.pkl" \
+        "$P/poses_refit.json" "$P/poses_refit_fused.json" "$P/identity_resolved.pkl" "$P/identity_unnamed.pkl" "$P/identity_fused.pkl" \
         "$P/tracks_identity.parquet" "$P/cameras_relative.npz" "$P/field_offset.json"
 fi
 
@@ -233,6 +234,15 @@ if ! done_ refit; then
   # and the 10 / 0.7 default refit only 9 of 30 and 19 of 43 players; the rest fell
   # back to single-view poses (measured 2026-09-05).
   mark refit
+fi
+
+if ! done_ refit_mono; then
+  log "one-view bodies refit to the sideline keypoints (05p; feet on the turf, fused records win)"
+  # The regressor's poses glide (play 1 v14: 0.21 m/s body-frame joint speed, 34 px off the
+  # keypoints); the fit follows the keypoints (2.5 px) and moves (0.55 m/s). Re-runs start
+  # from poses_refit_fused.json, the 05f cache kept beside the merged one.
+  "$PYS" scripts/05p_refit_mono.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn"      | grep -E "players with|^fitted|wrote|already merged|no fused|Error|Traceback" || fail refit_mono
+  mark refit_mono
 fi
 
 if [ "${FIT:-0}" = "1" ] && ! done_ fit; then

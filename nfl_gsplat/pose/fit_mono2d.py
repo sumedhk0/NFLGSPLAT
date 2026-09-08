@@ -89,7 +89,9 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
             parts.append(np.sqrt(cfg.temporal_weight) * (p[go_slice] - prev_params[go_slice]))
         return np.concatenate(parts)
 
-    sol = least_squares(residuals, init_params, method="trf", loss=cfg.loss, max_nfev=cfg.max_iter * 10,
+    # max_nfev counts iterations here (one residual call each, the Jacobian
+    # numerical: 70 more); at x10 a noisy frame ran 400 iterations = 5 s
+    sol = least_squares(residuals, init_params, method="trf", loss=cfg.loss, max_nfev=cfg.max_iter,
                         x_scale="jac")
     pix, _ = project(K, R, t, forward(sol.x)[use])
     err = np.linalg.norm(pix - target, axis=1)
@@ -119,10 +121,10 @@ def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, ini
         headings = [Rotation.from_euler("z", yaw) for yaw in np.linspace(0, 2 * np.pi, 12, endpoint=False)]
     for rot in headings:
         go = rot.as_rotvec()
-        tr = np.array([ground_xy[0] - rest[PELVIS, 0], ground_xy[1] - rest[PELVIS, 1], 0.0])
-        p = _pack_params(bp, go, tr)
+        p = _pack_params(bp, go, np.zeros(3))
         J = forward(p)
-        # feet on the turf: shift so the lower ankle is at z = 0
+        # the pelvis over the ground point, the lower ankle on the turf (z = 0)
+        p[-3:-1] += np.asarray(ground_xy, float) - J[PELVIS, :2]
         p[-1] -= min(J[ANKLES[0], 2], J[ANKLES[1], 2])
         J = forward(p)
         pix, depth = project(K, R, t, J[use])
@@ -137,9 +139,11 @@ def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, ini
 
 
 def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *, cfg=None, base_cfg=None,
-                    init_body_pose_seq=None, init_orient_seq=None):
+                    init_body_pose_seq=None, init_orient_seq=None, frames=None, max_gap=12):
     """``uv_seq [T, 22, 2]``, ``conf_seq [T, 22]``, ``cams`` a list of (K, R, t) per frame,
-    ``ground_seq [T, 2]``. Returns ``(params [T, 69], valid [T], reproj_px [T])``."""
+    ``ground_seq [T, 2]``. Returns ``(params [T, 69], valid [T], reproj_px [T])``.
+    With ``frames``, a gap over ``max_gap`` frames restarts from the rigid start
+    (the temporal pull would otherwise drag a pose across the gap)."""
     cfg = cfg or Mono2DConfig()
     base_cfg = base_cfg or SMPLXFitConfig()
     T = len(uv_seq)
@@ -147,9 +151,12 @@ def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *,
     valid = np.zeros(T, bool)
     rep = np.full(T, np.nan)
     prev = None
+    last_frame = None
     for i in range(T):
         init_bp = None if init_body_pose_seq is None else init_body_pose_seq[i]
         init_go = None if init_orient_seq is None else init_orient_seq[i]
+        if frames is not None and last_frame is not None and int(frames[i]) - last_frame > max_gap:
+            prev = None
         try:
             if prev is None:
                 start, _ = rigid_start_2d(rest_joints, ground_seq[i], cams[i], uv_seq[i], conf_seq[i], forward,
@@ -164,4 +171,49 @@ def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *,
             continue
         params[i], valid[i], rep[i] = p, True, e
         prev = p
+        last_frame = None if frames is None else int(frames[i])
     return params, valid, rep
+
+
+def body_frame_speeds(params_seq, frames, forward, *, fps: float, base_cfg=None):
+    """Joint speeds in the BODY frame (pose only: orient and transl zeroed),
+    metres per second between consecutive records: ``[T-1, 22]``. The ruler
+    for gliding: play 1 v14 regressor bodies 0.25 m/s, triangulated 1.0."""
+    base_cfg = base_cfg or SMPLXFitConfig()
+    bp_slice, _, _ = _param_slices(base_cfg)
+    J = []
+    for p in params_seq:
+        q = np.zeros(len(p))
+        q[bp_slice] = np.asarray(p, float)[bp_slice]
+        J.append(forward(q))
+    J = np.stack(J)
+    dt = np.diff(np.asarray(frames, float)) / float(fps)
+    return np.linalg.norm(np.diff(J, axis=0), axis=2) / dt[:, None]
+
+
+def merge_into_refit(blob, fits, betas_of, *, source: str = "mono2d"):
+    """``blob`` (the 05f pose cache) with ``fits`` (pid -> (frames, params [T, 69], valid))
+    added where the fused refit has no record for that frame and player; the
+    fused record wins. Returns the new blob and the number of records added."""
+    base = SMPLXFitConfig()
+    bp_slice, go_slice, tr_slice = _param_slices(base)
+    frames = {int(f): dict(recs) for f, recs in blob.get("frames", {}).items()}
+    added = 0
+    mono = {}
+    for pid, (fs, params, valid) in fits.items():
+        for f, p, ok in zip(fs, params, valid):
+            f, pid = int(f), int(pid)
+            if not ok or pid in frames.get(f, {}):
+                continue
+            frames.setdefault(f, {})[pid] = {
+                "betas": np.asarray(betas_of[pid], np.float32),
+                "body_pose": np.asarray(p[bp_slice], np.float32),
+                "global_orient": np.asarray(p[go_slice], np.float32),
+                "transl": np.asarray(p[tr_slice], np.float32),
+            }
+            added += 1
+            mono[pid] = mono.get(pid, 0) + 1
+    out = dict(blob)
+    out["frames"] = frames
+    out["mono"] = {"source": source, "records": mono}
+    return out, added

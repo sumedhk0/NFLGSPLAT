@@ -65,3 +65,34 @@ def test_recovers_a_swinging_arm_from_one_view():
     # the raised arm is raised as in the truth: the right wrist's height within 0.15 m of the truth's
     assert J[21, 2] > J[17, 2] + 0.2, "the synthetic arm must actually be raised"
     assert abs(Jf[21, 2] - J[21, 2]) < 0.15, (Jf[21], J[21])
+
+
+def test_body_frame_speeds_ignore_orient_and_transl_and_merge_keeps_fused():
+    from scipy.spatial.transform import Rotation
+
+    from nfl_gsplat.pose.fit_mono2d import body_frame_speeds, merge_into_refit
+
+    rest = _rest()
+    forward = fk_forward(rest)
+    bp = np.zeros(63)
+    a = _pack_params(bp, np.zeros(3), np.zeros(3))
+    # same pose, moved 5 m and turned: no body-frame motion
+    b = _pack_params(bp, Rotation.from_euler("z", 1.0).as_rotvec(), np.array([5.0, 0, 0]))
+    v = body_frame_speeds([a, b], [0, 6], forward, fps=60.0)
+    assert v.shape == (1, 22) and v.max() < 1e-9
+    # the arm swings 0.5 rad in 6 frames at 60 fps: the wrist moves, the pelvis does not
+    bp2 = bp.copy()
+    bp2[(17 - 1) * 3 + 1] = 0.5
+    v = body_frame_speeds([a, _pack_params(bp2, np.zeros(3), np.zeros(3))], [0, 6], forward, fps=60.0)
+    assert v[0, 21] > 1.0 and v[0, 0] < 1e-9
+    blob = {"cam": "fused", "world": True, "frames": {10: {1: {"betas": np.zeros(10), "body_pose": np.ones(63),
+                                                               "global_orient": np.zeros(3), "transl": np.zeros(3)}}}}
+    fits = {1: (np.array([10, 12]), np.stack([a, b]), np.array([True, True])),
+            2: (np.array([10, 12]), np.stack([a, b]), np.array([True, False]))}
+    out, added = merge_into_refit(blob, fits, {1: np.zeros(10), 2: np.ones(10)})
+    assert added == 2                          # (12, 1) and (10, 2); (10, 1) fused wins, (12, 2) invalid
+    assert np.all(out["frames"][10][1]["body_pose"] == 1.0)
+    assert np.allclose(out["frames"][12][1]["transl"], [5, 0, 0])
+    assert 2 in out["frames"][10] and 2 not in out["frames"][12]
+    assert out["mono"]["records"] == {1: 1, 2: 1}
+    assert 2 not in blob["frames"][10]         # the input blob is not mutated
