@@ -458,6 +458,11 @@ much as the triangulated ones instead of a sixth. The unobserved joints
 (spine, collars, feet: 8 of 22) sit on the prior and pull the median down;
 the reprojection is the keypoints' own noise at 130 px bodies.
 `diag/play_001_v15_hifi_720.mp4` = v14 + this stage (nothing else changed).
+Jitter (body-frame joint series, median second difference over median
+first difference between records): fused refit 2.16 at step 1 and 2.16 at
+step 2, one-view refit 1.70 at step 2 -- the one-view fits are no rougher
+than the triangulated ones (both are noise-dominated at 8-15 mm a record),
+so no extra smoothing on the mono records.
 
 ### v11, v12, v13: the endzone track decided by triangulation (2026-09-08)
 
