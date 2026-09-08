@@ -20,3 +20,11 @@ def test_the_weaker_overlapping_claim_loses_the_name_and_a_tie_names_neither():
     assert out[7].player == "Passer"
     assert sorted(g for g, *_ in demoted) == [2, 3, 4]
     assert merged[2].player == "Kicker"                                                     # input untouched
+
+
+def test_specialists_are_vetoed_on_scrimmage_downs_only():
+    from nfl_gsplat.identity.exclusive import specialist_veto
+
+    assert specialist_veto("K") and specialist_veto("p") and specialist_veto("LS")
+    assert not specialist_veto("RB") and not specialist_veto("")
+    assert not specialist_veto("K", kicking_play=True)

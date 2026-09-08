@@ -73,6 +73,8 @@ def main() -> None:
                     help="the team in the COLOURED kit (e.g. KC in red against BAL in white): "
                          "colour label T1 maps to it outright and the roster vote is printed as "
                          "a check; without it the roster vote maps the colours")
+    ap.add_argument("--kicking-play", action="store_true",
+                    help="a kickoff, punt or field goal: kickers, punters and long snappers may be named")
     ap.add_argument("--from-cache", action="store_true",
                     help="reuse tracks_identity.parquet instead of re-running OCR")
     ap.add_argument("--cpu", action="store_true")
@@ -239,8 +241,11 @@ def main() -> None:
         mapping[b if nb <= na else a] = other
         print(f"   tie broken: {mapping}")
 
+    from nfl_gsplat.identity.exclusive import specialist_veto
+
     merged = {}
     overruled = []
+    specialists = []
     for gid in sorted(df["track_id"].unique()):
         gid = int(gid)
         jersey = int(read.get(gid, -1))
@@ -264,6 +269,9 @@ def main() -> None:
             team = owners[0] if len(owners) == 1 else "?"
         key = (team, float(jersey))
         row = roster.loc[key] if (jersey >= 0 and key in roster.index) else None
+        if row is not None and specialist_veto(row.get("position", ""), kicking_play=args.kicking_play):
+            specialists.append((gid, jersey, str(row["full_name"]), str(row.get("position", ""))))
+            row = None
         if row is not None:
             name = str(row["full_name"])
             height_m = float(row["height"]) * 0.0254 if pd.notna(row["height"]) else 1.85
@@ -300,6 +308,9 @@ def main() -> None:
                           for g, j, n, k in demoted)[:500])
     pickle.dump({"merged": merged, "stitch": {}},
                 open(play / "identity_resolved.pkl", "wb"))
+    if specialists:
+        print(f"   not on the field on a scrimmage down (--kicking-play to allow): "
+              + ", ".join(f"id {g} #{j} {n} ({p})" for g, j, n, p in specialists)[:300])
     if overruled:
         print(f"   kit overruled the number on {len(overruled)} ids: "
               + ", ".join(f"id {g} #{j} is {o}-only, kit {t}" for g, j, o, t in overruled)[:400])

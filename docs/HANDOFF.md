@@ -441,7 +441,12 @@ caches keyed by id stay valid -- into `jersey_votes.json`), and
 ids claiming the same (team, jersey) with overlapping spans the strongest
 vote keeps the name, the others lose it (jersey 0, `P<id>`, kit kept); a
 tie within 1.5x names neither, since a wrong name is the worse defect.
-Play 1 result: PENDING (08j on the CPU, then 08c --from-cache).
+Play 1 (08j on the CPU, 5 min: 32 (cam, id) keys read a number, the
+re-vote agrees with the cached winner on 30): four ids lost a shared
+name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
+79 (Agholor, kept 82); 22 named. The kept "Butker" is still the kicker on
+a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
+takes that one too.
 
 ### v18: the two-view bodies shook; the fused refit damped (2026-09-08)
 

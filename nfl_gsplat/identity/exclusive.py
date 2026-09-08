@@ -61,3 +61,13 @@ def exclusive_names(merged: dict, spans: dict, evidence: dict, *, tie_ratio: flo
                 out[g] = replace(out[g], jersey=0, player=f"P{g}")
                 demoted.append((g, claim[1], merged[g].player, k))
     return out, demoted
+
+
+SPECIALISTS = ("K", "P", "LS")
+
+
+def specialist_veto(position, *, kicking_play: bool = False) -> bool:
+    """A kicker, punter or long snapper is not on the field on a scrimmage
+    down: a number that lands on one is a misread (play 1: two endzone
+    tracks read "7" = the kicker on a 2nd-and-20). Off on a kicking play."""
+    return (not kicking_play) and str(position).upper() in SPECIALISTS
