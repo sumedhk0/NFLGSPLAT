@@ -843,6 +843,14 @@ meanwhile with rule D's kits (keypoints -> tri -> refit -> hifi).
 
 ## What has been measured and rejected (do not re-propose without new evidence)
 
+- **Ankle keypoints as the one-view ground point (2026-09-08, play 1, 2773
+  two-view frames, judged against the fused refit's pelvis):** box bottom
+  p50 0.55 m (p90 1.35), mean of the two ankle keypoints dropped 8 cm to
+  the turf p50 0.53 (p90 1.45), the lower ankle 0.62. No gain; the two
+  carry opposite biases along the sideline's depth (box -0.32 m, ankles
+  +0.28) against a reference that is itself the hips' triangulation. The
+  0.5 m is the placement ambiguity of one view, not the choice of pixel.
+
 - Officials by shirt stripes (horizontal-gradient energy of the torso band): a
   continuum on real crops, players on top, at 140 and 200-260 px bodies.
 - Per-frame camera refinement to the yard lines alone: the pencil of near-parallel
