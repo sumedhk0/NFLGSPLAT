@@ -510,6 +510,26 @@ rule that an interpolated state within INTERP_DUP_M of a detected one is
 still a duplicate: 46 / 123 at 0.4 m, 55 / 121 at 0.5. Adopted 0.4. v23's
 render carries the anchoring alone (360 doubles); v24 = v23 + the radius.
 
+**Shakiness as rendered** (ruler: the timeline's interpolated poses at
+the render stride through the FK, second differences per rendered step,
+hands and feet): p50 38 mm, p90 267 mm on v23 -- fused and one-view
+records alike, i.e. limbs jumping a quarter metre between rendered
+frames at the p90, where a sprinting limb's true second difference is
+a few cm; first differences (real motion) p50 36, p90 147. A zero-phase
+moving average over the interpolated axis-angles (`timeline.
+smooth_axis_angles`, POSE_SMOOTH_FRAMES source frames):
+
+| window | jitter p50 / p90 (mm) | motion p50 / p90 (mm) | 2nd/1st |
+|---|---|---|---|
+| off | 38 / 267 | 36 / 147 | 1.08 |
+| 5 | 21 / 150 | 33 / 140 | 0.65 |
+| 9 | 15 / 95 | 29 / 119 | 0.50 |
+| 15 | 10 / 65 | 24 / 94 | 0.41 |
+| 21 | 7 / 50 | 20 / 81 | 0.35 |
+
+Adopted 9 (0.15 s): the jitter halves at the p90 and 81 % of the p90
+motion stays; past that the smoothing eats strides. v24 carries it.
+
 ### v21: a wrong pair sawtoothed by a metre a frame (2026-09-08)
 
 Ruler: second differences of the timeline's state xy per frame.

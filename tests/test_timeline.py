@@ -65,7 +65,7 @@ def test_build_timeline_gives_every_player_a_body_every_frame():
               Rotation.from_rotvec(tl.upright_from_yaw(0.0))).as_rotvec()
     poses = {1: {0: (np.zeros((21, 3)), tl.upright_from_yaw(0.0), np.zeros(10), "fused"),
                  30: (np.ones((21, 3)) * 0.2, tipped, np.zeros(10), "fused")}}
-    out = tl.build_timeline(frames, ground, poses, default_pose=np.ones((21, 3)) * 0.1)
+    out = tl.build_timeline(frames, ground, poses, default_pose=np.ones((21, 3)) * 0.1, pose_smooth=0)
     assert all(len(out.states[f]) == 2 for f in frames), "both players every frame"
     s1 = {f: [s for s in out.states[f] if s.pid == 1][0] for f in frames}
     s2 = {f: [s for s in out.states[f] if s.pid == 2][0] for f in frames}
@@ -211,3 +211,16 @@ def test_place_from_refit_interpolates_the_translation_across_a_short_gap():
     assert np.allclose(out2[0][1], [1.0, -0.35]) and np.allclose(out2[2][1], [1.2, -0.35])
     assert np.allclose(out[10][1], [0.0, 0.0])                           # the 25-frame gap: left alone
     assert np.allclose(out[5][1], [0.0, 0.0])                            # after the last record: left alone
+
+
+def test_smooth_axis_angles_damps_noise_and_keeps_a_ramp():
+    rng = np.random.default_rng(0)
+    T = 60
+    ramp = np.linspace(0, 1.0, T)[:, None, None] * np.ones((1, 21, 3))
+    noisy = ramp + rng.normal(0, 0.1, ramp.shape)
+    sm = tl.smooth_axis_angles(noisy, window=9)
+    assert sm.shape == noisy.shape
+    d2 = lambda a: np.abs(np.diff(a, n=2, axis=0)).mean()
+    assert d2(sm) < 0.3 * d2(noisy)                                    # the noise goes
+    assert abs(sm[30, 0, 0] - ramp[30, 0, 0]) < 0.05                   # the ramp stays
+    assert np.allclose(tl.smooth_axis_angles(ramp, window=1), ramp)   # off

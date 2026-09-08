@@ -56,6 +56,12 @@ MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridge
 INTERP_DUP_M: float = 0.4
 MIN_FRAMES: int = 6              # shorter fragments are noise
 VEL_WINDOW: int = 12             # frames over which yaw follows the travel direction
+# Poses as rendered still shake: hands and feet move 27 cm between rendered
+# frames at the p90 in second differences (play 1 v23, fused and one-view
+# alike) where a sprinting limb's real second difference is a few cm. A
+# zero-phase moving average over the interpolated axis-angles, this many
+# source frames wide (0 = off); measured 2026-09-08, see HANDOFF v24.
+POSE_SMOOTH_FRAMES: int = 9
 UP = np.array([0.0, 0.0, 1.0])
 
 
@@ -161,6 +167,25 @@ def smooth_xy(xy, *, window: int = 9):
         vp = np.concatenate([np.full(pad, v[0]), v, np.full(pad, v[-1])])
         out[idx, d] = np.convolve(vp, np.ones(k) / k, mode="valid")
     return out
+
+
+def smooth_axis_angles(seq, *, window: int = POSE_SMOOTH_FRAMES):
+    """Zero-phase moving average along axis 0 of ``seq [T, ...]`` (axis-angle
+    vectors per joint; fine while neighbouring rotations are close, which
+    interpolated poses at 60 fps are). ``window`` <= 1 returns the input."""
+    a = np.asarray(seq, float)
+    if window is None or window <= 1 or len(a) < 3:
+        return a
+    k = min(int(window), len(a) if len(a) % 2 else len(a) - 1)
+    if k < 3:
+        return a
+    pad = k // 2
+    shape = a.shape
+    flat = a.reshape(len(a), -1)
+    padded = np.concatenate([np.repeat(flat[:1], pad, axis=0), flat, np.repeat(flat[-1:], pad, axis=0)])
+    kern = np.ones(k) / k
+    out = np.stack([np.convolve(padded[:, j], kern, mode="valid") for j in range(flat.shape[1])], axis=1)
+    return out.reshape(shape)
 
 
 def fill_gaps(frames, xy, *, max_gap: int = MAX_GAP_FRAMES):
@@ -328,7 +353,8 @@ def _nearest_views(views_by_frame, pid, f, frames_with_record):
 
 def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
-                   min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None) -> Timeline:
+                   min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
+                   pose_smooth: int = POSE_SMOOTH_FRAMES) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -354,6 +380,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         if pf:
             bp = interp_axis_angle(pf, [posed[f][0] for f in pf], frames)
             go = interp_axis_angle(pf, [np.asarray(posed[f][1]).reshape(1, 3) for f in pf], frames)[:, 0]
+            bp = smooth_axis_angles(bp, window=pose_smooth)
+            go = smooth_axis_angles(go, window=pose_smooth)
             betas = np.mean([np.asarray(posed[f][2], float) for f in pf], axis=0)
             source = posed[pf[0]][3]
         else:
