@@ -118,6 +118,16 @@ def test_a_short_detection_gap_keeps_the_body_beside_its_neighbour():
     assert out.n_duplicates == 0
 
 
+def test_an_interpolated_fragment_on_top_of_a_detected_body_is_dropped():
+    frames = list(range(0, 12))
+    # id 2 is a second fragment of id 1's player: detected 0-3, then interpolated on top of id 1
+    ground = {f: {1: np.array([10.0, 2.0]), **({2: np.array([10.1, 2.1])} if f < 4 or f >= 10 else {})} for f in frames}
+    views = {f: {1: ("sideline",), **({2: ("sideline",)} if 2 in ground[f] else {})} for f in frames}
+    out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
+    assert sorted(s.pid for s in out.states[6]) == [1]              # interpolated 0.14 m from a detected body: dropped
+    assert sorted(s.pid for s in out.states[1]) == [1, 2]           # both detected: two people (the split's job)
+
+
 def test_an_id_unseen_for_long_dedupes_at_the_plain_radius():
     frames = list(range(0, 80))
     ground = {f: {1: np.array([10.0, 2.0]), 2: np.array([10.4, 2.3])} for f in frames}

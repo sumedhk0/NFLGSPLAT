@@ -495,7 +495,20 @@ Noah Gray, JuJu Smith-Schuster, Humphrey, Taylor, Suamataia; BAL Stephens,
 Cooper Jr., Ojabo, Travis Jones, Agholor.
 
 v23 = the script from the link stage with the split stage, the anchored
-dedupe and the weighted builds: PENDING.
+dedupe and the weighted builds. Its chain: 30 cuts (151 -> 181 per-camera
+tracks), OCR 41 of 181, 36 pairs (30 two-camera ids, 0 cross-kit, 10
+paired a frame), 28 named (5 shared names demoted, the kicker vetoed), 24
+players triangulated at 65 % / 7.8 px, refit 0.096 m, 3603 one-view
+records at 3.6 px, 25 states a frame.
+
+The anchoring alone over-corrects: a ruler of VISIBLE defects per pair of
+rendered frames (a body vanishing with no body within 0.6 m of where it
+was; two bodies within 0.4 m) on v23's caches -- v22's rule 155 vanishes /
+108 doubles; anchoring alone 39 / 360 (a second fragment id interpolated
+on top of its player's detected body is now kept); anchoring with the
+rule that an interpolated state within INTERP_DUP_M of a detected one is
+still a duplicate: 46 / 123 at 0.4 m, 55 / 121 at 0.5. Adopted 0.4. v23's
+render carries the anchoring alone (360 doubles); v24 = v23 + the radius.
 
 ### v21: a wrong pair sawtoothed by a metre a frame (2026-09-08)
 

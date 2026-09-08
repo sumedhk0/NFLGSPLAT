@@ -47,6 +47,13 @@ DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one
 ONE_VIEW_DEPTH_M: float = 4.0
 ONE_VIEW_ACROSS_M: float = 1.5
 MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
+# A body interpolated through a detection gap is anchored (its player was
+# seen within MAX_GAP_FRAMES) -- unless it stands on top of a body the
+# sideline detects in that frame: then it is the same player under a second
+# fragment id. Measured on play 1 v23 (visible vanishes / double bodies per
+# rendered frame-pair): the plain rule 155 / 108, anchoring alone 39 / 360,
+# anchoring with this radius 46 / 123 at 0.4 m, 55 / 121 at 0.5.
+INTERP_DUP_M: float = 0.4
 MIN_FRAMES: int = 6              # shorter fragments are noise
 VEL_WINDOW: int = 12             # frames over which yaw follows the travel direction
 UP = np.array([0.0, 0.0, 1.0])
@@ -272,11 +279,16 @@ def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_fra
     for f, states in tl.states.items():
         seen = views_by_frame.get(f, {}) if views_by_frame else {}
         recent = anchored.get(f, set()) if anchored else set()
-        is_anchored = lambda s: anchor_cam in seen.get(s.pid, ()) or s.pid in recent  # noqa: E731
-        anchored_states = [s for s in states if is_anchored(s)]
-        rest = [s for s in states if not is_anchored(s)]
+        detected = [s for s in states if anchor_cam in seen.get(s.pid, ())]
+        interp = [s for s in states if anchor_cam not in seen.get(s.pid, ()) and s.pid in recent]
+        rest = [s for s in states if anchor_cam not in seen.get(s.pid, ()) and s.pid not in recent]
         order = sorted(rest, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
-        kept: list = list(anchored_states)
+        kept: list = list(detected)
+        for s in sorted(interp, key=lambda s: s.pid):
+            if any(float(np.hypot(*(s.xy - k.xy))) < INTERP_DUP_M for k in detected):
+                dropped += 1                                   # a second fragment id on a detected body
+                continue
+            kept.append(s)
         for s in order:
             this = seen.get(s.pid, ())
             if this and anchor_cam not in this:
