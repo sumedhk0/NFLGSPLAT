@@ -92,7 +92,13 @@ MOUNT_Z_M: tuple[float, ...] = (20.0, 35.0, 50.0, 65.0)
 # (85, -8, 16) reconciled 14.5 at 0.88 m, and every one of the five best had
 # y = -8 or -4 and a lower z. Better on both numbers, so it stays.
 REFINE_DX_M: tuple[float, ...] = (-10.0, 0.0, 10.0)
-REFINE_DY_M: tuple[float, ...] = (-8.0, -4.0, 0.0, 4.0, 8.0)
+# The across-field offset is NOT refined: on play 1's fresh run (2026-09-07)
+# the local search moved the mount to y = 4 on the height tiebreak, and over
+# the whole play the sideline's players sat 1.68 m from the endzone's
+# against 1.56 m at the seed's y = 0 (1.35 m with the footage-driven track
+# from y = 0). The feet do not see y well enough to move a mount 4 m on 14
+# anchor frames; the synthetic case that justified it was noiseless.
+REFINE_DY_M: tuple[float, ...] = (0.0,)
 REFINE_Z_SCALE: tuple[float, ...] = (0.6, 0.8, 1.0, 1.3)
 
 # The box-implied focal is tried at these multiples: the boxes give the lens at
