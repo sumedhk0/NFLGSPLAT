@@ -158,11 +158,16 @@ def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, ini
 
 
 def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *, cfg=None, base_cfg=None,
-                    init_body_pose_seq=None, init_orient_seq=None, frames=None, max_gap=12):
+                    init_body_pose_seq=None, init_orient_seq=None, frames=None, max_gap=12, prev_seq=None):
     """``uv_seq [T, 22, 2]``, ``conf_seq [T, 22]``, ``cams`` a list of (K, R, t) per frame,
     ``ground_seq [T, 2]``. Returns ``(params [T, 69], valid [T], reproj_px [T])``.
     With ``frames``, a gap over ``max_gap`` frames restarts from the rigid start
-    (the temporal pull would otherwise drag a pose across the gap)."""
+    (the temporal pull would otherwise drag a pose across the gap). ``prev_seq``
+    (a params vector or None per frame) replaces the warm start and the temporal
+    anchor for that frame -- the neighbouring two-view fit where one exists, so
+    a one-view frame between two fused blocks continues them instead of the
+    pose from before the block (measured: 187 boundaries on play 1 with pelvis
+    jumps of 0.43 m and 35 deg of orientation at the p50)."""
     cfg = cfg or Mono2DConfig()
     base_cfg = base_cfg or SMPLXFitConfig()
     T = len(uv_seq)
@@ -176,6 +181,8 @@ def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *,
         init_go = None if init_orient_seq is None else init_orient_seq[i]
         if frames is not None and last_frame is not None and int(frames[i]) - last_frame > max_gap:
             prev = None
+        if prev_seq is not None and prev_seq[i] is not None:
+            prev = np.asarray(prev_seq[i], float).copy()
         try:
             if prev is None:
                 start, _ = rigid_start_2d(rest_joints, ground_seq[i], cams[i], uv_seq[i], conf_seq[i], forward,

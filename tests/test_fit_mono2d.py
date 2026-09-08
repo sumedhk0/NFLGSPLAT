@@ -97,3 +97,35 @@ def test_body_frame_speeds_ignore_orient_and_transl_and_merge_keeps_fused():
     assert 2 in out["frames"][10] and 2 not in out["frames"][12]
     assert out["mono"]["records"] == {1: 1, 2: 1}
     assert 2 not in blob["frames"][10]         # the input blob is not mutated
+
+
+def test_prev_seq_anchors_a_frame_to_the_given_params():
+    """With prev_seq the frame warm-starts from (and is pulled toward) the given
+    solution instead of the previous fitted frame's."""
+    rest = _rest()
+    forward = fk_forward(rest)
+    base = SMPLXFitConfig()
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 1.0]))
+    cam = (K, R, t)
+    from scipy.spatial.transform import Rotation
+    go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
+    p0 = _pack_params(np.zeros(63), go, np.array([2.0, 1.0, 0.0]))
+    J = forward(p0)
+    p0[-1] -= min(J[7, 2], J[8, 2])
+    J = forward(p0)
+    uv, _ = project(K, R, t, J)
+    conf = np.ones(22)
+    conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
+    T = 3
+    cfg = Mono2DConfig(up_axis=(0.0, 0.0, 1.0))
+    # the given anchor has the right arm raised; with no keypoints on that arm the fit keeps it
+    anchor = p0.copy()
+    anchor[(17 - 1) * 3 + 1] = 1.2
+    conf[[17, 19, 21]] = 0.0
+    params, valid, _ = fit_sequence_2d(np.stack([uv] * T), np.stack([conf] * T), [cam] * T, np.stack([J[0, :2]] * T),
+                                       rest, forward, cfg=cfg, base_cfg=base, init_orient_seq=np.stack([go] * T),
+                                       prev_seq=[None, anchor, None])
+    assert valid.all()
+    assert abs(params[0][(17 - 1) * 3 + 1]) < 0.3                        # frame 0: no anchor, arm down
+    assert params[1][(17 - 1) * 3 + 1] > 0.8                             # frame 1: the anchor's raised arm

@@ -69,7 +69,8 @@ def _fit_job(job):
             pass
     params, valid, rep = fit_sequence_2d(job["uv"], job["conf"], job["cams"], job["ground"], rest, forward,
                                          cfg=cfg, base_cfg=base, init_body_pose_seq=init_bp,
-                                         init_orient_seq=init_go, frames=frames, max_gap=job["max_gap"])
+                                         init_orient_seq=init_go, frames=frames, max_gap=job["max_gap"],
+                                         prev_seq=job.get("prev_seq"))
     valid &= np.nan_to_num(rep, nan=np.inf) <= job["reproj_px_max"]
     sp_after = np.array([])
     if valid.sum() >= 2:
@@ -157,6 +158,13 @@ def main() -> None:
         blob = {"cam": "fused", "world": True, "appearance_cam": args.cam, "stride": int(side["stride"]),
                 "frames": {}}
     fused_frames = {int(f): set(int(p) for p in recs) for f, recs in blob["frames"].items()}
+    # the fused records per player, for continuity across and beyond their span
+    fused_of: dict[int, dict[int, np.ndarray]] = {}
+    for f, recs in blob["frames"].items():
+        for pid, r in recs.items():
+            fused_of.setdefault(int(pid), {})[int(f)] = _pack_params(
+                np.asarray(r["body_pose"], float).reshape(-1), np.asarray(r["global_orient"], float).reshape(3),
+                np.asarray(r["transl"], float).reshape(3))
     if args.validate:
         args.dry_run = True
 
@@ -215,6 +223,37 @@ def main() -> None:
             init_go.append(go)
         if len(frames) < 2:
             continue
+        # Continuity with the player's two-view fit (fused records win where they
+        # exist): inside the fused span the ground point is the fused pelvis
+        # interpolated, the start pose the nearest fused one, and the warm start at
+        # a block boundary the fused params; beyond the span the box point carries
+        # the span end's offset from the fused pelvis, decayed over --max-gap frames.
+        prev_seq = [None] * len(frames)
+        fr = fused_of.get(pid, {})
+        if fr and not args.validate:
+            ff = np.array(sorted(fr))
+            fx = np.stack([fr[f][-3:-1] for f in ff])
+            gnd_arr = np.stack(gnd)
+            for i, f in enumerate(frames):
+                k = int(np.argmin(np.abs(ff - f)))
+                near = int(ff[k])
+                if ff[0] < f < ff[-1]:
+                    gnd_arr[i] = np.array([np.interp(f, ff, fx[:, 0]), np.interp(f, ff, fx[:, 1])])
+                    init_bp[i] = fr[near][:63]
+                    init_go[i] = fr[near][63:66]
+                else:
+                    edge = int(ff[0]) if f < ff[0] else int(ff[-1])
+                    # the fused pelvis vs this camera's box point at the span's end
+                    off = fr[edge][-3:-1] - ground.get(edge, {}).get(pid, fr[edge][-3:-1])
+                    w = max(0.0, 1.0 - abs(f - edge) / float(args.max_gap * 5))
+                    gnd_arr[i] = gnd_arr[i] + w * np.asarray(off, float)
+                    if abs(f - edge) <= args.max_gap:
+                        init_bp[i] = fr[edge][:63]
+                        init_go[i] = fr[edge][63:66]
+                # a block boundary: the previous fitted frame is not this one's neighbour
+                if abs(near - f) <= args.stride and (i == 0 or frames[i - 1] < near):
+                    prev_seq[i] = fr[near]
+            gnd = list(gnd_arr)
         has_init = all(b is not None for b in init_bp)
         jobs.append({"pid": pid, "frames": np.asarray(frames), "uv": np.stack(uv), "conf": np.stack(conf),
                      "cams": cams, "ground": np.stack(gnd), "betas": betas,
@@ -222,7 +261,7 @@ def main() -> None:
                      "init_go": np.stack(init_go) if has_init else None,
                      "rec_frames": np.asarray(rec_frames),
                      "rec_bp": [np.asarray(rec[f]["body_pose"], float).reshape(-1) for f in rec_frames],
-                     "body_models": args.body_models, "max_gap": args.max_gap,
+                     "body_models": args.body_models, "max_gap": args.max_gap, "prev_seq": prev_seq,
                      "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg}})
