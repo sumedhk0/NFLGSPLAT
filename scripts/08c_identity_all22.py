@@ -273,6 +273,31 @@ def main() -> None:
         merged[gid] = PlayerIdentity(jersey=max(jersey, 0), player=name, team=team,
                                      height_m=height_m, weight_lb=weight_lb,
                                      tracks={"sideline": gid, "endzone": gid})
+    # One roster player, one avatar at a time (identity.exclusive): ids that
+    # claim the same name and overlap in time keep it on the strongest vote.
+    from nfl_gsplat.identity.exclusive import exclusive_names
+
+    spans = {int(g): (int(r["min"]), int(r["max"]))
+             for g, r in df.groupby("track_id")["frame"].agg(["min", "max"]).iterrows()}
+    if "jersey_votes_win" in df:
+        evidence = df.groupby("track_id")["jersey_votes_win"].max().to_dict()
+    elif (play / "jersey_votes.json").exists():
+        import json
+
+        jv = json.load(open(play / "jersey_votes.json"))
+        evidence = {}
+        for k, counts in jv.items():
+            gid = int(k.rsplit(",", 1)[1])
+            evidence[gid] = evidence.get(gid, 0) + max(counts.values(), default=0)
+        print(f"jersey vote evidence from jersey_votes.json ({len(evidence)} ids)")
+    else:
+        evidence = df[df["jersey_number_ocr"] >= 0].groupby("track_id")["frame"].nunique().to_dict()
+        print("jersey vote counts not in the cache: exclusivity falls back to frames read (re-run the OCR to keep votes)")
+    merged, demoted = exclusive_names(merged, spans, evidence)
+    if demoted:
+        print(f"   one player, one avatar: {len(demoted)} ids lost a name shared with an overlapping id: "
+              + ", ".join(f"id {g} #{j} {n} (kept {k})" if k is not None else f"id {g} #{j} {n} (tie, neither)"
+                          for g, j, n, k in demoted)[:500])
     pickle.dump({"merged": merged, "stitch": {}},
                 open(play / "identity_resolved.pkl", "wb"))
     if overruled:

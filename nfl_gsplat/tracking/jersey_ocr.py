@@ -182,16 +182,25 @@ def vote_jersey_numbers(
     video_paths: dict[str, Path | str],
     cfg: JerseyOCRConfig,
     facing_of=None,
+    votes_out: dict | None = None,
 ) -> pd.DataFrame:
     """Run OCR + majority vote per ``(cam, track_id)`` -- or per ``track_id``
     over both views with ``cfg.pool_views`` -- and write the winning digit
     into ``jersey_number_ocr``. ``facing_of(cam, frame, track_id)`` (see
-    identity.facing) gates the crops when ``cfg.min_facing`` > 0."""
+    identity.facing) gates the crops when ``cfg.min_facing`` > 0.
+
+    The evidence behind the winner is kept: ``jersey_votes_win`` (crops
+    that read the winner) and ``jersey_votes_total`` (crops that read any
+    digit) per row, and, with ``votes_out`` (a dict), the full count per
+    ``(cam, track_id)`` -- two tracks that both read "7" are told apart by
+    it (play 1: two endzone tracks named the kicker for 616 frames)."""
     if df.empty:
         return df.copy()
 
     reader = _lazy_ocr_engine(cfg.use_gpu, cfg.backend)
     out = df.copy()
+    out["jersey_votes_win"] = 0
+    out["jersey_votes_total"] = 0
 
     keys = ["track_id"] if cfg.pool_views else ["cam", "track_id"]
     for key, group in df.groupby(keys):
@@ -215,13 +224,17 @@ def vote_jersey_numbers(
                 if digit is not None:
                     votes[digit] += 1
 
+        if votes_out is not None:
+            votes_out[("both" if cfg.pool_views else str(key[0]), tid)] = {int(k): int(v) for k, v in votes.items()}
         if not votes:
             continue
-        winner, _ = votes.most_common(1)[0]
+        winner, n_win = votes.most_common(1)[0]
         mask = out["track_id"] == tid
         if not cfg.pool_views:
             mask &= out["cam"] == key[0]
         out.loc[mask, "jersey_number_ocr"] = int(winner)
+        out.loc[mask, "jersey_votes_win"] = int(n_win)
+        out.loc[mask, "jersey_votes_total"] = int(sum(votes.values()))
         _LOG.info(f"jersey OCR: ({'both' if cfg.pool_views else key[0]}, track {tid}) "
                   f"-> #{winner}  (votes={dict(votes)})")
 
