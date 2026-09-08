@@ -366,23 +366,39 @@ def fit_reference_on_players(frames, H_full, f0, R0, C, cx, cy, n):
     import cv2
     from scipy.optimize import minimize
 
+    C = np.asarray(C, float)
+    across = np.array([0.0, 1.0, 0.0]) if abs(C[0]) >= abs(C[1]) else np.array([1.0, 0.0, 0.0])
+
     def unpack(x):
         f = f0 * float(np.exp(x[0]))
         Rd = cv2.Rodrigues(np.asarray(x[1:4], np.float64))[0]
-        return f, Rd @ R0
+        return f, Rd @ R0, C + float(x[4]) * across
 
     def cost(x):
-        f, R = unpack(x)
-        K, Rr, t, conf, _ = _propagate(H_full, f, R, C, cx, cy, n)
+        f, R, Cx = unpack(x)
+        K, Rr, t, conf, _ = _propagate(H_full, f, R, Cx, cx, cy, n)
         return _ruler(frames, K, Rr, t, conf)[0]
 
-    x0 = np.zeros(4)
+    # Restarts: one Nelder-Mead from the anchors' mean converged to a worse
+    # place on play 1's fresh calibration (1.68 -> 1.77 m) after finding
+    # 1.19 -> 1.03 m on the accumulated one; the objective has basins. The
+    # mount's across-field offset is a prior (y = 0 or 4 on this game), so
+    # it is the fifth parameter.
+    x0 = np.zeros(5)
     c0 = cost(x0)
-    res = minimize(cost, x0, method="Nelder-Mead",
-                   options={"xatol": 1e-4, "fatol": 1e-3, "maxfev": 400, "initial_simplex": np.array([
-                       x0, x0 + [0.05, 0, 0, 0], x0 + [0, 0.01, 0, 0], x0 + [0, 0, 0.01, 0], x0 + [0, 0, 0, 0.01]])})
-    f, R = unpack(res.x)
-    return f, R, c0, float(res.fun), int(res.nfev)
+    rng = np.random.default_rng(0)
+    starts = [x0] + [np.array([rng.normal(0, 0.06), *np.radians(rng.normal(0, 1.0, 3)), rng.normal(0, 3.0)])
+                     for _ in range(8)]
+    best = None
+    nfev = 0
+    for xs in starts:
+        res = minimize(cost, xs, method="Nelder-Mead",
+                       options={"xatol": 1e-4, "fatol": 1e-3, "maxfev": 300})
+        nfev += int(res.nfev)
+        if best is None or res.fun < best.fun:
+            best = res
+    f, R, Cb = unpack(best.x)
+    return f, R, c0, float(best.fun), nfev, Cb
 
 
 def main() -> None:
@@ -395,6 +411,10 @@ def main() -> None:
     ap.add_argument("--pad", type=int, default=PAD_FRAMES)
     ap.add_argument("--min-inliers", type=int, default=25)
     ap.add_argument("--no-write", action="store_true", help="measure only")
+    ap.add_argument("--init-from", type=Path, default=None,
+                    help="a cameras.npz whose endzone camera at the reference frame seeds the fit (focal, "
+                         "rotation, centre) instead of the old track's transported mean: the fit is "
+                         "start-dependent (play 1 fresh: 1.82 m from the anchors' mean, 1.03 m earlier)")
     args = ap.parse_args()
     play = args.play_dir
     video = args.video or play / f"{args.cam}.mp4"
@@ -449,6 +469,12 @@ def main() -> None:
     dev = np.array([_angle_deg(R_ref, i[2]) for i in implied])
     centres = np.stack([-old.R[int(f)].T @ old.t[int(f)] for f in solved])
     C = np.median(centres, axis=0)
+    if args.init_from is not None:
+        seed = load_camera_track(args.init_from)[args.cam]
+        sf = ref if seed.conf[ref] > 0 else int(np.flatnonzero(seed.conf > 0)[np.argmin(np.abs(np.flatnonzero(seed.conf > 0) - ref))])
+        f_ref, R_ref = float(seed.K[sf][0, 0]), seed.R[sf].copy()
+        C = -seed.R[sf].T @ seed.t[sf]
+        print(f"fit seeded from {args.init_from.name} at frame {sf}: focal {f_ref:.0f}, centre {np.round(C, 1)}")
     print(f"reference camera from {int(keep.sum())} of {len(implied)} frames: focal {f_ref:.0f} px "
           f"(implied focals spread p10/p90 {np.percentile(focals / f_ref, 10):.3f}/{np.percentile(focals / f_ref, 90):.3f}), "
           f"rotation scatter p50/p90 {np.median(dev):.2f}/{np.percentile(dev, 90):.2f} deg; centre {np.round(C, 1)} "
@@ -457,10 +483,11 @@ def main() -> None:
     # camera on the sideline's ground points with the mosaic fixed.
     frames_pl = _player_frames(tracks, cams["sideline"])
     print(f"fit data: {len(frames_pl)} frames with sideline players and endzone boxes")
-    f_fit, R_fit, c_mean, c_fit, nfev = fit_reference_on_players(frames_pl, H_full, f_ref, R_ref, C, cx, cy, n)
+    f_fit, R_fit, c_mean, c_fit, nfev, C_fit = fit_reference_on_players(frames_pl, H_full, f_ref, R_ref, C, cx, cy, n)
     print(f"reference fit on the players: capped median nearest distance {c_mean:.2f} m (anchors' mean) -> "
-          f"{c_fit:.2f} m in {nfev} evaluations; focal {f_ref:.0f} -> {f_fit:.0f} px, rotation moved "
-          f"{_angle_deg(R_ref, R_fit):.2f} deg")
+          f"{c_fit:.2f} m in {nfev} evaluations over 9 starts; focal {f_ref:.0f} -> {f_fit:.0f} px, rotation moved "
+          f"{_angle_deg(R_ref, R_fit):.2f} deg, centre moved {np.linalg.norm(C_fit - C):.1f} m across")
+    C = C_fit
     K, R, t, conf, dropped = _propagate(H_full, f_fit, R_fit, C, cx, cy, n)
     new = CameraTrack(K=K, R=R, t=t, conf=conf, width=old.width, height=old.height)
     print(f"propagated {int(conf.sum())} frames ({dropped} dropped by the aspect/focal gates)")
