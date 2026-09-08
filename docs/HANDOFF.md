@@ -511,7 +511,11 @@ one-view block now cross-fades into the fused block it borders
 max-gap away): boundaries pelvis 0.01 m, orientation 2 deg (p90 4),
 body_pose 0.10 rad; the merged cache's jitter p99 260 mm and hands/feet
 p90 103 against the fused-only cache's 255 / 102 -- the one-view records
-no longer add roughness. v20 = v19 + pelvis anchoring + cross-fade.
+no longer add roughness. v20 = v19 + pelvis anchoring + cross-fade (10:13,
+`diag/play_001_v20_hifi_720.mp4`; stills against v19 in
+`diag/p1_v19_v20_strip.jpg`: the same 22 bodies, the recordless ones
+shifted onto their feet points; no regression). v19 (09:28) = v18 + the
+short-gap rule, stills identical to v18.
 
 ### v19: the one-view fill-in popped at every triangulation gap (2026-09-08)
 
