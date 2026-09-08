@@ -424,6 +424,26 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### v16: the duplicate rule was eating six players a frame (2026-09-08)
+
+Every render since v8 drew 16 bodies a frame and it passed as normal. An
+audit of the path from boxes to states on v15's caches: the sideline has
+21 boxes a frame, 20 ids after the exclusion rules, 32 ids with a ground
+point; the timeline drew 16 and `dedupe_frames` had dropped 7511 states
+(11.6 a frame); 47 sideline ids over 4056 id-frames were present and
+undrawn. The rule treated any one-view state within its camera's
+depth/across radii (4.0 m along the depth axis, 1.5 m across) of a kept
+state as the other camera's copy -- built for play 2's endzone ghosts
+strung along x -- and for a sideline-only id the depth axis is y, so the
+linemen a metre apart along the line of scrimmage were "copies" of each
+other. Now (timeline.dedupe_frames): a state whose id the SIDELINE
+detected in that frame is never a duplicate (its boxes in one frame are
+different people); an id the endzone alone sees that frame dedupes within
+the endzone's depth/across radii of a kept state; an interpolated frame
+within 0.9 m. Measured: 23 states a frame (p10 20, p90 25), 3396 dropped,
+7 sideline id-frames undrawn, nearest-neighbour distance p5 0.47 m.
+Render v16 = v15 + this rule: PENDING.
+
 ### v15: the one-view bodies refit to the keypoints (2026-09-08)
 
 Half of the rendered bodies are one-view (the sideline alone) and took the

@@ -88,19 +88,36 @@ def test_dedupe_keeps_the_posed_body_of_two_ids_on_one_spot():
     assert out.n_duplicates == len(frames)
 
 
-def test_one_view_ids_along_the_depth_axis_are_duplicates_of_two_view_ids():
+def test_endzone_only_ids_along_their_depth_axis_are_duplicates_and_sideline_detections_never():
     frames = list(range(0, 12))
     ground = {f: {1: np.array([10.0, 2.0]), 2: np.array([13.0, 2.4]), 3: np.array([10.3, 5.5]),
-                  4: np.array([30.0, 0.0])} for f in frames}
-    views = {f: {1: ("endzone", "sideline"), 2: ("endzone",), 3: ("sideline",), 4: ("endzone",)}
-             for f in frames}
+                  4: np.array([30.0, 0.0]), 5: np.array([10.0, 2.6])} for f in frames}
+    views = {f: {1: ("endzone", "sideline"), 2: ("endzone",), 3: ("sideline",), 4: ("endzone",),
+                 5: ("sideline",)} for f in frames}
     out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
     for f in frames:
         pids = sorted(s.pid for s in out.states[f])
-        # 2: endzone-only 3 m along x (its depth) from 1 -> dropped
-        # 3: sideline-only 3.5 m along y (its depth) from 1 -> dropped
+        # 2: endzone-only 3 m along x (its depth) from 1 -> the endzone's copy, dropped
+        # 3: sideline-seen 3.5 m along y from 1 -> a person the sideline detected, kept
         # 4: far from everyone -> kept
-        assert pids == [1, 4], pids
+        # 5: sideline-seen 0.6 m from 1 (a lineman beside another) -> kept
+        assert pids == [1, 3, 4, 5], pids
+    assert out.n_duplicates == len(frames)
+
+
+def test_interpolated_frames_of_an_id_dedupe_at_the_plain_radius():
+    frames = list(range(0, 12))
+    ground = {f: {1: np.array([10.0, 2.0]), 2: np.array([10.4, 2.3])} for f in frames}
+    for f in range(4, 8):                                  # id 2 undetected for four frames
+        del ground[f][2]
+    views = {f: {1: ("sideline",), **({2: ("sideline",)} if 2 in ground[f] else {})} for f in frames}
+    out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
+    for f in frames:
+        pids = sorted(s.pid for s in out.states[f])
+        if 4 <= f < 8:
+            assert pids == [1], (f, pids)                  # filled position 0.5 m from a detection: dropped
+        else:
+            assert pids == [1, 2], (f, pids)               # both detected: two people
 
 
 def test_relabel_merges_fragments_under_the_stitch_map():

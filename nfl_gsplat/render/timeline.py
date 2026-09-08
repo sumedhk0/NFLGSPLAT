@@ -39,10 +39,11 @@ MAX_TILT_DEG: float = 35.0       # single-view poses: a lineman's stance; nobody
 # clamp built for monocular garbage trimmed 13 % of them.
 MAX_TILT_TWO_VIEW_DEG: float = 60.0
 DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one player
-# An id seen by ONE view only is that view's unreconciled detection; its
-# position is poor along that view's depth axis (the endzone's is x, the
-# sideline's is y). Within these distances of a two-view id it is the same
-# man: play 2 drew six red bodies strung along x from one group of players.
+# An id the endzone alone sees this frame is its unreconciled detection,
+# poor along its depth axis (x). Within these distances of a kept state it
+# is the endzone's copy of that player: play 2 drew six red bodies strung
+# along x from one group of players. (The sideline's own detections are
+# never deduped -- see dedupe_frames.)
 ONE_VIEW_DEPTH_M: float = 4.0
 ONE_VIEW_ACROSS_M: float = 1.5
 MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
@@ -227,30 +228,37 @@ def relabel(ground_by_frame, views_by_frame, poses_by_pid, player_of):
 _SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
 
 
-def _within(s, k) -> bool:
-    """Is one-view state ``s`` a duplicate of kept state ``k``?"""
-    d = np.abs(s.xy - k.xy)
-    if len(s.views) >= 2:
-        return float(np.hypot(*d)) < DUPLICATE_M
-    depth_axis = 0 if "endzone" in s.views else 1          # endzone depth is x
-    across = 1 - depth_axis
-    return d[depth_axis] < ONE_VIEW_DEPTH_M and d[across] < ONE_VIEW_ACROSS_M
-
-
-def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M) -> int:
+def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_frame=None,
+                  anchor_cam: str = "sideline") -> int:
     """Drop, per frame, states that are another state's duplicate.
 
-    Two-view (reconciled) states are kept first, best pose first; a one-view
-    state within its view's depth/across radii of a kept state is the same
-    player seen by the other camera and dropped; one-view states among
-    themselves dedupe at ``radius_m``. Returns the number dropped."""
+    A state whose id the anchor camera DETECTED in this frame is never a
+    duplicate: the sideline sees the whole field and two of its boxes in
+    one frame are two people. Measured on play 1 (2026-09-08): the older
+    rule -- any one-view state within its view's depth/across radii of a
+    kept state is the other camera's copy -- dropped 11.6 states a frame,
+    mostly linemen a metre apart along the sideline's depth axis (4 m);
+    the sideline had 20 unexcluded ids a frame and 16 bodies were drawn.
+    The rest (an id the endzone alone sees this frame, or nobody: an
+    interpolated frame) dedupe against the kept states: endzone-only
+    within the endzone's depth/across radii (its copy of a sideline
+    player the pairing missed), interpolated within ``radius_m``. Without
+    ``views_by_frame`` nothing is anchored and every state dedupes at
+    ``radius_m``, two-view first, best pose first. Returns the number dropped."""
     dropped = 0
     for f, states in tl.states.items():
-        order = sorted(states, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
-        kept: list = []
+        seen = views_by_frame.get(f, {}) if views_by_frame else {}
+        anchored = [s for s in states if anchor_cam in seen.get(s.pid, ())]
+        rest = [s for s in states if anchor_cam not in seen.get(s.pid, ())]
+        order = sorted(rest, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
+        kept: list = list(anchored)
         for s in order:
-            dup = any(_within(s, k) for k in kept) if len(s.views) < 2 else \
-                any(float(np.hypot(*(s.xy - k.xy))) < radius_m for k in kept)
+            this = seen.get(s.pid, ())
+            if this and anchor_cam not in this:
+                d = [np.abs(s.xy - k.xy) for k in kept]
+                dup = any(dd[0] < ONE_VIEW_DEPTH_M and dd[1] < ONE_VIEW_ACROSS_M for dd in d)
+            else:
+                dup = any(float(np.hypot(*(s.xy - k.xy))) < radius_m for k in kept)
             if dup:
                 dropped += 1
                 continue
@@ -334,7 +342,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             tl.states.setdefault(f, []).append(PlayerState(
                 pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
                 source=source, clamped=clamped, views=views))
-    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M)
+    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, views_by_frame=views_by_frame)
     _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
               "%d frames tilt-clamped", len(pids), len(frames),
               float(np.median([len(v) for v in tl.states.values()])) if tl.states else 0,
