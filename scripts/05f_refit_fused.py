@@ -53,10 +53,15 @@ def main() -> None:
                     help="joints a frame needs to be fitted (triangulated joints are sparser: 6)")
     ap.add_argument("--min-frame-frac", type=float, default=0.7,
                     help="fraction of a player's frames that must fit, else the player is skipped")
-    ap.add_argument("--temporal-weight", type=float, default=SMPLXFitConfig.temporal_weight,
-                    help="pull toward the previous frame's pose (fuse_smplx.SMPLXFitConfig)")
-    ap.add_argument("--f-scale", type=float, default=SMPLXFitConfig.f_scale,
-                    help="soft_l1 scale in metres; joint errors past it count linearly")
+    # Measured on play 1 (2026-09-08, 22 players / 433 frames): the plain fit's
+    # world joints jitter p90 101 mm a frame, hands/feet p90 319 mm, from
+    # triangulated joints at p90 62 mm; at (0.3, 0.1) p90 65 / hands-feet 102
+    # (rms to the joints 0.087 -> 0.096 m), at (1.0, 0.1) 59 / 77 (rms 0.102).
+    # 0.3 keeps most of the gain with the least lag on a real move.
+    ap.add_argument("--temporal-weight", type=float, default=0.3,
+                    help="pull toward the previous frame's pose (fuse_smplx.SMPLXFitConfig; 0 = the plain fit)")
+    ap.add_argument("--f-scale", type=float, default=0.1,
+                    help="soft_l1 scale in metres; joint errors past it count linearly (1.0 = plain least squares)")
     args = ap.parse_args()
 
     fused = pickle.load(open(args.fused, "rb"))["fused"]      # pid -> {frame: [J, 3]}

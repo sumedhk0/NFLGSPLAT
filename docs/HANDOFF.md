@@ -424,6 +424,32 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### v18: the two-view bodies shook; the fused refit damped (2026-09-08)
+
+Ruler: second differences of the refit's world joints per frame (a smooth
+motion has them far below the first differences). The fused refit (05f,
+plain per-frame least squares, warm start only) came out p50 19 mm, p90
+101, p99 717, hands/feet p90 319 mm a frame -- limbs jumping a third of a
+metre between frames at the p90 -- from triangulated joints (05n) at p50
+18 / p90 62 / p99 293: the fit AMPLIFIED the input's spikes. Two causes in
+`fuse_smplx.fit_single_frame`: no temporal term, and soft_l1 at f_scale
+1.0 m, which is plain least squares for anything under a metre. Now
+`SMPLXFitConfig.temporal_weight` (pull of body_pose and orient toward the
+previous frame's solution, consecutive frames only) and `f_scale`; 05f
+defaults 0.3 / 0.1 (the library's defaults stay 0 / 1.0). Play 1 sweep:
+
+| refit | p50 | p90 | p99 | hands/feet p90 | rms to the joints |
+|---|---|---|---|---|---|
+| plain (v14-v17) | 19 mm | 101 | 717 | 319 | 0.087 m |
+| temporal 0.3, f_scale 0.1 | 17 | 65 | 255 | 102 | 0.096 |
+| temporal 1.0, f_scale 0.1 | 16 | 59 | 182 | 77 | 0.102 |
+
+The rms rises because the damped fit no longer follows the spikes it is
+scored against; the p90 lands at the input's own level (the fit stops
+amplifying). Synthetic: a 0.40 m one-frame wrist spike followed 0.28 by
+the plain fit, 0.16 damped; a real 0.40 m step followed to 0.26 within
+four frames. v18 = v17 + this (05f then 05p re-run): PENDING.
+
 ### v16: the duplicate rule was eating six players a frame (2026-09-08)
 
 Every render since v8 drew 16 bodies a frame and it passed as normal. An
