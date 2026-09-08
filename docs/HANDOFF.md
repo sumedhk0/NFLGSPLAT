@@ -463,6 +463,11 @@ first difference between records): fused refit 2.16 at step 1 and 2.16 at
 step 2, one-view refit 1.70 at step 2 -- the one-view fits are no rougher
 than the triangulated ones (both are noise-dominated at 8-15 mm a record),
 so no extra smoothing on the mono records.
+Render (05:21): 69 posed players (v14 55), 3 default-posed, 16 bodies a
+frame as before. Stills against v14 (`diag/p1_v14_v15_strip.jpg`, temporal
+crops `diag/p1_v14_v15_motion.jpg`): the one-view bodies articulate --
+running strides, bent arms -- where v14's walked upright; no flailing, no
+broken bodies. v15 is the deliverable.
 
 ### v11, v12, v13: the endzone track decided by triangulation (2026-09-08)
 
