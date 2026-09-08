@@ -14,7 +14,7 @@
 #   shift     scripts/08d --no-rows --apply                           -> cameras.npz in the field frame
 #   endzone   scripts/08 --sideline-from (mirror check)               -> recon_abs.npz, then 08b again
 #   check     scripts/08d --los-yards (prints rulers, LOS)            -> field_offset.json
-#   endzone_track scripts/08h (endzone camera from the footage's motion) -> cameras.npz (old track kept)
+#   endzone_track scripts/08h (endzone camera from the footage's motion) -> cameras.npz  [ENDZONE_TRACK=1 only; loses on triangulation]
 #   link      scripts/08b --cameras --pairing track --pair-gap 0       -> tracks.parquet (camera tracks keep ids)
 #   identity  scripts/08c OCR -> 08i pairing by number/kit -> 08c --from-cache  -> tracks_identity.parquet, identity_resolved.pkl
 #             (before the pose stages: pairing changes the ids and the pose caches are keyed by id)
@@ -140,7 +140,11 @@ if ! done_ check; then
   mark check
 fi
 
-if ! done_ endzone_track; then
+if ! done_ endzone_track && [ "${ENDZONE_TRACK:-0}" = 1 ]; then
+  # OPT-IN (ENDZONE_TRACK=1): measured 2026-09-08 on play 1, the footage-driven
+  # track loses on triangulation (15 players / 58 % / 10.4 px against the
+  # interpolated track's 21 / 62 % / 7.9 px) although it passes the players
+  # ruler; the feet-fitted anchors are locally right where triangulation lives.
   log "endzone camera track from the footage's motion (08h; refuses unless the players get closer)"
   out="$("$PYN" scripts/08h_endzone_track.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" \
      | grep -E "anchored|reference fit|propagated|players:|wrote|refus|Error|Traceback")"
