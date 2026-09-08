@@ -421,6 +421,30 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### v11: the script end to end, and what the fresh run taught (2026-09-07 evening)
+
+The first fresh `--fresh --from-paint` run of play 1 through the new stage
+order failed twice before it ran: the launcher seeded play 1 from itself
+(`SEED_FROM=play_001`; circular, a 52 px grid where the free solve gives
+9 px) and the numeral ruler crashed on an empty strip from a wild
+candidate (`yard_numbers.read_line_strips`, guarded, 9800092). Then it ran:
+paint (candidate 1: (42, -102, 42.5), 11.8 deg, rulers 0.97/0.96, players
+1.86 m, grid 9.2 px), refine, shift, endzone, check, endzone_track
+(REFUSED, chain continued: 23c83f8), link (153 camera tracks), identity
+(OCR 34 of 153 read, 23 pairs of which one on a number, 21 two-camera ids,
+0 cross-kit, 29 named), pose, keypoints, tri (18 players, 60 % of
+observable joints at 6.7 px), refit, hifi.
+
+The sideline reproduced to the pixel against v10's cameras. The endzone
+did not: the re-solve's refinement moved the mount to y = 4 on a height
+tiebreak, and on the whole play that is worse (players 1.68 m at y = 4,
+1.56 m at y = 0, 1.35 m with the footage-driven track from y = 0), so
+`08h` could not beat the interpolated track from that start (1.77 m one
+start, 1.82 m nine starts, 1.73 m seeded from v10's pose). The across-field
+refinement is off (`REFINE_DY_M = (0.0,)`, bc09480): the feet do not see y
+on 14 anchor frames; the synthetic justification was noiseless. v12 re-runs
+the chain from the endzone stage with y held at the seed.
+
 ### The pipeline's stage order since feabdfc (2026-09-07)
 
 `scripts/pipeline_play.sh <play-dir> <side.mp4> <end.mp4> <los> [--fresh]
