@@ -479,8 +479,16 @@ the worst). v21 = v20 + this (10:58, `diag/play_001_v21_hifi_720.mp4`,
 sent to the user; stills against v20 in `diag/p1_v20_v21_strip.jpg`: id 9,
 the receiver, now stands where the sideline sees it; the rest identical).
 **v21 is the deliverable and the pipeline's reproducible baseline** --
-every rule above is in the script (a fresh run pairs with the median gate,
-so the pair_rule guard finds nothing).
+every rule above is in the script. PROVEN by v22 (11:00-18:04 with a
+power-off in between; `scripts/pipeline_play.sh` resumed at the render):
+the script from the link stage with all of today's rules -- per-camera
+link, OCR 33 of 151 ids, 27 pairs with the median gate (25 two-camera ids,
+0 cross-kit, 9 paired a frame), identity 21 named with the same three
+demotions and the kicker vetoed, 22 players triangulated at 66 % / 8.4 px,
+damped refit 0.096 m, 3609 one-view records at 3.5 px, 23 bodies a frame,
+4 default-posed. `diag/play_001_v22_hifi_720.mp4`; stills against v21 in
+`diag/p1_v21_v22_strip.jpg` are the same formation. **v22 is the
+baseline** (v21 was assembled on v14's caches; v22 is the script).
 
 ### The sideline camera through the rendered span (2026-09-08)
 
