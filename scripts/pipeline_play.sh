@@ -142,8 +142,19 @@ fi
 
 if ! done_ endzone_track; then
   log "endzone camera track from the footage's motion (08h; refuses unless the players get closer)"
-  "$PYN" scripts/08h_endzone_track.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" \
-     | grep -E "anchored|reference fit|propagated|players:|wrote|refus|Error" || fail endzone_track
+  out="$("$PYN" scripts/08h_endzone_track.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" \
+     | grep -E "anchored|reference fit|propagated|players:|wrote|refus|Error|Traceback")"
+  echo "$out"
+  if echo "$out" | grep -q "^wrote"; then
+    log "endzone track from the footage written"
+  elif echo "$out" | grep -q "does not bring the cameras' players closer"; then
+    # A measured refusal, not a failure: the interpolated endzone track stays
+    # (play 1 fresh run 2026-09-07: 1.68 -> 1.77 m; on the accumulated
+    # calibration it had passed 1.19 -> 1.03 m). The chain goes on.
+    log "endzone track from the footage REFUSED (the players did not get closer); the interpolated track stays"
+  else
+    fail endzone_track
+  fi
   mark endzone_track
 fi
 
