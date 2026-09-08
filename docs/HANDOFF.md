@@ -442,7 +442,11 @@ different people); an id the endzone alone sees that frame dedupes within
 the endzone's depth/across radii of a kept state; an interpolated frame
 within 0.9 m. Measured: 23 states a frame (p10 20, p90 25), 3396 dropped,
 7 sideline id-frames undrawn, nearest-neighbour distance p5 0.47 m.
-Render v16 = v15 + this rule: PENDING.
+Render v16 = v15 + this rule (06:19, `diag/play_001_v16_hifi_720.mp4`,
+strip `diag/p1_v15_v16_strip.jpg`): median 23 bodies a frame; the whole
+offensive line is back at the snap (v15 drew four red bodies at 1.5 s, v16
+the pack of eleven) and the 7 s frame shows a full formation. No visible
+duplicates in the stills. v16 is the deliverable.
 
 ### v15: the one-view bodies refit to the keypoints (2026-09-08)
 
@@ -502,6 +506,13 @@ jitter (8 mm a frame, second differences twice the first), so the
 regressor's 0.17 m/s was not a sixth of real articulation; what the
 keypoint fit adds is what the stills show -- strides, bent arms -- and the
 2-D agreement, not a 3-D number.
+On the real one-view set the prior is a wall: 3718 records lean p50 20,
+p90 21, p99 21 deg (the fit wants more lean everywhere and stops at the
+free angle), where the fused bodies spread 16 / 39. The lean points toward
+the sideline camera 40 % of the time (cos > 0.5; fused 23 %) and away 21 %
+(fused 12 %): a camera-ward bias, the depth ambiguity, not a travel lean
+(cos with the travel > 0.5: 40 % vs 29 %). Untried: a quadratic prior from
+zero tuned to the fused spread instead of a free angle and a wall.
 Render (05:21): 69 posed players (v14 55), 3 default-posed, 16 bodies a
 frame as before. Stills against v14 (`diag/p1_v14_v15_strip.jpg`, temporal
 crops `diag/p1_v14_v15_motion.jpg`): the one-view bodies articulate --
