@@ -448,6 +448,30 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### v21: a wrong pair sawtoothed by a metre a frame (2026-09-08)
+
+Ruler: second differences of the timeline's state xy per frame.
+Box-placed ids p90 18 mm (smooth_xy does its job); record-placed ids p90
+27 mm but p99 1365 mm -- 250 of the 253 triples over 0.5 m belong to id 9.
+Id 9 is a WRONG PAIR: the sideline track runs 28 m along y (a receiver),
+the endzone track stands still; the two cameras' ground points sit 14 m
+apart at the median. The pairing accepted it as a number match because
+its offset statistic is the mean difference vector over the overlap,
+which averages out when tracks cross (mean 2 m, per-frame up to 15 m);
+the fused refit then triangulated two different people, the timeline
+averaged the two cameras' points (7 m from either), refused the refit's
+placement against that average, and interpolated between refused
+records at the odd frames: a 1 m sawtooth every frame, and the avatar
+named Noah Gray (#83 read on the endzone track). 27 two-camera ids: median
+distance p50 1.04 m; 4 over 2 m, 2 over 3 m (ids 9 at 14.2, 37 at 4.2).
+Now: `pair_by_appearance` gates on the median per-frame distance
+(MAX_MEDIAN_DIST_M 4.0; the test has crossing tracks with a shared
+number); `render.pair_rule.mispaired_ids` guards a play-dir paired before
+the gate (the timeline drops the id's endzone rows and says so);
+`place_from_refit` interpolates only between records it accepted. Play 1:
+ids 9 and 37 dropped from the fused cache and refit one-view (05p).
+Result: PENDING.
+
 ### The sideline camera through the rendered span (2026-09-08)
 
 Grid distance of play 1's refined sideline track at 16 sampled frames:

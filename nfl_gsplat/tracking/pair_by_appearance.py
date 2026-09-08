@@ -26,6 +26,14 @@ import numpy as np
 GAP_NUMBER_M: float = 3.5      # a number read in both cameras: position only has to be plausible
 GAP_POSITION_M: float = 2.0    # no number: the kit must agree and the mean offset be this close
 MIN_OVERLAP: int = 6           # 15 -> 6 measured twice on play 1: +5/+6 pairs, +1 player paired per frame, cross-kit still 0
+# The offset statistic is the MEAN difference vector over the overlap (noise
+# averages out for a true pair). It is blind to two tracks that cross: play 1
+# id 9 paired a receiver running 28 m along y with an endzone track standing
+# still -- per-frame distances up to 15 m, mean vector 2 m, accepted as a
+# number match; the fused refit then triangulated two people. The median
+# per-frame distance is the second gate: 1.0-1.9 m for the good pairs on
+# play 1, 4.2 and 14.2 for the two wrong ones.
+MAX_MEDIAN_DIST_M: float = 4.0
 MIN_NUMBER_VOTES: int = 2      # OCR rows a track needs before its number counts as read
 
 
@@ -53,7 +61,7 @@ def _series(t: CamTrack):
 
 
 def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_position=GAP_POSITION_M,
-                       min_overlap=MIN_OVERLAP, lag: int = 0):
+                       min_overlap=MIN_OVERLAP, lag: int = 0, max_median_dist=MAX_MEDIAN_DIST_M):
     """``[Pair]`` accepted; sideline frame f sits beside endzone frame f + lag."""
     ser_s = [_series(t) for t in side]
     ser_e = [_series(t) for t in end]
@@ -67,8 +75,11 @@ def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_po
             common = [f for f in ser_s[i] if (f + lag) in ser_e[j]]
             if len(common) < min_overlap:
                 continue
-            d = np.mean([ser_e[j][f + lag] - ser_s[i][f] for f in common], axis=0)
+            diffs = np.array([ser_e[j][f + lag] - ser_s[i][f] for f in common])
+            d = diffs.mean(axis=0)
             off = float(np.linalg.norm(d))
+            if float(np.median(np.linalg.norm(diffs, axis=1))) > max_median_dist:
+                continue                                       # the tracks cross: not one player
             if a.number >= 0 and b.number >= 0:
                 if off <= gap_number:
                     cands.append(Pair(i, j, "number", off, len(common)))

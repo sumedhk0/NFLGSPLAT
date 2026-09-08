@@ -52,3 +52,19 @@ def test_stitch_joins_fragments_of_one_player_and_refuses_the_other_kit():
     assert [(i, j) for i, j, *_ in joins] == [(0, 1)]
     g = chains_from_joins(4, joins)
     assert g[0] == g[1] and len(set(g)) == 3
+
+
+def test_tracks_that_cross_are_not_a_pair_even_with_a_number_match():
+    import numpy as np
+
+    from nfl_gsplat.tracking.pair_by_appearance import CamTrack, pair_by_appearance
+
+    frames = np.arange(0, 40)
+    # the sideline track runs 20 m along y, the endzone track stands still at its midpoint:
+    # the mean difference vector is ~0, the per-frame distance up to 10 m
+    run = CamTrack(cam="sideline", tid=1, frames=frames, xy=np.stack([np.zeros(40), np.linspace(-10, 10, 40)], 1), kit=1, number=83)
+    still = CamTrack(cam="endzone", tid=2, frames=frames, xy=np.stack([np.zeros(40), np.zeros(40)], 1), kit=1, number=83)
+    assert pair_by_appearance([run], [still]) == []
+    # the same two, both standing still: a pair
+    still_s = CamTrack(cam="sideline", tid=1, frames=frames, xy=np.stack([np.zeros(40), np.full(40, 0.5)], 1), kit=1, number=83)
+    assert len(pair_by_appearance([still_s], [still])) == 1

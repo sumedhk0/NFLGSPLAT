@@ -15,6 +15,7 @@ from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
 from nfl_gsplat.render.offfield_rule import sideline_dwellers, striped_ids
+from nfl_gsplat.render.pair_rule import mispaired_ids
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
 
@@ -62,6 +63,7 @@ def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 
     Returns ``(ground, shifts)`` where ``shifts`` are the metres moved."""
     out = {f: dict(d) for f, d in ground.items()}
     shifts = []
+    accepted: set = set()
     for f, recs in refit.items():
         f = int(f)
         if f not in out:
@@ -75,13 +77,13 @@ def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 
             if np.isfinite(d) and d <= max_shift_m:
                 out[f][pid] = xy
                 shifts.append(d)
+                accepted.add((f, pid))
     # Across a short gap in a player's records the translation is interpolated:
     # the box-bottom point in between sat ~0.5 m from the refit's pelvis and the
     # body dipped there and back (play 1: 132 gaps, p50 3 frames).
     by_pid: dict[int, list] = {}
-    for f, recs in refit.items():
-        for pid in recs:
-            by_pid.setdefault(int(pid), []).append(int(f))
+    for f, pid in accepted:                                  # only between records that were placed
+        by_pid.setdefault(pid, []).append(f)
     for pid, fs in by_pid.items():
         fs = sorted(fs)
         for a, b in zip(fs, fs[1:]):
@@ -161,6 +163,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     side_blob = pickle.load(open(side_path, "rb")) if side_path.exists() else None
     if not refit and side_blob is None:
         raise SetupError("no pose cache: need poses_refit.json (05f) or poses_sideline.json (05c)")
+    # A pair whose two tracks are not one player: the sideline alone draws it
+    # (pair_rule; the pairing's median-distance gate catches it upstream now).
+    if {"sideline", "endzone"} <= set(df["cam"].unique()):
+        bad = mispaired_ids(ground_positions(df[df["cam"] == "sideline"], tracks),
+                            ground_positions(df[df["cam"] == "endzone"], tracks))
+        if bad:
+            print("mispaired ids drawn from the sideline alone: "
+                  + ", ".join(f"{pid} ({d:.1f} m)" for pid, d in sorted(bad.items())))
+            df = df[~((df["cam"] == "endzone") & df["track_id"].isin(list(bad)))]
     ground, views = ground_positions(df, tracks, with_views=True)
     # A paired id lives on its sideline span: beyond it the endzone track
     # alone draws a second copy of a player (endzone_only_rule).
