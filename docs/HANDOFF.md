@@ -469,8 +469,13 @@ Now: `pair_by_appearance` gates on the median per-frame distance
 number); `render.pair_rule.mispaired_ids` guards a play-dir paired before
 the gate (the timeline drops the id's endzone rows and says so);
 `place_from_refit` interpolates only between records it accepted. Play 1:
-ids 9 and 37 dropped from the fused cache and refit one-view (05p).
-Result: PENDING.
+ids 9 and 37 dropped from the fused cache and refit one-view (05p; the
+fused cache rebuilt by 05f under numpy 1 first -- a copy written from the
+numpy-2 venv does not load in the smplx venv). Result: the timeline's xy
+second differences for record-placed ids p99 1365 -> 115 mm, one triple
+over 0.5 m instead of 253; the merged cache's jitter p99 260 -> 213 mm,
+hands/feet p90 103 -> 94 (the wrong pair's triangulated poses were among
+the worst). v21 = v20 + this.
 
 ### The sideline camera through the rendered span (2026-09-08)
 
