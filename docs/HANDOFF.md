@@ -443,9 +443,12 @@ passes the players ruler and holds pixel-static players to 1 cm: the
 feet-fitted anchors are locally right for the paired players, and a
 single pose fitted from a capped nearest-neighbour objective is not. It is
 opt-in now (`ENDZONE_TRACK=1`). The mount's across-field refinement stays
-off (y = 0 pairs more, triangulates more). **v13 is the current deliverable
-and the pipeline's reproducible baseline**: `diag/play_001_v13_hifi_720.mp4`,
-strip `diag/play_001_v10_v11_v13_strip.jpg`.
+off (y = 0 pairs more, triangulates more). **v14 is the current deliverable
+and the pipeline's reproducible baseline** (v13 plus the pairing overlap
+floor at 6 frames, 67dab0d): 29 pairs, 27 two-camera ids, 0 cross-kit, 22
+players triangulated at 63 % of observable joints and 8.4 px, 26 named, 16
+bodies a frame. `diag/play_001_v14_hifi_720.mp4` (v13 kept beside it; strip
+`diag/play_001_v10_v11_v13_strip.jpg`).
 
 Open, in value order: two-view coverage (10 of 22 paired per frame; the
 sideline OCR reads no numbers at 130 px bodies, so pairing rests on kit
