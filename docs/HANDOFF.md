@@ -421,6 +421,34 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### Play 1 v9 and v10 delivered (2026-09-07)
+
+| | v8 | v9 | v10 |
+|---|---|---|---|
+| endzone track | interpolated anchors | footage (08h) | footage (08h) |
+| link | per frame, old cams | per frame + kit gate | per-camera tracks, appearance pairing |
+| two-camera ids / cross-kit | 62 / 24 % | 84 / 23 | 21 / 0 |
+| players triangulated | 47 | 36 | 15 |
+| observable joints passing | 65 % | 66 % | 57 % |
+| named | 31 | 49 | 33 |
+| timeline bodies / frame | ~29 | 21 | 17 |
+| excluded ids (edge / ghosts / dwellers / striped) | 23 / - / - / - | 30 / 32 / 26 / 0 | same rules |
+
+Files: `diag/play_001_v9_hifi_720.mp4`, `diag/play_001_v10_hifi_720.mp4`,
+strips `diag/play_001_v8_v9_strip.jpg`, `play_001_v9_v10_strip.jpg`. v10 is
+the cleaner baseline (right kits, no ghosts, no staff, one body per
+sideline track); its cost is two-view coverage, so most poses are
+monocular. The 17 bodies per frame are the sideline's 22 tracked ids minus
+excluded non-players -- what the sideline frames.
+
+Measured and not adopted today: same-camera stitching with kit and number
+vetoes (welds one wrong pair per right one on named fragments); depth
+whitening before linking (fewer tracks by welding on the helmet set:
+purity p10 0.49 -> 0.44, switches 191 -> 245); a wider kit gap for the
+appearance pairing (22 -> 40 pairs, 8 -> 9 players paired per frame).
+Sideline OCR reads 3 numbers to the endzone's 34 at 130 px bodies; an
+upscale/band sweep was measured (`diag/sideline_ocr_exp.log`).
+
 ### Who is drawn: four exclusion rules, and v10's order (2026-09-07)
 
 `play_timeline` now leaves out, in this order, each a set of ids: edge-clipped
