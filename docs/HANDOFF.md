@@ -421,6 +421,38 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### v11, v12, v13: the endzone track decided by triangulation (2026-09-08)
+
+Three runs of play 1 through the same chain (per-camera link, OCR,
+appearance pairing, identity, pose, keypoints, tri, refit, hifi), differing
+only in the endzone track:
+
+| | v11 | v12 | v13 |
+|---|---|---|---|
+| endzone track | interpolated, mount y=4 | footage (08h), from y=0 | interpolated, y=0 |
+| players ruler (m) | 1.68 | 1.38 | 1.41 (v12's re-solve) |
+| pairs / paired per frame | 23 / 9 | 23 / 6 | 24 / 10 |
+| players triangulated | 18 | 15 | 21 |
+| observable joints passing / reproj | 60 % / 6.7 px | 58 % / 10.4 px | 62 % / 7.9 px |
+| refit rms | 0.087 | 0.091 | 0.085 |
+| named | 29 | 25 | 26 |
+| bodies per frame | 16 | 16 | 16 |
+
+The footage-driven track loses on the geometry that matters although it
+passes the players ruler and holds pixel-static players to 1 cm: the
+feet-fitted anchors are locally right for the paired players, and a
+single pose fitted from a capped nearest-neighbour objective is not. It is
+opt-in now (`ENDZONE_TRACK=1`). The mount's across-field refinement stays
+off (y = 0 pairs more, triangulates more). **v13 is the current deliverable
+and the pipeline's reproducible baseline**: `diag/play_001_v13_hifi_720.mp4`,
+strip `diag/play_001_v10_v11_v13_strip.jpg`.
+
+Open, in value order: two-view coverage (10 of 22 paired per frame; the
+sideline OCR reads no numbers at 130 px bodies, so pairing rests on kit
+and position), fragments (74 sideline tracks for ~29 people), the pose
+of one-view bodies (monocular), officials inside the field drawn as white
+players.
+
 ### v11: the script end to end, and what the fresh run taught (2026-09-07 evening)
 
 The first fresh `--fresh --from-paint` run of play 1 through the new stage
