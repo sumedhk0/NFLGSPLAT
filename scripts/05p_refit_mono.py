@@ -183,6 +183,7 @@ def main() -> None:
             recs_of.setdefault(int(pid), {})[int(f)] = r
 
     jobs = []
+    n_short_gap = 0
     for pid, g in kdf.groupby("global_player_id"):
         pid = int(pid)
         if args.ids is not None and pid not in args.ids:
@@ -241,6 +242,26 @@ def main() -> None:
         fr = fused_of.get(pid, {})
         if fr and not args.validate:
             ff = np.array(sorted(fr))
+            # A short gap in the fused coverage is interpolated by the timeline
+            # (poses and, place_from_refit, the translation): a one-view fit in
+            # it pops -- measured on play 1, second differences at mixed
+            # fused/one-view triples 227 mm (hands/feet p90 778) against 18
+            # (140) at fused-only ones, whatever the weights. Only gaps longer
+            # than --max-gap are filled.
+            keep = []
+            for i, f in enumerate(frames):
+                k = int(np.searchsorted(ff, f))
+                in_short_gap = 0 < k < len(ff) and (ff[k] - ff[k - 1] - 1) <= args.max_gap
+                if in_short_gap:
+                    n_short_gap += 1
+                else:
+                    keep.append(i)
+            if len(keep) < 2:
+                continue
+            frames = [frames[i] for i in keep]
+            uv, conf, cams, gnd = [uv[i] for i in keep], [conf[i] for i in keep], [cams[i] for i in keep], [gnd[i] for i in keep]
+            init_bp, init_go = [init_bp[i] for i in keep], [init_go[i] for i in keep]
+            prev_seq, overrides = [None] * len(frames), [None] * len(frames)
             fx = np.stack([fr[f][-3:-1] for f in ff])
             gnd_arr = np.stack(gnd)
             for i, f in enumerate(frames):
@@ -280,7 +301,8 @@ def main() -> None:
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"{len(jobs)} players with {args.cam} keypoints {'inside' if args.validate else 'outside'} the fused refit, "
-          f"{n_frames} frames to fit (stride {args.stride}), {args.workers} workers"
+          f"{n_frames} frames to fit (stride {args.stride}; {n_short_gap} in fused gaps of <= {args.max_gap} frames "
+          f"left to the interpolation), {args.workers} workers"
           + (f"; tilt prior {args.tilt_weight} past {args.tilt_free_deg} deg" if args.tilt_weight > 0 else ""))
     if not jobs:
         raise SystemExit("nothing to fit")

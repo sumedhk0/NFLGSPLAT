@@ -49,7 +49,7 @@ def ground_positions(df, tracks, *, with_views: bool = False):
     return ground, views
 
 
-def place_from_refit(ground, refit, *, max_shift_m: float = 3.0):
+def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 12):
     """Ground positions with two-view bodies moved to their refit's own
     translation (metres on the field). The linker's box-bottom placement
     carries 0.5-1 m of depth error; a triangulated refit's pelvis is metric.
@@ -70,6 +70,23 @@ def place_from_refit(ground, refit, *, max_shift_m: float = 3.0):
             if np.isfinite(d) and d <= max_shift_m:
                 out[f][pid] = xy
                 shifts.append(d)
+    # Across a short gap in a player's records the translation is interpolated:
+    # the box-bottom point in between sat ~0.5 m from the refit's pelvis and the
+    # body dipped there and back (play 1: 132 gaps, p50 3 frames).
+    by_pid: dict[int, list] = {}
+    for f, recs in refit.items():
+        for pid in recs:
+            by_pid.setdefault(int(pid), []).append(int(f))
+    for pid, fs in by_pid.items():
+        fs = sorted(fs)
+        for a, b in zip(fs, fs[1:]):
+            if 1 < b - a <= max_gap + 1:
+                xa = np.asarray(refit[a][pid]["transl"], float)[:2]
+                xb = np.asarray(refit[b][pid]["transl"], float)[:2]
+                for f in range(a + 1, b):
+                    if f in out and pid in out[f]:
+                        w = (f - a) / float(b - a)
+                        out[f][pid] = (1 - w) * xa + w * xb
     return out, np.asarray(shifts)
 
 
