@@ -448,6 +448,13 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### The sideline camera through the rendered span (2026-09-08)
+
+Grid distance of play 1's refined sideline track at 16 sampled frames:
+2.7-6.6 px from frame 20 to 620, then 69 / 99 / 93 px at 670 / 720 / 770.
+The tracks (and the render) end at 660: the late drift the memory warns
+of is the post-whistle pan-out, outside the rendered span. No action.
+
 ### v20: the timeline anchored the model's origin, 0.35 m from the pelvis (2026-09-08)
 
 Found while chasing the last 0.35 m of the boundary jump (it survived the
