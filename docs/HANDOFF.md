@@ -421,6 +421,28 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### The pipeline's stage order since feabdfc (2026-09-07)
+
+`scripts/pipeline_play.sh <play-dir> <side.mp4> <end.mp4> <los> [--fresh]
+[--from-paint]`, markers `.done_<stage>`; env RED/WHITE, SEED_FROM,
+GRID_PX, FUSE, FIT, DIAG:
+
+paint (08, --from-paint) -> export (08b from recon) -> refine (08e) ->
+shift (08d --apply) -> endzone (08 --sideline-from, then 08b again) ->
+check (08d rulers + LOS; two-of-three) -> **endzone_track (08h: the
+endzone camera from the footage's motion; refuses to write unless the
+players get closer)** -> **link (08b --cameras cameras.npz --pairing track
+--pair-gap 0: camera tracks keep their ids; the export's tracks kept as
+tracks_export.parquet)** -> field (05l; LOOK at the PNG) -> **identity
+(08c OCR per camera track -> 08i pairing by number then kit -> 08c
+--from-cache names on the paired ids; BEFORE the pose stages because
+pairing changes the ids and every pose cache is keyed by id)** -> pose_s
+-> pose_e -> keypoints (05m) -> tri (05n) -> [fuse, FUSE=1] -> refit (05f,
+6 joints / 50 % frames) -> [fit, FIT=1] -> teams (08f) -> hifi (05k, 720p
+encode into diag) -> render (05d). The script's header comment still lists
+the old order; it is edited only when no instance runs. v11 is the first
+fresh run through this order (2026-09-07 20:14).
+
 ### Play 1 v9 and v10 delivered (2026-09-07)
 
 | | v8 | v9 | v10 |
