@@ -913,6 +913,15 @@ meanwhile with rule D's kits (keypoints -> tri -> refit -> hifi).
 
 ## What has been measured and rejected (do not re-propose without new evidence)
 
+- **The regressor's body pose as a cross-camera pairing cue (2026-09-08,
+  play 1, 85 common posed frames, 885 same-id pairs vs 47k other-id):**
+  pelvis-relative joint distance same p50 0.109 m, other p50 0.130, 30 % of
+  others below the same-median; the nearest endzone pose is the true
+  partner 18 % of the time (chance 4 %). A weak cue on its own; untested
+  in combination with the position gate, and there is no pair truth on
+  play 1 to test it with (the helmet set has both views labelled -- the
+  instrument if this is ever pursued).
+
 - **Ankle keypoints as the one-view ground point (2026-09-08, play 1, 2773
   two-view frames, judged against the fused refit's pelvis):** box bottom
   p50 0.55 m (p90 1.35), mean of the two ankle keypoints dropped 8 cm to
