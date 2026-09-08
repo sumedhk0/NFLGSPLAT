@@ -137,10 +137,39 @@ if ! done_ check; then
   mark check
 fi
 
+if ! done_ endzone_track; then
+  log "endzone camera track from the footage's motion (08h; refuses unless the players get closer)"
+  "$PYN" scripts/08h_endzone_track.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" \
+     | grep -E "anchored|reference fit|propagated|players:|wrote|refus|Error" || fail endzone_track
+  mark endzone_track
+fi
+
+if ! done_ link; then
+  log "per-camera tracks with the per-frame cameras (08b --cameras --pairing track --pair-gap 0)"
+  cp "$P/tracks.parquet" "$P/tracks_export.parquet"
+  "$PYN" scripts/08b_export_play_dir.py --recon "$P/recon.npz" --cameras "$P/cameras.npz" --root "$P" \
+     --sideline sideline.mp4 --endzone endzone.mp4 --out "$P" --pairing track --pair-gap 0 \
+     2>&1 | grep -v "Warning\|warn" | grep -E "kits|per-camera|linked|tracks.parquet|Error" || fail link
+  rm -f "$P/.done_pose_s" "$P/.done_pose_e" "$P/.done_identity" "$P/.done_keypoints" "$P/.done_tri" "$P/.done_refit"
+  mark link
+fi
+
 if ! done_ field; then
   log "field texture from the footage (05l; LOOK at the PNG: paint must land on the drawn field)"
   "$PYN" scripts/05l_field_from_footage.py --play-dir "$P" --preview "$DIAG/${PLAY}_field_texture.png"      2>&1 | grep -v "Warning\|warn\|nanmedian" | grep -E "field texture|footage turf|Error" || fail field
   mark field
+fi
+
+if ! done_ identity; then
+  log "identity (08c)"
+  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" 2>&1 | grep -v "Warning\|warn" | grep -E "OCR:|kit split|Error" || fail identity
+  # pair the camera tracks by appearance (number, kit) then position (08i), and name the paired ids
+  "$PYN" scripts/08i_pair_by_appearance.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" || fail identity
+  cp "$P/tracks_identity.parquet" "$P/tracks.parquet"
+  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" --from-cache 2>&1 | grep -v "Warning\|warn" | tail -6 || fail identity
+  # --saturated: the coloured kit's team is RED by construction (rule D, the
+  # kit decides the roster, 2026-09-05); the roster vote prints as a check.
+  mark identity
 fi
 
 if ! done_ pose_s; then
@@ -157,13 +186,6 @@ if ! done_ pose_e; then
   mark pose_e
 fi
 
-if ! done_ identity; then
-  log "identity (08c)"
-  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" 2>&1 | grep -v "Warning\|warn" | tail -6 || fail identity
-  # --saturated: the coloured kit's team is RED by construction (rule D, the
-  # kit decides the roster, 2026-09-05); the roster vote prints as a check.
-  mark identity
-fi
 
 if ! done_ keypoints; then
   log "2-D keypoints per tracked person in both views (05m, YOLOv8-pose)"
