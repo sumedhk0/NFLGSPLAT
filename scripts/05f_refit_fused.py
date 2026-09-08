@@ -53,6 +53,10 @@ def main() -> None:
                     help="joints a frame needs to be fitted (triangulated joints are sparser: 6)")
     ap.add_argument("--min-frame-frac", type=float, default=0.7,
                     help="fraction of a player's frames that must fit, else the player is skipped")
+    ap.add_argument("--temporal-weight", type=float, default=SMPLXFitConfig.temporal_weight,
+                    help="pull toward the previous frame's pose (fuse_smplx.SMPLXFitConfig)")
+    ap.add_argument("--f-scale", type=float, default=SMPLXFitConfig.f_scale,
+                    help="soft_l1 scale in metres; joint errors past it count linearly")
     args = ap.parse_args()
 
     fused = pickle.load(open(args.fused, "rb"))["fused"]      # pid -> {frame: [J, 3]}
@@ -63,7 +67,8 @@ def main() -> None:
         raise SetupError(f"{args.fused} holds no fused players")
 
     cfg = SMPLXFitConfig(max_iter=args.max_iter, min_valid_joints=args.min_valid_joints,
-                         min_frame_validity_frac=args.min_frame_frac)
+                         min_frame_validity_frac=args.min_frame_frac,
+                         temporal_weight=args.temporal_weight, f_scale=args.f_scale)
     fits, betas_of, rms_all, skipped = {}, {}, [], []
     for pid, by_frame in sorted(fused.items()):
         fs = sorted(by_frame)
