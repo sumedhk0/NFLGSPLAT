@@ -466,7 +466,10 @@ ankle measurement (against the true pelvis: bias x -0.01, y +0.04, p50
 0.52 m). Now `placed_vertices` anchors the pelvis joint at xy,
 `place_from_refit` places records at transl + rest pelvis (per betas,
 `rest_pelvis_xy`), and 05p interpolates the fused PELVIS across and beyond
-a span. Play 1 re-run: PENDING.
+a span. Play 1 re-run: the pelvis jump at the 71 boundaries 0.35 -> 0.05 m
+(p90 0.14), the merged cache's jitter p99 408 -> 311 mm; the orientation
+still turns 17 deg (p90 32) and body_pose 0.9 rad at a long-gap edge --
+one view's keypoints against the two-view pose along the depth.
 
 ### v19: the one-view fill-in popped at every triangulation gap (2026-09-08)
 
