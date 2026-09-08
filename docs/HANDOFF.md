@@ -510,7 +510,10 @@ beyond_sideline_span` (in the timeline before the exclusion rules): an
 id's frames beyond its sideline span by more than MAX_GAP_FRAMES (30) are
 dropped where the sideline could see the spot, kept where it could not
 (outside its image). Play 1: 1588 ground frames dropped, 22 bodies a
-frame, dedupe drops 3396 -> 1841. v17 = v16 + this + the tilt prior.
+frame, dedupe drops 3396 -> 1841. v17 = v16 + this + the tilt prior (07:17,
+`diag/play_001_v17_hifi_720.mp4`): 22 bodies a frame, tilt-clamped states
+1158 -> 73, stills against v16 (`diag/p1_v16_v17_strip.jpg`) the same
+formation without the endzone tails; no regression.
 
 ### v15: the one-view bodies refit to the keypoints (2026-09-08)
 
