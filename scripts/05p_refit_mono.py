@@ -145,7 +145,11 @@ def main() -> None:
     tr = tracks[args.cam]
     df = pd.read_parquet(P / "tracks.parquet")
     df = df[df["track_id"] >= 0]
-    ground = ground_positions(df, tracks)
+    # This camera's own ground points: ground_positions averages both cameras
+    # where both see an id, and the fused offset carried beyond a span was
+    # measured against that average and applied to the sideline-only point
+    # afterwards (the endzone's share along x is what stayed as a 0.37 m jump).
+    ground = ground_positions(df[df["cam"] == args.cam], tracks)
     kdf = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
     kdf = kdf[kdf["cam"] == args.cam]
     side = pickle.load(open(args.poses or P / "poses_sideline.json", "rb"))
