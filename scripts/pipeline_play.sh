@@ -14,9 +14,12 @@
 #   shift     scripts/08d --no-rows --apply                           -> cameras.npz in the field frame
 #   endzone   scripts/08 --sideline-from (mirror check)               -> recon_abs.npz, then 08b again
 #   check     scripts/08d --los-yards (prints rulers, LOS)            -> field_offset.json
+#   endzone_track scripts/08h (endzone camera from the footage's motion) -> cameras.npz (old track kept)
+#   link      scripts/08b --cameras --pairing track --pair-gap 0       -> tracks.parquet (camera tracks keep ids)
+#   identity  scripts/08c OCR -> 08i pairing by number/kit -> 08c --from-cache  -> tracks_identity.parquet, identity_resolved.pkl
+#             (before the pose stages: pairing changes the ids and the pose caches are keyed by id)
 #   pose_s    scripts/05c sideline (resumes per frame)                -> poses_sideline.json
 #   pose_e    scripts/05c endzone --match-frames                      -> poses_endzone.json
-#   identity  scripts/08c --week 1                                    -> identity_resolved.pkl
 #   keypoints scripts/05m (YOLOv8-pose per tracked person, both views)  -> keypoints_2d.parquet
 #   tri       scripts/05n (joints triangulated with both cameras)       -> poses_tri.json
 #   fuse      scripts/05e (monocular joints fused) -- OPT-IN, FUSE=1; 2.6-3.4x worse than tri
