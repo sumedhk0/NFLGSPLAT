@@ -461,7 +461,19 @@ started from the regressor's pose, agreeing with neither fused block. Now
 (05p, fit_mono2d.prev_seq): inside the span the ground point is the fused
 pelvis interpolated, the start pose the nearest fused record's, the warm
 start at a block boundary the fused params; beyond the span the box point
-carries the end's offset, decayed. Play 1 re-run: PENDING.
+carries the end's offset, decayed. Measured: 0.43 -> 0.37 m (p90 1.27 ->
+0.78), 35 -> 18 deg; with strong inside-span weights (place 10, init 1.0)
+0.36 m (p90 0.43), 18 deg -- the pelvis holds, the pose does not. The
+decisive ruler: second differences at triples mixing fused and one-view
+records against fused-only triples of the same players: 227 mm vs 18
+(hands/feet p90 778 vs 140), whatever the weights. One view's keypoints
+disagree with the two-view pose along the camera's depth and no weight
+settles it; for a gap of a few frames the interpolated two-view pose is
+the answer. The gaps: 132 inside spans, p50 3 frames, 77 % under 12. Now
+05p leaves one-view frames inside a fused gap of <= max_gap (12) frames to
+the timeline's interpolation and fills only the long gaps, and
+`place_from_refit` interpolates the refit translation across such gaps.
+Play 1 re-run: PENDING.
 
 ### v18: the two-view bodies shook; the fused refit damped (2026-09-08)
 
