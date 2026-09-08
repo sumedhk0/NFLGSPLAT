@@ -248,3 +248,31 @@ def merge_into_refit(blob, fits, betas_of, *, source: str = "mono2d"):
     out["frames"] = frames
     out["mono"] = {"source": source, "records": mono}
     return out, added
+
+
+def blend_params(p_fit, p_anchor, w, *, base_cfg=None):
+    """``w`` of ``p_anchor`` and ``1 - w`` of ``p_fit``: body_pose and orient by
+    per-joint axis-angle slerp, transl linearly. Used to cross-fade a one-view
+    block into the two-view fit it borders (a long-gap edge turned 17 deg at
+    the p50 on play 1 however the fit was weighted)."""
+    from scipy.spatial.transform import Rotation, Slerp
+
+    base_cfg = base_cfg or SMPLXFitConfig()
+    bp_slice, go_slice, tr_slice = _param_slices(base_cfg)
+    p_fit, p_anchor = np.asarray(p_fit, float), np.asarray(p_anchor, float)
+    out = p_fit.copy()
+    if w <= 0:
+        return out
+    if w >= 1:
+        return p_anchor.copy()
+    rots_fit = np.concatenate([p_fit[bp_slice].reshape(-1, 3), p_fit[go_slice].reshape(1, 3)])
+    rots_anc = np.concatenate([p_anchor[bp_slice].reshape(-1, 3), p_anchor[go_slice].reshape(1, 3)])
+    blended = []
+    for a, b in zip(rots_fit, rots_anc):
+        sl = Slerp([0.0, 1.0], Rotation.from_rotvec(np.stack([a, b])))
+        blended.append(sl([w]).as_rotvec()[0])
+    blended = np.stack(blended)
+    out[bp_slice] = blended[:-1].reshape(-1)
+    out[go_slice] = blended[-1]
+    out[tr_slice] = (1 - w) * p_fit[tr_slice] + w * p_anchor[tr_slice]
+    return out

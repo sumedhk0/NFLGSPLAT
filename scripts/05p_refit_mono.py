@@ -38,8 +38,8 @@ import pandas as pd
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.pose.coco import coco_to_body
-from nfl_gsplat.pose.fit_mono2d import (Mono2DConfig, body_frame_speeds, fit_sequence_2d, merge_into_refit,
-                                        rigid_start_2d, tilt_rad)
+from nfl_gsplat.pose.fit_mono2d import (Mono2DConfig, blend_params, body_frame_speeds, fit_sequence_2d,
+                                        merge_into_refit, rigid_start_2d, tilt_rad)
 from nfl_gsplat.pose.forward_kinematics import fk_forward, load_smplx_skeleton
 from nfl_gsplat.pose.fuse_smplx import SMPLXFitConfig, _pack_params
 from nfl_gsplat.render.play_timeline import ground_positions
@@ -80,6 +80,13 @@ def _fit_job(job):
                                          init_orient_seq=init_go, frames=frames, max_gap=job["max_gap"],
                                          prev_seq=job.get("prev_seq"), cfg_overrides=job.get("cfg_overrides"))
     valid &= np.nan_to_num(rep, nan=np.inf) <= job["reproj_px_max"]
+    # cross-fade into a bordering two-view block: w = 1 at the block's edge, 0 a max-gap away
+    blend = job.get("blend_seq")
+    if blend is not None:
+        for i in range(len(frames)):
+            if valid[i] and blend[i] is not None:
+                anchor, w = blend[i]
+                params[i] = blend_params(params[i], anchor, w, base_cfg=base)
     sp_after = np.array([])
     if valid.sum() >= 2:
         sp_after = body_frame_speeds(params[valid], np.asarray(frames)[valid], forward, fps=FPS, base_cfg=base)
@@ -249,6 +256,7 @@ def main() -> None:
         # the span end's offset from the fused pelvis, decayed over --max-gap frames.
         prev_seq = [None] * len(frames)
         overrides = [None] * len(frames)
+        blend_seq = [None] * len(frames)
         fr = fused_of.get(pid, {})
         if fr and not args.validate:
             ff = np.array(sorted(fr))
@@ -271,7 +279,7 @@ def main() -> None:
             frames = [frames[i] for i in keep]
             uv, conf, cams, gnd = [uv[i] for i in keep], [conf[i] for i in keep], [cams[i] for i in keep], [gnd[i] for i in keep]
             init_bp, init_go = [init_bp[i] for i in keep], [init_go[i] for i in keep]
-            prev_seq, overrides = [None] * len(frames), [None] * len(frames)
+            prev_seq, overrides, blend_seq = [None] * len(frames), [None] * len(frames), [None] * len(frames)
             fp = fused_pelvis[pid]
             fx = np.stack([fp[f] for f in ff])                 # the fused PELVIS, which the fit places at gnd
             gnd_arr = np.stack(gnd)
@@ -299,6 +307,10 @@ def main() -> None:
                 # a block boundary: the previous fitted frame is not this one's neighbour
                 if abs(near - f) <= args.stride and (i == 0 or frames[i - 1] < near):
                     prev_seq[i] = fr[near]
+                # within a max-gap of a fused block: cross-fade toward its edge record
+                d = abs(near - f)
+                if d <= args.max_gap:
+                    blend_seq[i] = (fr[near], 1.0 - d / float(args.max_gap + 1))
             gnd = list(gnd_arr)
         has_init = all(b is not None for b in init_bp)
         jobs.append({"pid": pid, "frames": np.asarray(frames), "uv": np.stack(uv), "conf": np.stack(conf),
@@ -308,7 +320,7 @@ def main() -> None:
                      "rec_frames": np.asarray(rec_frames),
                      "rec_bp": [np.asarray(rec[f]["body_pose"], float).reshape(-1) for f in rec_frames],
                      "body_models": args.body_models, "max_gap": args.max_gap, "prev_seq": prev_seq,
-                     "cfg_overrides": overrides,
+                     "cfg_overrides": overrides, "blend_seq": blend_seq,
                      "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg}})

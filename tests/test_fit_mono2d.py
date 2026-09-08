@@ -137,3 +137,20 @@ def test_prev_seq_anchors_a_frame_to_the_given_params():
                                          cfg_overrides=[None, None, {"init_weight": 5.0}])
     assert valid2.all()
     assert params2[2][(17 - 1) * 3 + 1] > 0.8
+
+
+def test_blend_params_slerps_toward_the_anchor():
+    from scipy.spatial.transform import Rotation
+
+    from nfl_gsplat.pose.fit_mono2d import blend_params
+
+    a = _pack_params(np.zeros(63), np.zeros(3), np.array([0.0, 0.0, 0.0]))
+    b = a.copy()
+    b[(17 - 1) * 3 + 1] = 1.0                                            # a joint turned 1 rad
+    b[63:66] = Rotation.from_euler("z", np.radians(90)).as_rotvec()      # the body turned 90 deg
+    b[66:69] = [2.0, 0.0, 0.0]
+    h = blend_params(a, b, 0.5)
+    assert abs(h[(17 - 1) * 3 + 1] - 0.5) < 1e-6
+    assert abs(np.degrees(Rotation.from_rotvec(h[63:66]).magnitude()) - 45) < 1e-6
+    assert np.allclose(h[66:69], [1.0, 0.0, 0.0])
+    assert np.allclose(blend_params(a, b, 0.0), a) and np.allclose(blend_params(a, b, 1.0), b)
