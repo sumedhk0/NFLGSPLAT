@@ -172,11 +172,17 @@ def main() -> None:
     fused_frames = {int(f): set(int(p) for p in recs) for f, recs in blob["frames"].items()}
     # the fused records per player, for continuity across and beyond their span
     fused_of: dict[int, dict[int, np.ndarray]] = {}
+    fused_pelvis: dict[int, dict[int, np.ndarray]] = {}       # the pelvis on the field: transl + rest pelvis
+    rest_pelvis_cache: dict = {}
     for f, recs in blob["frames"].items():
         for pid, r in recs.items():
             fused_of.setdefault(int(pid), {})[int(f)] = _pack_params(
                 np.asarray(r["body_pose"], float).reshape(-1), np.asarray(r["global_orient"], float).reshape(3),
                 np.asarray(r["transl"], float).reshape(3))
+            key = tuple(np.round(np.asarray(r["betas"], float)[:10], 3))
+            if key not in rest_pelvis_cache:
+                rest_pelvis_cache[key] = load_smplx_skeleton(args.body_models, betas=np.asarray(r["betas"], float))[0][0][:2]
+            fused_pelvis.setdefault(int(pid), {})[int(f)] = np.asarray(r["transl"], float)[:2] + rest_pelvis_cache[key]
     if args.validate:
         args.dry_run = True
 
@@ -266,7 +272,8 @@ def main() -> None:
             uv, conf, cams, gnd = [uv[i] for i in keep], [conf[i] for i in keep], [cams[i] for i in keep], [gnd[i] for i in keep]
             init_bp, init_go = [init_bp[i] for i in keep], [init_go[i] for i in keep]
             prev_seq, overrides = [None] * len(frames), [None] * len(frames)
-            fx = np.stack([fr[f][-3:-1] for f in ff])
+            fp = fused_pelvis[pid]
+            fx = np.stack([fp[f] for f in ff])                 # the fused PELVIS, which the fit places at gnd
             gnd_arr = np.stack(gnd)
             for i, f in enumerate(frames):
                 k = int(np.argmin(np.abs(ff - f)))
@@ -280,7 +287,7 @@ def main() -> None:
                 else:
                     edge = int(ff[0]) if f < ff[0] else int(ff[-1])
                     # the fused pelvis vs this camera's box point at the span's end
-                    off = fr[edge][-3:-1] - ground.get(edge, {}).get(pid, fr[edge][-3:-1])
+                    off = fp[edge] - ground.get(edge, {}).get(pid, fp[edge])
                     w = max(0.0, 1.0 - abs(f - edge) / float(args.max_gap * 5))
                     gnd_arr[i] = gnd_arr[i] + w * np.asarray(off, float)
                     # the corrected point is trusted as far as the correction reaches

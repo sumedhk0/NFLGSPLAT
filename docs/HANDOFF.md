@@ -448,6 +448,26 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### v20: the timeline anchored the model's origin, 0.35 m from the pelvis (2026-09-08)
+
+Found while chasing the last 0.35 m of the boundary jump (it survived the
+placement weight and the sideline-only ground points): the SMPL-X rest
+pelvis sits at (0.003, -0.351, 0.012) in model axes, and neither
+pose.forward_kinematics nor the smplx model rotates that root offset --
+the pelvis is always rest pelvis + transl, in WORLD axes. `placed_vertices`
+put the model's origin at a state's xy, so a body with no refit record
+(one-view sideline records, default poses) stood 0.35 m from its box
+point along -y, toward the sideline camera; a record-placed body (xy =
+transl) stood at its fitted pelvis. The two disagreed by 0.35 m, so a body
+popped by that at every record boundary, and every earlier comparison of
+"transl" against a ground point carried the constant: the "pelvis 0.46 m
+off" in the 05p validation, the box point's "-0.32 m y bias" in the
+ankle measurement (against the true pelvis: bias x -0.01, y +0.04, p50
+0.52 m). Now `placed_vertices` anchors the pelvis joint at xy,
+`place_from_refit` places records at transl + rest pelvis (per betas,
+`rest_pelvis_xy`), and 05p interpolates the fused PELVIS across and beyond
+a span. Play 1 re-run: PENDING.
+
 ### v19: the one-view fill-in popped at every triangulation gap (2026-09-08)
 
 Ruler: consecutive records (within 3 frames) of one player where the kind
@@ -882,10 +902,12 @@ meanwhile with rule D's kits (keypoints -> tri -> refit -> hifi).
 - **Ankle keypoints as the one-view ground point (2026-09-08, play 1, 2773
   two-view frames, judged against the fused refit's pelvis):** box bottom
   p50 0.55 m (p90 1.35), mean of the two ankle keypoints dropped 8 cm to
-  the turf p50 0.53 (p90 1.45), the lower ankle 0.62. No gain; the two
-  carry opposite biases along the sideline's depth (box -0.32 m, ankles
-  +0.28) against a reference that is itself the hips' triangulation. The
-  0.5 m is the placement ambiguity of one view, not the choice of pixel.
+  the turf p50 0.53 (p90 1.45), the lower ankle 0.62. No gain. (The
+  "opposite biases" first reported here, box -0.32 / ankles +0.28 along
+  y, were the rest-pelvis offset: that comparison used transl, not the
+  pelvis; against the true pelvis the box point is unbiased, x -0.01 y
+  +0.04, p50 0.52 m.) The 0.5 m is the placement ambiguity of one view
+  against the hips' triangulation, not the choice of pixel.
 
 - Officials by shirt stripes (horizontal-gradient energy of the torso band): a
   continuum on real crops, players on top, at 140 and 200-260 px bodies.

@@ -186,5 +186,8 @@ def test_place_from_refit_interpolates_the_translation_across_a_short_gap():
              30: {1: {"transl": np.array([5.0, 0.0, 0.9])}}}
     out, _ = place_from_refit(ground, refit, max_gap=12)
     assert np.allclose(out[2][1], [1.2, 0.0])                            # inside the 3-frame gap: interpolated
+    # with a pelvis function the records place at their pelvis, the interpolation too
+    out2, _ = place_from_refit(ground, refit, max_gap=12, pelvis_xy=lambda r: r["transl"][:2] + np.array([0.0, -0.35]))
+    assert np.allclose(out2[0][1], [1.0, -0.35]) and np.allclose(out2[2][1], [1.2, -0.35])
     assert np.allclose(out[10][1], [0.0, 0.0])                           # the 25-frame gap: left alone
     assert np.allclose(out[5][1], [0.0, 0.0])                            # after the last record: left alone

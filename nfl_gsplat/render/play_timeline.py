@@ -49,7 +49,12 @@ def ground_positions(df, tracks, *, with_views: bool = False):
     return ground, views
 
 
-def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 12):
+def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 12, pelvis_xy=None):
+    """``ground`` with every (frame, id) that has a refit record moved to the
+    record's pelvis. ``pelvis_xy(rec) -> xy`` gives the record's pelvis on the
+    field; without it the translation alone is used (the model's origin, which
+    sits 0.35 m from the pelvis along the rest skeleton's down axis -- see
+    placed_vertices)."""
     """Ground positions with two-view bodies moved to their refit's own
     translation (metres on the field). The linker's box-bottom placement
     carries 0.5-1 m of depth error; a triangulated refit's pelvis is metric.
@@ -65,7 +70,7 @@ def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 
             pid = int(pid)
             if pid not in out[f]:
                 continue
-            xy = np.asarray(r["transl"], float)[:2]
+            xy = np.asarray(r["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(r), float)[:2]
             d = float(np.hypot(*(xy - np.asarray(out[f][pid], float))))
             if np.isfinite(d) and d <= max_shift_m:
                 out[f][pid] = xy
@@ -81,8 +86,9 @@ def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 
         fs = sorted(fs)
         for a, b in zip(fs, fs[1:]):
             if 1 < b - a <= max_gap + 1:
-                xa = np.asarray(refit[a][pid]["transl"], float)[:2]
-                xb = np.asarray(refit[b][pid]["transl"], float)[:2]
+                ra, rb = refit[a][pid], refit[b][pid]
+                xa = np.asarray(ra["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(ra), float)[:2]
+                xb = np.asarray(rb["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(rb), float)[:2]
                 for f in range(a + 1, b):
                     if f in out and pid in out[f]:
                         w = (f - a) / float(b - a)
@@ -163,7 +169,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
     if place_from_refit_transl and refit:
-        ground, shifts = place_from_refit(ground, refit)
+        ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
         if len(shifts):
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")
@@ -233,8 +239,36 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     return tl, tracks, df, frames_all, poses
 
 
+def rest_pelvis_xy(model, betas):
+    """The pelvis joint of the unposed body, model axes, xy: (0.003, -0.35) for
+    the neutral shape. SMPL-X and pose.forward_kinematics both keep the
+    pelvis at this point plus the translation whatever the orientation."""
+    import torch
+
+    with torch.no_grad():
+        res = model(betas=torch.tensor(np.asarray(betas, np.float32)[None, :model.num_betas]))
+    return res.joints[0, 0].numpy().astype(np.float64)[:2]
+
+
+def _pelvis_xy_fn(model):
+    cache: dict = {}
+
+    def fn(rec):
+        key = tuple(np.round(np.asarray(rec["betas"], float)[:10], 3))
+        if key not in cache:
+            cache[key] = rest_pelvis_xy(model, rec["betas"])
+        return np.asarray(rec["transl"], float)[:2] + cache[key]
+
+    return fn
+
+
 def placed_vertices(state: tlm.PlayerState, model):
-    """World vertices of a state's body, feet on the turf under the pelvis."""
+    """World vertices of a state's body: the PELVIS over ``state.xy``, feet on
+    the turf. It used to put the model's origin at xy, which is 0.35 m from
+    the pelvis along the rest skeleton's down axis (a world direction here,
+    since the pelvis joint is not rotated by the orientation): every body
+    without a refit record stood 0.35 m from its box-bottom point, and a
+    body popped by that much at every record boundary (play 1, 2026-09-08)."""
     import torch
 
     with torch.no_grad():
@@ -242,4 +276,5 @@ def placed_vertices(state: tlm.PlayerState, model):
                     body_pose=torch.tensor(state.body_pose.reshape(1, -1).astype(np.float32)),
                     global_orient=torch.tensor(state.global_orient.reshape(1, 3).astype(np.float32)))
     verts = res.vertices[0].numpy().astype(np.float64)
-    return verts + np.array([state.xy[0], state.xy[1], -verts[:, 2].min()])
+    pelvis = res.joints[0, 0].numpy().astype(np.float64)
+    return verts + np.array([state.xy[0] - pelvis[0], state.xy[1] - pelvis[1], -verts[:, 2].min()])
