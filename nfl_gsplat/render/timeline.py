@@ -228,8 +228,31 @@ def relabel(ground_by_frame, views_by_frame, poses_by_pid, player_of):
 _SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
 
 
+def _anchored_by_frame(frames, views_by_frame, anchor_cam: str, gap: int) -> dict:
+    """frame -> {pid}: ids the anchor camera detected within ``gap`` frames of that
+    frame. A body interpolated through a short detection gap is that player,
+    not a duplicate of the neighbour it stands 0.8 m from: play 1 (2026-09-08)
+    had 223 disappear/reappear events over 54 drawn ids, gaps of 4-16 frames,
+    most of them linemen deduped while their track blinked."""
+    seen: dict = {}
+    for f, d in (views_by_frame or {}).items():
+        for pid, v in d.items():
+            if anchor_cam in v:
+                seen.setdefault(int(pid), []).append(int(f))
+    out: dict = {int(f): set() for f in frames}
+    fr = np.asarray(sorted(int(f) for f in frames))
+    for pid, fs in seen.items():
+        fs = np.asarray(sorted(fs))
+        lo = np.searchsorted(fr, fs - gap, side="left")
+        hi = np.searchsorted(fr, fs + gap, side="right")
+        for a, b in zip(lo, hi):
+            for f in fr[a:b]:
+                out[int(f)].add(pid)
+    return out
+
+
 def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_frame=None,
-                  anchor_cam: str = "sideline") -> int:
+                  anchor_cam: str = "sideline", anchored=None) -> int:
     """Drop, per frame, states that are another state's duplicate.
 
     A state whose id the anchor camera DETECTED in this frame is never a
@@ -248,10 +271,12 @@ def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_fra
     dropped = 0
     for f, states in tl.states.items():
         seen = views_by_frame.get(f, {}) if views_by_frame else {}
-        anchored = [s for s in states if anchor_cam in seen.get(s.pid, ())]
-        rest = [s for s in states if anchor_cam not in seen.get(s.pid, ())]
+        recent = anchored.get(f, set()) if anchored else set()
+        is_anchored = lambda s: anchor_cam in seen.get(s.pid, ()) or s.pid in recent  # noqa: E731
+        anchored_states = [s for s in states if is_anchored(s)]
+        rest = [s for s in states if not is_anchored(s)]
         order = sorted(rest, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
-        kept: list = list(anchored)
+        kept: list = list(anchored_states)
         for s in order:
             this = seen.get(s.pid, ())
             if this and anchor_cam not in this:
@@ -342,7 +367,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             tl.states.setdefault(f, []).append(PlayerState(
                 pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
                 source=source, clamped=clamped, views=views))
-    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, views_by_frame=views_by_frame)
+    anchored = _anchored_by_frame(frames, views_by_frame, "sideline", MAX_GAP_FRAMES) if views_by_frame else None
+    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, views_by_frame=views_by_frame, anchored=anchored)
     _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
               "%d frames tilt-clamped", len(pids), len(frames),
               float(np.median([len(v) for v in tl.states.values()])) if tl.states else 0,

@@ -105,7 +105,7 @@ def test_endzone_only_ids_along_their_depth_axis_are_duplicates_and_sideline_det
     assert out.n_duplicates == len(frames)
 
 
-def test_interpolated_frames_of_an_id_dedupe_at_the_plain_radius():
+def test_a_short_detection_gap_keeps_the_body_beside_its_neighbour():
     frames = list(range(0, 12))
     ground = {f: {1: np.array([10.0, 2.0]), 2: np.array([10.4, 2.3])} for f in frames}
     for f in range(4, 8):                                  # id 2 undetected for four frames
@@ -114,10 +114,20 @@ def test_interpolated_frames_of_an_id_dedupe_at_the_plain_radius():
     out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
     for f in frames:
         pids = sorted(s.pid for s in out.states[f])
-        if 4 <= f < 8:
-            assert pids == [1], (f, pids)                  # filled position 0.5 m from a detection: dropped
-        else:
-            assert pids == [1, 2], (f, pids)               # both detected: two people
+        assert pids == [1, 2], (f, pids)                   # the sideline saw 2 within the gap: a person, kept
+    assert out.n_duplicates == 0
+
+
+def test_an_id_unseen_for_long_dedupes_at_the_plain_radius():
+    frames = list(range(0, 80))
+    ground = {f: {1: np.array([10.0, 2.0]), 2: np.array([10.4, 2.3])} for f in frames}
+    for f in range(10, 70):                                # id 2 undetected for sixty frames
+        del ground[f][2]
+    views = {f: {1: ("sideline",), **({2: ("sideline",)} if 2 in ground[f] else {})} for f in frames}
+    out = tl.build_timeline(frames, ground, {}, views_by_frame=views, min_frames=6)
+    mid = sorted(s.pid for s in out.states[40])
+    assert mid == [1], mid                                  # no sighting within 30 frames: not anchored (and not filled: gap > max_gap)
+    assert sorted(s.pid for s in out.states[5]) == [1, 2]
 
 
 def test_relabel_merges_fragments_under_the_stitch_map():

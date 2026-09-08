@@ -16,6 +16,7 @@
 #   check     scripts/08d --los-yards (prints rulers, LOS)            -> field_offset.json
 #   endzone_track scripts/08h (endzone camera from the footage's motion) -> cameras.npz  [ENDZONE_TRACK=1 only; loses on triangulation]
 #   link      scripts/08b --cameras --pairing track --pair-gap 0       -> tracks.parquet (camera tracks keep ids)
+#   split     scripts/08k per-camera tracks cut where the kit changes for good -> tracks.parquet (+ _unsplit kept)
 #   identity  scripts/08c OCR -> 08i pairing by number/kit -> 08c --from-cache  -> tracks_identity.parquet, identity_resolved.pkl
 #             (before the pose stages: pairing changes the ids and the pose caches are keyed by id)
 #   pose_s    scripts/05c sideline (resumes per frame)                -> poses_sideline.json
@@ -69,7 +70,7 @@ if [ "$FRESH" = 1 ]; then
   log "fresh: wiping markers and stage outputs"
   rm -f "$P"/.done_* "$P/poses_sideline.json" "$P/poses_endzone.json" "$P/poses_fused.json" \
         "$P/poses_refit.json" "$P/poses_refit_fused.json" "$P/identity_resolved.pkl" "$P/identity_unnamed.pkl" "$P/identity_fused.pkl" \
-        "$P/tracks_identity.parquet" "$P/cameras_relative.npz" "$P/field_offset.json"
+        "$P/tracks_identity.parquet" "$P/tracks_unsplit.parquet" "$P/cameras_relative.npz" "$P/field_offset.json"
 fi
 
 if [ "$FROM_PAINT" = 1 ] && ! done_ paint; then
@@ -175,6 +176,12 @@ if ! done_ link; then
      2>&1 | grep -v "Warning\|warn" | grep -E "kits|per-camera|linked|tracks.parquet|Error" || fail link
   rm -f "$P/.done_pose_s" "$P/.done_pose_e" "$P/.done_identity" "$P/.done_keypoints" "$P/.done_tri" "$P/.done_refit"
   mark link
+fi
+
+if ! done_ split; then
+  log "per-camera tracks cut where the kit changes for good (08k; a track the linker handed to another player)"
+  "$PYN" scripts/08k_split_by_kit.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "kit split|wrote|kept|Error|Traceback" || fail split
+  mark split
 fi
 
 if ! done_ field; then

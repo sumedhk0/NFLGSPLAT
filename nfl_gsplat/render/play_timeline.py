@@ -211,22 +211,27 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     ident_path = P / "identity_resolved.pkl"
     heights = {}
     if ident_path.exists():
-        from nfl_gsplat.render.roster_shape import betas_for_height, heights_from_identity
+        from nfl_gsplat.render.roster_shape import (betas_for_height, betas_for_height_weight,
+                                                    heights_from_identity, weights_from_identity)
 
-        heights = heights_from_identity(pickle.load(open(ident_path, "rb")).get("merged", {}))
+        merged_ident = pickle.load(open(ident_path, "rb")).get("merged", {})
+        heights = heights_from_identity(merged_ident)
+        weights = weights_from_identity(merged_ident)
         n_adj = 0
         for pid, byf in poses.items():
             h = heights.get(int(pid))
             if h is None:
                 continue
             cache: dict = {}
+            kg = weights.get(int(pid))
             for f, rec in byf.items():
                 key = tuple(np.round(np.asarray(rec[2], float), 3))
                 if key not in cache:
-                    cache[key] = betas_for_height(model, rec[2], h)
+                    cache[key] = (betas_for_height_weight(model, rec[2], h, kg) if kg
+                                  else betas_for_height(model, rec[2], h))
                 byf[f] = (rec[0], rec[1], cache[key], rec[3])
                 n_adj += 1
-        print(f"roster heights: {len(heights)} ids known, {n_adj} posed records set to them")
+        print(f"roster heights: {len(heights)} ids known ({len(weights)} with a weight), {n_adj} posed records set to them")
     members = {}
     if stitch_ids:
         from nfl_gsplat.tracking.stitch import stitch

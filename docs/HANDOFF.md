@@ -448,6 +448,55 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### v23: the user's four notes on v22 (2026-09-08 evening)
+
+The user, on v22: (1) jitter and shakiness, players glitching in and out;
+(2) the QB the wrong colour, players near each other switched around;
+(3) every build the same, linemen no bigger than corners; (4) which play
+is this. Measured and answered:
+
+**Glitching in and out** (ruler: a drawn id's runs between rendered
+frames): 223 disappear/reappear events over 54 drawn ids, gaps of 4-16
+frames, 781 vanished frames -- 293 with a ground point and dropped by the
+dedupe, the rest interpolated through a short detection gap and then
+dropped by the dedupe as the neighbour's copy (linemen 0.8 m apart). Fix
+(`timeline._anchored_by_frame`): a state whose id the sideline detected
+within MAX_GAP_FRAMES (30) of the frame is anchored, never a duplicate;
+only ids unseen for longer dedupe.
+
+**The QB** is sideline id 5 for the whole play (frames 14-628), kit votes
+42 red / 2 white, team KC, drawn red throughout; what is wrong on him is
+the NUMBER: the endzone track paired to him read 10 on 7 of 7 crops, and
+#10 is Pacheco, who stands beside Mahomes in the shotgun -- the pairing
+cannot tell two backfield players 1-2 m apart along the endzone's depth,
+and the name follows the endzone's number. Open.
+
+**Switched around**: the kit margin per detection flips for good inside
+10 of 74 sideline tracks (sustained runs of the other kit, 20-135
+confident detections): the linker handed the track to another player.
+`tracking.split_by_kit` cuts a per-camera track where the smoothed kit
+sign holds for >= 15 confident detections (a blip of 6 is a shadow); 30
+cuts on play 1 (13 sideline, 17 endzone), stage `split` (08k) between
+link and identity, so numbers, partners and avatars are per player.
+
+**Builds**: every avatar had the regressor's near-neutral girth, only the
+height from the roster. SMPL-X beta1 sets girth (+-27 % of mesh volume
+per +-2) almost without touching stature; the neutral body is 77 kg at
+1010 kg/m^3 (BMI 26), so a roster weight is a target mesh volume.
+`roster_shape.betas_for_height_weight` meets both (Travis Jones 1.93 m /
+152 kg -> beta1 +2.7, 150 kg; Marquise Brown 1.75 / 77 -> -0.3). All 21
+named ids carry a weight; unnamed ids keep the default build.
+
+**The play**: BAL @ KC, 2024 week 1 (the Thursday opener, 5 Sep 2024), KC
+on offence, 2nd-and-20 from the Baltimore 24; the next clips in the
+folder are KC 3rd-and-9 and 4th-and-9 from the 13, so the snap gained
+11 yards. Named on it: Mahomes' track carries #10 (see above), Pacheco,
+Noah Gray, JuJu Smith-Schuster, Humphrey, Taylor, Suamataia; BAL Stephens,
+Cooper Jr., Ojabo, Travis Jones, Agholor.
+
+v23 = the script from the link stage with the split stage, the anchored
+dedupe and the weighted builds: PENDING.
+
 ### v21: a wrong pair sawtoothed by a metre a frame (2026-09-08)
 
 Ruler: second differences of the timeline's state xy per frame.
