@@ -52,6 +52,7 @@ class Mono2DConfig:
     # reprojection 3.2 -> 3.4 px.
     tilt_weight: float = 10.0       # on the lean past tilt_free_deg, radians
     tilt_free_deg: float = 20.0
+    up_axis: tuple = (0.0, 1.0, 0.0)  # the rest skeleton's up (SMPL-X is y-up)
     max_iter: int = 40
     loss: str = "soft_l1"
 
@@ -60,11 +61,11 @@ ANKLES = (7, 8)
 PELVIS = 0
 
 
-def tilt_rad(global_orient):
+def tilt_rad(global_orient, up_axis=(0.0, 1.0, 0.0)):
     """The body's lean from upright: the rest skeleton's up axis (SMPL-X +y) against world +z."""
     from scipy.spatial.transform import Rotation
 
-    up = Rotation.from_rotvec(np.asarray(global_orient, float)).apply([0.0, 1.0, 0.0])
+    up = Rotation.from_rotvec(np.asarray(global_orient, float)).apply(np.asarray(up_axis, float))
     return float(np.arccos(np.clip(up[2], -1.0, 1.0)))
 
 
@@ -98,7 +99,8 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
         prior = np.sqrt(cfg.prior_weight) * p[bp_slice]
         parts = [rep, behind, ground, place, prior]
         if cfg.tilt_weight > 0:
-            parts.append(np.array([cfg.tilt_weight * max(0.0, tilt_rad(p[go_slice]) - np.radians(cfg.tilt_free_deg))]))
+            parts.append(np.array([cfg.tilt_weight * max(0.0, tilt_rad(p[go_slice], cfg.up_axis)
+                                                         - np.radians(cfg.tilt_free_deg))]))
         if bp_init is not None:
             parts.append(np.sqrt(cfg.init_weight) * (p[bp_slice] - bp_init))
         if prev_params is not None:

@@ -55,8 +55,9 @@ def test_recovers_a_swinging_arm_from_one_view():
     # and its heading, 20 deg off: a symmetric body cannot tell front from back in one view
     rough_go = np.stack([(Rotation.from_euler("z", np.radians(20.0)) * Rotation.from_rotvec(go)).as_rotvec()] * T)
     params, valid, rep = fit_sequence_2d(np.stack([uv_noisy] * T), np.stack([conf] * T), [cam] * T,
-                                         np.stack([J[0, :2]] * T), rest, forward, cfg=Mono2DConfig(), base_cfg=base,
-                                         init_body_pose_seq=rough, init_orient_seq=rough_go)
+                                         np.stack([J[0, :2]] * T), rest, forward,
+                                         cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0)),      # this stick figure is z-up
+                                         base_cfg=base, init_body_pose_seq=rough, init_orient_seq=rough_go)
     assert valid.all()
     assert rep[-1] < 3.0, rep
     Jf = forward(params[-1])
