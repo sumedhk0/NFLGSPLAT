@@ -1026,13 +1026,20 @@ camera); numerals as the only ruler (constant was wrong — the hashes caught it
 
 ## Open items, in value order (2026-09-08, after v21)
 
-1. Two-view coverage: 10 of 22 players a frame are paired; the rest stand
-   on one camera's box point (0.5 m from a triangulated pelvis at the
-   median) with a one-view pose (heading within 21 deg of the two-view
-   fit at the p50, 3 % facing the wrong way). The pairing now refuses
-   crossing tracks; what it lacks is evidence -- the sideline reads no
-   numbers at 130 px, the kit is two classes, the regressed pose is a weak
-   cue (18 % top-1). Pair truth exists only on the helmet set.
+1. Two-view coverage: 9-10 of 22 players a frame are paired; the rest
+   stand on one camera's box point (0.5 m from a triangulated pelvis at
+   the median) with a one-view pose (heading within 21 deg of the two-view
+   fit at the p50, 3 % facing the wrong way). Measured 2026-09-08 (v22's
+   tracks): of 30 sideline tracks of 30+ frames without a partner, 17 have
+   no endzone track within 4 m and sit OUTSIDE the endzone image on 100 %
+   of their frames (staff on the near sideline, excluded from the render
+   anyway), 5 face another kit at their nearest endzone track, 4 are
+   eligible but their partner is taken by a longer overlapping fragment, 2
+   overlap no endzone track for 6 frames. The pairing is at its ceiling
+   for what both cameras see; the ceiling is the endzone camera's 4-6 deg
+   lens (frames 125-634 only, and it never holds the wide receivers) and
+   the fragments. The regressed pose is a weak cue (18 % top-1); pair
+   truth exists only on the helmet set.
 2. Fragments: 73 sideline tracks for ~29 people; every stitching cue
    measured is a dead end (position, colour, betas, kit+number vetoes);
    the visible cost is small (one avatar swap at a track end within 30
