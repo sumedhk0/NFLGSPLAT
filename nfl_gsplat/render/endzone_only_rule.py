@@ -40,6 +40,42 @@ def _inside_sideline(xy, track, f, *, margin: float = MARGIN_PX) -> bool:
     return margin <= u <= track.width - margin and margin <= v <= track.height - margin
 
 
+def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sideline",
+                         margin: float = MARGIN_PX):
+    """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
+    beyond its sideline detections by more than ``gap`` frames, where the
+    sideline could see the spot. Returns ``(ground, dropped)``.
+
+    WHY. The appearance pairing joins a sideline fragment to an endzone
+    track by number or kit; the endzone track outlives the fragment, and
+    for the rest of its life the paired id is drawn from the endzone alone:
+    play 1 v16, id 68 = an endzone track of 510 frames paired to 18
+    sideline frames, drawn 474 frames as a second copy of a player the
+    sideline tracks under other ids (the dedupe does not catch it: the
+    endzone's copy stands metres from the sideline's along x). One avatar
+    per sideline track means the sideline span is the avatar's life; the
+    endzone refines position inside it. Beyond the span the id is kept only
+    where the sideline camera could not have seen it (outside its image)."""
+    sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
+    span = sub.groupby("track_id")["frame"].agg(["min", "max"])
+    lo = {int(pid): int(r["min"]) - gap for pid, r in span.iterrows()}
+    hi = {int(pid): int(r["max"]) + gap for pid, r in span.iterrows()}
+    out = {}
+    dropped = 0
+    for f, d in ground.items():
+        f = int(f)
+        keep = {}
+        for pid, xy in d.items():
+            pid = int(pid)
+            if pid in lo and not (lo[pid] <= f <= hi[pid]) and sideline is not None \
+                    and f < len(sideline.conf) and _inside_sideline(xy, sideline, f, margin=margin):
+                dropped += 1
+                continue
+            keep[pid] = xy
+        out[f] = keep
+    return out, dropped
+
+
 def endzone_only_ids(df, views, *, cam: str = "endzone", ground=None, sideline=None,
                      min_inside: float = MIN_INSIDE) -> set:
     """Ids to leave out: every box from ``cam``, no two-view frame, and (when

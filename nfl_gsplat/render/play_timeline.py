@@ -13,7 +13,7 @@ import numpy as np
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
-from nfl_gsplat.render.endzone_only_rule import endzone_only_ids
+from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
 from nfl_gsplat.render.offfield_rule import sideline_dwellers, striped_ids
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
@@ -139,6 +139,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     if not refit and side_blob is None:
         raise SetupError("no pose cache: need poses_refit.json (05f) or poses_sideline.json (05c)")
     ground, views = ground_positions(df, tracks, with_views=True)
+    # A paired id lives on its sideline span: beyond it the endzone track
+    # alone draws a second copy of a player (endzone_only_rule).
+    if "sideline" in tracks:
+        ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"], gap=tlm.MAX_GAP_FRAMES)
+        if n_beyond:
+            print(f"frames beyond an id's sideline span left out: {n_beyond}")
     if place_from_refit_transl and refit:
         ground, shifts = place_from_refit(ground, refit)
         if len(shifts):

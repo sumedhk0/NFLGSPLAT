@@ -448,6 +448,20 @@ offensive line is back at the snap (v15 drew four red bodies at 1.5 s, v16
 the pack of eleven) and the 7 s frame shows a full formation. No visible
 duplicates in the stills. v16 is the deliverable.
 
+The states the new dedupe keeps that the sideline does not see in that
+frame, per frame on v16: 1.1 interpolated (gap fills), 0.9 endzone-seen
+PAIRED ids, 0.2 endzone-only ids the frustum test lets through. The paired
+ones are one id: 68 = an endzone track of 510 frames (125-634) paired by
+08i to a sideline fragment of 18 frames (606-642), drawn 474 frames from
+the endzone alone -- a second copy of a player the sideline tracks under
+other ids, metres away along x, past the dedupe radii. Id 40 the same
+shape (endzone 125-634, sideline 398-526). `endzone_only_rule.
+beyond_sideline_span` (in the timeline before the exclusion rules): an
+id's frames beyond its sideline span by more than MAX_GAP_FRAMES (30) are
+dropped where the sideline could see the spot, kept where it could not
+(outside its image). Play 1: 1588 ground frames dropped, 22 bodies a
+frame, dedupe drops 3396 -> 1841. v17 = v16 + this + the tilt prior.
+
 ### v15: the one-view bodies refit to the keypoints (2026-09-08)
 
 Half of the rendered bodies are one-view (the sideline alone) and took the

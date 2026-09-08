@@ -42,3 +42,38 @@ def test_frustum_aware_keeps_an_endzone_only_id_the_sideline_cannot_see():
     ground = {f: {7: (0.0, 0.0), 8: (40.0, 0.0)} for f in range(n)}     # 7 at the aim point, 8 forty metres off-axis
     assert endzone_only_ids(df, views, ground=ground, sideline=track) == {7}
     assert endzone_only_ids(df, views) == {7, 8}                         # no cameras: the old behaviour
+
+
+def test_beyond_sideline_span_drops_the_endzone_tail_the_sideline_could_see():
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    # id 1: sideline frames 10..20, endzone frames 0..60; id 2: sideline only, 0..60
+    rows = [{"cam": "sideline", "track_id": 1, "frame": f} for f in range(10, 21)]
+    rows += [{"cam": "endzone", "track_id": 1, "frame": f} for f in range(0, 61)]
+    rows += [{"cam": "sideline", "track_id": 2, "frame": f} for f in range(0, 61)]
+    df = pd.DataFrame(rows)
+    ground = {f: {1: np.array([5.0, 0.0]), 2: np.array([-5.0, 0.0])} for f in range(0, 61)}
+    # far downfield from frame 50 on: outside the sideline image
+    for f in range(50, 61):
+        ground[f][1] = np.array([80.0, 0.0])
+    from nfl_gsplat.calibration.cameras_io import CameraTrack
+    from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
+
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 0.0]))
+    n = 61
+    track = CameraTrack(K=np.stack([K] * n), R=np.stack([R] * n), t=np.stack([t] * n), conf=np.ones(n),
+                        width=1920, height=1080)                     # sees the field around x = 0
+    out, dropped = beyond_sideline_span(ground, df, track, gap=5)
+    for f in range(0, 61):
+        assert 2 in out[f]                                            # the sideline's own id: untouched
+        if 5 <= f <= 25:
+            assert 1 in out[f], f                                     # the span plus the gap
+        elif f >= 50:
+            assert 1 in out[f], f                                     # beyond the span, unseen: kept
+        else:
+            assert 1 not in out[f], f                                 # beyond the span, in view: dropped
+    assert dropped == 5 + (50 - 26)
