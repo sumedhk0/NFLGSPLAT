@@ -475,7 +475,12 @@ numpy-2 venv does not load in the smplx venv). Result: the timeline's xy
 second differences for record-placed ids p99 1365 -> 115 mm, one triple
 over 0.5 m instead of 253; the merged cache's jitter p99 260 -> 213 mm,
 hands/feet p90 103 -> 94 (the wrong pair's triangulated poses were among
-the worst). v21 = v20 + this.
+the worst). v21 = v20 + this (10:58, `diag/play_001_v21_hifi_720.mp4`,
+sent to the user; stills against v20 in `diag/p1_v20_v21_strip.jpg`: id 9,
+the receiver, now stands where the sideline sees it; the rest identical).
+**v21 is the deliverable and the pipeline's reproducible baseline** --
+every rule above is in the script (a fresh run pairs with the median gate,
+so the pair_rule guard finds nothing).
 
 ### The sideline camera through the rendered span (2026-09-08)
 

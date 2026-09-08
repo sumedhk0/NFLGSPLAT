@@ -36,6 +36,9 @@
 # Environments: nflgsplat for calibration/identity, smplx312 for pose/fuse/refit/render
 # (pickles written under numpy 2 do not load under numpy 1 -- keep it that way).
 set -u
+# KICKING=1 for a kickoff, punt or field goal: kickers, punters and long snappers
+# may be named (08c vetoes them on scrimmage downs; play 1 named the kicker twice).
+KICK_FLAG=""; [ "${KICKING:-0}" = "1" ] && KICK_FLAG="--kicking-play"
 # A stage is a python run piped through grep for the log; without pipefail
 # the grep decided the stage's fate and a traceback that contained the
 # word "shift" passed the shift stage (play 2, 2026-09-03).
@@ -182,11 +185,11 @@ fi
 
 if ! done_ identity; then
   log "identity (08c)"
-  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" 2>&1 | grep -v "Warning\|warn" | grep -E "OCR:|kit split|Error" || fail identity
+  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" $KICK_FLAG 2>&1 | grep -v "Warning\|warn" | grep -E "OCR:|kit split|Error" || fail identity
   # pair the camera tracks by appearance (number, kit) then position (08i), and name the paired ids
   "$PYN" scripts/08i_pair_by_appearance.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" || fail identity
   cp "$P/tracks_identity.parquet" "$P/tracks.parquet"
-  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" --from-cache 2>&1 | grep -v "Warning\|warn" | tail -6 || fail identity
+  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" $KICK_FLAG --from-cache 2>&1 | grep -v "Warning\|warn" | tail -6 || fail identity
   # --saturated: the coloured kit's team is RED by construction (rule D, the
   # kit decides the roster, 2026-09-05); the roster vote prints as a check.
   mark identity
