@@ -75,6 +75,9 @@ pose      scripts/05c_pose_play.py x2         SMPLest-X per view (endzone with -
 identity  scripts/08c_identity_all22.py       OCR votes per player (both views), roster (nflverse)
 fuse      scripts/05e_fuse_views.py           joints both views agree on, placed at the compromise
 refit     scripts/05f_refit_fused.py          SMPL-X params refit to the fused joints (FK forward)
+refit_mono scripts/05p_refit_mono.py         one-view bodies (no fused record) refit to the sideline's
+                                              2-D keypoints, feet on the turf (pose.fit_mono2d); merged
+                                              into poses_refit.json, the 05f cache kept as _fused.json
 fit       scripts/05i_fit_appearance.py       per-body Gaussian colour/scale/opacity fitted to the
                                               footage (compositing.splat_torch, sparse differentiable
                                               splatter; fit_appearance), held-out L1 vs the median
@@ -420,6 +423,41 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 (gap 10), so identity's teams stand. Frame `diag/play_001_v8_a.jpg`: the
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
+
+### v15: the one-view bodies refit to the keypoints (2026-09-08)
+
+Half of the rendered bodies are one-view (the sideline alone) and took the
+monocular regressor's pose, which sits near the mean pose: measured on v14,
+their joints move 0.21 m/s in the body frame (pose only, orient and transl
+zeroed, `fit_mono2d.body_frame_speeds`) against 1.0 m/s for the
+triangulated bodies -- mannequins gliding across the turf. The 2-D
+keypoints (05m) exist for every tracked person and carry the articulation.
+`pose.fit_mono2d` + `scripts/05p_refit_mono.py` (stage `refit_mono`, after
+`refit`): per frame, least squares over SMPL-X (body_pose, orient, transl)
+to the sideline keypoints through that frame's camera, the lower ankle on
+the turf (the depth one view cannot see), the pelvis over the box-bottom
+ground point, an L2 prior, a pull to the regressor's pose, a temporal
+term; started from the regressor's pose and HEADING (a 12-heading search
+picked the mirrored heading on a symmetric body and the fit then extended
+the arm toward the camera instead of raising it: 0.31 px vs the truth's
+1.09, wrong by 0.5 m -- the synthetic test in `tests/test_fit_mono2d.py`).
+Records merge into 05f's cache; the fused record wins; the 05f cache is
+kept as `poses_refit_fused.json` and a re-run starts from it. A frame
+whose fit reprojects over 20 px keeps the regressor's pose.
+
+Probe (ids 0 and 8, 343 frames): reprojection of the regressor's placed
+pose 34 px -> 2.5 px; body-frame joint speed p50 0.21 -> 0.55 m/s (p90 1.3
+-> 2.3). Cost 0.6 s a frame (least_squares max_nfev had been max_iter x 10
+and a noisy frame ran 400 iterations); stride 2 (the timeline interpolates
+axis-angles between records, 05k renders at stride 2), 6 workers.
+Full run on v14's caches (04:32-04:43): 42 players with sideline keypoints
+outside the fused refit, 3718 of 3721 frames fit (stride 2; 3 over the 20 px
+gate); reprojection median 35.6 -> 3.3 px; body-frame joint speed p50 0.17
+-> 0.56 m/s (p90 1.34 -> 2.98). The one-view bodies now move about half as
+much as the triangulated ones instead of a sixth. The unobserved joints
+(spine, collars, feet: 8 of 22) sit on the prior and pull the median down;
+the reprojection is the keypoints' own noise at 130 px bodies.
+`diag/play_001_v15_hifi_720.mp4` = v14 + this stage (nothing else changed).
 
 ### v11, v12, v13: the endzone track decided by triangulation (2026-09-08)
 
