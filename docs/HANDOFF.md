@@ -483,6 +483,25 @@ first difference between records): fused refit 2.16 at step 1 and 2.16 at
 step 2, one-view refit 1.70 at step 2 -- the one-view fits are no rougher
 than the triangulated ones (both are noise-dominated at 8-15 mm a record),
 so no extra smoothing on the mono records.
+Validated against the fused refit (`05p --validate`: the mono fit run on
+the frames the triangulation covers, scored against it; 365 frames at
+stride 8): pelvis-aligned joint error p50 0.18 m for the regressor's pose
+AND 0.19 m for the mono fit -- the reference's own noise floor (the fused
+refit's rms to the triangulated joints is 0.087 m and those joints carry
+~0.1-0.2 m at 8 px from 100 m), so the 3-D ruler cannot rank the two; the
+mono fit's measured gains are 2-D (43 -> 3 px on those frames) and, with
+the tilt prior, the lean. Without the prior the one-view fits leaned 34
+deg (p50) against the truth's 16 (one view trades lean against depth);
+`tilt_weight` 3 -> 21 deg, 10 -> 20 deg (|diff| 7, none past 60, p90 joint
+error 0.31 -> 0.26 m), adopted at 10 past 20 deg. The pelvis of a one-view
+body sits 0.46 m (median) from where the two-view fit puts it: the
+box-bottom ground point against the triangulated pelvis -- the placement
+ambiguity of one view, not the pose. HONEST CORRECTION to the motivation
+above: the fused bodies' 1.0 m/s "body-frame motion" is mostly per-frame
+jitter (8 mm a frame, second differences twice the first), so the
+regressor's 0.17 m/s was not a sixth of real articulation; what the
+keypoint fit adds is what the stills show -- strides, bent arms -- and the
+2-D agreement, not a 3-D number.
 Render (05:21): 69 posed players (v14 55), 3 default-posed, 16 bodies a
 frame as before. Stills against v14 (`diag/p1_v14_v15_strip.jpg`, temporal
 crops `diag/p1_v14_v15_motion.jpg`): the one-view bodies articulate --

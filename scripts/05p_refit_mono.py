@@ -39,7 +39,7 @@ import pandas as pd
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.pose.coco import coco_to_body
 from nfl_gsplat.pose.fit_mono2d import (Mono2DConfig, body_frame_speeds, fit_sequence_2d, merge_into_refit,
-                                        rigid_start_2d)
+                                        rigid_start_2d, tilt_rad)
 from nfl_gsplat.pose.forward_kinematics import fk_forward, load_smplx_skeleton
 from nfl_gsplat.pose.fuse_smplx import SMPLXFitConfig, _pack_params
 from nfl_gsplat.render.play_timeline import ground_positions
@@ -57,12 +57,14 @@ def _fit_job(job):
     init_bp, init_go = job["init_bp"], job["init_go"]
     # before: the regressor's pose and heading placed as the timeline places them
     before = np.full(len(frames), np.nan)
+    starts = [None] * len(frames)
     for i in range(len(frames)):
         try:
-            _, e = rigid_start_2d(rest, job["ground"][i], job["cams"][i], job["uv"][i], job["conf"][i], forward,
-                                  base, None if init_bp is None else init_bp[i], min_conf=cfg.min_conf,
-                                  init_orient=None if init_go is None else init_go[i], heading_span_deg=0.0)
+            p0, e = rigid_start_2d(rest, job["ground"][i], job["cams"][i], job["uv"][i], job["conf"][i], forward,
+                                   base, None if init_bp is None else init_bp[i], min_conf=cfg.min_conf,
+                                   init_orient=None if init_go is None else init_go[i], heading_span_deg=0.0)
             before[i] = e
+            starts[i] = p0
         except ValueError:
             pass
     params, valid, rep = fit_sequence_2d(job["uv"], job["conf"], job["cams"], job["ground"], rest, forward,
@@ -77,7 +79,25 @@ def _fit_job(job):
     if len(rf) >= 2:
         sp_before = body_frame_speeds([_pack_params(b, np.zeros(3), np.zeros(3)) for b in rbp], rf, forward,
                                       fps=FPS, base_cfg=base)
-    return (job["pid"], frames, params, valid, rep, before, sp_before, sp_after)
+    truth = job.get("truth")
+    val = None
+    if truth is not None:
+        # against the fused refit on the same frames: joint error (m), tilt, heading
+        rows = []
+        for i, f in enumerate(frames):
+            tp = truth.get(int(f))
+            if tp is None or not valid[i]:
+                continue
+            Jt = forward(tp)
+            Jf = forward(params[i])
+            row = [np.linalg.norm(Jf - Jt, axis=1).mean(), tilt_rad(params[i][63:66]), tilt_rad(tp[63:66]), np.nan,
+                   np.linalg.norm((Jf - Jf[0]) - (Jt - Jt[0]), axis=1).mean(), np.linalg.norm(Jf[0] - Jt[0])]
+            if starts[i] is not None:
+                J0 = forward(starts[i])
+                row[3] = np.linalg.norm((J0 - J0[0]) - (Jt - Jt[0]), axis=1).mean()
+            rows.append(row)
+        val = np.array(rows) if rows else np.zeros((0, 6))
+    return (job["pid"], frames, params, valid, rep, before, sp_before, sp_after, val)
 
 
 def main() -> None:
@@ -104,6 +124,10 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
+    ap.add_argument("--validate", action="store_true",
+                    help="fit the frames the fused refit COVERS and score against it (joint error, tilt); writes nothing")
+    ap.add_argument("--tilt-weight", type=float, default=Mono2DConfig.tilt_weight)
+    ap.add_argument("--tilt-free-deg", type=float, default=Mono2DConfig.tilt_free_deg)
     args = ap.parse_args()
     P = args.play_dir
     t0 = time.time()
@@ -133,6 +157,8 @@ def main() -> None:
         blob = {"cam": "fused", "world": True, "appearance_cam": args.cam, "stride": int(side["stride"]),
                 "frames": {}}
     fused_frames = {int(f): set(int(p) for p in recs) for f, recs in blob["frames"].items()}
+    if args.validate:
+        args.dry_run = True
 
     # the regressor's records per player: {pid: {frame: rec}}
     recs_of: dict[int, dict[int, dict]] = {}
@@ -150,10 +176,17 @@ def main() -> None:
         betas = (np.mean([np.asarray(rec[f]["betas"], float) for f in rec_frames], axis=0) if rec_frames
                  else np.zeros(10))
         frames, uv, conf, cams, gnd, init_bp, init_go = [], [], [], [], [], [], []
+        truth = {}
         for f, rows in g.groupby("frame"):
             f = int(f)
-            if f % args.stride or pid in fused_frames.get(f, set()) or len(rows) != 17:
+            covered = pid in fused_frames.get(f, set())
+            if f % args.stride or covered != args.validate or len(rows) != 17:
                 continue
+            if args.validate:
+                r = blob["frames"][f][pid]
+                truth[f] = _pack_params(np.asarray(r["body_pose"], float).reshape(-1),
+                                        np.asarray(r["global_orient"], float).reshape(3),
+                                        np.asarray(r["transl"], float).reshape(3))
             if f >= len(tr.conf) or tr.conf[f] <= 0 or pid not in ground.get(f, {}):
                 continue
             rows = rows.sort_values("joint")
@@ -190,11 +223,13 @@ def main() -> None:
                      "rec_frames": np.asarray(rec_frames),
                      "rec_bp": [np.asarray(rec[f]["body_pose"], float).reshape(-1) for f in rec_frames],
                      "body_models": args.body_models, "max_gap": args.max_gap,
-                     "reproj_px_max": args.reproj_px_max,
-                     "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter}})
+                     "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
+                     "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
+                             "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg}})
     n_frames = sum(len(j["frames"]) for j in jobs)
-    print(f"{len(jobs)} players with {args.cam} keypoints outside the fused refit, {n_frames} frames to fit "
-          f"(stride {args.stride}), {args.workers} workers")
+    print(f"{len(jobs)} players with {args.cam} keypoints {'inside' if args.validate else 'outside'} the fused refit, "
+          f"{n_frames} frames to fit (stride {args.stride}), {args.workers} workers"
+          + (f"; tilt prior {args.tilt_weight} past {args.tilt_free_deg} deg" if args.tilt_weight > 0 else ""))
     if not jobs:
         raise SystemExit("nothing to fit")
 
@@ -205,9 +240,11 @@ def main() -> None:
         results = [_fit_job(j) for j in jobs]
 
     fits, betas_of = {}, {j["pid"]: j["betas"] for j in jobs}
-    all_before, all_after, sp_b, sp_a = [], [], [], []
+    all_before, all_after, sp_b, sp_a, vals = [], [], [], [], []
     nan = float("nan")
-    for pid, frames, params, valid, rep, before, spb, spa in sorted(results, key=lambda r: r[0]):
+    for pid, frames, params, valid, rep, before, spb, spa, val in sorted(results, key=lambda r: r[0]):
+        if val is not None:
+            vals.append(val)
         fits[pid] = (frames, params, valid)
         all_before.extend(before[valid].tolist())
         all_after.extend(rep[valid].tolist())
@@ -222,6 +259,16 @@ def main() -> None:
           f"{np.nanmedian(all_before):.1f} -> {np.nanmedian(all_after):.1f} px; body-frame joint speed p50 "
           f"{np.median(sp_b):.2f} -> {np.median(sp_a):.2f} m/s (p90 {np.percentile(sp_b, 90):.2f} -> "
           f"{np.percentile(sp_a, 90):.2f}); {time.time() - t0:.0f} s")
+    if args.validate:
+        v = np.concatenate(vals) if vals else np.zeros((0, 6))
+        print(f"VALIDATE against the fused refit on {len(v)} frames: pelvis-aligned joint error p50 "
+              f"{np.nanmedian(v[:, 3]):.2f} m (regressor) -> {np.median(v[:, 4]):.2f} m (mono fit), p90 "
+              f"{np.percentile(v[:, 4], 90):.2f}; with placement {np.median(v[:, 0]):.2f} m (pelvis off by "
+              f"{np.median(v[:, 5]):.2f}); "
+              f"tilt p50 fit {np.degrees(np.median(v[:, 1])):.0f} vs fused {np.degrees(np.median(v[:, 2])):.0f} deg, "
+              f"|tilt diff| p50 {np.degrees(np.median(np.abs(v[:, 1] - v[:, 2]))):.0f} deg; "
+              f"fit over 60 deg {100 * np.mean(v[:, 1] > np.radians(60)):.0f}% (fused {100 * np.mean(v[:, 2] > np.radians(60)):.0f}%)")
+        return
     if args.dry_run:
         return
     merged, added = merge_into_refit(blob, fits, betas_of)

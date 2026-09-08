@@ -45,12 +45,27 @@ class Mono2DConfig:
     prior_weight: float = 0.02      # L2 on body_pose
     init_weight: float = 0.05       # pull toward the regressor's body_pose
     temporal_weight: float = 0.3    # toward the previous frame's body_pose and orient
+    # One view trades lean against depth: without this the fits leaned 34 deg
+    # (p50) where the triangulated bodies lean 16, 5 % past 60. Measured with
+    # 05p --validate on play 1 (365 two-view frames): weight 3 -> 21 deg, 10 ->
+    # 20 deg, |diff| 7 deg, none past 60, p90 joint error 0.31 -> 0.26 m,
+    # reprojection 3.2 -> 3.4 px.
+    tilt_weight: float = 10.0       # on the lean past tilt_free_deg, radians
+    tilt_free_deg: float = 20.0
     max_iter: int = 40
     loss: str = "soft_l1"
 
 
 ANKLES = (7, 8)
 PELVIS = 0
+
+
+def tilt_rad(global_orient):
+    """The body's lean from upright: the rest skeleton's up axis (SMPL-X +y) against world +z."""
+    from scipy.spatial.transform import Rotation
+
+    up = Rotation.from_rotvec(np.asarray(global_orient, float)).apply([0.0, 1.0, 0.0])
+    return float(np.arccos(np.clip(up[2], -1.0, 1.0)))
 
 
 def project(K, R, t, X):
@@ -82,6 +97,8 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
         place = cfg.place_weight * (J[PELVIS, :2] - gxy)
         prior = np.sqrt(cfg.prior_weight) * p[bp_slice]
         parts = [rep, behind, ground, place, prior]
+        if cfg.tilt_weight > 0:
+            parts.append(np.array([cfg.tilt_weight * max(0.0, tilt_rad(p[go_slice]) - np.radians(cfg.tilt_free_deg))]))
         if bp_init is not None:
             parts.append(np.sqrt(cfg.init_weight) * (p[bp_slice] - bp_init))
         if prev_params is not None:
