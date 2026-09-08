@@ -450,8 +450,11 @@ strip `diag/play_001_v10_v11_v13_strip.jpg`.
 Open, in value order: two-view coverage (10 of 22 paired per frame; the
 sideline OCR reads no numbers at 130 px bodies, so pairing rests on kit
 and position), fragments (74 sideline tracks for ~29 people), the pose
-of one-view bodies (monocular), officials inside the field drawn as white
-players.
+of one-view bodies (monocular). Officials inside the field are NOT among
+the unnamed white sideline ids on play 1 (all eight darkest are Baltimore
+players, `diag/p1_v13_white_unnamed.jpg`): the sideline does not track
+them as separate bodies, so the kit fault reduces to the boundary staff
+and the sideline official, both excluded.
 
 ### v11: the script end to end, and what the fresh run taught (2026-09-07 evening)
 
