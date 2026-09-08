@@ -424,6 +424,25 @@ triangulation again (47 players of 83 with keypoints, 42 % valid joints at
 red cluster sits on the ball, white spread; numbers on the sure ids;
 officials still white; one-view duplicates remain (the endzone track).
 
+### One roster player, one avatar at a time (2026-09-08)
+
+The identity cache on v16 carried four names on two overlapping ids each:
+"Harrison Butker" (#7 -- the kicker, on a 2nd-and-20) on ids 16 and 17
+for 616 frames, Isiah Pacheco (#10) on 5 and 37 for 278, Marquise Brown
+(#5) on 53 and 89, Nelson Agholor on 79 and 82. 08c names every id on its
+own from its jersey vote, so two tracks that both read "7" are both the
+kicker, and the render draws him twice. The vote counts behind a winner
+were only logged (`vote_jersey_numbers`), so nothing could rank the two
+claims. Now: `jersey_votes_win` / `jersey_votes_total` per row (future
+runs), `scripts/08j_jersey_votes.py` for a play whose cache predates them
+(the OCR re-voted on the current global ids -- no re-pairing, the pose
+caches keyed by id stay valid -- into `jersey_votes.json`), and
+`identity.exclusive.exclusive_names` in 08c after `merged` is built: among
+ids claiming the same (team, jersey) with overlapping spans the strongest
+vote keeps the name, the others lose it (jersey 0, `P<id>`, kit kept); a
+tie within 1.5x names neither, since a wrong name is the worse defect.
+Play 1 result: PENDING (08j on the CPU, then 08c --from-cache).
+
 ### v18: the two-view bodies shook; the fused refit damped (2026-09-08)
 
 Ruler: second differences of the refit's world joints per frame (a smooth
