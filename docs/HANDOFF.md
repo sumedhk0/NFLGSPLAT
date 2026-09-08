@@ -1011,19 +1011,31 @@ generic and football-trained re-ID embeddings (neutral / worse than ImageNet
 at the linker's question); a whole-field coverage gate (rejected the right
 camera); numerals as the only ruler (constant was wrong — the hashes caught it).
 
-## Open items, in value order
+## Open items, in value order (2026-09-08, after v21)
 
-1. Verify the constant fix, rebuild both plays (~2 h each, unattended).
-2. Identity: ~30% of ids named; levers not yet measured: facing-gated OCR
-   from the poses, whole-play voting, roster priors.
-3. Tracking continuity: players still come in pieces (fused ids); motion +
-   pose consistency is the unmeasured lever; appearance is dead.
-4. Real Gaussian appearance (optimise against both views) and a local
-   `gsplat` render (needs the CUDA toolkit for the JIT).
-5. Generalise across the ~160 downloaded play pairs (paint-solve dead zone
-   35–55 deg handled by `--vertical-deg 45`; expect new failure classes).
-6. The 180-degree field turn is unobservable from paint; take it from play
-   metadata when it matters.
+1. Two-view coverage: 10 of 22 players a frame are paired; the rest stand
+   on one camera's box point (0.5 m from a triangulated pelvis at the
+   median) with a one-view pose (heading within 21 deg of the two-view
+   fit at the p50, 3 % facing the wrong way). The pairing now refuses
+   crossing tracks; what it lacks is evidence -- the sideline reads no
+   numbers at 130 px, the kit is two classes, the regressed pose is a weak
+   cue (18 % top-1). Pair truth exists only on the helmet set.
+2. Fragments: 73 sideline tracks for ~29 people; every stitching cue
+   measured is a dead end (position, colour, betas, kit+number vetoes);
+   the visible cost is small (one avatar swap at a track end within 30
+   frames and 80 px on play 1) but each fragment is a separate identity.
+3. Officials inside the field are not tracked as separate bodies (the
+   detector/linker folds them in); boundary staff and the sideline
+   official are excluded by position and stripes.
+4. Compute hygiene: play_001 holds 12 GB, 13 superseded render/appearance
+   dirs (render_hifi_v10..v20, render_abs, appearance_v1/v2) -- the user's
+   call to delete. The 05d render is opt-in now (RENDER_ABS=1).
+5. Plumbing: 08c's --kicking-play is manual (the pipeline does not pass
+   it); a kickoff/punt/field-goal play needs it or its specialists render
+   unnamed.
+6. Generalise across the ~160 downloaded play pairs (paint-solve dead zone
+   35-55 deg handled by --vertical-deg 45; expect new failure classes) --
+   NOT before play 1 is signed off (the standing directive).
 
 ## Environment
 
