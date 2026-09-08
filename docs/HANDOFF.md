@@ -448,6 +448,21 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### v19: the one-view fill-in popped at every triangulation gap (2026-09-08)
+
+Ruler: consecutive records (within 3 frames) of one player where the kind
+changes between fused and one-view. Play 1 v18's cache: 22 players carry
+both kinds, 577 one-view records sit inside a fused span (frames the
+triangulation dropped), 187 boundaries, and at a boundary the pelvis jumps
+0.43 m (p90 1.27), the orientation 35 deg (p90 122), body_pose 3.0 rad --
+a two-view avatar pops half a metre and spins whenever the triangulation
+blinks. The one-view fit placed the pelvis on the box-bottom point and
+started from the regressor's pose, agreeing with neither fused block. Now
+(05p, fit_mono2d.prev_seq): inside the span the ground point is the fused
+pelvis interpolated, the start pose the nearest fused record's, the warm
+start at a block boundary the fused params; beyond the span the box point
+carries the end's offset, decayed. Play 1 re-run: PENDING.
+
 ### v18: the two-view bodies shook; the fused refit damped (2026-09-08)
 
 Ruler: second differences of the refit's world joints per frame (a smooth
