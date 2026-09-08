@@ -263,11 +263,21 @@ def read_line_strips(image, K, R, t, reader, *, min_conf: float = MIN_DIGIT_CONF
     hits: list[tuple] = []                       # (x, side, turned, score, numeral, conf, y)
     for x in lines_in_view(K, R, t, image.shape[1], image.shape[0]):
         strip = rectify(image, K, R, t, (x, 0.0), w_m=STRIP_W_M, h_m=h_m, px_per_m=px_per_m)
+        # A candidate camera with wild geometry can rectify a line to nothing
+        # (measured 2026-09-07, play 1's free solve: easyocr's resize asserted
+        # on an empty crop and killed the whole paint stage). No strip, no
+        # reading: the ruler then scores that candidate on what it can read.
+        if strip is None or strip.size == 0 or min(strip.shape[:2]) < 8:
+            continue
         for stretch in Y_STRETCHES:
             st = cv2.resize(strip, None, fx=1.0, fy=stretch, interpolation=cv2.INTER_CUBIC)
             for turned, img in ((False, st), (True, cv2.rotate(st, cv2.ROTATE_180))):
-                for box, text, conf in reader.readtext(img, allowlist="0123456789", min_size=8,
-                                                       text_threshold=0.4, low_text=0.3):
+                try:
+                    found = reader.readtext(img, allowlist="0123456789", min_size=8,
+                                            text_threshold=0.4, low_text=0.3)
+                except cv2.error:
+                    found = []
+                for box, text, conf in found:
                     numeral = tens_digit(text)
                     if numeral is None or conf < min_conf:
                         continue
