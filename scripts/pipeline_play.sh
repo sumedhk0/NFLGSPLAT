@@ -30,7 +30,8 @@
 #   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
 #   teams     scripts/08f team per id from torso colour (bimodal only) -> <play-dir>/team_by_colour.json
 #   hifi      scripts/05k 1080p GPU render on the footage field        -> <play-dir>/render_hifi/
-#   render    scripts/05d world mode, fitted appearance              -> <play-dir>/render_abs/
+#   render    scripts/05d world mode, fitted appearance -- OPT-IN, RENDER_ABS=1 (11 min of GPU
+#             per run for a render nobody looks at; the hi-fi render is the deliverable)
 #
 # Environments: nflgsplat for calibration/identity, smplx312 for pose/fuse/refit/render
 # (pickles written under numpy 2 do not load under numpy 1 -- keep it that way).
@@ -270,7 +271,7 @@ if ! done_ hifi; then
   mark hifi
 fi
 
-if ! done_ render; then
+if [ "${RENDER_ABS:-0}" = "1" ] && ! done_ render; then
   log "render, world mode with the fitted appearance (05d)"
   "$PYS" scripts/05d_render_play.py --play-dir "$P" --poses "$P/poses_refit.json" --identity "$P/identity_resolved.pkl" \
      --fitted-appearance "$P/appearance" \
