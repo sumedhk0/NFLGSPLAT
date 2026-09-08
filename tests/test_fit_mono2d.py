@@ -129,3 +129,11 @@ def test_prev_seq_anchors_a_frame_to_the_given_params():
     assert valid.all()
     assert abs(params[0][(17 - 1) * 3 + 1]) < 0.3                        # frame 0: no anchor, arm down
     assert params[1][(17 - 1) * 3 + 1] > 0.8                             # frame 1: the anchor's raised arm
+    # a per-frame override: a strong pull to an init pose with the arm raised holds it at frame 2
+    params2, valid2, _ = fit_sequence_2d(np.stack([uv] * T), np.stack([conf] * T), [cam] * T,
+                                         np.stack([J[0, :2]] * T), rest, forward, cfg=cfg, base_cfg=base,
+                                         init_orient_seq=np.stack([go] * T),
+                                         init_body_pose_seq=np.stack([anchor[:63]] * T),
+                                         cfg_overrides=[None, None, {"init_weight": 5.0}])
+    assert valid2.all()
+    assert params2[2][(17 - 1) * 3 + 1] > 0.8

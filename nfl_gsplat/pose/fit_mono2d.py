@@ -27,7 +27,7 @@ pose and the rigid placement.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -158,7 +158,8 @@ def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, ini
 
 
 def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *, cfg=None, base_cfg=None,
-                    init_body_pose_seq=None, init_orient_seq=None, frames=None, max_gap=12, prev_seq=None):
+                    init_body_pose_seq=None, init_orient_seq=None, frames=None, max_gap=12, prev_seq=None,
+                    cfg_overrides=None):
     """``uv_seq [T, 22, 2]``, ``conf_seq [T, 22]``, ``cams`` a list of (K, R, t) per frame,
     ``ground_seq [T, 2]``. Returns ``(params [T, 69], valid [T], reproj_px [T])``.
     With ``frames``, a gap over ``max_gap`` frames restarts from the rigid start
@@ -167,7 +168,10 @@ def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *,
     anchor for that frame -- the neighbouring two-view fit where one exists, so
     a one-view frame between two fused blocks continues them instead of the
     pose from before the block (measured: 187 boundaries on play 1 with pelvis
-    jumps of 0.43 m and 35 deg of orientation at the p50)."""
+    jumps of 0.43 m and 35 deg of orientation at the p50). ``cfg_overrides``
+    (a dict of Mono2DConfig fields or None per frame) reweights single frames:
+    inside a fused span the placement and the pull to the fused pose are made
+    strong, so the keypoints refine the two-view fit rather than replace it."""
     cfg = cfg or Mono2DConfig()
     base_cfg = base_cfg or SMPLXFitConfig()
     T = len(uv_seq)
@@ -183,6 +187,7 @@ def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *,
             prev = None
         if prev_seq is not None and prev_seq[i] is not None:
             prev = np.asarray(prev_seq[i], float).copy()
+        cfg_i = cfg if (cfg_overrides is None or not cfg_overrides[i]) else replace(cfg, **cfg_overrides[i])
         try:
             if prev is None:
                 start, _ = rigid_start_2d(rest_joints, ground_seq[i], cams[i], uv_seq[i], conf_seq[i], forward,
@@ -191,7 +196,7 @@ def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *,
                 start = prev.copy()
                 # keep the pelvis over this frame's ground point
                 start[-3:-1] += np.asarray(ground_seq[i], float) - forward(prev)[PELVIS, :2]
-            p, e, n = fit_frame_2d(uv_seq[i], conf_seq[i], cams[i], start, forward, ground_seq[i], cfg, base_cfg,
+            p, e, n = fit_frame_2d(uv_seq[i], conf_seq[i], cams[i], start, forward, ground_seq[i], cfg_i, base_cfg,
                                    init_body_pose=init_bp, prev_params=prev)
         except ValueError:
             continue

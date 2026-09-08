@@ -45,6 +45,14 @@ from nfl_gsplat.pose.fuse_smplx import SMPLXFitConfig, _pack_params
 from nfl_gsplat.render.play_timeline import ground_positions
 
 FPS = 59.94
+# Inside a player's fused span (frames the triangulation dropped) the one-view
+# fit is a refinement of the interpolated two-view fit: with the default
+# weights (place 1, init 0.05) the boundary jump stayed 0.37 m / 18 deg
+# (play 1, 187 boundaries); these hold the pelvis on the fused path and the
+# pose near the fused one, the keypoints correcting within that.
+INSIDE_PLACE_WEIGHT = 10.0
+INSIDE_INIT_WEIGHT = 1.0
+EDGE_INIT_WEIGHT = 0.5
 
 
 def _fit_job(job):
@@ -70,7 +78,7 @@ def _fit_job(job):
     params, valid, rep = fit_sequence_2d(job["uv"], job["conf"], job["cams"], job["ground"], rest, forward,
                                          cfg=cfg, base_cfg=base, init_body_pose_seq=init_bp,
                                          init_orient_seq=init_go, frames=frames, max_gap=job["max_gap"],
-                                         prev_seq=job.get("prev_seq"))
+                                         prev_seq=job.get("prev_seq"), cfg_overrides=job.get("cfg_overrides"))
     valid &= np.nan_to_num(rep, nan=np.inf) <= job["reproj_px_max"]
     sp_after = np.array([])
     if valid.sum() >= 2:
@@ -229,6 +237,7 @@ def main() -> None:
         # a block boundary the fused params; beyond the span the box point carries
         # the span end's offset from the fused pelvis, decayed over --max-gap frames.
         prev_seq = [None] * len(frames)
+        overrides = [None] * len(frames)
         fr = fused_of.get(pid, {})
         if fr and not args.validate:
             ff = np.array(sorted(fr))
@@ -241,6 +250,8 @@ def main() -> None:
                     gnd_arr[i] = np.array([np.interp(f, ff, fx[:, 0]), np.interp(f, ff, fx[:, 1])])
                     init_bp[i] = fr[near][:63]
                     init_go[i] = fr[near][63:66]
+                    # inside the span the keypoints refine the fused fit, not replace it
+                    overrides[i] = {"place_weight": INSIDE_PLACE_WEIGHT, "init_weight": INSIDE_INIT_WEIGHT}
                 else:
                     edge = int(ff[0]) if f < ff[0] else int(ff[-1])
                     # the fused pelvis vs this camera's box point at the span's end
@@ -250,6 +261,7 @@ def main() -> None:
                     if abs(f - edge) <= args.max_gap:
                         init_bp[i] = fr[edge][:63]
                         init_go[i] = fr[edge][63:66]
+                        overrides[i] = {"init_weight": EDGE_INIT_WEIGHT}
                 # a block boundary: the previous fitted frame is not this one's neighbour
                 if abs(near - f) <= args.stride and (i == 0 or frames[i - 1] < near):
                     prev_seq[i] = fr[near]
@@ -262,6 +274,7 @@ def main() -> None:
                      "rec_frames": np.asarray(rec_frames),
                      "rec_bp": [np.asarray(rec[f]["body_pose"], float).reshape(-1) for f in rec_frames],
                      "body_models": args.body_models, "max_gap": args.max_gap, "prev_seq": prev_seq,
+                     "cfg_overrides": overrides,
                      "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg}})
