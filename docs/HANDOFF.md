@@ -645,6 +645,11 @@ the sideline camera 40 % of the time (cos > 0.5; fused 23 %) and away 21 %
 (fused 12 %): a camera-ward bias, the depth ambiguity, not a travel lean
 (cos with the travel > 0.5: 40 % vs 29 %). Untried: a quadratic prior from
 zero tuned to the fused spread instead of a free angle and a wall.
+Heading (`--validate`, 365 two-view frames, the fit's facing against the
+fused fit's on the ground plane): |diff| p50 21 deg, p90 51, facing the
+wrong way (over 90 deg) 3 % -- the regressor's heading prior plus the fit
+gets the facing right on 97 % of frames; with the tilt prior the
+pelvis-aligned joint error is 0.16 m against the regressor's 0.17.
 Render (05:21): 69 posed players (v14 55), 3 default-posed, 16 bodies a
 frame as before. Stills against v14 (`diag/p1_v14_v15_strip.jpg`, temporal
 crops `diag/p1_v14_v15_motion.jpg`): the one-view bodies articulate --

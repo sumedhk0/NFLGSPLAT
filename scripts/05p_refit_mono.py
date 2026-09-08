@@ -55,6 +55,18 @@ INSIDE_INIT_WEIGHT = 1.0
 EDGE_INIT_WEIGHT = 0.5
 
 
+def heading_diff_deg(go_a, go_b):
+    """Angle between two bodies' facing directions on the ground plane (SMPL-X faces +z in model axes)."""
+    from scipy.spatial.transform import Rotation
+
+    fa = Rotation.from_rotvec(np.asarray(go_a, float)).apply([0.0, 0.0, 1.0])[:2]
+    fb = Rotation.from_rotvec(np.asarray(go_b, float)).apply([0.0, 0.0, 1.0])[:2]
+    na, nb = np.linalg.norm(fa), np.linalg.norm(fb)
+    if na < 1e-6 or nb < 1e-6:
+        return float("nan")
+    return float(np.degrees(np.arccos(np.clip(fa @ fb / (na * nb), -1.0, 1.0))))
+
+
 def _fit_job(job):
     """One player: (pid, frames, params, valid, reproj, before_reproj, speeds_before, speeds_after)."""
     cfg = Mono2DConfig(**job["cfg"])
@@ -107,12 +119,13 @@ def _fit_job(job):
             Jt = forward(tp)
             Jf = forward(params[i])
             row = [np.linalg.norm(Jf - Jt, axis=1).mean(), tilt_rad(params[i][63:66]), tilt_rad(tp[63:66]), np.nan,
-                   np.linalg.norm((Jf - Jf[0]) - (Jt - Jt[0]), axis=1).mean(), np.linalg.norm(Jf[0] - Jt[0])]
+                   np.linalg.norm((Jf - Jf[0]) - (Jt - Jt[0]), axis=1).mean(), np.linalg.norm(Jf[0] - Jt[0]),
+                   heading_diff_deg(params[i][63:66], tp[63:66])]
             if starts[i] is not None:
                 J0 = forward(starts[i])
                 row[3] = np.linalg.norm((J0 - J0[0]) - (Jt - Jt[0]), axis=1).mean()
             rows.append(row)
-        val = np.array(rows) if rows else np.zeros((0, 6))
+        val = np.array(rows) if rows else np.zeros((0, 7))
     return (job["pid"], frames, params, valid, rep, before, sp_before, sp_after, val)
 
 
@@ -359,14 +372,16 @@ def main() -> None:
           f"{np.median(sp_b):.2f} -> {np.median(sp_a):.2f} m/s (p90 {np.percentile(sp_b, 90):.2f} -> "
           f"{np.percentile(sp_a, 90):.2f}); {time.time() - t0:.0f} s")
     if args.validate:
-        v = np.concatenate(vals) if vals else np.zeros((0, 6))
+        v = np.concatenate(vals) if vals else np.zeros((0, 7))
         print(f"VALIDATE against the fused refit on {len(v)} frames: pelvis-aligned joint error p50 "
               f"{np.nanmedian(v[:, 3]):.2f} m (regressor) -> {np.median(v[:, 4]):.2f} m (mono fit), p90 "
               f"{np.percentile(v[:, 4], 90):.2f}; with placement {np.median(v[:, 0]):.2f} m (pelvis off by "
               f"{np.median(v[:, 5]):.2f}); "
               f"tilt p50 fit {np.degrees(np.median(v[:, 1])):.0f} vs fused {np.degrees(np.median(v[:, 2])):.0f} deg, "
               f"|tilt diff| p50 {np.degrees(np.median(np.abs(v[:, 1] - v[:, 2]))):.0f} deg; "
-              f"fit over 60 deg {100 * np.mean(v[:, 1] > np.radians(60)):.0f}% (fused {100 * np.mean(v[:, 2] > np.radians(60)):.0f}%)")
+              f"fit over 60 deg {100 * np.mean(v[:, 1] > np.radians(60)):.0f}% (fused {100 * np.mean(v[:, 2] > np.radians(60)):.0f}%); "
+              f"heading |diff| p50 {np.nanmedian(v[:, 6]):.0f} deg, p90 {np.nanpercentile(v[:, 6], 90):.0f}, "
+              f"over 90 deg (facing the wrong way) {100 * np.nanmean(v[:, 6] > 90):.0f}%")
         return
     if args.dry_run:
         return
