@@ -94,9 +94,8 @@ def main() -> None:
     dst = args.out or play / "tracks_identity.parquet"
     if dst.exists() and dst.resolve() == Path(src).resolve():
         backup = dst.with_name(dst.stem + "_unpaired.parquet")
-        if not backup.exists():
-            Path(src).replace(backup)
-            print(f"kept the input as {backup.name}")
+        Path(src).replace(backup)                 # this run's input, every run (an old keep misled a measurement)
+        print(f"kept the input as {backup.name}")
     out.to_parquet(dst, index=False)
     print(f"wrote {dst} ({len(out)} rows)")
 

@@ -25,7 +25,7 @@ import numpy as np
 
 GAP_NUMBER_M: float = 3.5      # a number read in both cameras: position only has to be plausible
 GAP_POSITION_M: float = 2.0    # no number: the kit must agree and the mean offset be this close
-MIN_OVERLAP: int = 15
+MIN_OVERLAP: int = 6           # 15 -> 6 measured twice on play 1: +5/+6 pairs, +1 player paired per frame, cross-kit still 0
 MIN_NUMBER_VOTES: int = 2      # OCR rows a track needs before its number counts as read
 
 
