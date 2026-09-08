@@ -279,10 +279,12 @@ def main() -> None:
                     off = fr[edge][-3:-1] - ground.get(edge, {}).get(pid, fr[edge][-3:-1])
                     w = max(0.0, 1.0 - abs(f - edge) / float(args.max_gap * 5))
                     gnd_arr[i] = gnd_arr[i] + w * np.asarray(off, float)
+                    # the corrected point is trusted as far as the correction reaches
+                    overrides[i] = {"place_weight": 1.0 + (INSIDE_PLACE_WEIGHT - 1.0) * w}
                     if abs(f - edge) <= args.max_gap:
                         init_bp[i] = fr[edge][:63]
                         init_go[i] = fr[edge][63:66]
-                        overrides[i] = {"init_weight": EDGE_INIT_WEIGHT}
+                        overrides[i]["init_weight"] = EDGE_INIT_WEIGHT
                 # a block boundary: the previous fitted frame is not this one's neighbour
                 if abs(near - f) <= args.stride and (i == 0 or frames[i - 1] < near):
                     prev_seq[i] = fr[near]

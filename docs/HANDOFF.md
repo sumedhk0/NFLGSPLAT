@@ -473,7 +473,12 @@ the answer. The gaps: 132 inside spans, p50 3 frames, 77 % under 12. Now
 05p leaves one-view frames inside a fused gap of <= max_gap (12) frames to
 the timeline's interpolation and fills only the long gaps, and
 `place_from_refit` interpolates the refit translation across such gaps.
-Play 1 re-run: PENDING.
+Play 1 re-run: 105 one-view frames left to the interpolation, boundaries
+187 -> 71 (long-gap edges and span ends), the merged cache's jitter p99
+763 -> 412 mm and hands/feet p90 144 -> 110 (the fused-only cache: 102).
+At the remaining edges the pelvis still jumps 0.36 m: the placement pull
+beyond the span was the default 1.0; it now follows the decayed offset
+(10 at the edge, 1 five max-gaps out).
 
 ### v18: the two-view bodies shook; the fused refit damped (2026-09-08)
 
