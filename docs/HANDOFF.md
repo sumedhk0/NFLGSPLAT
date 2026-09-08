@@ -499,7 +499,11 @@ The rms rises because the damped fit no longer follows the spikes it is
 scored against; the p90 lands at the input's own level (the fit stops
 amplifying). Synthetic: a 0.40 m one-frame wrist spike followed 0.28 by
 the plain fit, 0.16 damped; a real 0.40 m step followed to 0.26 within
-four frames. v18 = v17 + this (05f then 05p re-run): PENDING.
+four frames. v18 = v17 + this (05f then 05p re-run) + the identity rules
+(08:07, `diag/play_001_v18_hifi_720.mp4`): 22 bodies a frame, 68 tilt
+clamps, stills against v17 (`diag/p1_v17_v18_strip.jpg`) identical in
+formation, #21 the only visible number either way; the damping is a
+motion property, judge it on the clip.
 
 ### v16: the duplicate rule was eating six players a frame (2026-09-08)
 
