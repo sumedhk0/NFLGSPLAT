@@ -468,8 +468,14 @@ ankle measurement (against the true pelvis: bias x -0.01, y +0.04, p50
 `rest_pelvis_xy`), and 05p interpolates the fused PELVIS across and beyond
 a span. Play 1 re-run: the pelvis jump at the 71 boundaries 0.35 -> 0.05 m
 (p90 0.14), the merged cache's jitter p99 408 -> 311 mm; the orientation
-still turns 17 deg (p90 32) and body_pose 0.9 rad at a long-gap edge --
-one view's keypoints against the two-view pose along the depth.
+still turned 17 deg (p90 32) and body_pose 0.9 rad at a long-gap edge --
+one view's keypoints against the two-view pose along the depth -- so a
+one-view block now cross-fades into the fused block it borders
+(`fit_mono2d.blend_params`, per-joint slerp, w = 1 at the edge to 0 a
+max-gap away): boundaries pelvis 0.01 m, orientation 2 deg (p90 4),
+body_pose 0.10 rad; the merged cache's jitter p99 260 mm and hands/feet
+p90 103 against the fused-only cache's 255 / 102 -- the one-view records
+no longer add roughness. v20 = v19 + pelvis anchoring + cross-fade.
 
 ### v19: the one-view fill-in popped at every triangulation gap (2026-09-08)
 
