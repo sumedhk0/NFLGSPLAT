@@ -376,13 +376,14 @@ def main() -> None:
     # where both see an id, and the fused offset carried beyond a span was
     # measured against that average and applied to the sideline-only point
     # afterwards (the endzone's share along x is what stayed as a 0.37 m jump).
-    ground = ground_positions(df[df["cam"] == args.cam], tracks, ankles=ankle_ground(kdf_all, tracks))
     kdf_all = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
     if not args.no_keypoint_filter:
         kdf_all, n_rej = reject_outliers(kdf_all)
         print(f"keypoint outliers rejected: {n_rej} of {int((kdf_all['conf'] > 0).sum() + n_rej)} confident "
               f"(a one-frame jump past {GATE_PX:.0f} px from its neighbours' midpoints)")
     kdf = kdf_all[kdf_all["cam"] == args.cam]
+    # the pelvis pin: the ankle keypoints' ground point where the camera has them, the box point otherwise
+    ground = ground_positions(df[df["cam"] == args.cam], tracks, ankles=ankle_ground(kdf_all, tracks))
     side = pickle.load(open(args.poses or P / "poses_sideline.json", "rb"))
     if side["cam"] != args.cam:
         raise SystemExit(f"the pose cache is the {side['cam']} camera's, not {args.cam}")
