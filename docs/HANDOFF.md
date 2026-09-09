@@ -448,6 +448,86 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### The endzone camera was never on its paint; the clips are 15 frames apart (2026-09-09, evening)
+
+Three days of pose-side probes (priors, endzone weights, joint limits,
+bounds tables) could not put the runner's legs under him. The footage
+overlay's second look (`diag/overlay_ez2_0.3`) showed the two-view records
+40-60 px off the player although their own sideline reprojection was 3 px:
+the fit had floated 0.2-0.5 m off the turf to satisfy both cameras and the
+box-point pin at once. Chasing that:
+
+- **Ray-miss ruler** (`scratchpad/miss_ruler2.py`, now
+  `calibration.endzone_paint.player_rulers`): per frame, the two cameras'
+  rays through every confident keypoint of every paired player -- their
+  miss distance, and the heights the closest points give hips and ankles.
+  Play 1 as exported: miss 0.21 m at the median, 0.45 m while the endzone
+  pans (frames 255-290), triangulated hips 1.7 m, ankles 0.3-0.8 m.
+- **The endzone camera's paint** (`scratchpad/ez_paint_overlay.py`,
+  `diag/ez_paint/`): the projected yard lines 40-85 px off the painted
+  ones on EVERY frame, rolled, the hash rows 150 px off their columns. The
+  camera came from the players' feet against the sideline's placement
+  (from_players) with the mount centre a grid PRIOR at (60, 0, 20).
+- **Rejected on the way**, each measured: refine_paint on the endzone
+  (rotation + focal, centre held): grid 56 -> 28 px and the rays miss 5x
+  WORSE (0.21 -> 1.06 m; a pencil of parallel lines does not see the
+  lateral axis). The ray miss alone as an objective: degenerate, the fit
+  rotates the camera up so the rays meet 5-30 m in the air. Yard lines +
+  rays + an ankles-on-turf prior with the centre free: the lines
+  registered one line off at the far end (nearest-line assignment, 60 px
+  start on 60 px spacing), fits rolled the grid. A field crown: the two
+  cameras' box-bottom ground points differ by a constant, not by distance
+  from the centre line -- no crown.
+- **What works** -- `scripts/08l_endzone_paint.py`
+  (`calibration.endzone_paint`): yard lines clustered by their row at the
+  image centre and registered by consecutive counting from the red end
+  zone's edge (the goal line is the first line BELOW the red, which stops
+  25 px short of it; its own white edge and the letters make lines above),
+  the hash-mark dashes (grey > 150 -- they are thin and blurred -- RANSAC
+  per column) for yaw and lateral position, the mount centre solved once
+  over 12 frames, rotation and focal per frame from the neighbour's camera
+  with two registrations tried and the paint picking, deltas smoothed over
+  9 frames. Play 1: centre (60, 0, 20) -> (88.3, 0.6, 20.8), focal 9.9k ->
+  15.2k, paint 2.3 px, dashes 1.3 px on 501/510 frames. The players, which
+  the fit never saw: ray miss 0.213 -> 0.135 m, ankles +0.33 -> +0.05 m,
+  hips 1.06 -> 0.83 m; the pan frames 0.10-0.19 m. Applied to play 1;
+  original kept as `cameras_endzone_players.npz`. 08l refuses to write
+  when the players do not confirm the paint.
+- **The clip offset.** With the camera right, 05n's offset search sat at
+  the edge of its range (-3, then -10 when widened, monotone): its ruler
+  scores every player's reprojection and standing players meet at any
+  offset. `scripts/05o_clip_offset.py` (`pose.clip_offset`) uses only
+  (frame, player) pairs with sideline ground speed >= 3 m/s: a clear
+  minimum at -14/-15 frames (0.110 m; 0.29 at +14, 0.53 at -70). The
+  endzone clip runs 15 frames (0.25 s) AHEAD of the sideline where +3
+  behind had been assumed. A runner at 8 m/s is 2 m from himself in 15
+  frames -- that WAS the runner (id 9 paired 2.4 m off; 0.74 m re-paired
+  at lag -15). The pairing, the triangulation's 42 % ceiling, the "two-view
+  wobble" and the 1 m pairing ambiguity all carried this.
+- **Re-pairing without re-running the GPU stages**: `scripts/08m_relabel_caches.py`
+  (`tracking.relabel`) carries keypoints and pose caches to the new ids by
+  their boxes (raises when the boxes differ; refuses under numpy 2 -- the
+  caches are numpy-1 pickles).
+- **The box-point anchor is biased** (2399 paired frames whose ankles
+  agree to 0.3 m): the sideline's box-bottom ground point sits 0.31 m from
+  the triangulated ankle midpoint (0.54 m pre-snap, the stances), the
+  endzone's 0.44 m along its depth; the sideline's ankle ray at z = 0.08
+  sits 0.06 m off (pre-snap 0.32). 05p's two-view pass now anchors on the
+  triangulated ankles where both cameras see them (pin weight 10 -> 2);
+  the one-view pass keeps the box (a separate change, measured next).
+
+Pipeline: stages `endzone_paint` (after check), `offset` (after keypoints),
+`repair` (08i --lag, 08m, 08c --from-cache; before tri); 05n reads
+clip_offset.json. v26 = all of the above + 05p --two-view --endzone-weight
+1.0 on the re-paired play (`scratchpad/p1_v26.sh`, `p1_v26b.sh`); strips in
+`diag/overlay_v26/`, clip `diag/play_001_v26_hifi_720.mp4`.
+
+Open after this: the one-view anchor from the ankle ray (ruler above);
+the pairing's ground points from ankles (its 2 m gate feels the 0.8 m
+box bias; ids 14, 25, 73, 78 still 2.5-3 m mis-paired at lag -15); 08c
+named 28 ids after the re-pair (check against the previous run); frames
+past 510 (the play over, 8-45 pairs) stay poor on every ruler.
+
 ### The footage as the ruler (2026-09-09)
 
 The user on v24: still jittery, arms all over the place, compare against

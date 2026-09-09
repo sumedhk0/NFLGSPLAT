@@ -14,6 +14,8 @@
 #   shift     scripts/08d --no-rows --apply                           -> cameras.npz in the field frame
 #   endzone   scripts/08 --sideline-from (mirror check)               -> recon_abs.npz, then 08b again
 #   check     scripts/08d --los-yards (prints rulers, LOS)            -> field_offset.json
+#   endzone_paint scripts/08l (the endzone camera on ITS paint: yard lines, hash columns, mount solved) -> cameras.npz
+#             (the from-players camera sat 40-85 px off the paint on play 1; original kept as cameras_endzone_players.npz)
 #   endzone_track scripts/08h (endzone camera from the footage's motion) -> cameras.npz  [ENDZONE_TRACK=1 only; loses on triangulation]
 #   link      scripts/08b --cameras --pairing track --pair-gap 0       -> tracks.parquet (camera tracks keep ids)
 #   split     scripts/08k per-camera tracks cut where the kit changes for good -> tracks.parquet (+ _unsplit kept)
@@ -22,6 +24,10 @@
 #   pose_s    scripts/05c sideline (resumes per frame)                -> poses_sideline.json
 #   pose_e    scripts/05c endzone --match-frames                      -> poses_endzone.json
 #   keypoints scripts/05m (YOLOv8-pose per tracked person, both views)  -> keypoints_2d.parquet
+#   offset    scripts/05o (the endzone clip's frame offset from the players who MOVE) -> clip_offset.json
+#             (play 1: -15 frames where +3 had been assumed; a runner is 2 m from himself in 15 frames)
+#   repair    08i --lag <offset> re-pairs the camera tracks, 08m carries the keypoints and pose caches to the
+#             new ids by their boxes, 08c --from-cache names them            -> tracks.parquet, identity_resolved.pkl
 #   tri       scripts/05n (joints triangulated with both cameras)       -> poses_tri.json
 #   fuse      scripts/05e (monocular joints fused) -- OPT-IN, FUSE=1; 2.6-3.4x worse than tri
 #   refit     scripts/05f                                             -> poses_refit.json
@@ -76,7 +82,8 @@ if [ "$FRESH" = 1 ]; then
   log "fresh: wiping markers and stage outputs"
   rm -f "$P"/.done_* "$P/poses_sideline.json" "$P/poses_endzone.json" "$P/poses_fused.json" \
         "$P/poses_refit.json" "$P/poses_refit_fused.json" "$P/identity_resolved.pkl" "$P/identity_unnamed.pkl" "$P/identity_fused.pkl" \
-        "$P/tracks_identity.parquet" "$P/tracks_unsplit.parquet" "$P/cameras_relative.npz" "$P/field_offset.json"
+        "$P/tracks_identity.parquet" "$P/tracks_unsplit.parquet" "$P/cameras_relative.npz" "$P/field_offset.json" \
+        "$P/clip_offset.json" "$P/keypoints_2d.parquet"
 fi
 
 if [ "$FROM_PAINT" = 1 ] && ! done_ paint; then
@@ -150,6 +157,15 @@ if ! done_ check; then
     fi
   fi
   mark check
+fi
+
+if ! done_ endzone_paint; then
+  log "the endzone camera on its own paint (08l): yard lines, hash columns, the mount solved; the players judge"
+  # At this stage there are no keypoints yet, so 08l writes on the paint alone; the players'
+  # verdict (ray miss, ankle height) prints once 05o/05n run. Play 1: paint 55 -> 2.3 px,
+  # ray miss 0.213 -> 0.135 m, ankles +0.33 -> +0.05 m, mount (60,0,20) -> (88,1,21).
+  "$PYN" scripts/08l_endzone_paint.py --play-dir "$P" --apply 2>&1 | grep -v "Warning\|warn" | grep -E "mount centre|players|rewritten|paint alone|Error|Traceback" || fail endzone_paint
+  mark endzone_paint
 fi
 
 if ! done_ endzone_track && [ "${ENDZONE_TRACK:-0}" = 1 ]; then
@@ -229,8 +245,27 @@ if ! done_ keypoints; then
   mark keypoints
 fi
 
+if ! done_ offset; then
+  log "the endzone clip's frame offset from the players who move (05o)"
+  "$PYN" scripts/05o_clip_offset.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "clip offset|wrote|Error|Traceback" || fail offset
+  mark offset
+fi
+
+if ! done_ repair; then
+  # The identity stage paired the camera tracks at lag 0 (the offset was unknown); with it
+  # known the pairing is redone and the per-id caches (keypoints, poses) follow their boxes
+  # to the new ids -- no GPU stage reruns. 08m must run under numpy 1 (the caches are pickles).
+  LAG="$("$PYN" -c "import json,sys; print(json.load(open(sys.argv[1]))['offset'])" "$P/clip_offset.json")"
+  log "re-pair the camera tracks at lag $LAG (08i), carry the caches (08m), name the ids (08c --from-cache)"
+  "$PYN" scripts/08i_pair_by_appearance.py --play-dir "$P" --tracks "$P/tracks_identity_unpaired.parquet" --lag "$LAG" 2>&1 | grep -v "Warning\|warn" | tail -2 || fail repair
+  "$PYS" scripts/08m_relabel_caches.py --play-dir "$P" --old "$P/tracks.parquet" --new "$P/tracks_identity.parquet" 2>&1 | grep -v "Warning\|warn" || fail repair
+  cp "$P/tracks_identity.parquet" "$P/tracks.parquet"
+  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" $KICK_FLAG --from-cache 2>&1 | grep -v "Warning\|warn" | tail -3 || fail repair
+  mark repair
+fi
+
 if ! done_ tri; then
-  log "joints triangulated from the keypoints with both cameras (05n)"
+  log "joints triangulated from the keypoints with both cameras (05n; the offset from clip_offset.json)"
   "$PYS" scripts/05n_triangulate_keypoints.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "offset|triangulated|Error" || fail tri
   mark tri
 fi
