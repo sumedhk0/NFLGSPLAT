@@ -42,7 +42,7 @@ _LOG = get_logger(__name__)
 # COCO -> SMPL-X body order lives in pose.coco (shared with the one-view refit, 05p)
 from nfl_gsplat.pose.coco import coco_to_body  # noqa: E402
 
-OFFSETS = range(-3, 4)
+OFFSETS = range(-10, 11)   # play 1 with the paint-refined endzone camera sat at the old range's edge (-3)
 
 
 def per_player_views(kdf, *, min_conf: float):
