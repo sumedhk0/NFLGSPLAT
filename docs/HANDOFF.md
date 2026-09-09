@@ -470,6 +470,23 @@ frames. `diag/overlay_v24/`. What it showed at once:
   -- and the 3-D fit follows every spike of it. The keypoints are the
   stable signal; fitting them directly in both cameras with the temporal
   term, instead of triangulate-then-refit, is the next step.
+- The QB (id 5, frames 180-201, standing still in the shotgun): the
+  keypoints sit on him, the skeleton's feet reach 40 px below his shoes --
+  the two-view refit places him 0.2-0.5 m toward the camera, because the
+  endzone track paired to him is Pacheco's (the pairing's ~1 m ambiguity
+  between two backfield players), so both his triangulated pose and his
+  placement mix two people. The one-view fit would put him on his own box
+  point (unbiased against a right pelvis, 0.52 m at the median).
+
+Two experiments, judged on the same rulers (sideline reprojection per
+record, the merged cache's jitter, the boundary ruler, and the id 12 /
+id 5 strips): `05p --two-view` (every two-camera player fitted straight
+to both cameras' keypoints, 05f's records replaced; probe on ids 12 and 5:
+sideline 8.1 px, endzone 8.5 -- the views disagree by that much through
+the calibration, no fit hugs both) and `05p --one-view-only` (every body
+from the sideline alone; the render camera sits on the sideline's side,
+where the one-view depth error is foreshortened). Results: PENDING.
+
 
 ### v23: the user's four notes on v22 (2026-09-08 evening)
 
