@@ -62,6 +62,8 @@ def main() -> None:
     ap.add_argument("--gap-number", type=float, default=GAP_NUMBER_M)
     ap.add_argument("--gap-position", type=float, default=GAP_POSITION_M)
     ap.add_argument("--lag", type=int, default=0, help="endzone frame lag (sideline f <-> endzone f + lag)")
+    ap.add_argument("--max-median-dist", type=float, default=None,
+                    help="a pair whose per-frame distance exceeds this at the median is two people (default pair_by_appearance.MAX_MEDIAN_DIST_M)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--no-ankles", action="store_true",
                     help="ground points from the box bottoms alone (default: the ankle keypoints where a camera has them)")
@@ -81,7 +83,8 @@ def main() -> None:
     n_kit = sum(t.kit >= 0 for t in side + end)
     print(f"{src.name}: sideline {len(side)} tracks, endzone {len(end)}; kit known on {n_kit}, "
           f"number read on {n_num}{'' if has_ocr else ' (no OCR column: kit and position only)'}")
-    pairs = pair_by_appearance(side, end, gap_number=args.gap_number, gap_position=args.gap_position, lag=args.lag)
+    extra = {} if args.max_median_dist is None else {"max_median_dist": args.max_median_dist}
+    pairs = pair_by_appearance(side, end, gap_number=args.gap_number, gap_position=args.gap_position, lag=args.lag, **extra)
     by = {}
     for p in pairs:
         by[p.evidence] = by.get(p.evidence, 0) + 1

@@ -33,7 +33,14 @@ MIN_OVERLAP: int = 6           # 15 -> 6 measured twice on play 1: +5/+6 pairs, 
 # number match; the fused refit then triangulated two people. The median
 # per-frame distance is the second gate: 1.0-1.9 m for the good pairs on
 # play 1, 4.2 and 14.2 for the two wrong ones.
-MAX_MEDIAN_DIST_M: float = 4.0
+# 4.0 with box-bottom ground points and the wrong clip offset; with the ankle keypoints'
+# points and the offset measured (play 1, 2026-09-09) a true pair sits 0.5 m apart at the
+# median and the 2.5-4 m "pairs" were another player crossing or the neighbour in the lane.
+MAX_MEDIAN_DIST_M: float = 2.0
+# The endzone sees the field's y as its lateral axis (a few centimetres); the sideline's y is
+# its depth (0.3-0.5 m off). Two tracks 2.4 m apart in y at the median are two people even
+# when their mean offset passes the gate (play 1 id 11: 270 frames, dy +2.46 m).
+MAX_LATERAL_M: float = 1.2
 # Two tracks of ONE camera contesting the same partner's span are one person when they sit
 # this close over their common frames (a duplicate box, or a fragment that continues past
 # the other): play 1's endzone track 102 ran 206-550, its first 116 frames beside track 96
@@ -67,7 +74,7 @@ def _series(t: CamTrack):
 
 def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_position=GAP_POSITION_M,
                        min_overlap=MIN_OVERLAP, lag: int = 0, max_median_dist=MAX_MEDIAN_DIST_M,
-                       same_person_m=SAME_PERSON_M):
+                       same_person_m=SAME_PERSON_M, max_lateral_m=MAX_LATERAL_M):
     """``[Pair]`` accepted; sideline frame f sits beside endzone frame f + lag."""
     ser_s = [_series(t) for t in side]
     ser_e = [_series(t) for t in end]
@@ -90,6 +97,8 @@ def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_po
             off = float(np.linalg.norm(d))
             if float(np.median(np.linalg.norm(diffs, axis=1))) > max_median_dist:
                 continue                                       # the tracks cross: not one player
+            if float(np.median(np.abs(diffs[:, 1]))) > max_lateral_m:
+                continue                                       # apart along the endzone's precise axis
             if a.number >= 0 and b.number >= 0:
                 if off <= gap_number:
                     cands.append(Pair(i, j, "number", off, len(common)))

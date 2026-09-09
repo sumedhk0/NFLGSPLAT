@@ -14,8 +14,11 @@ def test_number_match_pairs_at_three_metres_and_kit_only_needs_two():
     side = [_track("sideline", 0, 0.0, 0.0, 1, 15), _track("sideline", 1, 10.0, 0.0, 0, -1)]
     end = [_track("endzone", 0, 3.0, 0.0, 1, 15),        # same number, 3 m off: paired on the number
            _track("endzone", 1, 11.5, 0.0, 0, -1)]       # no number, same kit, 1.5 m: paired on kit + position
-    pairs = pair_by_appearance(side, end)
+    # the 3 m number pair needs the old median gate (4 m); the default (2 m, ankle ground
+    # points) calls two tracks 3 m apart two people whatever the number says
+    pairs = pair_by_appearance(side, end, max_median_dist=4.0)
     assert {(p.s, p.e, p.evidence) for p in pairs} == {(0, 0, "number"), (1, 1, "kit")}
+    assert {(p.s, p.e, p.evidence) for p in pair_by_appearance(side, end)} == {(1, 1, "kit")}
     gs, ge = global_ids(2, 2, pairs)
     assert gs[0] == ge[0] and gs[1] == ge[1] and gs[0] != gs[1]
 
@@ -117,3 +120,10 @@ def test_a_continuation_of_the_same_person_shares_the_span_but_another_person_do
     other = CamTrack("endzone", 1, np.arange(80, 200), np.column_stack([0.25 + 0.03 * np.arange(80, 200), 1.5 + np.zeros(120)]), 1, -1)
     pairs = pair_by_appearance([s], [first, other])
     assert {(p.s, p.e) for p in pairs} == {(0, 0)}
+
+
+def test_two_tracks_apart_along_y_at_the_median_are_two_people():
+    side = [_track("sideline", 0, 0.0, 0.0, 1, -1)]
+    end = [_track("endzone", 0, 0.0, 1.6, 1, -1)]          # 1.6 m over in y, every frame
+    assert pair_by_appearance(side, end) == []
+    assert len(pair_by_appearance(side, end, max_lateral_m=2.0)) == 1
