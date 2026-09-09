@@ -492,6 +492,20 @@ where the one-view depth error is foreshortened). Results:
   frames), sideline 8.6 px / endzone 8.7 -- the same as 05f's chain; the
   id 12 strip is pixel-for-pixel the v24 one: the wobble is the two views'
   disagreement, and averaging the views cannot remove it. Not adopted.
+- one-view only (00:48-01:18): 52 players, 5166 records, sideline
+  reprojection p50 2.0 px, p90 4.8. The strips (`diag/overlay_oneview/`):
+  the lineman's skeleton holds still on him, the QB stands on his own feet;
+  a walking corner (id 2) still had his skeleton 60 px below his feet --
+  the timeline placed him on the two-camera AVERAGE (1.9 m endzone offset
+  on that pair) and refused the record's pelvis against it, and the fit
+  itself let the reprojection drag the pelvis 0.38 m off the box point
+  along the ray (place_weight 1). ADOPTED with two changes: the timeline
+  places every id the sideline sees on the sideline's own point (100 % of
+  records placed, median shift 0.38 -> ?), and place_weight 10 holds the
+  pelvis on the box point (the run with it: PENDING). Pipeline: ONE_VIEW=1
+  (05p --one-view-only); the triangulation and 05f stay as the validation
+  reference. The two-view depth is given up where the pair was right; the
+  render camera on the sideline's side foreshortens that error.
 
 **The keypoints themselves jump.** Sideline wrists (confident ones):
 frame-to-frame motion p50 1.6 px, p90 7.5, p99 44 px, max 94 -- a
