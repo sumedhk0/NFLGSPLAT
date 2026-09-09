@@ -224,3 +224,22 @@ def test_smooth_axis_angles_damps_noise_and_keeps_a_ramp():
     assert d2(sm) < 0.3 * d2(noisy)                                    # the noise goes
     assert abs(sm[30, 0, 0] - ramp[30, 0, 0]) < 0.05                   # the ramp stays
     assert np.allclose(tl.smooth_axis_angles(ramp, window=1), ramp)   # off
+
+
+def test_ground_positions_take_the_foot_above_the_box_margin():
+    import pandas as pd
+
+    from nfl_gsplat.calibration.cameras_io import CameraTrack
+    from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
+    from nfl_gsplat.render.play_timeline import BOX_MARGIN_FRAC, ground_positions
+
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 0.0]))
+    track = CameraTrack(K=K[None], R=R[None], t=t[None], conf=np.ones(1), width=1920, height=1080)
+    box = pd.DataFrame([{"cam": "sideline", "frame": 0, "track_id": 1, "bbox_x1": 940, "bbox_y1": 400,
+                         "bbox_x2": 980, "bbox_y2": 540}])
+    g0 = ground_positions(box, {"sideline": track}, margin_frac=0.0)[0][1]
+    g1 = ground_positions(box, {"sideline": track})[0][1]
+    assert BOX_MARGIN_FRAC > 0
+    # the box bottom is 140 px tall; its ground point lies toward the camera (smaller y) of the true foot's
+    assert g1[1] > g0[1] and 0.05 < g1[1] - g0[1] < 0.6

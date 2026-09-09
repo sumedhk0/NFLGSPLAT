@@ -20,9 +20,18 @@ from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
 
 
-def ground_positions(df, tracks, *, with_views: bool = False):
-    """frame -> {pid: xy}: each view's foot through its camera, both averaged.
-    With ``with_views``, also frame -> {pid: (views seen,)}."""
+# The detector's box ends below the shoes: on play 1's sideline the box bottom
+# sits 16.7 px below the lower ankle keypoint at the median (138 px boxes), of
+# which 6 px is the ankle above the sole -- 11 px of margin, 0.078 of the box
+# height, which put every body ~0.15 m toward the camera (the footage overlay,
+# 2026-09-09: skeleton feet 15 px below the shoes on every player).
+BOX_MARGIN_FRAC: float = 0.078
+
+
+def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float = BOX_MARGIN_FRAC):
+    """frame -> {pid: xy}: each view's foot (the box bottom less the detector's
+    margin below the shoe) through its camera, both averaged. With
+    ``with_views``, also frame -> {pid: (views seen,)}."""
     from nfl_gsplat.pose.place_on_field import ground_point
 
     out: dict[int, dict[int, list]] = {}
@@ -37,7 +46,8 @@ def ground_positions(df, tracks, *, with_views: bool = False):
             K, R, t = intr.K(), pose.R, pose.t
             for r in rows.itertuples():
                 try:
-                    g = ground_point((0.5 * (r.bbox_x1 + r.bbox_x2), float(r.bbox_y2)), K, R, t)
+                    foot_v = float(r.bbox_y2) - margin_frac * float(r.bbox_y2 - r.bbox_y1)
+                    g = ground_point((0.5 * (r.bbox_x1 + r.bbox_x2), foot_v), K, R, t)
                 except Exception:
                     continue
                 if abs(g[0]) < 60 and abs(g[1]) < 30:
