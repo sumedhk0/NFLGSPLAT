@@ -129,6 +129,141 @@ def _fit_job(job):
     return (job["pid"], frames, params, valid, rep, before, sp_before, sp_after, val)
 
 
+def _two_view_job(job):
+    """One two-camera player: (pid, frames, params, valid, reproj, reproj per view)."""
+    cfg = Mono2DConfig(**job["cfg"])
+    base = SMPLXFitConfig()
+    rest, _ = load_smplx_skeleton(job["body_models"], betas=job["betas"])
+    forward = fk_forward(rest)
+    params, valid, rep = fit_sequence_2d(job["uv"], job["conf"], job["cams"], job["ground"], rest, forward,
+                                         cfg=cfg, base_cfg=base, init_body_pose_seq=job["init_bp"],
+                                         init_orient_seq=job["init_go"], frames=job["frames"], max_gap=job["max_gap"])
+    valid &= np.nan_to_num(rep, nan=np.inf) <= job["reproj_px_max"]
+    # reprojection per view on the valid frames, for the report
+    per_view = [[], []]
+    from nfl_gsplat.pose.fit_mono2d import project
+    for i in range(len(job["frames"])):
+        if not valid[i]:
+            continue
+        J = forward(params[i])
+        for v, (K, R, t) in enumerate(job["cams"][i]):
+            use = np.asarray(job["conf"][i][v], float) >= cfg.min_conf
+            if use.sum():
+                pix, _ = project(K, R, t, J[use])
+                per_view[v].append(float(np.median(np.linalg.norm(pix - np.asarray(job["uv"][i][v], float)[use], axis=1))))
+    return (job["pid"], job["frames"], params, valid, rep, per_view)
+
+
+def two_view_pass(args, P, tracks, df, ground, blob):
+    """Refit the two-camera players to both cameras' keypoints; the records replace 05f's in ``blob``."""
+    from scipy.spatial.transform import Rotation
+
+    kall = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
+    cams_present = sorted(kall["cam"].unique())
+    if len(cams_present) < 2:
+        print("two-view: keypoints from one camera only; nothing to do")
+        return blob
+    other = [c for c in cams_present if c != args.cam][0]
+    tr_a, tr_b = tracks[args.cam], tracks[other]
+    offset = 0
+    if (P / "poses_tri.json").exists():
+        offset = int(pickle.load(open(P / "poses_tri.json", "rb")).get("offset", 0))
+    side = pickle.load(open(args.poses or P / "poses_sideline.json", "rb"))
+    recs_of: dict = {}
+    for f, recs in side["frames"].items():
+        for pid, r in recs.items():
+            recs_of.setdefault(int(pid), {})[int(f)] = r
+    ka = {(int(f), int(p)): g.sort_values("joint") for (f, p), g in kall[kall["cam"] == args.cam].groupby(["frame", "global_player_id"])}
+    kb = {(int(f), int(p)): g.sort_values("joint") for (f, p), g in kall[kall["cam"] == other].groupby(["frame", "global_player_id"])}
+    pids = sorted({p for (_, p) in ka} & {p for (_, p) in kb})
+    jobs = []
+    for pid in pids:
+        if args.ids is not None and pid not in args.ids:
+            continue
+        rec = recs_of.get(pid, {})
+        rec_frames = sorted(rec)
+        betas = (np.mean([np.asarray(rec[f]["betas"], float) for f in rec_frames], axis=0) if rec_frames
+                 else np.zeros(10))
+        frames, uv, conf, cams, gnd, init_bp, init_go = [], [], [], [], [], [], []
+        for f in sorted(f for (f, p) in ka if p == pid):
+            if f % args.stride or (f + offset, pid) not in kb or pid not in ground.get(f, {}):
+                continue
+            if f >= len(tr_a.conf) or tr_a.conf[f] <= 0 or f + offset >= len(tr_b.conf) or tr_b.conf[f + offset] <= 0:
+                continue
+            ga, gb = ka[(f, pid)], kb[(f + offset, pid)]
+            if len(ga) != 17 or len(gb) != 17:
+                continue
+            ua, ca = coco_to_body(ga[["x", "y"]].to_numpy(float), ga["conf"].to_numpy(float), min_conf=args.min_conf)
+            ub, cb = coco_to_body(gb[["x", "y"]].to_numpy(float), gb["conf"].to_numpy(float), min_conf=args.min_conf)
+            if int((ca >= args.min_conf).sum()) + int((cb >= args.min_conf).sum()) < args.min_joints:
+                continue
+            ia, pa = tr_a.at(f)
+            ib, pb = tr_b.at(f + offset)
+            cam_a = (ia.K(), np.asarray(pa.R, float), np.asarray(pa.t, float))
+            cam_b = (ib.K(), np.asarray(pb.R, float), np.asarray(pb.t, float))
+            if rec_frames:
+                fr = min(rec_frames, key=lambda x: abs(x - f))
+                r = rec[fr]
+                bp = np.asarray(r["body_pose"], float).reshape(-1)
+                _i, pr = tr_a.at(fr)
+                go = (Rotation.from_matrix(np.asarray(pr.R, float).T)
+                      * Rotation.from_rotvec(np.asarray(r["global_orient"], float).reshape(3))).as_rotvec()
+            else:
+                bp, go = None, None
+            frames.append(f)
+            uv.append([ua, ub])
+            conf.append([ca, cb])
+            cams.append([cam_a, cam_b])
+            gnd.append(np.asarray(ground[f][pid], float))
+            init_bp.append(bp)
+            init_go.append(go)
+        if len(frames) < 8:
+            continue
+        has_init = all(b is not None for b in init_bp)
+        jobs.append({"pid": pid, "frames": np.asarray(frames), "uv": uv, "conf": conf, "cams": cams,
+                     "ground": np.stack(gnd), "betas": betas,
+                     "init_bp": np.stack(init_bp) if has_init else None,
+                     "init_go": np.stack(init_go) if has_init else None,
+                     "body_models": args.body_models, "max_gap": args.max_gap,
+                     "reproj_px_max": args.reproj_px_max,
+                     "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
+                             "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
+                             "place_weight": TWO_VIEW_PLACE_WEIGHT}})
+    n_frames = sum(len(j["frames"]) for j in jobs)
+    print(f"two-view: {len(jobs)} players with keypoints in both cameras, {n_frames} frames (endzone offset {offset:+d}, "
+          f"stride {args.stride}), {args.workers} workers")
+    if not jobs:
+        return blob
+    if args.workers > 1 and len(jobs) > 1:
+        with Pool(args.workers) as pool:
+            results = pool.map(_two_view_job, jobs, chunksize=1)
+    else:
+        results = [_two_view_job(j) for j in jobs]
+    fits, betas_of = {}, {j["pid"]: j["betas"] for j in jobs}
+    ra, rb = [], []
+    n_ok = 0
+    for pid, frames, params, valid, rep, per_view in sorted(results, key=lambda r: r[0]):
+        fits[pid] = (frames, params, valid)
+        ra.extend(per_view[0])
+        rb.extend(per_view[1])
+        n_ok += int(valid.sum())
+    print(f"two-view: fitted {n_ok}/{n_frames} frames on {len(fits)} players; reprojection median {args.cam} "
+          f"{np.median(ra):.1f} px, {other} {np.median(rb):.1f} px")
+    # these records replace 05f's for the same players (the fused cache loses those players entirely,
+    # so the one-view pass treats their remaining frames as one-view)
+    frames = {int(f): {int(p): r for p, r in recs.items() if int(p) not in fits} for f, recs in blob["frames"].items()}
+    frames = {f: r for f, r in frames.items() if r}
+    new_blob = dict(blob)
+    new_blob["frames"] = frames
+    merged, added = merge_into_refit(new_blob, fits, betas_of, source="two-view keypoints")
+    merged.pop("mono", None)
+    print(f"two-view: {added} records replace 05f's for {len(fits)} players")
+    return merged
+
+
+TWO_VIEW_PLACE_WEIGHT = 0.3
+
+
 def main() -> None:
     from scipy.spatial.transform import Rotation
 
@@ -153,6 +288,12 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
+    ap.add_argument("--one-view-only", action="store_true",
+                    help="ignore the fused (05f) cache: every player is fitted to the sideline keypoints alone "
+                         "(an experiment: the pairing's ~1 m ambiguity corrupts two-view poses and placement)")
+    ap.add_argument("--two-view", action="store_true",
+                    help="fit the two-camera players to BOTH cameras' keypoints (no triangulation) and write them as "
+                         "the fused records, replacing 05f's for those players; then the one-view pass as usual")
     ap.add_argument("--validate", action="store_true",
                     help="fit the frames the fused refit COVERS and score against it (joint error, tilt); writes nothing")
     ap.add_argument("--tilt-weight", type=float, default=Mono2DConfig.tilt_weight)
@@ -189,6 +330,21 @@ def main() -> None:
         print(f"no fused refit at {refit_path}: every keypointed frame is one-view")
         blob = {"cam": "fused", "world": True, "appearance_cam": args.cam, "stride": int(side["stride"]),
                 "frames": {}}
+    if args.one_view_only and not args.validate:
+        fused_backup_two = P / "poses_refit_fused_05f.json"
+        if refit_path.exists() and not fused_backup_two.exists():
+            import shutil
+            shutil.copy(refit_path, fused_backup_two)
+            print(f"kept 05f's cache as {fused_backup_two.name}")
+        blob = {"cam": "fused", "world": True, "appearance_cam": args.cam, "stride": int(side["stride"]), "frames": {}}
+        print("one-view only: the fused cache is ignored")
+    if args.two_view and not args.validate:
+        fused_backup_two = P / "poses_refit_fused_05f.json"
+        if refit_path.exists() and not fused_backup_two.exists():
+            import shutil
+            shutil.copy(refit_path, fused_backup_two)
+            print(f"kept 05f's cache as {fused_backup_two.name}")
+        blob = two_view_pass(args, P, tracks, df, ground, blob)
     fused_frames = {int(f): set(int(p) for p in recs) for f, recs in blob["frames"].items()}
     # the fused records per player, for continuity across and beyond their span
     fused_of: dict[int, dict[int, np.ndarray]] = {}
