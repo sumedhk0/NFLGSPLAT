@@ -25,6 +25,42 @@ LO = np.array([-1.32, -0.30, -0.28, -0.88, -0.01, -1.02, 0.03, -0.16, -0.55, -0.
 HI = np.array([0.28, 0.01, 1.00, 0.05, 0.30, 0.35, 1.05, 0.34, 0.25, 1.10, 0.09, 0.20, 0.74, 0.11, 0.62, 0.29, 0.33, 0.04, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.30, 0.42, 0.16, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.14, 0.01, 0.29, 0.06, -0.00, 0.23, 0.08, 0.64, 0.41, 0.00, 0.00, 0.00, 0.07, 0.00, 0.25, 0.08, 0.89, 0.94, 0.06, 0.08, 0.24, 0.06, 1.08, 0.60, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00])
 MARGIN_RAD: float = 0.1
 
+# Anatomical limits, radians, per SMPL-X body joint (index into the 21 posed
+# joints, i.e. joint 1 = left hip) and axis-angle component (x, y, z) in the
+# parent frame of the y-up rest pose. The data-driven table above forbids
+# nothing that matters (the two-camera fits it comes from allow a hip
+# abduction of 1.0 rad -- their own noise); these are the limits a body
+# has. Knees and elbows bend one way about one axis; hips abduct little
+# and twist little; ankles flex. Signs checked against the data-driven
+# table's one-signed components (knee x flexion positive, elbow y bend
+# one-signed per side). Joints not listed keep the L2 prior only.
+ANATOMICAL = {
+    1: ((-1.6, 0.6), (-0.6, 0.6), (-0.3, 0.7)),     # left hip: flexion, twist, abduction
+    2: ((-1.6, 0.6), (-0.6, 0.6), (-0.7, 0.3)),     # right hip
+    4: ((-0.05, 2.6), (-0.15, 0.15), (-0.15, 0.15)),  # left knee: flexion only
+    5: ((-0.05, 2.6), (-0.15, 0.15), (-0.15, 0.15)),  # right knee
+    7: ((-0.8, 0.6), (-0.3, 0.3), (-0.3, 0.3)),     # left ankle
+    8: ((-0.8, 0.6), (-0.3, 0.3), (-0.3, 0.3)),     # right ankle
+    16: ((-1.6, 1.6), (-1.6, 1.6), (-1.6, 1.6)),    # left shoulder (free)
+    17: ((-1.6, 1.6), (-1.6, 1.6), (-1.6, 1.6)),    # right shoulder
+    18: ((-0.5, 0.5), (-2.6, 0.05), (-0.5, 0.5)),   # left elbow: bends one way about y
+    19: ((-0.5, 0.5), (-0.05, 2.6), (-0.5, 0.5)),   # right elbow
+}
+
+
+def anatomical_bounds():
+    """``(lo, hi)`` over the 63 components: the table's limits where listed, wide open elsewhere."""
+    lo = np.full(63, -np.inf)
+    hi = np.full(63, np.inf)
+    for j, comps in ANATOMICAL.items():
+        for k, (a, b) in enumerate(comps):
+            lo[3 * (j - 1) + k] = a
+            hi[3 * (j - 1) + k] = b
+    return lo, hi
+
+
+ANAT_LO, ANAT_HI = anatomical_bounds()
+
 
 def excess(body_pose, *, lo=LO, hi=HI, margin: float = MARGIN_RAD) -> np.ndarray:
     """Per-component distance outside [lo - margin, hi + margin], zero inside."""

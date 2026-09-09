@@ -232,6 +232,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
+                             "bounds_table": args.bounds_table,
                              "view_weights": (1.0, args.endzone_weight)}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"two-view: {len(jobs)} players with keypoints in both cameras, {n_frames} frames (endzone offset {offset:+d}, "
@@ -307,7 +308,8 @@ def main() -> None:
                     help="--two-view: the second camera's keypoints count this much against the first's "
                          "(low = it acts only where the first camera is blind, along its own depth)")
     ap.add_argument("--bounds-weight", type=float, default=Mono2DConfig.bounds_weight,
-                    help="joint-range prior from the two-camera fits (pose.pose_bounds); 0 = off")
+                    help="joint-range prior (pose.pose_bounds); 0 = off")
+    ap.add_argument("--bounds-table", default=Mono2DConfig.bounds_table, choices=["data", "anatomical"])
     ap.add_argument("--tilt-weight", type=float, default=Mono2DConfig.tilt_weight)
     ap.add_argument("--tilt-free-deg", type=float, default=Mono2DConfig.tilt_free_deg)
     args = ap.parse_args()
@@ -509,7 +511,7 @@ def main() -> None:
                      "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
-                             "bounds_weight": args.bounds_weight}})
+                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"{len(jobs)} players with {args.cam} keypoints {'inside' if args.validate else 'outside'} the fused refit, "
           f"{n_frames} frames to fit (stride {args.stride}; {n_short_gap} in fused gaps of <= {args.max_gap} frames "

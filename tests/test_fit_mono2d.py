@@ -229,3 +229,14 @@ def test_view_weights_scale_a_view_out():
                                          forward, cfg=cfg0, base_cfg=base, init_orient_seq=np.stack([go] * 2))
     pix, _ = project(K, R1, t1, forward(params[-1]))
     assert np.linalg.norm(pix[conf > 0] - uvs[0][conf > 0], axis=1).mean() < 3.0
+
+
+def test_anatomical_bounds_forbid_a_sideways_knee_and_allow_a_bent_one():
+    from nfl_gsplat.pose.pose_bounds import ANAT_HI, ANAT_LO, excess
+
+    bp = np.zeros(63)
+    bp[(4 - 1) * 3 + 0] = 1.5                                            # left knee bent 86 deg: fine
+    assert np.allclose(excess(bp, lo=ANAT_LO, hi=ANAT_HI, margin=0.0), 0.0)
+    bp[(4 - 1) * 3 + 2] = 0.8                                            # bent sideways 46 deg: 0.65 over
+    e = excess(bp, lo=ANAT_LO, hi=ANAT_HI, margin=0.0)
+    assert abs(e[(4 - 1) * 3 + 2] - 0.65) < 1e-9 and e.sum() == e[(4 - 1) * 3 + 2]

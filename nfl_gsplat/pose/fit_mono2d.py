@@ -59,6 +59,7 @@ class Mono2DConfig:
     tilt_free_deg: float = 20.0
     up_axis: tuple = (0.0, 1.0, 0.0)  # the rest skeleton's up (SMPL-X is y-up)
     bounds_weight: float = 0.0      # joint-range prior (pose_bounds): sqrt(w) per radian outside the range
+    bounds_table: str = "data"      # "data" (the two-camera fits' range) or "anatomical" (pose_bounds.ANATOMICAL)
     view_weights: tuple = ()        # per-view multipliers on the reprojection residual (empty = 1 for every view)
     max_iter: int = 40
     loss: str = "soft_l1"
@@ -131,9 +132,12 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
             parts.append(np.array([cfg.tilt_weight * max(0.0, tilt_rad(p[go_slice], cfg.up_axis)
                                                          - np.radians(cfg.tilt_free_deg))]))
         if cfg.bounds_weight > 0:
-            from nfl_gsplat.pose.pose_bounds import excess
+            from nfl_gsplat.pose.pose_bounds import ANAT_HI, ANAT_LO, excess
 
-            parts.append(np.sqrt(cfg.bounds_weight) * excess(p[bp_slice]))
+            if cfg.bounds_table == "anatomical":
+                parts.append(np.sqrt(cfg.bounds_weight) * excess(p[bp_slice], lo=ANAT_LO, hi=ANAT_HI, margin=0.0))
+            else:
+                parts.append(np.sqrt(cfg.bounds_weight) * excess(p[bp_slice]))
         if bp_init is not None:
             parts.append(np.sqrt(cfg.init_weight) * (p[bp_slice] - bp_init))
         if prev_params is not None:
