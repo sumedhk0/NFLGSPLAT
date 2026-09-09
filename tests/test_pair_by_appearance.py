@@ -68,3 +68,32 @@ def test_tracks_that_cross_are_not_a_pair_even_with_a_number_match():
     # the same two, both standing still: a pair
     still_s = CamTrack(cam="sideline", tid=1, frames=frames, xy=np.stack([np.zeros(40), np.full(40, 0.5)], 1), kit=1, number=83)
     assert len(pair_by_appearance([still_s], [still])) == 1
+
+
+def test_cam_tracks_take_the_ankle_ground_over_the_box():
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.calibration.cameras_io import CameraTrack
+    from nfl_gsplat.tracking.pair_by_appearance import cam_tracks_from_frame
+
+    K = np.array([[9400.0, 0.0, 960.0], [0.0, 9400.0, 540.0], [0.0, 0.0, 1.0]])
+    c = np.array([-3.7, -101.6, 42.5])
+    fwd = np.array([-20.0, 0.0, 0.0]) - c
+    fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0.0, 0.0, 1.0])
+    right /= np.linalg.norm(right)
+    R = np.stack([right, np.cross(fwd, right), fwd])
+    t = -R @ c
+    T = 6
+    tr = CameraTrack(K=np.repeat(K[None], T, 0), R=np.repeat(R[None], T, 0), t=np.repeat(t[None], T, 0),
+                     conf=np.ones(T), width=1920, height=1080)
+    rows = [{"cam": "sideline", "track_id": 3, "frame": f, "bbox_x1": 900.0, "bbox_x2": 940.0,
+             "bbox_y1": 400.0, "bbox_y2": 560.0} for f in range(T)]
+    df = pd.DataFrame(rows)
+    side, _end = cam_tracks_from_frame(df, {"sideline": tr, "endzone": tr}, smooth=1)
+    box_pts = side[0].xy.copy()
+    ankles = {("sideline", f, 3): np.array([-20.0, 1.0]) for f in range(T)}
+    side2, _ = cam_tracks_from_frame(df, {"sideline": tr, "endzone": tr}, smooth=1, ankles=ankles)
+    assert np.allclose(side2[0].xy, [[-20.0, 1.0]] * T)
+    assert not np.allclose(box_pts, side2[0].xy)

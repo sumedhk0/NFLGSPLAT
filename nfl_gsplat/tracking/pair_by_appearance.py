@@ -129,10 +129,14 @@ def global_ids(n_s: int, n_e: int, pairs):
 
 
 def cam_tracks_from_frame(df, cams, *, kit_margin: float = 0.4, min_number_votes: int = MIN_NUMBER_VOTES,
-                          smooth: int = 15):
+                          smooth: int = 15, ankles=None):
     """``(side, end)`` lists of CamTrack from a tracks(_identity).parquet with
     per-camera ids (``cam``, ``track_id``), ``kit_margin`` when 08b wrote it,
-    ``jersey_number_ocr`` when 08c's OCR ran (-1 otherwise)."""
+    ``jersey_number_ocr`` when 08c's OCR ran (-1 otherwise). ``ankles``
+    ``{(cam, frame, track_id): xy}`` (render.play_timeline.ankle_ground) stands
+    in for the box-bottom ground point where a camera has the player's ankles:
+    the box point sits 0.3-0.5 m off the feet (play 1, against the two cameras'
+    triangulated ankles), which the position gate feels."""
     import pandas as pd
 
     from nfl_gsplat.calibration.from_players import feet_of
@@ -150,7 +154,9 @@ def cam_tracks_from_frame(df, cams, *, kit_margin: float = 0.4, min_number_votes
         ok = np.array([tr.conf[f] > 0 for f in fr])
         if ok.sum() < 3:
             continue
-        pts = np.stack([ground_points((tr.K[f], tr.R[f], tr.t[f]), feet_of(b[None]))[0]
+        pts = np.stack([np.asarray(ankles[(cam, int(f), int(tid))], float)[:2]
+                        if ankles is not None and (cam, int(f), int(tid)) in ankles
+                        else ground_points((tr.K[f], tr.R[f], tr.t[f]), feet_of(b[None]))[0]
                         for f, b in zip(fr[ok], g[B].to_numpy()[ok])])
         fin = np.isfinite(pts).all(1)
         fr, pts = fr[ok][fin], pts[fin]

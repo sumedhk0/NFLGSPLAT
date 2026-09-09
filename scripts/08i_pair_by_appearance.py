@@ -25,6 +25,34 @@ from nfl_gsplat.tracking.pair_by_appearance import (GAP_NUMBER_M, GAP_POSITION_M
                                                     global_ids, pair_by_appearance)
 
 
+def ankles_for(play: Path, df: pd.DataFrame):
+    """The ankle keypoints' ground points keyed by THIS table's ids. The keypoints (05m) carry
+    the ids of the tracks.parquet they were run on; when that is not this table (a re-pairing
+    from the unpaired one), the ids are carried across by the boxes (tracking.relabel)."""
+    from nfl_gsplat.calibration.cameras_io import load_camera_track
+    from nfl_gsplat.render.play_timeline import ankle_ground
+    from nfl_gsplat.tracking.relabel import id_map_by_boxes, relabel_keypoints
+
+    kp = play / "keypoints_2d.parquet"
+    if not kp.exists():
+        return None
+    kdf = pd.read_parquet(kp)
+    keys = set(zip(df["cam"].astype(str), df["frame"].astype(int), df["track_id"].astype(int)))
+    sample = list(zip(kdf["cam"].astype(str), kdf["frame"].astype(int), kdf["global_player_id"].astype(int)))[::97]
+    hit = sum(k in keys for k in sample) / max(len(sample), 1)
+    if hit < 0.9 and (play / "tracks.parquet").exists():
+        old = pd.read_parquet(play / "tracks.parquet")
+        old = old[old["track_id"] >= 0]
+        kdf, dropped = relabel_keypoints(kdf, id_map_by_boxes(old, df))
+        print(f"keypoints carried to this table's ids by their boxes ({dropped} rows without a box dropped)")
+    elif hit < 0.9:
+        print("keypoints carry other ids and there is no tracks.parquet to map them by; box bottoms only")
+        return None
+    ank = ankle_ground(kdf, load_camera_track(play / "cameras.npz"))
+    print(f"ground points from the ankle keypoints on {len(ank)} (camera, frame, id); box bottoms elsewhere")
+    return ank
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--play-dir", type=Path, required=True)
@@ -35,6 +63,8 @@ def main() -> None:
     ap.add_argument("--gap-position", type=float, default=GAP_POSITION_M)
     ap.add_argument("--lag", type=int, default=0, help="endzone frame lag (sideline f <-> endzone f + lag)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-ankles", action="store_true",
+                    help="ground points from the box bottoms alone (default: the ankle keypoints where a camera has them)")
     args = ap.parse_args()
     play = args.play_dir
     src = args.tracks
@@ -45,7 +75,8 @@ def main() -> None:
     df = df[df["track_id"] >= 0].reset_index(drop=True)
     has_ocr = "jersey_number_ocr" in df and int((df["jersey_number_ocr"] >= 0).sum()) > 0
     cams = load_camera_track(play / "cameras.npz")
-    side, end = cam_tracks_from_frame(df, cams)
+    ankles = None if args.no_ankles else ankles_for(play, df)
+    side, end = cam_tracks_from_frame(df, cams, ankles=ankles)
     n_num = sum(t.number >= 0 for t in side + end)
     n_kit = sum(t.kit >= 0 for t in side + end)
     print(f"{src.name}: sideline {len(side)} tracks, endzone {len(end)}; kit known on {n_kit}, "
