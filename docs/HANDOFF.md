@@ -502,7 +502,9 @@ where the one-view depth error is foreshortened). Results:
   along the ray (place_weight 1). ADOPTED with two changes: the timeline
   places every id the sideline sees on the sideline's own point (100 % of
   records placed, median shift 0.38 -> ?), and place_weight 10 holds the
-  pelvis on the box point (the run with it: PENDING). Pipeline: ONE_VIEW=1
+  pelvis on the box point (the run with it, 03:07-03:28: 5166 records at
+  1.9 px p50 / 4.7 p90; the corner's skeleton now stands on his shoes,
+  `diag/overlay_oneview2/player_2_f300.jpg`). Pipeline: ONE_VIEW=1
   (05p --one-view-only); the triangulation and 05f stay as the validation
   reference. The two-view depth is given up where the pair was right; the
   render camera on the sideline's side foreshortens that error.
