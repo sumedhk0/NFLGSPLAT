@@ -75,25 +75,46 @@ def project(K, R, t, X):
     return p[:, :2] / np.where(np.abs(z) < 1e-9, 1e-9, z), z[:, 0]
 
 
+def _views(uv, conf, cam):
+    """Normalise one view or a list of views to lists (uv, conf, cam per view)."""
+    if isinstance(cam, (list, tuple)) and len(cam) and isinstance(cam[0], (list, tuple)) and len(cam[0]) == 3 \
+            and np.ndim(cam[0][0]) == 2:
+        return list(uv), list(conf), list(cam)
+    return [uv], [conf], [cam]
+
+
 def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConfig, base_cfg: SMPLXFitConfig,
                  init_body_pose=None, prev_params=None):
     """``(params, reproj_rms_px, n_used)`` for one frame; ``uv [22, 2]``, ``conf [22]``,
-    ``cam = (K, R, t)`` world -> image, ``ground_xy`` the body's ground point."""
-    K, R, t = cam
-    use = np.asarray(conf, float) >= cfg.min_conf
-    if int(use.sum()) < cfg.min_joints:
-        raise ValueError(f"only {int(use.sum())} keypoints above {cfg.min_conf}")
-    w = np.sqrt(np.asarray(conf, float)[use])
-    target = np.asarray(uv, float)[use]
+    ``cam = (K, R, t)`` world -> image, ``ground_xy`` the body's ground point.
+    With LISTS (one entry per camera) the frame is fitted to every view's
+    keypoints at once -- a two-view fit straight to the detections, which
+    keeps the depth the second camera gives without a triangulation step
+    between (measured 2026-09-09: the triangulate-then-refit chain wobbles
+    10 cm on a lineman whose keypoints hold still)."""
+    uvs, confs, cams = _views(uv, conf, cam)
+    uses, ws, targets = [], [], []
+    for u, c in zip(uvs, confs):
+        use = np.asarray(c, float) >= cfg.min_conf
+        uses.append(use)
+        ws.append(np.sqrt(np.asarray(c, float)[use]))
+        targets.append(np.asarray(u, float)[use])
+    n_used = int(sum(int(u.sum()) for u in uses))
+    if n_used < cfg.min_joints:
+        raise ValueError(f"only {n_used} keypoints above {cfg.min_conf}")
     bp_slice, go_slice, _ = _param_slices(base_cfg)
     bp_init = None if init_body_pose is None else np.asarray(init_body_pose, float).reshape(-1)
     gxy = np.asarray(ground_xy, float)
 
     def residuals(p):
         J = forward(p)
-        pix, depth = project(K, R, t, J[use])
-        rep = ((pix - target) * w[:, None] / cfg.px_scale).reshape(-1)
-        behind = np.maximum(0.0, -depth)                      # nothing behind the camera
+        rep_parts, behind_parts = [], []
+        for (K, R, t), use, w, target in zip(cams, uses, ws, targets):
+            pix, depth = project(K, R, t, J[use])
+            rep_parts.append(((pix - target) * w[:, None] / cfg.px_scale).reshape(-1))
+            behind_parts.append(np.maximum(0.0, -depth))          # nothing behind a camera
+        rep = np.concatenate(rep_parts)
+        behind = np.concatenate(behind_parts)
         ground = cfg.ground_weight * np.array([min(J[ANKLES[0], 2], J[ANKLES[1], 2])])
         place = cfg.place_weight * (J[PELVIS, :2] - gxy)
         prior = np.sqrt(cfg.prior_weight) * p[bp_slice]
@@ -112,9 +133,13 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
     # numerical: 70 more); at x10 a noisy frame ran 400 iterations = 5 s
     sol = least_squares(residuals, init_params, method="trf", loss=cfg.loss, max_nfev=cfg.max_iter,
                         x_scale="jac")
-    pix, _ = project(K, R, t, forward(sol.x)[use])
-    err = np.linalg.norm(pix - target, axis=1)
-    return sol.x, float(np.sqrt(np.mean(err * err))), int(use.sum())
+    J = forward(sol.x)
+    errs = []
+    for (K, R, t), use, target in zip(cams, uses, targets):
+        pix, _ = project(K, R, t, J[use])
+        errs.append(np.linalg.norm(pix - target, axis=1))
+    err = np.concatenate(errs)
+    return sol.x, float(np.sqrt(np.mean(err * err))), n_used
 
 
 def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, init_body_pose=None, *, min_conf=0.3,
@@ -129,7 +154,8 @@ def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, ini
 
     rest = np.asarray(rest_joints, float)
     bp = np.zeros(base_cfg.body_pose_dim) if init_body_pose is None else np.asarray(init_body_pose, float).reshape(-1)
-    K, R, t = cam
+    uvs, confs, cams = _views(uv, conf, cam)
+    uv, conf, (K, R, t) = uvs[0], confs[0], cams[0]              # the start is scored on the first view
     use = np.asarray(conf, float) >= min_conf
     best = None
     if init_orient is not None:

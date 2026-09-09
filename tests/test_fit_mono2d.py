@@ -154,3 +154,37 @@ def test_blend_params_slerps_toward_the_anchor():
     assert abs(np.degrees(Rotation.from_rotvec(h[63:66]).magnitude()) - 45) < 1e-6
     assert np.allclose(h[66:69], [1.0, 0.0, 0.0])
     assert np.allclose(blend_params(a, b, 0.0), a) and np.allclose(blend_params(a, b, 1.0), b)
+
+
+def test_two_views_resolve_the_depth_one_view_cannot():
+    """The arm-toward-camera ambiguity of one view is settled by a second camera at 90 degrees."""
+    from scipy.spatial.transform import Rotation
+
+    rest = _rest()
+    forward = fk_forward(rest)
+    base = SMPLXFitConfig()
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R1, t1 = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 1.0]))
+    R2, t2 = look_at(np.array([100.0, 0.0, 30.0]), np.array([0.0, 0.0, 1.0]))
+    cams = [(K, R1, t1), (K, R2, t2)]
+    bp = np.zeros(63)
+    bp[(17 - 1) * 3 + 1] = 1.2
+    bp[(19 - 1) * 3 + 1] = 0.6
+    go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
+    p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
+    J = forward(p_true)
+    p_true[-1] -= min(J[7, 2], J[8, 2])
+    J = forward(p_true)
+    conf = np.ones(22)
+    conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
+    rng = np.random.default_rng(1)
+    uvs = [project(K, R, t, J)[0] + rng.normal(0, 1.0, (22, 2)) for (K, R, t) in cams]
+    T = 3
+    # no pose prior from a regressor this time: the second view alone must fix the arm
+    params, valid, rep = fit_sequence_2d([uvs] * T, [[conf, conf]] * T, [cams] * T, np.stack([J[0, :2]] * T),
+                                         rest, forward, cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0), tilt_weight=0.0),
+                                         base_cfg=base, init_orient_seq=np.stack([go] * T))
+    assert valid.all() and rep[-1] < 3.0, rep
+    Jf = forward(params[-1])
+    assert abs(Jf[21, 2] - J[21, 2]) < 0.12, (Jf[21], J[21])
+    assert np.linalg.norm(Jf[21] - J[21]) < 0.15
