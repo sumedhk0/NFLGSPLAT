@@ -530,6 +530,12 @@ smooth_axis_angles`, POSE_SMOOTH_FRAMES source frames):
 Adopted 9 (0.15 s): the jitter halves at the p90 and 81 % of the p90
 motion stays; past that the smoothing eats strides. v24 carries it.
 
+v23 rendered 20:17 (`diag/play_001_v23_hifi_720.mp4`; stills against v22
+in `diag/p1_v22_v23_strip.jpg`): the linemen are visibly bulkier and the
+backs slimmer (the roster builds), 25 states a frame with the anchoring
+alone (some doubles at fragment overlaps, as the ruler said). v24 = v23's
+caches + the 0.4 m radius + the 9-frame pose filter, render only.
+
 ### v21: a wrong pair sawtoothed by a metre a frame (2026-09-08)
 
 Ruler: second differences of the timeline's state xy per frame.
