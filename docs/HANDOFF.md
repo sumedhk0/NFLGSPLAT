@@ -508,6 +508,15 @@ where the one-view depth error is foreshortened). Results:
   (05p --one-view-only); the triangulation and 05f stay as the validation
   reference. The two-view depth is given up where the pair was right; the
   render camera on the sideline's side foreshortens that error.
+- Even with the pelvis held, every skeleton's feet sat ~15 px below the
+  shoes (the QB, the corner, the lineman alike). Measured: the detection
+  box ends 16.7 px below the lower ankle keypoint at the median (138 px
+  boxes); the ankle is 6 px above the sole, so 11 px is the detector's
+  margin -- 0.078 of the box height -- and through the camera it is ~0.15
+  m toward the lens for every body. `ground_positions` now takes the foot
+  at bbox_y2 minus 0.078 of the box height (BOX_MARGIN_FRAC); the fit and
+  the timeline share it. Run 3 (the fit on the corrected points): PENDING;
+  v25 (rendering 03:28-) carries everything but this.
 
 **The keypoints themselves jump.** Sideline wrists (confident ones):
 frame-to-frame motion p50 1.6 px, p90 7.5, p99 44 px, max 94 -- a
