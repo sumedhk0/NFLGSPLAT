@@ -188,3 +188,14 @@ def test_two_views_resolve_the_depth_one_view_cannot():
     Jf = forward(params[-1])
     assert abs(Jf[21, 2] - J[21, 2]) < 0.12, (Jf[21], J[21])
     assert np.linalg.norm(Jf[21] - J[21]) < 0.15
+
+
+def test_pose_bounds_cost_nothing_inside_and_grow_outside():
+    from nfl_gsplat.pose.pose_bounds import HI, LO, excess
+
+    assert LO.shape == (63,) and HI.shape == (63,) and (HI >= LO).all()
+    mid = 0.5 * (LO + HI)
+    assert np.allclose(excess(mid), 0.0)
+    far = HI + 1.0
+    e = excess(far)
+    assert np.allclose(e, 0.9)                                          # 1.0 past the bound, 0.1 of margin

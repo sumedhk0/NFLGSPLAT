@@ -92,12 +92,13 @@ def main() -> None:
     ap.add_argument("--stride", type=int, default=2)
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
     ap.add_argument("--no-keypoints", action="store_true")
+    ap.add_argument("--refit", type=Path, default=None, help="a pose cache other than <play-dir>/poses_refit.json")
     args = ap.parse_args()
     P = args.play_dir
     args.out.mkdir(parents=True, exist_ok=True)
     model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral", num_betas=10, use_pca=False,
                          batch_size=1)
-    tl, tracks, df, frames_all, poses = load_play_timeline(P, model)
+    tl, tracks, df, frames_all, poses = load_play_timeline(P, model, poses_refit=args.refit)
     track = tracks[args.cam]
     import pickle
 

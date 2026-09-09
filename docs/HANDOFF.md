@@ -523,6 +523,20 @@ where the one-view depth error is foreshortened). Results:
   postures follow the footage, no arm arcs on the line. **v25 is the
   deliverable**; the pipeline reproduces it with ONE_VIEW=1 (default).
 
+**The runner toward the camera** (2026-09-09 evening, strips on v25's
+cache, `diag/overlay_v25b/player_9_f260.jpg`): id 9 running toward the
+sideline camera gets a collapsed skeleton from frame 266, legs splayed at
+the lens, while the keypoints on him look like a runner. One view cannot
+tell short, foreshortened legs from legs pointed at the camera, and
+nothing forbade the impossible angles. `pose.pose_bounds`: per-component
+body_pose bounds at the 2nd/98th percentile of the two-camera refit
+records (2963, 24 players); the one-view records sat outside them on 54 %
+of components. As a soft prior (`bounds_weight`): weight 1 does not fix
+the runner (the reprojection still wins), weight 10: PENDING. The
+principled fix is the second camera: the endzone sees motion along y
+across its image, exactly where the sideline is blind; at a LOW weight it
+would act only where the sideline's constraint is null. To test next.
+
 **The keypoints themselves jump.** Sideline wrists (confident ones):
 frame-to-frame motion p50 1.6 px, p90 7.5, p99 44 px, max 94 -- a
 left/right swap or a miss for one frame -- and 30 % of wrists sit under

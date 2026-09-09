@@ -58,6 +58,7 @@ class Mono2DConfig:
     tilt_weight: float = 10.0       # on the lean past tilt_free_deg, radians
     tilt_free_deg: float = 20.0
     up_axis: tuple = (0.0, 1.0, 0.0)  # the rest skeleton's up (SMPL-X is y-up)
+    bounds_weight: float = 0.0      # joint-range prior (pose_bounds): sqrt(w) per radian outside the range
     max_iter: int = 40
     loss: str = "soft_l1"
 
@@ -127,6 +128,10 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
         if cfg.tilt_weight > 0:
             parts.append(np.array([cfg.tilt_weight * max(0.0, tilt_rad(p[go_slice], cfg.up_axis)
                                                          - np.radians(cfg.tilt_free_deg))]))
+        if cfg.bounds_weight > 0:
+            from nfl_gsplat.pose.pose_bounds import excess
+
+            parts.append(np.sqrt(cfg.bounds_weight) * excess(p[bp_slice]))
         if bp_init is not None:
             parts.append(np.sqrt(cfg.init_weight) * (p[bp_slice] - bp_init))
         if prev_params is not None:

@@ -301,6 +301,8 @@ def main() -> None:
                          "the fused records, replacing 05f's for those players; then the one-view pass as usual")
     ap.add_argument("--validate", action="store_true",
                     help="fit the frames the fused refit COVERS and score against it (joint error, tilt); writes nothing")
+    ap.add_argument("--bounds-weight", type=float, default=Mono2DConfig.bounds_weight,
+                    help="joint-range prior from the two-camera fits (pose.pose_bounds); 0 = off")
     ap.add_argument("--tilt-weight", type=float, default=Mono2DConfig.tilt_weight)
     ap.add_argument("--tilt-free-deg", type=float, default=Mono2DConfig.tilt_free_deg)
     args = ap.parse_args()
@@ -501,12 +503,14 @@ def main() -> None:
                      "cfg_overrides": overrides, "blend_seq": blend_seq,
                      "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
-                             "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg}})
+                             "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
+                             "bounds_weight": args.bounds_weight}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"{len(jobs)} players with {args.cam} keypoints {'inside' if args.validate else 'outside'} the fused refit, "
           f"{n_frames} frames to fit (stride {args.stride}; {n_short_gap} in fused gaps of <= {args.max_gap} frames "
           f"left to the interpolation), {args.workers} workers"
-          + (f"; tilt prior {args.tilt_weight} past {args.tilt_free_deg} deg" if args.tilt_weight > 0 else ""))
+          + (f"; tilt prior {args.tilt_weight} past {args.tilt_free_deg} deg" if args.tilt_weight > 0 else "")
+          + (f"; joint-range prior {args.bounds_weight}" if args.bounds_weight > 0 else ""))
     if not jobs:
         raise SystemExit("nothing to fit")
 
