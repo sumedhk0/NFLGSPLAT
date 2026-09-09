@@ -448,6 +448,29 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### The footage as the ruler (2026-09-09)
+
+The user on v24: still jittery, arms all over the place, compare against
+the All-22 footage. `scripts/05q_overlay_footage.py` projects the timeline's
+bodies (the states 05k renders, placed the same way) through the sideline
+camera onto the footage as skeletons, with the 2-D keypoints as dots;
+`--player ID --start F --count N --step S` gives one body over consecutive
+frames. `diag/overlay_v24/`. What it showed at once:
+
+- Refit-placed bodies 1.5-3 m toward the camera on some frames (ids 2, 4:
+  feet 50-76 px below the real ones): `place_from_refit` accepted a
+  record's pelvis up to 3 m from the box point; MAX_REFIT_SHIFT_M is 1.0
+  now (the box point sits 0.52 m from a right pelvis at the median).
+  Median over all states: ankles 13 px above the box bottom, pelvis 0.24 m
+  beyond it.
+- A lineman in his stance (id 12, frames 130-151): the sideline keypoints
+  do not move, the skeleton's torso and arms swing frame to frame. The
+  fused refit reprojects into the sideline camera at p50 8.4 px, p90 15
+  (arms p90 19) -- the triangulation's own level, 10 cm on a 140 px body
+  -- and the 3-D fit follows every spike of it. The keypoints are the
+  stable signal; fitting them directly in both cameras with the temporal
+  term, instead of triangulate-then-refit, is the next step.
+
 ### v23: the user's four notes on v22 (2026-09-08 evening)
 
 The user, on v22: (1) jitter and shakiness, players glitching in and out;

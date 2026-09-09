@@ -50,7 +50,14 @@ def ground_positions(df, tracks, *, with_views: bool = False):
     return ground, views
 
 
-def place_from_refit(ground, refit, *, max_shift_m: float = 3.0, max_gap: int = 12, pelvis_xy=None):
+# A record's pelvis further than this from the box-bottom point is the refit
+# being wrong, not the box (2026-09-09, the footage overlay: refit-placed
+# bodies 1.5-3 m toward the camera, feet 50-76 px below the real ones; the box
+# point sits 0.52 m from a right triangulated pelvis at the median, 1.29 p90).
+MAX_REFIT_SHIFT_M = 1.0
+
+
+def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None):
     """``ground`` with every (frame, id) that has a refit record moved to the
     record's pelvis. ``pelvis_xy(rec) -> xy`` gives the record's pelvis on the
     field; without it the translation alone is used (the model's origin, which
