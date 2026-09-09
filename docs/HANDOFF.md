@@ -515,8 +515,13 @@ where the one-view depth error is foreshortened). Results:
   margin -- 0.078 of the box height -- and through the camera it is ~0.15
   m toward the lens for every body. `ground_positions` now takes the foot
   at bbox_y2 minus 0.078 of the box height (BOX_MARGIN_FRAC); the fit and
-  the timeline share it. Run 3 (the fit on the corrected points): PENDING;
-  v25 (rendering 03:28-) carries everything but this.
+  the timeline share it. Run 3 (the fit on the corrected points, redone
+  after a session death): 5166 records at 1.9 px; the corner's and the QB's
+  skeletons now sit on their bodies with the feet on the shoes
+  (`diag/overlay_oneview3/`). v25 (16:39, `diag/play_001_v25_hifi_720.mp4`,
+  sent; strip against v24 `diag/p1_v24_v25_strip.jpg`): 24 bodies a frame,
+  postures follow the footage, no arm arcs on the line. **v25 is the
+  deliverable**; the pipeline reproduces it with ONE_VIEW=1 (default).
 
 **The keypoints themselves jump.** Sideline wrists (confident ones):
 frame-to-frame motion p50 1.6 px, p90 7.5, p99 44 px, max 94 -- a
