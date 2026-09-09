@@ -34,6 +34,11 @@ MIN_OVERLAP: int = 6           # 15 -> 6 measured twice on play 1: +5/+6 pairs, 
 # per-frame distance is the second gate: 1.0-1.9 m for the good pairs on
 # play 1, 4.2 and 14.2 for the two wrong ones.
 MAX_MEDIAN_DIST_M: float = 4.0
+# Two tracks of ONE camera contesting the same partner's span are one person when they sit
+# this close over their common frames (a duplicate box, or a fragment that continues past
+# the other): play 1's endzone track 102 ran 206-550, its first 116 frames beside track 96
+# (both 0.26 m from sideline 4), and the span rule threw its other 228 frames away.
+SAME_PERSON_M: float = 1.0
 MIN_NUMBER_VOTES: int = 2      # OCR rows a track needs before its number counts as read
 
 
@@ -61,16 +66,21 @@ def _series(t: CamTrack):
 
 
 def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_position=GAP_POSITION_M,
-                       min_overlap=MIN_OVERLAP, lag: int = 0, max_median_dist=MAX_MEDIAN_DIST_M):
+                       min_overlap=MIN_OVERLAP, lag: int = 0, max_median_dist=MAX_MEDIAN_DIST_M,
+                       same_person_m=SAME_PERSON_M):
     """``[Pair]`` accepted; sideline frame f sits beside endzone frame f + lag."""
     ser_s = [_series(t) for t in side]
     ser_e = [_series(t) for t in end]
     cands = []
     for i, a in enumerate(side):
         for j, b in enumerate(end):
-            if a.kit >= 0 and b.kit >= 0 and a.kit != b.kit:
-                continue
+            num_match = a.number >= 0 and b.number >= 0 and a.number == b.number
             if a.number >= 0 and b.number >= 0 and a.number != b.number:
+                continue
+            # two OCR reads agreeing on a number outrank a kit vote: play 1's endzone
+            # track of KC 83 (432 frames, number read) carried the white kit and was
+            # never paired
+            if a.kit >= 0 and b.kit >= 0 and a.kit != b.kit and not num_match:
                 continue
             common = [f for f in ser_s[i] if (f + lag) in ser_e[j]]
             if len(common) < min_overlap:
@@ -92,19 +102,40 @@ def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_po
     cands.sort(key=lambda p: (rank[p.evidence], p.offset, -p.overlap))
     span_s = [(int(t.frames.min()), int(t.frames.max())) for t in side]
     span_e = [(int(t.frames.min()), int(t.frames.max())) for t in end]
-    taken_s: dict = {}
-    taken_e: dict = {}
+    taken_s: dict = {}                     # sideline i -> [endzone j held]
+    taken_e: dict = {}                     # endzone j -> [sideline i held]
     kept = []
     for p in cands:
         si, ej = span_s[p.s], span_e[p.e]
-        if any(not (ej[1] < o[0] or ej[0] > o[1]) for o in taken_s.get(p.s, [])):
+        clash = False
+        for j2 in taken_s.get(p.s, []):
+            o = span_e[j2]
+            if not (ej[1] < o[0] or ej[0] > o[1]) and not _same_person(ser_e[p.e], ser_e[j2], same_person_m):
+                clash = True
+                break
+        if clash:
             continue
-        if any(not (si[1] < o[0] or si[0] > o[1]) for o in taken_e.get(p.e, [])):
+        for i2 in taken_e.get(p.e, []):
+            o = span_s[i2]
+            if not (si[1] < o[0] or si[0] > o[1]) and not _same_person(ser_s[p.s], ser_s[i2], same_person_m):
+                clash = True
+                break
+        if clash:
             continue
-        taken_s.setdefault(p.s, []).append(ej)
-        taken_e.setdefault(p.e, []).append(si)
+        taken_s.setdefault(p.s, []).append(p.e)
+        taken_e.setdefault(p.e, []).append(p.s)
         kept.append(p)
     return kept
+
+
+def _same_person(ser_a: dict, ser_b: dict, tol_m: float) -> bool:
+    """Two tracks of one camera are one person when they sit within ``tol_m`` of each other
+    at the median over their common frames (none in common: not the same)."""
+    common = [f for f in ser_a if f in ser_b]
+    if len(common) < 3:
+        return False
+    d = np.linalg.norm(np.array([ser_a[f] - ser_b[f] for f in common]), axis=1)
+    return float(np.median(d)) <= tol_m
 
 
 def global_ids(n_s: int, n_e: int, pairs):

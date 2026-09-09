@@ -97,3 +97,23 @@ def test_cam_tracks_take_the_ankle_ground_over_the_box():
     side2, _ = cam_tracks_from_frame(df, {"sideline": tr, "endzone": tr}, smooth=1, ankles=ankles)
     assert np.allclose(side2[0].xy, [[-20.0, 1.0]] * T)
     assert not np.allclose(box_pts, side2[0].xy)
+
+
+def test_numbers_agreeing_outrank_a_kit_clash():
+    side = [_track("sideline", 0, 0.0, 0.0, 1, 83)]
+    end = [_track("endzone", 0, 0.5, 0.0, 0, 83)]        # the endzone's kit vote is wrong; both read 83
+    pairs = pair_by_appearance(side, end)
+    assert [(p.s, p.e, p.evidence) for p in pairs] == [(0, 0, "number")]
+
+
+def test_a_continuation_of_the_same_person_shares_the_span_but_another_person_does_not():
+    s = CamTrack("sideline", 0, np.arange(0, 200), np.column_stack([0.03 * np.arange(200), np.zeros(200)]), 1, -1)
+    first = CamTrack("endzone", 0, np.arange(0, 120), np.column_stack([0.2 + 0.03 * np.arange(120), np.zeros(120)]), 1, -1)
+    # the same person again from frame 80, on the same path, running on to 200
+    cont = CamTrack("endzone", 1, np.arange(80, 200), np.column_stack([0.25 + 0.03 * np.arange(80, 200), np.zeros(120)]), 1, -1)
+    pairs = pair_by_appearance([s], [first, cont])
+    assert {(p.s, p.e) for p in pairs} == {(0, 0), (0, 1)}
+    # another person 1.5 m over, overlapping in time: the span stays with the first
+    other = CamTrack("endzone", 1, np.arange(80, 200), np.column_stack([0.25 + 0.03 * np.arange(80, 200), 1.5 + np.zeros(120)]), 1, -1)
+    pairs = pair_by_appearance([s], [first, other])
+    assert {(p.s, p.e) for p in pairs} == {(0, 0)}

@@ -160,6 +160,21 @@ def _two_view_job(job):
     return (job["pid"], job["frames"], params, valid, rep, per_view)
 
 
+def best_box_rows(g):
+    """One box's 17 COCO rows for a (frame, id): the rows themselves when there is one box, the
+    box with the highest confidence sum when the camera has several for the id (a duplicate
+    track merged by the pairing), None when the rows do not come in whole boxes."""
+    if len(g) == 17:
+        return g.sort_values("joint")
+    if len(g) % 17 or len(g) == 0:
+        return None
+    chunks = [g.iloc[i:i + 17] for i in range(0, len(g), 17)]
+    chunks = [c for c in chunks if sorted(c["joint"].tolist()) == list(range(17))]
+    if not chunks:
+        return None
+    return max(chunks, key=lambda c: float(c["conf"].sum())).sort_values("joint")
+
+
 def ankle_anchor(ga, gb, cam_a, cam_b, *, min_conf: float = 0.5, max_miss_m: float = 0.3):
     """The two cameras' triangulated ankle midpoint (xy) as the placement anchor, or None when
     the ankles are not confident in both or their rays miss by more than ``max_miss_m``.
@@ -206,8 +221,8 @@ def two_view_pass(args, P, tracks, df, ground, blob):
     for f, recs in side["frames"].items():
         for pid, r in recs.items():
             recs_of.setdefault(int(pid), {})[int(f)] = r
-    ka = {(int(f), int(p)): g.sort_values("joint") for (f, p), g in kall[kall["cam"] == args.cam].groupby(["frame", "global_player_id"])}
-    kb = {(int(f), int(p)): g.sort_values("joint") for (f, p), g in kall[kall["cam"] == other].groupby(["frame", "global_player_id"])}
+    ka = {(int(f), int(p)): best_box_rows(g) for (f, p), g in kall[kall["cam"] == args.cam].groupby(["frame", "global_player_id"])}
+    kb = {(int(f), int(p)): best_box_rows(g) for (f, p), g in kall[kall["cam"] == other].groupby(["frame", "global_player_id"])}
     pids = sorted({p for (_, p) in ka} & {p for (_, p) in kb})
     jobs = []
     n_anchor = 0
@@ -225,7 +240,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
             if f >= len(tr_a.conf) or tr_a.conf[f] <= 0 or f + offset >= len(tr_b.conf) or tr_b.conf[f + offset] <= 0:
                 continue
             ga, gb = ka[(f, pid)], kb[(f + offset, pid)]
-            if len(ga) != 17 or len(gb) != 17:
+            if ga is None or gb is None:
                 continue
             ua, ca = coco_to_body(ga[["x", "y"]].to_numpy(float), ga["conf"].to_numpy(float), min_conf=args.min_conf)
             ub, cb = coco_to_body(gb[["x", "y"]].to_numpy(float), gb["conf"].to_numpy(float), min_conf=args.min_conf)
