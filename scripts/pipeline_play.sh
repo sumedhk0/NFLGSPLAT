@@ -271,7 +271,7 @@ fi
 
 if ! done_ hifi; then
   log "hi-fi render on the footage field (05k; resumable)"
-  "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" --uniforms --numbers --helmets --follow --eye-offset 2 -26 10 --fov 50 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|Error" || fail hifi
+  "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" --uniforms --numbers --helmets --follow --eye-offset 2 -26 10 --fov 50 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|mispaired|roster heights|left out|beyond|Error" || fail hifi
   # A 720p encode next to the diagnostics, so a play's result is a file to look at.
   FFBIN="$("$PYS" -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())")"
   if [ -f "$P/render_hifi/play.mp4" ]; then
