@@ -532,7 +532,10 @@ nothing forbade the impossible angles. `pose.pose_bounds`: per-component
 body_pose bounds at the 2nd/98th percentile of the two-camera refit
 records (2963, 24 players); the one-view records sat outside them on 54 %
 of components. As a soft prior (`bounds_weight`): weight 1 does not fix
-the runner (the reprojection still wins), weight 10: PENDING. The
+the runner (the reprojection still wins), weight 10 neither: the legs
+still splay (`diag/overlay_bounds_w10/`) -- the two-camera records the
+bounds come from allow a hip abduction of 1.0 rad themselves (their own
+noise), so the range forbids nothing that matters. Not adopted. The
 principled fix is the second camera: the endzone sees motion along y
 across its image, exactly where the sideline is blind; at a LOW weight it
 would act only where the sideline's constraint is null. To test next.
