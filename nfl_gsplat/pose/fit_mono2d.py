@@ -67,6 +67,7 @@ class Mono2DConfig:
 
 ANKLES = (7, 8)
 PELVIS = 0
+RESTART_PX: float = 10.0        # a warm-started frame this far off its keypoints (rms) is refitted from the rigid start
 
 
 def tilt_rad(global_orient, up_axis=(0.0, 1.0, 0.0)):
@@ -240,6 +241,20 @@ def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *,
                 start[-3:-1] += np.asarray(ground_seq[i], float) - forward(prev)[PELVIS, :2]
             p, e, n = fit_frame_2d(uv_seq[i], conf_seq[i], cams[i], start, forward, ground_seq[i], cfg_i, base_cfg,
                                    init_body_pose=init_bp, prev_params=prev)
+            # A warm start that lands badly stays badly: the soft-L1 loss is flat far from the
+            # keypoints and a limb flipped on the frame before is a minimum of its own (play 1's
+            # runner, frames 272-281: one leg out sideways at 7 px median over the rest). A
+            # frame worse than RESTART_PX is refitted from the rigid start and the better kept.
+            if prev is not None and e > RESTART_PX:
+                try:
+                    start2, _ = rigid_start_2d(rest_joints, ground_seq[i], cams[i], uv_seq[i], conf_seq[i], forward,
+                                               base_cfg, init_bp, min_conf=cfg.min_conf, init_orient=init_go)
+                    p2, e2, _n2 = fit_frame_2d(uv_seq[i], conf_seq[i], cams[i], start2, forward, ground_seq[i], cfg_i,
+                                               base_cfg, init_body_pose=init_bp, prev_params=prev)
+                    if e2 < e:
+                        p, e = p2, e2
+                except ValueError:
+                    pass
         except ValueError:
             continue
         params[i], valid[i], rep[i] = p, True, e

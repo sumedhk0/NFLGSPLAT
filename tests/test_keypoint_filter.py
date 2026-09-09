@@ -33,3 +33,15 @@ def test_low_confidence_points_are_neither_used_nor_judged():
     df = pd.DataFrame(rows)
     out, n_rej = reject_outliers(df)
     assert n_rej == 0 and np.allclose(out.conf, 0.2)
+
+
+def test_a_running_ankle_swing_is_kept_and_its_spike_rejected():
+    n = 60
+    f = np.arange(n)
+    x = 400.0 + 12.0 * f + 80.0 * np.sin(2 * np.pi * f / 20.0)      # a sprinter's ankle: 12 px/frame plus an 80 px swing
+    y = 700.0 + 15.0 * np.cos(2 * np.pi * f / 20.0)
+    x[33] += 45.0                                                    # one frame off by a shoe's width
+    rows = _track(15, x, y)
+    out, n_rej = reject_outliers(pd.DataFrame(rows))
+    assert n_rej == 1
+    assert float(out[out.frame == 33].conf.iloc[0]) == 0.0
