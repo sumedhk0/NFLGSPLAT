@@ -176,6 +176,14 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                   + ", ".join(f"{pid} ({d:.1f} m)" for pid, d in sorted(bad.items())))
             df = df[~((df["cam"] == "endzone") & df["track_id"].isin(list(bad)))]
     ground, views = ground_positions(df, tracks, with_views=True)
+    # The sideline's point places a body wherever the sideline sees it: the
+    # two-camera average carried the endzone's depth error (1.9 m on id 2 of
+    # play 1) and refused 9 % of the one-view records' placements against it;
+    # the endzone's point stands only where the sideline has none.
+    if "sideline" in tracks:
+        for f, d in ground_positions(df[df["cam"] == "sideline"], tracks).items():
+            for pid, xy in d.items():
+                ground.setdefault(f, {})[pid] = xy
     # A paired id lives on its sideline span: beyond it the endzone track
     # alone draws a second copy of a player (endzone_only_rule).
     if "sideline" in tracks:

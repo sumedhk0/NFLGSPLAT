@@ -41,7 +41,12 @@ class Mono2DConfig:
     min_joints: int = 6
     px_scale: float = 10.0          # a pixel of reprojection error weighs 1/10 of a metre-unit residual
     ground_weight: float = 3.0      # metres of ankle height -> residual
-    place_weight: float = 1.0       # metres of pelvis xy from the box-bottom ground point
+    # The box-bottom ground point IS the one-view body's depth: at 1.0 the
+    # reprojection dragged the pelvis 0.38 m off it along the camera ray (play 1,
+    # 2026-09-09; a runner's skeleton 60 px below his feet on the footage), and
+    # the box point is unbiased against a right triangulated pelvis (0.52 m
+    # spread, which the render camera on the sideline's side foreshortens).
+    place_weight: float = 10.0      # metres of pelvis xy from the box-bottom ground point
     prior_weight: float = 0.02      # L2 on body_pose
     init_weight: float = 0.05       # pull toward the regressor's body_pose
     temporal_weight: float = 0.3    # toward the previous frame's body_pose and orient

@@ -40,6 +40,12 @@ set -u
 # KICKING=1 for a kickoff, punt or field goal: kickers, punters and long snappers
 # may be named (08c vetoes them on scrimmage downs; play 1 named the kicker twice).
 KICK_FLAG=""; [ "${KICKING:-0}" = "1" ] && KICK_FLAG="--kicking-play"
+# ONE_VIEW=1 (default): every body is fitted to the sideline keypoints alone and
+# stands on its box point. Measured on the footage overlay 2026-09-09: sideline
+# reprojection 2.0 px against 8.4 for the triangulate-then-refit chain, skeletons
+# still on a lineman in his stance, the QB on his feet; the two-view chains stay
+# in the script as the validation reference (05p --validate).
+ONE_VIEW_FLAG="--one-view-only"; [ "${ONE_VIEW:-1}" = "0" ] && ONE_VIEW_FLAG=""
 # A stage is a python run piped through grep for the log; without pipefail
 # the grep decided the stage's fate and a traceback that contained the
 # word "shift" passed the shift stage (play 2, 2026-09-03).
@@ -252,7 +258,7 @@ if ! done_ refit_mono; then
   # The regressor's poses glide (play 1 v14: 0.21 m/s body-frame joint speed, 34 px off the
   # keypoints); the fit follows the keypoints (2.5 px) and moves (0.55 m/s). Re-runs start
   # from poses_refit_fused.json, the 05f cache kept beside the merged one.
-  "$PYS" scripts/05p_refit_mono.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn"      | grep -E "players with|^fitted|wrote|already merged|no fused|Error|Traceback" || fail refit_mono
+  "$PYS" scripts/05p_refit_mono.py --play-dir "$P" $ONE_VIEW_FLAG 2>&1 | grep -v "Warning\|warn"      | grep -E "players with|^fitted|wrote|already merged|no fused|Error|Traceback" || fail refit_mono
   mark refit_mono
 fi
 
