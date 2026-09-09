@@ -485,7 +485,13 @@ to both cameras' keypoints, 05f's records replaced; probe on ids 12 and 5:
 sideline 8.1 px, endzone 8.5 -- the views disagree by that much through
 the calibration, no fit hugs both) and `05p --one-view-only` (every body
 from the sideline alone; the render camera sits on the sideline's side,
-where the one-view depth error is foreshortened). Results: PENDING.
+where the one-view depth error is foreshortened). Results:
+
+- two-view direct fit (00:19-00:48): 23 players, only 1440 of 1976 frames
+  under the 20 px gate (the two views disagree past it on a quarter of the
+  frames), sideline 8.6 px / endzone 8.7 -- the same as 05f's chain; the
+  id 12 strip is pixel-for-pixel the v24 one: the wobble is the two views'
+  disagreement, and averaging the views cannot remove it. Not adopted.
 
 **The keypoints themselves jump.** Sideline wrists (confident ones):
 frame-to-frame motion p50 1.6 px, p90 7.5, p99 44 px, max 94 -- a
