@@ -231,10 +231,11 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                      "reproj_px_max": args.reproj_px_max,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
-                             "place_weight": TWO_VIEW_PLACE_WEIGHT}})
+                             "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
+                             "view_weights": (1.0, args.endzone_weight)}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"two-view: {len(jobs)} players with keypoints in both cameras, {n_frames} frames (endzone offset {offset:+d}, "
-          f"stride {args.stride}), {args.workers} workers")
+          f"stride {args.stride}, endzone weight {args.endzone_weight}), {args.workers} workers")
     if not jobs:
         return blob
     if args.workers > 1 and len(jobs) > 1:
@@ -264,7 +265,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
     return merged
 
 
-TWO_VIEW_PLACE_WEIGHT = 0.3
+TWO_VIEW_PLACE_WEIGHT = 10.0    # the box point is the depth unless the second view says otherwise
 
 
 def main() -> None:
@@ -296,11 +297,15 @@ def main() -> None:
     ap.add_argument("--one-view-only", action="store_true",
                     help="ignore the fused (05f) cache: every player is fitted to the sideline keypoints alone "
                          "(an experiment: the pairing's ~1 m ambiguity corrupts two-view poses and placement)")
+    ap.add_argument("--two-view-place-weight", type=float, default=TWO_VIEW_PLACE_WEIGHT)
     ap.add_argument("--two-view", action="store_true",
                     help="fit the two-camera players to BOTH cameras' keypoints (no triangulation) and write them as "
                          "the fused records, replacing 05f's for those players; then the one-view pass as usual")
     ap.add_argument("--validate", action="store_true",
                     help="fit the frames the fused refit COVERS and score against it (joint error, tilt); writes nothing")
+    ap.add_argument("--endzone-weight", type=float, default=1.0,
+                    help="--two-view: the second camera's keypoints count this much against the first's "
+                         "(low = it acts only where the first camera is blind, along its own depth)")
     ap.add_argument("--bounds-weight", type=float, default=Mono2DConfig.bounds_weight,
                     help="joint-range prior from the two-camera fits (pose.pose_bounds); 0 = off")
     ap.add_argument("--tilt-weight", type=float, default=Mono2DConfig.tilt_weight)

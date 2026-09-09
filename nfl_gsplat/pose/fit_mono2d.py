@@ -59,6 +59,7 @@ class Mono2DConfig:
     tilt_free_deg: float = 20.0
     up_axis: tuple = (0.0, 1.0, 0.0)  # the rest skeleton's up (SMPL-X is y-up)
     bounds_weight: float = 0.0      # joint-range prior (pose_bounds): sqrt(w) per radian outside the range
+    view_weights: tuple = ()        # per-view multipliers on the reprojection residual (empty = 1 for every view)
     max_iter: int = 40
     loss: str = "soft_l1"
 
@@ -100,10 +101,11 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
     10 cm on a lineman whose keypoints hold still)."""
     uvs, confs, cams = _views(uv, conf, cam)
     uses, ws, targets = [], [], []
-    for u, c in zip(uvs, confs):
+    vw = list(cfg.view_weights) + [1.0] * (len(uvs) - len(cfg.view_weights))
+    for v, (u, c) in enumerate(zip(uvs, confs)):
         use = np.asarray(c, float) >= cfg.min_conf
         uses.append(use)
-        ws.append(np.sqrt(np.asarray(c, float)[use]))
+        ws.append(np.sqrt(np.asarray(c, float)[use]) * float(vw[v]))
         targets.append(np.asarray(u, float)[use])
     n_used = int(sum(int(u.sum()) for u in uses))
     if n_used < cfg.min_joints:

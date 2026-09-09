@@ -199,3 +199,33 @@ def test_pose_bounds_cost_nothing_inside_and_grow_outside():
     far = HI + 1.0
     e = excess(far)
     assert np.allclose(e, 0.9)                                          # 1.0 past the bound, 0.1 of margin
+
+
+def test_view_weights_scale_a_view_out():
+    """With the second view weighted 0 the fit is the one-view fit; with 1 it is the two-view fit."""
+    from scipy.spatial.transform import Rotation
+
+    rest = _rest()
+    forward = fk_forward(rest)
+    base = SMPLXFitConfig()
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R1, t1 = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 1.0]))
+    R2, t2 = look_at(np.array([100.0, 0.0, 30.0]), np.array([0.0, 0.0, 1.0]))
+    cams = [(K, R1, t1), (K, R2, t2)]
+    bp = np.zeros(63)
+    bp[(17 - 1) * 3 + 1] = 1.2
+    go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
+    p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
+    J = forward(p_true)
+    p_true[-1] -= min(J[7, 2], J[8, 2])
+    J = forward(p_true)
+    conf = np.ones(22)
+    conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
+    uvs = [project(K, R, t, J)[0] for (K, R, t) in cams]
+    # the second view is fed garbage; weighted 0 it must not matter
+    bad = [uvs[0], uvs[1] + 300.0]
+    cfg0 = Mono2DConfig(up_axis=(0.0, 0.0, 1.0), tilt_weight=0.0, view_weights=(1.0, 0.0))
+    params, valid, rep = fit_sequence_2d([bad] * 2, [[conf, conf]] * 2, [cams] * 2, np.stack([J[0, :2]] * 2), rest,
+                                         forward, cfg=cfg0, base_cfg=base, init_orient_seq=np.stack([go] * 2))
+    pix, _ = project(K, R1, t1, forward(params[-1]))
+    assert np.linalg.norm(pix[conf > 0] - uvs[0][conf > 0], axis=1).mean() < 3.0
