@@ -62,12 +62,8 @@ def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, m
     record's pelvis. ``pelvis_xy(rec) -> xy`` gives the record's pelvis on the
     field; without it the translation alone is used (the model's origin, which
     sits 0.35 m from the pelvis along the rest skeleton's down axis -- see
-    placed_vertices)."""
-round positions with two-view bodies moved to their refit's own
-    translation (metres on the field). The linker's box-bottom placement
-    carries 0.5-1 m of depth error; a triangulated refit's pelvis is metric.
-    A shift beyond ``max_shift_m`` is a wrong record and is not applied.
-    Returns ``(ground, shifts)`` where ``shifts`` are the metres moved."""
+    placed_vertices). A shift beyond ``max_shift_m`` is a wrong record and is
+    not applied. Returns ``(ground, shifts)``, ``shifts`` the metres moved."""
     out = {f: dict(d) for f, d in ground.items()}
     shifts = []
     accepted: set = set()
