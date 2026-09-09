@@ -26,25 +26,85 @@ from nfl_gsplat.render import timeline as tlm
 # height, which put every body ~0.15 m toward the camera (the footage overlay,
 # 2026-09-09: skeleton feet 15 px below the shoes on every player).
 BOX_MARGIN_FRAC: float = 0.078
+# The ankle keypoints' rays meeting the turf at ankle height are the better foot:
+# against the two cameras' triangulated ankles on play 1 (2399 paired frames,
+# 2026-09-09) the sideline's box point sits 0.31 m off at the median (0.54 pre-snap,
+# the stances), its ankle ray 0.06 m (0.32 pre-snap); the endzone's box 0.44 m along
+# its depth, its ankle ray 0.23 m.
+ANKLE_Z_M: float = 0.08
+ANKLE_MIN_CONF: float = 0.5
 
 
-def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float = BOX_MARGIN_FRAC):
+def clip_offset(play_dir) -> int:
+    """05o's endzone clip offset (sideline f beside endzone f + offset), 0 without the file."""
+    import json
+
+    f = Path(play_dir) / "clip_offset.json"
+    return int(json.loads(f.read_text())["offset"]) if f.exists() else 0
+
+
+def ankle_ground(kdf, tracks, *, z: float = ANKLE_Z_M, min_conf: float = ANKLE_MIN_CONF, frame_shift=None) -> dict:
+    """``{(cam, frame, pid): xy}``: the mean of a player's confident ankle keypoints (COCO 15,
+    16) carried along their rays to the plane z = ``z``, per camera. ``frame_shift``
+    ``{cam: n}`` says a table's frames were moved by n from the clip's (the camera pose is
+    the clip frame's)."""
+    import numpy as np
+
+    k = kdf[(kdf["joint"].isin([15, 16])) & (kdf["conf"] >= min_conf)]
+    out: dict = {}
+    for (cam, f), g in k.groupby(["cam", "frame"]):
+        cam, f = str(cam), int(f)
+        if cam not in tracks:
+            continue
+        tr = tracks[cam]
+        fc = f + (frame_shift or {}).get(cam, 0)
+        if fc < 0 or fc >= len(tr.conf) or tr.conf[fc] <= 0:
+            continue
+        K, R, t = tr.K[fc], tr.R[fc], tr.t[fc]
+        C = -R.T @ t
+        Kinv = np.linalg.inv(K)
+        for pid, gg in g.groupby("global_player_id"):
+            uv = gg[["x", "y"]].to_numpy(float)
+            d = (R.T @ (Kinv @ np.c_[uv, np.ones(len(uv))].T)).T
+            ok = np.abs(d[:, 2]) > 1e-9
+            if not ok.any():
+                continue
+            sc = (z - C[2]) / d[ok, 2]
+            if (sc <= 0).any():
+                continue
+            pts = C[None, :2] + sc[:, None] * d[ok, :2]
+            out[(cam, f, int(pid))] = pts.mean(axis=0)
+    return out
+
+
+def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float = BOX_MARGIN_FRAC, ankles=None,
+                     frame_shift=None):
     """frame -> {pid: xy}: each view's foot (the box bottom less the detector's
-    margin below the shoe) through its camera, both averaged. With
-    ``with_views``, also frame -> {pid: (views seen,)}."""
+    margin below the shoe, or the ankle keypoints' ground point from ``ankles``
+    -- ankle_ground -- where the view has them) through its camera, both
+    averaged. With ``with_views``, also frame -> {pid: (views seen,)}.
+    ``frame_shift`` ``{cam: n}``: that camera's rows were moved by n from the
+    clip's frames (the camera pose is the clip frame's)."""
     from nfl_gsplat.pose.place_on_field import ground_point
 
     out: dict[int, dict[int, list]] = {}
     seen: dict[int, dict[int, list]] = {}
     for cam, sub in df.groupby("cam"):
         tr = tracks[cam]
+        shift = (frame_shift or {}).get(str(cam), 0)
         for f, rows in sub.groupby("frame"):
             f = int(f)
-            if f >= len(tr.conf) or tr.conf[f] <= 0:
+            fc = f + shift
+            if fc < 0 or fc >= len(tr.conf) or tr.conf[fc] <= 0:
                 continue
-            intr, pose = tr.at(f)
+            intr, pose = tr.at(fc)
             K, R, t = intr.K(), pose.R, pose.t
             for r in rows.itertuples():
+                g = None if ankles is None else ankles.get((str(cam), f, int(r.track_id)))
+                if g is not None:
+                    out.setdefault(f, {}).setdefault(int(r.track_id), []).append(np.asarray(g[:2], float))
+                    seen.setdefault(f, {}).setdefault(int(r.track_id), []).append(str(cam))
+                    continue
                 try:
                     foot_v = float(r.bbox_y2) - margin_frac * float(r.bbox_y2 - r.bbox_y1)
                     g = ground_point((0.5 * (r.bbox_x1 + r.bbox_x2), foot_v), K, R, t)
@@ -176,22 +236,40 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     side_blob = pickle.load(open(side_path, "rb")) if side_path.exists() else None
     if not refit and side_blob is None:
         raise SetupError("no pose cache: need poses_refit.json (05f) or poses_sideline.json (05c)")
+    # The endzone clip's frames sit beside sideline frame f at f + offset (05o); the
+    # timeline runs on sideline frames, so the endzone rows move to the sideline frame
+    # they belong to (play 1: -15 frames -- an endzone-only body was drawn 0.25 s early
+    # and a moving pair looked 2 m apart to the pair rule).
+    offset = clip_offset(P)
+    shift = {"endzone": offset} if offset else None
+    if offset and "endzone" in set(df["cam"].unique()):
+        df = df.copy()
+        df.loc[df["cam"] == "endzone", "frame"] = df.loc[df["cam"] == "endzone", "frame"].astype(int) - offset
+        print(f"endzone rows moved to their sideline frames (clip offset {offset:+d})")
+    ankles = None
+    if (P / "keypoints_2d.parquet").exists():
+        kdf = pd.read_parquet(P / "keypoints_2d.parquet")
+        if offset:
+            kdf = kdf.copy()
+            kdf.loc[kdf["cam"] == "endzone", "frame"] = kdf.loc[kdf["cam"] == "endzone", "frame"].astype(int) - offset
+        ankles = ankle_ground(kdf, tracks, frame_shift=shift)
+        print(f"ground from the ankle keypoints on {len(ankles)} (camera, frame, id); the box point elsewhere")
     # A pair whose two tracks are not one player: the sideline alone draws it
     # (pair_rule; the pairing's median-distance gate catches it upstream now).
     if {"sideline", "endzone"} <= set(df["cam"].unique()):
-        bad = mispaired_ids(ground_positions(df[df["cam"] == "sideline"], tracks),
-                            ground_positions(df[df["cam"] == "endzone"], tracks))
+        bad = mispaired_ids(ground_positions(df[df["cam"] == "sideline"], tracks, ankles=ankles, frame_shift=shift),
+                            ground_positions(df[df["cam"] == "endzone"], tracks, ankles=ankles, frame_shift=shift))
         if bad:
             print("mispaired ids drawn from the sideline alone: "
                   + ", ".join(f"{pid} ({d:.1f} m)" for pid, d in sorted(bad.items())))
             df = df[~((df["cam"] == "endzone") & df["track_id"].isin(list(bad)))]
-    ground, views = ground_positions(df, tracks, with_views=True)
+    ground, views = ground_positions(df, tracks, with_views=True, ankles=ankles, frame_shift=shift)
     # The sideline's point places a body wherever the sideline sees it: the
     # two-camera average carried the endzone's depth error (1.9 m on id 2 of
     # play 1) and refused 9 % of the one-view records' placements against it;
     # the endzone's point stands only where the sideline has none.
     if "sideline" in tracks:
-        for f, d in ground_positions(df[df["cam"] == "sideline"], tracks).items():
+        for f, d in ground_positions(df[df["cam"] == "sideline"], tracks, ankles=ankles, frame_shift=shift).items():
             for pid, xy in d.items():
                 ground.setdefault(f, {})[pid] = xy
     # A paired id lives on its sideline span: beyond it the endzone track

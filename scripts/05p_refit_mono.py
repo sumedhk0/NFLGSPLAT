@@ -43,7 +43,7 @@ from nfl_gsplat.pose.fit_mono2d import (Mono2DConfig, blend_params, body_frame_s
                                         merge_into_refit, rigid_start_2d, tilt_rad)
 from nfl_gsplat.pose.forward_kinematics import fk_forward, load_smplx_skeleton
 from nfl_gsplat.pose.fuse_smplx import SMPLXFitConfig, _pack_params
-from nfl_gsplat.render.play_timeline import ground_positions
+from nfl_gsplat.render.play_timeline import ankle_ground, ground_positions
 
 FPS = 59.94
 # Inside a player's fused span (frames the triangulation dropped) the one-view
@@ -361,7 +361,7 @@ def main() -> None:
     # where both see an id, and the fused offset carried beyond a span was
     # measured against that average and applied to the sideline-only point
     # afterwards (the endzone's share along x is what stayed as a 0.37 m jump).
-    ground = ground_positions(df[df["cam"] == args.cam], tracks)
+    ground = ground_positions(df[df["cam"] == args.cam], tracks, ankles=ankle_ground(kdf_all, tracks))
     kdf_all = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
     if not args.no_keypoint_filter:
         kdf_all, n_rej = reject_outliers(kdf_all)
