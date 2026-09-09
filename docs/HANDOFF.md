@@ -487,6 +487,18 @@ the calibration, no fit hugs both) and `05p --one-view-only` (every body
 from the sideline alone; the render camera sits on the sideline's side,
 where the one-view depth error is foreshortened). Results: PENDING.
 
+**The keypoints themselves jump.** Sideline wrists (confident ones):
+frame-to-frame motion p50 1.6 px, p90 7.5, p99 44 px, max 94 -- a
+left/right swap or a miss for one frame -- and 30 % of wrists sit under
+0.5 confidence (hips and knees never do). Every fit that follows the
+keypoints throws the arm there and back. `pose.keypoint_filter.
+reject_outliers`: a confident point further than 18 px from the median of
+its neighbours' pairwise midpoints (constant motion of any speed sits on
+every midpoint; a one-frame spike does not) gets confidence 0 -- the fit
+ignores it and the prior holds the joint. Play 1: 1.4 % of confident
+keypoints rejected (wrists 3.3 %), wrist p99 44 -> 17 px, max 94 -> 37.
+Applied in 05p (both passes) and 05n.
+
 
 ### v23: the user's four notes on v22 (2026-09-08 evening)
 

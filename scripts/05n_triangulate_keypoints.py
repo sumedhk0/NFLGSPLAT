@@ -97,6 +97,10 @@ def main() -> None:
     P = args.play_dir
     tracks = load_camera_track(P / "cameras.npz")
     kdf = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
+    from nfl_gsplat.pose.keypoint_filter import reject_outliers
+
+    kdf, n_rej = reject_outliers(kdf)
+    print(f"keypoint outliers rejected before triangulation: {n_rej}")
     cams = sorted(kdf["cam"].unique())
     if len(cams) != 2:
         raise SystemExit(f"need keypoints from two cameras, got {cams}")

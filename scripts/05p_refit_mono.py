@@ -38,6 +38,7 @@ import pandas as pd
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.pose.coco import coco_to_body
+from nfl_gsplat.pose.keypoint_filter import GATE_PX, reject_outliers
 from nfl_gsplat.pose.fit_mono2d import (Mono2DConfig, blend_params, body_frame_speeds, fit_sequence_2d,
                                         merge_into_refit, rigid_start_2d, tilt_rad)
 from nfl_gsplat.pose.forward_kinematics import fk_forward, load_smplx_skeleton
@@ -159,6 +160,8 @@ def two_view_pass(args, P, tracks, df, ground, blob):
     from scipy.spatial.transform import Rotation
 
     kall = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
+    if not args.no_keypoint_filter:
+        kall, _ = reject_outliers(kall)
     cams_present = sorted(kall["cam"].unique())
     if len(cams_present) < 2:
         print("two-view: keypoints from one camera only; nothing to do")
@@ -288,6 +291,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
+    ap.add_argument("--no-keypoint-filter", action="store_true",
+                    help="skip the temporal outlier rejection on the keypoints (pose.keypoint_filter)")
     ap.add_argument("--one-view-only", action="store_true",
                     help="ignore the fused (05f) cache: every player is fitted to the sideline keypoints alone "
                          "(an experiment: the pairing's ~1 m ambiguity corrupts two-view poses and placement)")
@@ -311,8 +316,12 @@ def main() -> None:
     # measured against that average and applied to the sideline-only point
     # afterwards (the endzone's share along x is what stayed as a 0.37 m jump).
     ground = ground_positions(df[df["cam"] == args.cam], tracks)
-    kdf = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
-    kdf = kdf[kdf["cam"] == args.cam]
+    kdf_all = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
+    if not args.no_keypoint_filter:
+        kdf_all, n_rej = reject_outliers(kdf_all)
+        print(f"keypoint outliers rejected: {n_rej} of {int((kdf_all['conf'] > 0).sum() + n_rej)} confident "
+              f"(a one-frame jump past {GATE_PX:.0f} px from its neighbours' midpoints)")
+    kdf = kdf_all[kdf_all["cam"] == args.cam]
     side = pickle.load(open(args.poses or P / "poses_sideline.json", "rb"))
     if side["cam"] != args.cam:
         raise SystemExit(f"the pose cache is the {side['cam']} camera's, not {args.cam}")
