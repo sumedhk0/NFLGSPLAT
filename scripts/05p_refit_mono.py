@@ -160,6 +160,31 @@ def _two_view_job(job):
     return (job["pid"], job["frames"], params, valid, rep, per_view)
 
 
+def ankle_anchor(ga, gb, cam_a, cam_b, *, min_conf: float = 0.5, max_miss_m: float = 0.3):
+    """The two cameras' triangulated ankle midpoint (xy) as the placement anchor, or None when
+    the ankles are not confident in both or their rays miss by more than ``max_miss_m``.
+    Measured on play 1 (2026-09-09, 2399 paired frames): the sideline's box-bottom point sits
+    0.31 m from the triangulated ankles at the median (0.54 m pre-snap, the stances), and a
+    two-view fit pinned there floats to satisfy both cameras and the pin at once."""
+    from nfl_gsplat.calibration.endzone_paint import _closest_points, _rays
+
+    pts_a, pts_b = [], []
+    for j in (15, 16):
+        ra = ga[ga["joint"] == j]
+        rb = gb[gb["joint"] == j]
+        if len(ra) == 1 and len(rb) == 1 and float(ra["conf"].iloc[0]) >= min_conf and float(rb["conf"].iloc[0]) >= min_conf:
+            pts_a.append(ra[["x", "y"]].to_numpy(float)[0])
+            pts_b.append(rb[["x", "y"]].to_numpy(float)[0])
+    if not pts_a:
+        return None
+    C1, d1 = _rays(*cam_a, np.asarray(pts_a))
+    C2, d2 = _rays(*cam_b, np.asarray(pts_b))
+    X, miss = _closest_points(C1, d1, C2, d2)
+    if np.median(miss) > max_miss_m:
+        return None
+    return X[:, :2].mean(axis=0)
+
+
 def two_view_pass(args, P, tracks, df, ground, blob):
     """Refit the two-camera players to both cameras' keypoints; the records replace 05f's in ``blob``."""
     from scipy.spatial.transform import Rotation
@@ -185,6 +210,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
     kb = {(int(f), int(p)): g.sort_values("joint") for (f, p), g in kall[kall["cam"] == other].groupby(["frame", "global_player_id"])}
     pids = sorted({p for (_, p) in ka} & {p for (_, p) in kb})
     jobs = []
+    n_anchor = 0
     for pid in pids:
         if args.ids is not None and pid not in args.ids:
             continue
@@ -210,6 +236,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
             ib, pb = tr_b.at(f + offset)
             cam_a = (ia.K(), np.asarray(pa.R, float), np.asarray(pa.t, float))
             cam_b = (ib.K(), np.asarray(pb.R, float), np.asarray(pb.t, float))
+            anchor = ankle_anchor(ga, gb, cam_a, cam_b, min_conf=0.5)
             if rec_frames:
                 fr = min(rec_frames, key=lambda x: abs(x - f))
                 r = rec[fr]
@@ -223,7 +250,8 @@ def two_view_pass(args, P, tracks, df, ground, blob):
             uv.append([ua, ub])
             conf.append([ca, cb])
             cams.append([cam_a, cam_b])
-            gnd.append(np.asarray(ground[f][pid], float))
+            gnd.append(np.asarray(ground[f][pid], float) if anchor is None else anchor)
+            n_anchor += anchor is not None
             init_bp.append(bp)
             init_go.append(go)
         if len(frames) < 8:
@@ -242,7 +270,8 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                              "view_weights": (1.0, args.endzone_weight)}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"two-view: {len(jobs)} players with keypoints in both cameras, {n_frames} frames (endzone offset {offset:+d}, "
-          f"stride {args.stride}, endzone weight {args.endzone_weight}), {args.workers} workers")
+          f"stride {args.stride}, endzone weight {args.endzone_weight}), {args.workers} workers; "
+          f"{n_anchor}/{n_frames} frames anchored on the triangulated ankles (the rest on the box point)")
     if not jobs:
         return blob
     if args.workers > 1 and len(jobs) > 1:
@@ -272,7 +301,9 @@ def two_view_pass(args, P, tracks, df, ground, blob):
     return merged
 
 
-TWO_VIEW_PLACE_WEIGHT = 10.0    # the box point is the depth unless the second view says otherwise
+# 10 when the endzone camera was 40-85 px off its paint and the box point was the only depth;
+# with the camera on its paint (08l) and the anchor the triangulated ankles the pin is a weak prior
+TWO_VIEW_PLACE_WEIGHT = 2.0
 
 
 def main() -> None:

@@ -109,7 +109,14 @@ def main() -> None:
     cfg = TriangulationConfig(reproj_px_max=args.reproj_px_max, conf_min=args.min_conf)
     t0 = time.time()
 
-    # Frame offset: the shift of the endzone clip that makes the views agree.
+    # Frame offset: the shift of the endzone clip that makes the views agree. 05o's
+    # clip_offset.json (the players who MOVE) wins over the search below, whose
+    # ruler -- every player's reprojection -- is blind around the snap, where
+    # players stand still and meet at any offset (play 1: +3 assumed, -15 measured).
+    if args.offset is None and (P / "clip_offset.json").exists():
+        import json
+        args.offset = int(json.loads((P / "clip_offset.json").read_text())["offset"])
+        print(f"endzone offset {args.offset:+d} from clip_offset.json (05o)")
     if args.offset is None:
         scores = {}
         for d in OFFSETS:
