@@ -538,7 +538,19 @@ bounds come from allow a hip abduction of 1.0 rad themselves (their own
 noise), so the range forbids nothing that matters. Not adopted. The
 principled fix is the second camera: the endzone sees motion along y
 across its image, exactly where the sideline is blind; at a LOW weight it
-would act only where the sideline's constraint is null. To test next.
+would act only where the sideline's constraint is null. Measured (probes
+on ids 9 and 12, strips in `diag/overlay_anat/`, `diag/overlay_ez0.3/`):
+- anatomical joint limits (hips, knees, ankles, elbows; weight 10): the
+  runner straighter for two frames, legs still out from frame 275.
+  Insufficient alone.
+- the endzone at weight 0.3 in the two-view fit: the runner's legs are
+  UNDER him on every frame, the arms a little wide; the lineman holds
+  still with legs and torso on the keypoints, but his head is drawn as a
+  spike up and back -- the endzone's head keypoint (the back of a helmet)
+  pulled it. Only 95 of 194 frames passed the combined 20 px gate (the
+  endzone's residuals are 17 px by design at that weight). Two changes:
+  the gate is the sideline's reprojection alone, and the second camera
+  does not vote on the neck and head. Re-probe: PENDING.
 
 **The keypoints themselves jump.** Sideline wrists (confident ones):
 frame-to-frame motion p50 1.6 px, p90 7.5, p99 44 px, max 94 -- a

@@ -139,10 +139,11 @@ def _two_view_job(job):
     params, valid, rep = fit_sequence_2d(job["uv"], job["conf"], job["cams"], job["ground"], rest, forward,
                                          cfg=cfg, base_cfg=base, init_body_pose_seq=job["init_bp"],
                                          init_orient_seq=job["init_go"], frames=job["frames"], max_gap=job["max_gap"])
-    valid &= np.nan_to_num(rep, nan=np.inf) <= job["reproj_px_max"]
-    # reprojection per view on the valid frames, for the report
-    per_view = [[], []]
+    # the gate is the FIRST view's reprojection: a weak second view's residuals are
+    # large by design (endzone 17 px at weight 0.3) and rejected half the frames
     from nfl_gsplat.pose.fit_mono2d import project
+    per_view = [[], []]
+    first_rms = np.full(len(job["frames"]), np.inf)
     for i in range(len(job["frames"])):
         if not valid[i]:
             continue
@@ -151,7 +152,11 @@ def _two_view_job(job):
             use = np.asarray(job["conf"][i][v], float) >= cfg.min_conf
             if use.sum():
                 pix, _ = project(K, R, t, J[use])
-                per_view[v].append(float(np.median(np.linalg.norm(pix - np.asarray(job["uv"][i][v], float)[use], axis=1))))
+                err = np.linalg.norm(pix - np.asarray(job["uv"][i][v], float)[use], axis=1)
+                if v == 0:
+                    first_rms[i] = float(np.sqrt(np.mean(err * err)))
+                per_view[v].append(float(np.median(err)))
+    valid &= first_rms <= job["reproj_px_max"]
     return (job["pid"], job["frames"], params, valid, rep, per_view)
 
 
@@ -198,6 +203,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                 continue
             ua, ca = coco_to_body(ga[["x", "y"]].to_numpy(float), ga["conf"].to_numpy(float), min_conf=args.min_conf)
             ub, cb = coco_to_body(gb[["x", "y"]].to_numpy(float), gb["conf"].to_numpy(float), min_conf=args.min_conf)
+            cb[[12, 15]] = 0.0            # the second camera does not vote on the neck and head (it sees helmets from behind)
             if int((ca >= args.min_conf).sum()) + int((cb >= args.min_conf).sum()) < args.min_joints:
                 continue
             ia, pa = tr_a.at(f)
