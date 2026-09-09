@@ -63,7 +63,7 @@ def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, m
     field; without it the translation alone is used (the model's origin, which
     sits 0.35 m from the pelvis along the rest skeleton's down axis -- see
     placed_vertices)."""
-    """Ground positions with two-view bodies moved to their refit's own
+round positions with two-view bodies moved to their refit's own
     translation (metres on the field). The linker's box-bottom placement
     carries 0.5-1 m of depth error; a triangulated refit's pelvis is metric.
     A shift beyond ``max_shift_m`` is a wrong record and is not applied.

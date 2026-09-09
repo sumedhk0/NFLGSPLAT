@@ -199,9 +199,9 @@ def test_excluded_ids_are_left_out():
 def test_place_from_refit_interpolates_the_translation_across_a_short_gap():
     from nfl_gsplat.render.play_timeline import place_from_refit
 
-    ground = {f: {1: np.array([0.0, 0.0])} for f in range(0, 6)}
-    ground[10] = {1: np.array([0.0, 0.0])}
-    ground[30] = {1: np.array([0.0, 0.0])}
+    ground = {f: {1: np.array([1.0, 0.0])} for f in range(0, 6)}          # the box point, 0-0.4 m from the records
+    ground[10] = {1: np.array([1.0, 0.0])}
+    ground[30] = {1: np.array([5.0, 0.0])}
     refit = {0: {1: {"transl": np.array([1.0, 0.0, 0.9])}}, 4: {1: {"transl": np.array([1.4, 0.0, 0.9])}},
              30: {1: {"transl": np.array([5.0, 0.0, 0.9])}}}
     out, _ = place_from_refit(ground, refit, max_gap=12)
@@ -209,8 +209,8 @@ def test_place_from_refit_interpolates_the_translation_across_a_short_gap():
     # with a pelvis function the records place at their pelvis, the interpolation too
     out2, _ = place_from_refit(ground, refit, max_gap=12, pelvis_xy=lambda r: r["transl"][:2] + np.array([0.0, -0.35]))
     assert np.allclose(out2[0][1], [1.0, -0.35]) and np.allclose(out2[2][1], [1.2, -0.35])
-    assert np.allclose(out[10][1], [0.0, 0.0])                           # the 25-frame gap: left alone
-    assert np.allclose(out[5][1], [0.0, 0.0])                            # after the last record: left alone
+    assert np.allclose(out[10][1], [1.0, 0.0])                           # the 25-frame gap: left alone
+    assert np.allclose(out[5][1], [1.0, 0.0])                            # after the last record: left alone
 
 
 def test_smooth_axis_angles_damps_noise_and_keeps_a_ramp():
