@@ -534,7 +534,16 @@ v23 rendered 20:17 (`diag/play_001_v23_hifi_720.mp4`; stills against v22
 in `diag/p1_v22_v23_strip.jpg`): the linemen are visibly bulkier and the
 backs slimmer (the roster builds), 25 states a frame with the anchoring
 alone (some doubles at fragment overlaps, as the ruler said). v24 = v23's
-caches + the 0.4 m radius + the 9-frame pose filter, render only.
+caches + the 0.4 m radius + the 9-frame pose filter, render only (21:04,
+`diag/play_001_v24_hifi_720.mp4`, sent; stills against v22 in
+`diag/p1_v22_v24_strip.jpg`): 24 bodies a frame, 28 named, 34 ids with a
+roster weight, 366 tilt-clamped states (78 before the pose filter: the
+average of neighbouring axis-angles leans a few bodies past the limit for
+a frame; harmless, the clamp catches it). **v24 is the deliverable.** The
+QB (sideline track 5, the lone back 5.5 m behind the line) is drawn red
+throughout and carries #10 from the endzone's 7-of-7 reads; whether that
+body is Mahomes with a misread 15 or Pacheco could not be settled from
+the crops -- the user is asked.
 
 ### v21: a wrong pair sawtoothed by a metre a frame (2026-09-08)
 
