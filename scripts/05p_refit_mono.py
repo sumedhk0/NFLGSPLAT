@@ -593,9 +593,14 @@ def main() -> None:
                     # the corrected point is trusted as far as the correction reaches
                     overrides[i] = {"place_weight": 1.0 + (INSIDE_PLACE_WEIGHT - 1.0) * w}
                     if abs(f - edge) <= args.max_gap:
-                        init_bp[i] = fr[edge][:63]
+                        # the edge record's HEADING continues into the block; its body pose does
+                        # not: pulling the pose toward a record up to twelve frames away at ten
+                        # times the usual weight gave play 1's runner (sprinting, arms filtered
+                        # out for the occlusion at 262-268) the arms of a later stride phase
                         init_go[i] = fr[edge][63:66]
-                        overrides[i]["init_weight"] = EDGE_INIT_WEIGHT
+                        if EDGE_BLEND_POSE:
+                            init_bp[i] = fr[edge][:63]
+                            overrides[i]["init_weight"] = EDGE_INIT_WEIGHT
                 # a block boundary: the previous fitted frame is not this one's neighbour
                 if abs(near - f) <= args.stride and (i == 0 or frames[i - 1] < near):
                     prev_seq[i] = fr[near]
