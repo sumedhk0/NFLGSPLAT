@@ -522,6 +522,35 @@ clip_offset.json. v26 = all of the above + 05p --two-view --endzone-weight
 1.0 on the re-paired play (`scratchpad/p1_v26.sh`, `p1_v26b.sh`); strips in
 `diag/overlay_v26/`, clip `diag/play_001_v26_hifi_720.mp4`.
 
+**v26 sent (2026-09-09 20:20)** with the runner strip: the first version with
+the runner's legs under him (frames 260-269); 272-281 and 245-257 still
+flail. Two-view: 20 players, 1314 records, sideline 7.1 px / endzone 4.8 px;
+1221/1546 frames anchored on the triangulated ankles. Probes on the runner
+after v26, each judged on the strips against v26's (`diag/overlay_probe_*`):
+
+- Keypoint filter judging by the nearest pair (kept the runner's ankles):
+  WORSE -- the detector's left/right labels flip for 2-4 frames on 11 % of
+  his frames (arms; legs 8 %) and the window-3 median had been catching
+  those. Reverted.
+- A refit from the rigid start when the warm-started frame is worse than
+  10 px: WORSE -- lower rms with wider legs on one-view frames; the warm
+  start is the regulariser the depth ambiguity needs. Off (RESTART_PX inf).
+- Anatomical joint-range prior at weight 10 in the two-view fit: WORSE --
+  83/222 two-view frames accepted, sideline 24.6 px.
+- A flip-aware left/right rule (`keypoint_filter.fix_lr_flips`, 05p
+  --fix-lr): swaps a limb group's labels where the swapped ones continue
+  the last two frames' prediction and the given ones contradict it; finds
+  826 flips on play 1 (the runner 111/441 frames). Probe running.
+
+Also measured: only ~9 of 22 players carry an endzone partner per frame.
+15 endzone tracks sit 14-15 m from every sideline track (the bench); 21
+endzone tracks clash on kit with every candidate within 2.5 m (BAL #0's
+270-frame endzone track has no white sideline track within 2.5 m: the
+sideline does not track him there); the rest are fragments. Pairing v27:
+numbers outrank a kit clash, a same-person continuation shares the span,
+median 2 m / lateral 1.2 m gates on ankle ground points -> 37 pairs, the
+worst at 1.33 m but one.
+
 Open after this: the one-view anchor from the ankle ray (ruler above);
 the pairing's ground points from ankles (its 2 m gate feels the 0.8 m
 box bias; ids 14, 25, 73, 78 still 2.5-3 m mis-paired at lag -15); 08c
