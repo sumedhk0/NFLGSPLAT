@@ -2,7 +2,7 @@
 import numpy as np
 
 from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
-from nfl_gsplat.pose.fit_mono2d import Mono2DConfig, fit_sequence_2d, project
+from nfl_gsplat.pose.fit_mono2d import Mono2DConfig, fit_sequence_2d, project, sole_height
 from nfl_gsplat.pose.forward_kinematics import fk_forward
 from nfl_gsplat.pose.fuse_smplx import SMPLXFitConfig, _pack_params
 
@@ -40,7 +40,7 @@ def test_recovers_a_swinging_arm_from_one_view():
     tr = np.array([2.0, 1.0, 0.0])
     p_true = _pack_params(bp, go, tr)
     J = forward(p_true)
-    z_shift = min(J[7, 2], J[8, 2])
+    z_shift = sole_height(J)
     p_true[-1] -= z_shift
     J = forward(p_true)
     uv, _ = project(K, R, t, J)
@@ -61,7 +61,7 @@ def test_recovers_a_swinging_arm_from_one_view():
     assert valid.all()
     assert rep[-1] < 3.0, rep
     Jf = forward(params[-1])
-    assert abs(min(Jf[7, 2], Jf[8, 2])) < 0.05                        # feet on the turf
+    assert abs(sole_height(Jf)) < 0.05                                 # the sole on the turf
     assert np.linalg.norm(Jf[0, :2] - J[0, :2]) < 0.3                  # placed on the ground point
     # the raised arm is raised as in the truth: the right wrist's height within 0.15 m of the truth's
     assert J[21, 2] > J[17, 2] + 0.2, "the synthetic arm must actually be raised"
@@ -112,7 +112,7 @@ def test_prev_seq_anchors_a_frame_to_the_given_params():
     go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
     p0 = _pack_params(np.zeros(63), go, np.array([2.0, 1.0, 0.0]))
     J = forward(p0)
-    p0[-1] -= min(J[7, 2], J[8, 2])
+    p0[-1] -= sole_height(J)
     J = forward(p0)
     uv, _ = project(K, R, t, J)
     conf = np.ones(22)
@@ -173,7 +173,7 @@ def test_two_views_resolve_the_depth_one_view_cannot():
     go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
     p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
     J = forward(p_true)
-    p_true[-1] -= min(J[7, 2], J[8, 2])
+    p_true[-1] -= sole_height(J)
     J = forward(p_true)
     conf = np.ones(22)
     conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
@@ -217,7 +217,7 @@ def test_view_weights_scale_a_view_out():
     go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
     p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
     J = forward(p_true)
-    p_true[-1] -= min(J[7, 2], J[8, 2])
+    p_true[-1] -= sole_height(J)
     J = forward(p_true)
     conf = np.ones(22)
     conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
@@ -259,7 +259,7 @@ def test_side_agnostic_residual_rides_through_a_left_right_label_flip():
     go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
     p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
     J = forward(p_true)
-    p_true[-1] -= min(J[7, 2], J[8, 2])
+    p_true[-1] -= sole_height(J)
     J = forward(p_true)
     uv, _ = project(K, R, t, J)
     conf = np.ones(22)

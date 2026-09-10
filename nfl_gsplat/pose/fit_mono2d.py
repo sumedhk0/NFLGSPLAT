@@ -13,7 +13,7 @@ transl 3) on the same forward kinematics the renderer animates
 (pose.forward_kinematics), with residuals:
   reprojection   (K R t of the camera) of the body joints onto the
                  keypoints, weighted by confidence, in pixels / px_scale;
-  ground         the lower ankle at z = 0 (feet on the turf) -- the depth
+  ground         the sole at z = 0 (the lower ankle 0.08 m up, feet 0.02) -- the depth
                  along the camera ray is what one view cannot see, and the
                  turf fixes it;
   placement      the pelvis' (x, y) within a metre of the box-bottom ground
@@ -76,7 +76,24 @@ LR_PAIRS = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20,
 
 
 ANKLES = (7, 8)
+FEET = (10, 11)
 PELVIS = 0
+# The turf is the SOLE, not the ankle joint: the timeline places a body with its lowest
+# vertex on the ground, and SMPL-X's ankle joint sits 0.08 m above the sole (its foot
+# joint 0.02, a pointed toe 0.06 below that). Fitting "the lower ankle at z = 0" put the
+# feet through the turf and the render then lifted every body 6-15 px off its own
+# keypoints (play 1's runner, 2026-09-09) -- and the ankle-ray ground anchor already
+# assumes the ankle at 0.08.
+ANKLE_ABOVE_SOLE_M: float = 0.08
+FOOT_ABOVE_SOLE_M: float = 0.02
+
+
+def sole_height(J) -> float:
+    """Height of the body's sole above the turf from its joints: the lowest of the ankles
+    less ANKLE_ABOVE_SOLE_M and the feet less FOOT_ABOVE_SOLE_M (zero = standing on it)."""
+    J = np.asarray(J, float)
+    return float(min(J[ANKLES[0], 2] - ANKLE_ABOVE_SOLE_M, J[ANKLES[1], 2] - ANKLE_ABOVE_SOLE_M,
+                     J[FEET[0], 2] - FOOT_ABOVE_SOLE_M, J[FEET[1], 2] - FOOT_ABOVE_SOLE_M))
 RESTART_PX: float = np.inf      # a warm-started frame this far off its keypoints (rms) is refitted from the rigid start;
                                 # OFF: measured on play 1 (the runner, probe v27) the restart found lower-rms but wider
                                 # legs on one-view frames -- the warm start was the regulariser the depth ambiguity needs
@@ -164,7 +181,7 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
             behind_parts.append(np.maximum(0.0, -depth))          # nothing behind a camera
         rep = np.concatenate(rep_parts)
         behind = np.concatenate(behind_parts)
-        ground = cfg.ground_weight * np.array([min(J[ANKLES[0], 2], J[ANKLES[1], 2])])
+        ground = cfg.ground_weight * np.array([sole_height(J)])
         place = cfg.place_weight * (J[PELVIS, :2] - gxy)
         prior = np.sqrt(cfg.prior_weight) * p[bp_slice]
         parts = [rep, behind, ground, place, prior]
@@ -224,9 +241,9 @@ def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, ini
         go = rot.as_rotvec()
         p = _pack_params(bp, go, np.zeros(3))
         J = forward(p)
-        # the pelvis over the ground point, the lower ankle on the turf (z = 0)
+        # the pelvis over the ground point, the sole on the turf (z = 0)
         p[-3:-1] += np.asarray(ground_xy, float) - J[PELVIS, :2]
-        p[-1] -= min(J[ANKLES[0], 2], J[ANKLES[1], 2])
+        p[-1] -= sole_height(J)
         J = forward(p)
         pix, depth = project(K, R, t, J[use])
         if (depth <= 0).any():
