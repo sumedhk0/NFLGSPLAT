@@ -594,6 +594,20 @@ worst at 1.33 m but one.
   BAL player (2) sit on their keypoints to the pixel; the runner (9) is on
   his body except 258-270 (occluded, arms follow bad keypoints). The render
   waits for the GPU (`p1_v28_render.sh`).
+- **The runner's 258-270 were the two-view EDGE, not the occlusion.** The
+  one-view pass cross-faded its fit toward the bordering two-view record over
+  12 frames -- body pose included (w = 1 - d/13) -- and pulled the pose
+  toward that record at ten times the usual init weight. A sprinter got a
+  stride phase from 0.2 s later: f260 wrists 73 / 59 px off while the fit
+  itself sat at 3 px; every probe of the evening (filter, restart, joint
+  limits, flip rules, gates, per-joint rejection) looked at those frames and
+  could not move them. The edge now carries its HEADING and placement only
+  (blend_params(pose=False), EDGE_BLEND_POSE): f260 arms 40 -> 8.5 px, 264
+  38 -> 14, 266 36 -> 19 (probe v28edge; the rest is the occlusion, arms
+  filtered out and held by the temporal term). Per-joint rejection
+  (--joint-reject-px) stays off: no effect there.
+- v28b poses (the same plus the edge fix) running on CPU from 00:12.
+
 - Prepared, CPU only: `scratchpad/p1_v28_poses.sh` (the full 05p with the
   roster build and the sole on the turf, teams, strips) and
   `p1_v28_render.sh` (the GPU render, on request).
