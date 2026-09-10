@@ -22,10 +22,10 @@ import pandas as pd
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.tracking.pair_by_appearance import (GAP_NUMBER_M, GAP_POSITION_M, cam_tracks_from_frame,
-                                                    global_ids, pair_by_appearance)
+                                                    global_ids_checked, pair_by_appearance)
 
 
-def ankles_for(play: Path, df: pd.DataFrame):
+def ankles_for(play: Path, df: pd.DataFrame, kp_path: Path | None = None, kp_ids: Path | None = None):
     """The ankle keypoints' ground points keyed by THIS table's ids. The keypoints (05m) carry
     the ids of the tracks.parquet they were run on; when that is not this table (a re-pairing
     from the unpaired one), the ids are carried across by the boxes (tracking.relabel)."""
@@ -33,15 +33,16 @@ def ankles_for(play: Path, df: pd.DataFrame):
     from nfl_gsplat.render.play_timeline import ankle_ground
     from nfl_gsplat.tracking.relabel import id_map_by_boxes, relabel_keypoints
 
-    kp = play / "keypoints_2d.parquet"
+    kp = kp_path or play / "keypoints_2d.parquet"
     if not kp.exists():
         return None
     kdf = pd.read_parquet(kp)
     keys = set(zip(df["cam"].astype(str), df["frame"].astype(int), df["track_id"].astype(int)))
     sample = list(zip(kdf["cam"].astype(str), kdf["frame"].astype(int), kdf["global_player_id"].astype(int)))[::97]
     hit = sum(k in keys for k in sample) / max(len(sample), 1)
-    if hit < 0.9 and (play / "tracks.parquet").exists():
-        old = pd.read_parquet(play / "tracks.parquet")
+    ids_table = kp_ids or play / "tracks.parquet"
+    if hit < 0.9 and ids_table.exists():
+        old = pd.read_parquet(ids_table)
         old = old[old["track_id"] >= 0]
         kdf, dropped = relabel_keypoints(kdf, id_map_by_boxes(old, df))
         print(f"keypoints carried to this table's ids by their boxes ({dropped} rows without a box dropped)")
@@ -65,6 +66,12 @@ def main() -> None:
     ap.add_argument("--max-median-dist", type=float, default=None,
                     help="a pair whose per-frame distance exceeds this at the median is two people (default pair_by_appearance.MAX_MEDIAN_DIST_M)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--keypoints", type=Path, default=None,
+                    help="keypoints table for the ankle ground points (default <play-dir>/keypoints_2d.parquet; "
+                         "after a relabel, the *_oldids.parquet copy carries the unpaired table's ids)")
+    ap.add_argument("--keypoints-ids", type=Path, default=None,
+                    help="the tracks table whose ids the keypoints carry, for the carry-over by boxes "
+                         "(default <play-dir>/tracks.parquet)")
     ap.add_argument("--no-ankles", action="store_true",
                     help="ground points from the box bottoms alone (default: the ankle keypoints where a camera has them)")
     args = ap.parse_args()
@@ -77,7 +84,7 @@ def main() -> None:
     df = df[df["track_id"] >= 0].reset_index(drop=True)
     has_ocr = "jersey_number_ocr" in df and int((df["jersey_number_ocr"] >= 0).sum()) > 0
     cams = load_camera_track(play / "cameras.npz")
-    ankles = None if args.no_ankles else ankles_for(play, df)
+    ankles = None if args.no_ankles else ankles_for(play, df, args.keypoints, args.keypoints_ids)
     side, end = cam_tracks_from_frame(df, cams, ankles=ankles)
     n_num = sum(t.number >= 0 for t in side + end)
     n_kit = sum(t.kit >= 0 for t in side + end)
@@ -88,9 +95,16 @@ def main() -> None:
     by = {}
     for p in pairs:
         by[p.evidence] = by.get(p.evidence, 0) + 1
-    gs, ge = global_ids(len(side), len(end), pairs)
+    spans_s = [(int(t.frames.min()), int(t.frames.max())) for t in side]
+    spans_e = [(int(t.frames.min()), int(t.frames.max())) for t in end]
+    gs, ge, dropped = global_ids_checked(len(side), len(end), pairs, spans_s, spans_e)
     print(f"{len(pairs)} pairs: " + ", ".join(f"{k} {v}" for k, v in by.items())
           + f"; mean offset median {np.median([p.offset for p in pairs]) if pairs else float('nan'):.2f} m")
+    if dropped:
+        print(f"{len(dropped)} pairs dropped: one id would hold two tracks of one camera overlapping in time "
+              "(two people, or a ghost tail): " + "; ".join(
+                  f"sideline {side[p.s].tid} {spans_s[p.s]} + endzone {end[p.e].tid} {spans_e[p.e]} ({p.evidence})"
+                  for p in dropped))
     # rewrite ids
     key_to_gid = {}
     for t, g in zip(side, gs):

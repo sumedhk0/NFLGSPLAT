@@ -148,7 +148,33 @@ def _same_person(ser_a: dict, ser_b: dict, tol_m: float) -> bool:
 
 
 def global_ids(n_s: int, n_e: int, pairs):
+    return global_ids_checked(n_s, n_e, pairs)[:2]
+
+
+# One person is in one place: two tracks of the SAME camera that overlap in time are two
+# people, or one person twice (a ghost tail beside the re-acquired track). Either way one id
+# for both puts two boxes on every overlapping frame (the fits skip those frames, the overlay
+# draws one) -- play 1's sideline 17 was the centre AND the quarterback behind him for 165
+# frames (the waiver's 1 m 'same person' test cannot tell them apart), and the fit sat 50 px
+# between the two bodies. A short overlap is a continuation (the tracker re-acquires a body
+# while the old track's tail still runs): allowed up to these limits.
+CONTINUATION_MAX_FRAMES: int = 45
+CONTINUATION_MAX_FRAC: float = 0.5     # ... and at most this fraction of the shorter track's span
+
+
+def _overlap(a, b) -> int:
+    return max(0, min(a[1], b[1]) - max(a[0], b[0]) + 1)
+
+
+def global_ids_checked(n_s: int, n_e: int, pairs, spans_s=None, spans_e=None, *,
+                       max_frames: int = CONTINUATION_MAX_FRAMES, max_frac: float = CONTINUATION_MAX_FRAC):
+    """``(sideline ids, endzone ids, dropped pairs)`` by union-find over ``pairs``. With the
+    tracks' spans ((first, last frame) per track, sideline then endzone) a union that would
+    put two same-camera tracks overlapping in time beyond a short continuation into one id
+    is refused and that pair dropped (in the pairs' order, so the better-ranked pair wins)."""
     parent = list(range(n_s + n_e))
+    spans = None if spans_s is None else [tuple(s) for s in spans_s] + [tuple(s) for s in spans_e]
+    members: dict = {a: [a] for a in range(n_s + n_e)}
 
     def find(a):
         while parent[a] != a:
@@ -156,16 +182,35 @@ def global_ids(n_s: int, n_e: int, pairs):
             a = parent[a]
         return a
 
+    def compatible(ra, rb) -> bool:
+        if spans is None:
+            return True
+        for a in members[ra]:
+            for b in members[rb]:
+                if (a < n_s) != (b < n_s):
+                    continue                                   # different cameras
+                ov = _overlap(spans[a], spans[b])
+                shorter = min(spans[a][1] - spans[a][0] + 1, spans[b][1] - spans[b][0] + 1)
+                if ov > max_frames or ov > max_frac * shorter:
+                    return False
+        return True
+
+    dropped = []
     for p in pairs:
         ra, rb = find(p.s), find(n_s + p.e)
-        if ra != rb:
-            parent[rb] = ra
+        if ra == rb:
+            continue
+        if not compatible(ra, rb):
+            dropped.append(p)
+            continue
+        parent[rb] = ra
+        members[ra].extend(members.pop(rb))
     roots = [find(a) for a in range(n_s + n_e)]
     order: dict = {}
     for r in roots:
         order.setdefault(r, len(order))
     g = np.array([order[r] for r in roots], int)
-    return g[:n_s], g[n_s:]
+    return g[:n_s], g[n_s:], dropped
 
 
 def cam_tracks_from_frame(df, cams, *, kit_margin: float = 0.4, min_number_votes: int = MIN_NUMBER_VOTES,

@@ -127,3 +127,22 @@ def test_two_tracks_apart_along_y_at_the_median_are_two_people():
     end = [_track("endzone", 0, 0.0, 1.6, 1, -1)]          # 1.6 m over in y, every frame
     assert pair_by_appearance(side, end) == []
     assert len(pair_by_appearance(side, end, max_lateral_m=2.0)) == 1
+
+
+def test_one_id_never_holds_two_tracks_of_one_camera_at_once():
+    from nfl_gsplat.tracking.pair_by_appearance import Pair, global_ids_checked
+    # sideline 0 (the centre) and sideline 1 (the quarterback behind him, 0.7 m off, 'the same
+    # person' to the waiver) both pair with endzone 0 and overlap for 165 frames: refused
+    pairs = [Pair(0, 0, "kit", 0.3, 300), Pair(1, 0, "kit", 0.5, 160)]
+    gs, ge, dropped = global_ids_checked(2, 1, pairs, [(14, 460), (14, 179)], [(120, 640)])
+    assert gs[0] == ge[0] and gs[1] != gs[0]
+    assert [(p.s, p.e) for p in dropped] == [(1, 0)]
+    # a continuation: the endzone tracker re-acquires the body while the old tail runs 40 frames
+    pairs = [Pair(0, 0, "kit", 0.2, 120), Pair(0, 1, "kit", 0.25, 120)]
+    gs, ge, dropped = global_ids_checked(1, 2, pairs, [(0, 200)], [(0, 120), (80, 200)])
+    assert gs[0] == ge[0] == ge[1] and dropped == []
+    # a chain: sideline 2 disjoint from 0 but inside 1's span cannot join through endzone 1
+    pairs = [Pair(0, 0, "number", 0.2, 200), Pair(1, 0, "kit", 0.3, 100), Pair(2, 1, "kit", 0.3, 100), Pair(0, 1, "kit", 0.4, 100)]
+    gs, ge, dropped = global_ids_checked(3, 2, pairs, [(0, 100), (200, 400), (250, 350)], [(0, 100), (250, 350)])
+    assert gs[0] == ge[0] == gs[1] and gs[2] == ge[1] and gs[2] != gs[0]
+    assert [(p.s, p.e) for p in dropped] == [(0, 1)]
