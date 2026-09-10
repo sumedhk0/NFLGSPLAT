@@ -67,7 +67,9 @@ class Mono2DConfig:
 
 ANKLES = (7, 8)
 PELVIS = 0
-RESTART_PX: float = 10.0        # a warm-started frame this far off its keypoints (rms) is refitted from the rigid start
+RESTART_PX: float = np.inf      # a warm-started frame this far off its keypoints (rms) is refitted from the rigid start;
+                                # OFF: measured on play 1 (the runner, probe v27) the restart found lower-rms but wider
+                                # legs on one-view frames -- the warm start was the regulariser the depth ambiguity needs
 
 
 def tilt_rad(global_orient, up_axis=(0.0, 1.0, 0.0)):

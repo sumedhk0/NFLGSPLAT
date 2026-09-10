@@ -8,15 +8,27 @@ place", the user on v24). Wrists are also the least confident joints
 (30 % under 0.5) where hips and knees never are.
 
 WHAT. Per (camera, player, joint), in frame order, a confident point is
-judged against the midpoint of its nearest confident neighbours (the k-th
-before with the k-th after, the smallest k up to ``window`` that exists):
-motion, however fast, sits within a few pixels of that midpoint, a
-one-frame spike sits ``gate_px`` off it. Outliers get confidence 0 so the fits ignore them
+judged against the midpoints of its confident neighbours in pairs (the
+k-th before with the k-th after, k up to ``window``): constant motion,
+however fast, sits on every midpoint, a one-frame spike sits ``gate_px``
+off the median of them. Outliers get confidence 0 so the fits ignore them
 and the regressor's prior holds the joint for that frame. Track ends
 (no neighbour on one side) are not judged. Nothing is smoothed: the fit's
 temporal term and the timeline's filter do that, and smoothing a real
 stride here would lag it. Play 1: 1.8 % of confident keypoints rejected
 (wrists 3.6 %), wrist frame-to-frame motion p99 44 -> 15 px.
+
+TRIED AND REJECTED (2026-09-09, the runner on play 1's footage overlay):
+judging by the NEAREST pair only, worst offender first (a real stride
+swing is 3-5 px off its +-1 midpoint, 15-40 px off the +-2/+-3 ones, and
+this rule threw a runner's ankles away on 6 of 27 frames). It kept the
+ankles -- and let through the detector's left/right label flips, which
+last two to four frames on a player running at the camera (10 % of his
+frames): the arms flailed worse than before. The window-3 median catches
+a multi-frame flip because the +-2 / +-3 pairs straddle it. A flip-aware
+rule (swap the sides when the swapped labels continue the previous frames)
+is the open item; a distance test alone cannot tell a flip from legs or
+arms crossing.
 """
 from __future__ import annotations
 
@@ -30,42 +42,32 @@ MIN_CONF: float = 0.3
 
 def outlier_mask(frames, xy, conf, *, gate_px: float = GATE_PX, window: int = WINDOW,
                  min_conf: float = MIN_CONF) -> np.ndarray:
-    """Boolean mask of outliers among one joint's track (frames sorted).
-
-    Each confident point is judged against the midpoint of its NEAREST confident
-    neighbours (the k-th before with the k-th after, the smallest k up to
-    ``window`` that exists). A running ankle swings 60-90 px either side of its
-    stride's midpoint over ~20 frames: against the +-2 / +-3 pairs' midpoints
-    that is 15-40 px of "outlier" and the window-3 median threw the runner's
-    legs away on play 1; against the +-1 midpoint a real swing is 3-5 px off
-    and a one-frame spike 40. A spike also pulls its neighbours' midpoints by
-    half of itself, so the worst offender is marked first and the rest
-    re-judged without it, until nothing exceeds the gate."""
+    """Boolean mask of outliers among one joint's track (frames sorted)."""
     f = np.asarray(frames, int)
     xy = np.asarray(xy, float)
     ok = np.asarray(conf, float) >= min_conf
     out = np.zeros(len(f), bool)
-    if ok.sum() < 3:
+    idx = np.flatnonzero(ok)
+    if len(idx) < 3:
         return out
-    while True:
-        idx = np.flatnonzero(ok & ~out)
-        if len(idx) < 3:
-            return out
-        dev = np.full(len(f), -1.0)
-        for k, i in enumerate(idx):
-            for step in range(1, window + 1):
-                a, b = k - step, k + step
-                if a < 0 or b >= len(idx):
-                    break
-                ia, ib = idx[a], idx[b]
-                if f[i] - f[ia] > window or f[ib] - f[i] > window:
-                    break
-                dev[i] = float(np.linalg.norm(xy[i] - 0.5 * (xy[ia] + xy[ib])))
+    pos = {int(i): k for k, i in enumerate(idx)}
+    for i in idx:
+        k = pos[int(i)]
+        mids = []
+        for step in range(1, window + 1):
+            a, b = k - step, k + step
+            if a < 0 or b >= len(idx):
                 break
-        worst = int(np.argmax(dev))
-        if dev[worst] <= gate_px:
-            return out
-        out[worst] = True
+            ia, ib = idx[a], idx[b]
+            if f[i] - f[ia] > window or f[ib] - f[i] > window:
+                break
+            mids.append(0.5 * (xy[ia] + xy[ib]))
+        if len(mids) < 1:
+            continue
+        pred = np.median(np.stack(mids), axis=0)
+        if np.linalg.norm(xy[i] - pred) > gate_px:
+            out[i] = True
+    return out
 
 
 def reject_outliers(df: pd.DataFrame, *, gate_px: float = GATE_PX, window: int = WINDOW,
