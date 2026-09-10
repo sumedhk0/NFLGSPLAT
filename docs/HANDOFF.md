@@ -585,6 +585,9 @@ worst at 1.33 m but one.
   0.08) and the ground term agree at last.
 - The pose median holds only where a component turns less than 0.5 rad in
   the window; a fast limb stays raw (runner limbs 17.1 -> 14.7 px).
+- A tighter one-view gate (8 px rms, --one-view-px-max): no help -- the
+  runner's occluded frames (258-270) pass an all-joint rms gate while their
+  arms alone sit 10-35 px off. Gate stays 20.
 - Prepared, CPU only: `scratchpad/p1_v28_poses.sh` (the full 05p with the
   roster build and the sole on the turf, teams, strips) and
   `p1_v28_render.sh` (the GPU render, on request).
