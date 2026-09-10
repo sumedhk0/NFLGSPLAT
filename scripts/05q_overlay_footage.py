@@ -149,6 +149,8 @@ def main() -> None:
                 continue
             if (f, pid) in boxes.index:
                 b = boxes.loc[(f, pid)]
+                if isinstance(b, pd.DataFrame):          # two boxes for one id on a frame (a merged duplicate track)
+                    b = b.iloc[0]
                 cx, cy = int((b.bbox_x1 + b.bbox_x2) / 2), int((b.bbox_y1 + b.bbox_y2) / 2)
             elif pid in proj and np.isfinite(proj[pid][0][0]).all():
                 cx, cy = int(proj[pid][0][0][0]), int(proj[pid][0][0][1])
