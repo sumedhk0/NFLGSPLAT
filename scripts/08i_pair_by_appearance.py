@@ -69,6 +69,10 @@ def main() -> None:
     ap.add_argument("--keypoints", type=Path, default=None,
                     help="keypoints table for the ankle ground points (default <play-dir>/keypoints_2d.parquet; "
                          "after a relabel, the *_oldids.parquet copy carries the unpaired table's ids)")
+    ap.add_argument("--weak-kit", action="store_true",
+                    help="a kit clash vetoes a pair only when BOTH kit votes are strong (>= 80 %% of at least "
+                         "10 confident frames); such pairs rank last. A probe: a blocked lineman's torso votes "
+                         "for the man in front of him")
     ap.add_argument("--keypoints-ids", type=Path, default=None,
                     help="the tracks table whose ids the keypoints carry, for the carry-over by boxes "
                          "(default <play-dir>/tracks.parquet)")
@@ -91,7 +95,8 @@ def main() -> None:
     print(f"{src.name}: sideline {len(side)} tracks, endzone {len(end)}; kit known on {n_kit}, "
           f"number read on {n_num}{'' if has_ocr else ' (no OCR column: kit and position only)'}")
     extra = {} if args.max_median_dist is None else {"max_median_dist": args.max_median_dist}
-    pairs = pair_by_appearance(side, end, gap_number=args.gap_number, gap_position=args.gap_position, lag=args.lag, **extra)
+    pairs = pair_by_appearance(side, end, gap_number=args.gap_number, gap_position=args.gap_position, lag=args.lag,
+                               weak_kit=args.weak_kit, **extra)
     by = {}
     for p in pairs:
         by[p.evidence] = by.get(p.evidence, 0) + 1

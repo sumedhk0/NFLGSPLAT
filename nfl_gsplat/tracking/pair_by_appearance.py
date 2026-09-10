@@ -47,6 +47,11 @@ MAX_LATERAL_M: float = 1.2
 # (both 0.26 m from sideline 4), and the span rule threw its other 228 frames away.
 SAME_PERSON_M: float = 1.0
 MIN_NUMBER_VOTES: int = 2      # OCR rows a track needs before its number counts as read
+# A kit vote is STRONG when this fraction of its confident frames agree, over this many frames.
+# A weak vote vetoes nothing: in the trenches a lineman's torso is half covered by the man he
+# blocks, and a 6-of-10 vote for the other kit was killing pairs whose positions agree to 0.4 m.
+KIT_STRONG_FRAC: float = 0.8
+KIT_STRONG_FRAMES: int = 10
 
 
 @dataclass
@@ -57,6 +62,11 @@ class CamTrack:
     xy: np.ndarray                # [n, 2] ground points, smoothed
     kit: int                      # 0 white, 1 coloured, -1 unknown
     number: int                   # -1 unknown
+    kit_frac: float = 1.0         # the winning kit's share of the confident frames
+    kit_n: int = 10 ** 6          # how many confident frames voted
+
+    def kit_strong(self, *, frac: float = KIT_STRONG_FRAC, frames: int = KIT_STRONG_FRAMES) -> bool:
+        return self.kit >= 0 and self.kit_frac >= frac and self.kit_n >= frames
 
 
 @dataclass
@@ -74,8 +84,11 @@ def _series(t: CamTrack):
 
 def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_position=GAP_POSITION_M,
                        min_overlap=MIN_OVERLAP, lag: int = 0, max_median_dist=MAX_MEDIAN_DIST_M,
-                       same_person_m=SAME_PERSON_M, max_lateral_m=MAX_LATERAL_M):
-    """``[Pair]`` accepted; sideline frame f sits beside endzone frame f + lag."""
+                       same_person_m=SAME_PERSON_M, max_lateral_m=MAX_LATERAL_M, weak_kit: bool = False):
+    """``[Pair]`` accepted; sideline frame f sits beside endzone frame f + lag.
+
+    With ``weak_kit`` a kit clash vetoes a pair only when BOTH votes are strong
+    (CamTrack.kit_strong); such pairs are marked "weak kit" and rank below clean ones."""
     ser_s = [_series(t) for t in side]
     ser_e = [_series(t) for t in end]
     cands = []
@@ -87,8 +100,10 @@ def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_po
             # two OCR reads agreeing on a number outrank a kit vote: play 1's endzone
             # track of KC 83 (432 frames, number read) carried the white kit and was
             # never paired
-            if a.kit >= 0 and b.kit >= 0 and a.kit != b.kit and not num_match:
+            clash = a.kit >= 0 and b.kit >= 0 and a.kit != b.kit and not num_match
+            if clash and (not weak_kit or (a.kit_strong() and b.kit_strong())):
                 continue
+            weak_clash = clash
             common = [f for f in ser_s[i] if (f + lag) in ser_e[j]]
             if len(common) < min_overlap:
                 continue
@@ -104,10 +119,12 @@ def pair_by_appearance(side: list, end: list, *, gap_number=GAP_NUMBER_M, gap_po
                     cands.append(Pair(i, j, "number", off, len(common)))
             elif a.kit >= 0 and b.kit >= 0:
                 if off <= gap_position:
-                    cands.append(Pair(i, j, "kit", off, len(common)))
+                    # a pair kept only because one side's kit vote is weak ranks last, so a
+                    # clean-kit pair takes the partner first
+                    cands.append(Pair(i, j, "weak kit" if weak_clash else "kit", off, len(common)))
             # a pair with neither kit nor number known on one side is not made:
             # position alone was measured a coin flip
-    rank = {"number": 0, "kit": 1}
+    rank = {"number": 0, "kit": 1, "weak kit": 2}
     cands.sort(key=lambda p: (rank[p.evidence], p.offset, -p.overlap))
     span_s = [(int(t.frames.min()), int(t.frames.max())) for t in side]
     span_e = [(int(t.frames.min()), int(t.frames.max())) for t in end]
@@ -250,12 +267,14 @@ def cam_tracks_from_frame(df, cams, *, kit_margin: float = 0.4, min_number_votes
         if smooth > 1 and len(fr) >= smooth:
             ker = np.ones(smooth) / smooth
             pts = np.column_stack([np.convolve(pts[:, k], ker, mode="same") for k in range(2)])
-        kit = -1
+        kit, kit_frac, kit_n = -1, 1.0, 10 ** 6
         if "kit_margin" in g:
             m = g["kit_margin"].to_numpy(float)
             m = m[np.isfinite(m) & (np.abs(m) >= kit_margin)]
             if len(m) >= 3:
-                kit = int((m > 0).mean() > 0.5)
+                share = float((m > 0).mean())
+                kit = int(share > 0.5)
+                kit_frac, kit_n = max(share, 1.0 - share), int(len(m))
         number = -1
         if "jersey_number_ocr" in g:
             n = g["jersey_number_ocr"].to_numpy(int)
@@ -263,7 +282,7 @@ def cam_tracks_from_frame(df, cams, *, kit_margin: float = 0.4, min_number_votes
             if len(n) >= min_number_votes:
                 vals, counts = np.unique(n, return_counts=True)
                 number = int(vals[np.argmax(counts)])
-        out[cam].append(CamTrack(cam, int(tid), fr, pts, kit, number))
+        out[cam].append(CamTrack(cam, int(tid), fr, pts, kit, number, kit_frac, kit_n))
     return out["sideline"], out["endzone"]
 
 

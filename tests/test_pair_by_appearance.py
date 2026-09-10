@@ -146,3 +146,21 @@ def test_one_id_never_holds_two_tracks_of_one_camera_at_once():
     gs, ge, dropped = global_ids_checked(3, 2, pairs, [(0, 100), (200, 400), (250, 350)], [(0, 100), (250, 350)])
     assert gs[0] == ge[0] == gs[1] and gs[2] == ge[1] and gs[2] != gs[0]
     assert [(p.s, p.e) for p in dropped] == [(0, 1)]
+
+
+def test_a_weak_kit_vote_does_not_veto_a_pair():
+    from nfl_gsplat.tracking.pair_by_appearance import CamTrack, pair_by_appearance
+    T = 60
+    fr = np.arange(T)
+    xy_s = np.column_stack([0.02 * fr, np.zeros(T)])
+    xy_e = np.column_stack([0.02 * fr + 0.3, np.zeros(T)])
+    # the sideline vote is solid (30 frames, 95 % coloured); the endzone track is a blocked
+    # lineman whose torso reads white on 6 of 10 confident frames
+    s = CamTrack("sideline", 0, fr, xy_s, 1, -1, 0.95, 30)
+    e = CamTrack("endzone", 0, fr, xy_e, 0, -1, 0.6, 10)
+    assert pair_by_appearance([s], [e]) == []                       # the clash vetoes by default
+    got = pair_by_appearance([s], [e], weak_kit=True)
+    assert [(p.s, p.e, p.evidence) for p in got] == [(0, 0, "weak kit")]
+    # two strong votes that disagree stay vetoed
+    e2 = CamTrack("endzone", 0, fr, xy_e, 0, -1, 0.95, 40)
+    assert pair_by_appearance([s], [e2], weak_kit=True) == []
