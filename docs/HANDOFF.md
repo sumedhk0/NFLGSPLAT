@@ -1513,13 +1513,17 @@ camera); numerals as the only ruler (constant was wrong — the hashes caught it
    are written (the linker), not after. Ruler: bodies drawn vs bodies in
    the footage, per frame.
 0b. Left/right label flips: the detector swaps a limb group's labels for
-   one to four frames (play 1's motion man at 267, arms and legs at once)
-   and the arms flail. pose.keypoint_filter.fix_lr_flips catches those
-   frames but swaps 3 % of all (player, group, frame) decisions and 13-24 %
-   for the players who run at the camera, because the shoulders are only
-   16 px apart at the median -- the test runs at the noise level. Gate it
-   on the pair's separation, or decide the flip in 3-D where the body's
-   orientation is known. Probe: scratchpad/probe_lr.sh.
+   one to four frames (play 1's motion man at 267, arms and legs at once).
+   pose.keypoint_filter.fix_lr_flips catches those frames but swaps 3 % of
+   all (player, group, frame) decisions and 13-24 % for the players who run
+   at the camera, because the shoulders are only 16 px apart at the median
+   -- the test runs at the noise level. MEASURED 2026-09-10 (05p --fix-lr,
+   ids 9 and 12): the runner's arm speed p90 in the body frame fell 8.91 ->
+   7.66 m/s and his reprojection p90 rose 16.5 -> 21.6 px (the fit stops
+   following the flipped frames, so that ruler is biased against it); the
+   lineman did not move at all; on the footage strips the arms are no
+   better. Still off. Gate it on the pair's separation, or decide the flip
+   in 3-D where the body's orientation is known.
 
 1. Two-view coverage: 9-10 of 22 players a frame are paired; the rest
    stand on one camera's box point (0.5 m from a triangulated pelvis at
