@@ -28,6 +28,8 @@
 #             (play 1: -15 frames where +3 had been assumed; a runner is 2 m from himself in 15 frames)
 #   repair    08i --lag <offset> re-pairs the camera tracks, 08m carries the keypoints and pose caches to the
 #             new ids by their boxes, 08c --from-cache names them            -> tracks.parquet, identity_resolved.pkl
+#   roles     scripts/08n (the pre-snap formation gives each unnamed id its position group's
+#             roster height and weight)                                 -> identity_resolved.pkl
 #   tri       scripts/05n (joints triangulated with both cameras)       -> poses_tri.json
 #   fuse      scripts/05e (monocular joints fused) -- OPT-IN, FUSE=1; 2.6-3.4x worse than tri
 #   refit     scripts/05f                                             -> poses_refit.json
@@ -64,6 +66,7 @@ cd "C:/Users/sumedh/NFLGSPLAT" || exit 1
 P="$1"; SIDE="$2"; END="$3"; LOS="$4"; shift 4
 DIAG="C:/Users/sumedh/diag"; PLAY="$(basename "$P")"
 RED="${RED:-KC}"; WHITE="${WHITE:-BAL}"          # the saturated and the white kit (08f, render.uniform)
+OFFENCE="${OFFENCE:-$RED}"                       # the team with the ball: its formation gives the roles (08n)
 SEED_FROM="${SEED_FROM:-}"                       # a solved play-dir of the same game: its sideline mount seeds 08
 GRID_PX="${GRID_PX:-}"                           # widen 08's grid judge for ONE play (px); printed with the verdict
 FRESH=0; FROM_PAINT=0
@@ -263,6 +266,16 @@ if ! done_ repair; then
   cp "$P/tracks_identity.parquet" "$P/tracks.parquet"
   "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" $KICK_FLAG --from-cache 2>&1 | grep -v "Warning\|warn" | tail -3 || fail repair
   mark repair
+fi
+
+if ! done_ roles; then
+  # The jersey OCR names about half the ids and the rest were 1.85 m with no weight, so a
+  # defensive lineman and a cornerback came out the same body. The pre-snap formation gives the
+  # role, the role gives the position group's roster height and weight (08n) -- read by the fits
+  # (05p) and the render, so it must run BEFORE the refit.
+  log "builds for the unnamed ids from the pre-snap formation (08n, offence $OFFENCE)"
+  "$PYN" scripts/08n_role_builds.py --play-dir "$P" --offence "$OFFENCE" 2>&1 | grep -v "Warning\|warn" | tail -4 || fail roles
+  mark roles
 fi
 
 if ! done_ tri; then
