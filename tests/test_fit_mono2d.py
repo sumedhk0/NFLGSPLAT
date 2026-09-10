@@ -286,3 +286,44 @@ def test_side_agnostic_residual_rides_through_a_left_right_label_flip():
     # a flip is a realisable pose (the OTHER arm raised), so the labelled fit fits it just as
     # well -- and drops the right wrist on the flipped frames; only continuity could object
     assert np.any(np.abs(wrist_lab[1:3] - J[21, 2]) > 0.2), (wrist_lab, J[21, 2])
+
+
+def test_joint_reject_holds_a_limb_whose_keypoint_jumped_to_another_player():
+    """Frame 2's right wrist keypoint sits 60 px away (the detector's, on the player behind);
+    with joint_reject_px the frame is refitted without it and the wrist stays where the
+    frames before put it, without it the arm follows the stray keypoint."""
+    from scipy.spatial.transform import Rotation
+
+    rest = _rest()
+    forward = fk_forward(rest)
+    base = SMPLXFitConfig()
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 1.0]))
+    cam = (K, R, t)
+    bp = np.zeros(63)
+    bp[(17 - 1) * 3 + 1] = 1.2
+    bp[(19 - 1) * 3 + 1] = 0.6
+    go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
+    p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
+    J = forward(p_true)
+    p_true[-1] -= sole_height(J)
+    J = forward(p_true)
+    uv, _ = project(K, R, t, J)
+    conf = np.ones(22)
+    conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
+    rng = np.random.default_rng(2)
+    T = 4
+    uvs = np.stack([uv + rng.normal(0, 1.0, uv.shape) for _ in range(T)])
+    uvs[2, 21] += np.array([60.0, 30.0])                    # the right wrist on the player behind, one frame
+    rough = np.stack([bp + rng.normal(0, 0.3, 63)] * T)
+    rough_go = np.stack([go] * T)
+    out = {}
+    for jr in (0.0, 15.0):
+        params, valid, rep = fit_sequence_2d(uvs, np.stack([conf] * T), [cam] * T, np.stack([J[0, :2]] * T), rest, forward,
+                                             cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0), joint_reject_px=jr),
+                                             base_cfg=base, init_body_pose_seq=rough, init_orient_seq=rough_go)
+        assert valid.all()
+        wr = project(K, R, t, forward(params[2]))[0][21]
+        out[jr] = np.linalg.norm(wr - uv[21])                 # the fitted wrist against the TRUE wrist on frame 2
+    assert out[15.0] < 12.0, out
+    assert out[0.0] > out[15.0] + 10.0, out

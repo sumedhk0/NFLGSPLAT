@@ -67,6 +67,13 @@ class Mono2DConfig:
     # assignment, so the 3-D pose -- continuous through the temporal term -- chooses the
     # labelling each frame instead of following a flip.
     lr_symmetric: bool = False
+    # A joint the first fit leaves further than this from its keypoint, and further than
+    # JOINT_REJECT_RATIO times the frame's median joint error, is an outlier of the frame
+    # (a limb the detector put on the player behind: play 1's runner, frames 258-270,
+    # arms 10-35 px off while the rest fit at 3): the frame is refitted with that keypoint
+    # unobserved, so the temporal term holds the limb from the frame before. 0 = off.
+    joint_reject_px: float = 0.0
+    joint_reject_ratio: float = 3.0
     max_iter: int = 40
     loss: str = "soft_l1"
 
@@ -212,6 +219,21 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
         pix, _ = project(K, R, t, J[use])
         errs.append(np.linalg.norm(view_error(pix, target, pr), axis=1))
     err = np.concatenate(errs)
+    if cfg.joint_reject_px > 0 and len(err) > cfg.min_joints:
+        gate = max(cfg.joint_reject_px, cfg.joint_reject_ratio * float(np.median(err)))
+        bad = err > gate
+        if bad.any() and (~bad).sum() >= cfg.min_joints:
+            confs2, k = [], 0
+            for c, use in zip(confs, uses):
+                c2 = np.asarray(c, float).copy()
+                idx = np.flatnonzero(use)
+                c2[idx[bad[k:k + len(idx)]]] = 0.0
+                k += len(idx)
+                confs2.append(c2)
+            cfg2 = replace(cfg, joint_reject_px=0.0)
+            return fit_frame_2d(uvs if len(uvs) > 1 else uvs[0], confs2 if len(confs2) > 1 else confs2[0],
+                                cams if len(cams) > 1 else cams[0], sol.x, forward, ground_xy, cfg2, base_cfg,
+                                init_body_pose=init_body_pose, prev_params=prev_params)
     return sol.x, float(np.sqrt(np.mean(err * err))), n_used
 
 

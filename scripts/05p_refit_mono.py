@@ -307,7 +307,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
                              "bounds_table": args.bounds_table,
-                             "view_weights": (1.0, args.endzone_weight), "lr_symmetric": args.lr_symmetric}})
+                             "view_weights": (1.0, args.endzone_weight), "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"two-view: {len(jobs)} players with keypoints in both cameras, {n_frames} frames (endzone offset {offset:+d}, "
           f"stride {args.stride}, endzone weight {args.endzone_weight}), {args.workers} workers; "
@@ -379,6 +379,9 @@ def main() -> None:
     ap.add_argument("--endzone-arm-weight", type=float, default=1.0,
                     help="--two-view: the second camera's shoulder/elbow/wrist confidences are scaled by this "
                          "(the endzone sees a runner's arms from behind at 120 px/m; a probe, 1 = as detected)")
+    ap.add_argument("--joint-reject-px", type=float, default=Mono2DConfig.joint_reject_px,
+                    help="refit a frame without the joints its first fit leaves further than this (and 3x the "
+                         "frame's median) from their keypoints -- a limb the detector put on another player; 0 = off")
     ap.add_argument("--lr-symmetric", action="store_true",
                     help="the fit's residual of each left/right joint pair is the smaller of the labelled and the "
                          "swapped assignment (pose.fit_mono2d Mono2DConfig.lr_symmetric); a probe, off by default")
@@ -610,7 +613,7 @@ def main() -> None:
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table,
-                             "lr_symmetric": args.lr_symmetric}})
+                             "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"{len(jobs)} players with {args.cam} keypoints {'inside' if args.validate else 'outside'} the fused refit, "
           f"{n_frames} frames to fit (stride {args.stride}; {n_short_gap} in fused gaps of <= {args.max_gap} frames "
