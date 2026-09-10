@@ -88,3 +88,13 @@ def test_snap_is_where_the_bodies_start_moving_together():
         ground[f] = d
     snap = snap_frame(ground, fps=60.0)
     assert snap is not None and 190 <= snap <= 205, snap
+
+
+def test_the_line_of_scrimmage_survives_a_formation_with_no_stances():
+    s, teams = formation()
+    upright = {pid: (x, y, 2.4, n) for pid, (x, y, a, n) in s.items()}   # nobody in a stance
+    los, sign, yc = line_of_scrimmage(upright, teams, "KC")
+    assert sign > 0 and -25.5 < los < -22.5, (los, sign)
+    roles = assign_roles(upright, teams, "KC", los, sign, yc)
+    assert roles[9] == "WR" and roles[5] in ("RB", "QB")
+    assert all(roles[p] == "DB" for p in (2, 27, 10))

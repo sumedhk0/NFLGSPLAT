@@ -110,10 +110,21 @@ def line_of_scrimmage(summary: dict, teams: dict, offence: str):
     sign that makes the offence's side positive, and the offence line's lateral centre."""
     off = [(x, y) for pid, (x, y, a, n) in summary.items() if teams.get(pid) == offence and a < CROUCH_ASPECT]
     de = [(x, y) for pid, (x, y, a, n) in summary.items() if teams.get(pid) not in (offence, None) and a < CROUCH_ASPECT]
-    if len(off) < 3 or len(de) < 2:
-        raise ValueError(f"too few crouched bodies to place the line of scrimmage (offence {len(off)}, defence {len(de)})")
-    xo, xd = float(np.median([x for x, _ in off])), float(np.median([x for x, _ in de]))
-    return 0.5 * (xo + xd), (1.0 if xo > xd else -1.0), float(np.median([y for _, y in off]))
+    if len(off) >= 3 and len(de) >= 2:
+        xo, xd = float(np.median([x for x, _ in off])), float(np.median([x for x, _ in de]))
+        return 0.5 * (xo + xd), (1.0 if xo > xd else -1.0), float(np.median([y for _, y in off]))
+    # Nobody is in a stance (an empty set, a two-point front): the two lines are the FRONTMOST
+    # quarter of each team instead. Weaker -- backs and receivers pull the quartile back -- so
+    # it is the fallback, not the rule.
+    off_all = [(x, y) for pid, (x, y, a, n) in summary.items() if teams.get(pid) == offence]
+    def_all = [(x, y) for pid, (x, y, a, n) in summary.items() if teams.get(pid) not in (offence, None)]
+    if len(off_all) < 4 or len(def_all) < 4:
+        raise ValueError(f"too few bodies to place the line of scrimmage (offence {len(off_all)}, defence {len(def_all)}, "
+                         f"of which crouched {len(off)} and {len(de)})")
+    sign = 1.0 if np.median([x for x, _ in off_all]) > np.median([x for x, _ in def_all]) else -1.0
+    xo = float(np.percentile([x * sign for x, _ in off_all], 75) * sign)
+    xd = float(np.percentile([-x * sign for x, _ in def_all], 75) * -sign)
+    return 0.5 * (xo + xd), sign, float(np.median([y for _, y in off_all]))
 
 
 def assign_roles(summary: dict, teams: dict, offence: str, los_x: float, sign: float, y_centre: float) -> dict:
