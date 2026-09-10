@@ -1498,14 +1498,20 @@ camera); numerals as the only ruler (constant was wrong — the hashes caught it
 ## Open items, in value order (2026-09-10, after v30)
 
 0. Twin tracks: two ids on one body (play 1 sideline: 16 & 22 the
-   quarterback, 18 & 19, 21 & 28) put two avatars on one man in the
-   trenches. Box geometry cannot separate them from two men stacked along
-   the sideline camera's line of sight (see the rejected list); the
-   keypoints can, but the detector emits both sets on 3-4 frames only. The
-   cue not yet tried: appearance (a crop embedding) over the coexisting
-   frames, or the endzone view (where the line is seen from the front and
-   the two would be a metre apart). Ruler: bodies drawn vs bodies in the
-   footage, per frame.
+   quarterback, and 21 & 28 by their identical pre-snap positions) put two
+   avatars on one man. Box geometry cannot separate them from two men
+   stacked along the sideline camera's line of sight (see the rejected
+   list). THE TEST THAT WORKS is the ankle ground points, on the frames
+   where both ids have confident ankles: 16 & 22 sit 0.16 m apart, 18 & 19
+   (adjacent linemen, which box geometry called a twin) 1.30 m, and known
+   different pairs 1.6-3.4 m. Its limit is coverage -- the pose detector
+   suppresses one of two overlapping boxes, so a twin pair has ankles for
+   both on 3 frames of 58, and 21 & 28 and 14 & 27 have none at all.
+   The plumbing is the other blocker: merging two ids means dropping one
+   box per frame, and tracking.relabel's box map requires every old row to
+   have a box in the new table, so the merge has to happen where the boxes
+   are written (the linker), not after. Ruler: bodies drawn vs bodies in
+   the footage, per frame.
 0b. Left/right label flips: the detector swaps a limb group's labels for
    one to four frames (play 1's motion man at 267, arms and legs at once)
    and the arms flail. pose.keypoint_filter.fix_lr_flips catches those
