@@ -248,6 +248,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
             ua, ca = coco_to_body(ga[["x", "y"]].to_numpy(float), ga["conf"].to_numpy(float), min_conf=args.min_conf)
             ub, cb = coco_to_body(gb[["x", "y"]].to_numpy(float), gb["conf"].to_numpy(float), min_conf=args.min_conf)
             cb[[12, 15]] = 0.0            # the second camera does not vote on the neck and head (it sees helmets from behind)
+            cb[[16, 17, 18, 19, 20, 21]] *= args.endzone_arm_weight   # its arms, seen from behind and small, count this much
             if int((ca >= args.min_conf).sum()) + int((cb >= args.min_conf).sum()) < args.min_joints:
                 continue
             ia, pa = tr_a.at(f)
@@ -285,7 +286,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
                              "bounds_table": args.bounds_table,
-                             "view_weights": (1.0, args.endzone_weight)}})
+                             "view_weights": (1.0, args.endzone_weight), "lr_symmetric": args.lr_symmetric}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"two-view: {len(jobs)} players with keypoints in both cameras, {n_frames} frames (endzone offset {offset:+d}, "
           f"stride {args.stride}, endzone weight {args.endzone_weight}), {args.workers} workers; "
@@ -348,6 +349,12 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
+    ap.add_argument("--endzone-arm-weight", type=float, default=1.0,
+                    help="--two-view: the second camera's shoulder/elbow/wrist confidences are scaled by this "
+                         "(the endzone sees a runner's arms from behind at 120 px/m; a probe, 1 = as detected)")
+    ap.add_argument("--lr-symmetric", action="store_true",
+                    help="the fit's residual of each left/right joint pair is the smaller of the labelled and the "
+                         "swapped assignment (pose.fit_mono2d Mono2DConfig.lr_symmetric); a probe, off by default")
     ap.add_argument("--fix-lr", action="store_true",
                     help="swap a limb group's left/right labels on the frames where the swapped labels continue "
                          "the previous frames' motion (pose.keypoint_filter.fix_lr_flips); a probe, off by default")
@@ -573,7 +580,8 @@ def main() -> None:
                      "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
-                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table}})
+                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table,
+                             "lr_symmetric": args.lr_symmetric}})
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"{len(jobs)} players with {args.cam} keypoints {'inside' if args.validate else 'outside'} the fused refit, "
           f"{n_frames} frames to fit (stride {args.stride}; {n_short_gap} in fused gaps of <= {args.max_gap} frames "

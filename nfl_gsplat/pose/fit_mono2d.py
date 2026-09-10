@@ -61,8 +61,18 @@ class Mono2DConfig:
     bounds_weight: float = 0.0      # joint-range prior (pose_bounds): sqrt(w) per radian outside the range
     bounds_table: str = "data"      # "data" (the two-camera fits' range) or "anatomical" (pose_bounds.ANATOMICAL)
     view_weights: tuple = ()        # per-view multipliers on the reprojection residual (empty = 1 for every view)
+    # The detector's left/right labels flip for a few frames at a time on a player running
+    # at the camera (play 1's runner: 11 % of his frames for the arms). With this the
+    # residual of each left/right joint pair is the smaller of the labelled and the swapped
+    # assignment, so the 3-D pose -- continuous through the temporal term -- chooses the
+    # labelling each frame instead of following a flip.
+    lr_symmetric: bool = False
     max_iter: int = 40
     loss: str = "soft_l1"
+
+
+# SMPL-X body joints in left/right pairs: hips, knees, ankles, feet, collars, shoulders, elbows, wrists
+LR_PAIRS = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20, 21))
 
 
 ANKLES = (7, 8)
@@ -118,12 +128,39 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
     bp_init = None if init_body_pose is None else np.asarray(init_body_pose, float).reshape(-1)
     gxy = np.asarray(ground_xy, float)
 
+    # for the side-agnostic residual: per view, the index of each used joint's partner within
+    # the used set (-1 when the partner is not used) -- swapping means comparing joint a's
+    # projection with joint b's target and vice versa
+    partner = []
+    for use in uses:
+        idx = {int(j): k for k, j in enumerate(np.flatnonzero(use))}
+        pr = np.full(len(idx), -1, int)
+        for a, b in LR_PAIRS:
+            if a in idx and b in idx:
+                pr[idx[a]], pr[idx[b]] = idx[b], idx[a]
+        partner.append(pr)
+
+    def view_error(pix, target, pr):
+        """Pixel error per used joint; with lr_symmetric each left/right pair takes the
+        labelled or the swapped assignment, whichever the pair as a whole fits better."""
+        err = pix - target
+        if cfg.lr_symmetric and (pr >= 0).any():
+            has = pr >= 0
+            own = np.arange(len(pix))
+            mate = np.where(has, pr, own)
+            d_keep = np.linalg.norm(err, axis=1)
+            d_swap = np.where(has, np.linalg.norm(pix - target[mate], axis=1), d_keep)
+            take = has & (d_swap + d_swap[mate] < d_keep + d_keep[mate])
+            err = np.where(take[:, None], pix - target[np.where(take, pr, own)], err)
+        return err
+
     def residuals(p):
         J = forward(p)
         rep_parts, behind_parts = [], []
-        for (K, R, t), use, w, target in zip(cams, uses, ws, targets):
+        for (K, R, t), use, w, target, pr in zip(cams, uses, ws, targets, partner):
             pix, depth = project(K, R, t, J[use])
-            rep_parts.append(((pix - target) * w[:, None] / cfg.px_scale).reshape(-1))
+            err = view_error(pix, target, pr)
+            rep_parts.append((err * w[:, None] / cfg.px_scale).reshape(-1))
             behind_parts.append(np.maximum(0.0, -depth))          # nothing behind a camera
         rep = np.concatenate(rep_parts)
         behind = np.concatenate(behind_parts)
@@ -154,9 +191,9 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
                         x_scale="jac")
     J = forward(sol.x)
     errs = []
-    for (K, R, t), use, target in zip(cams, uses, targets):
+    for (K, R, t), use, target, pr in zip(cams, uses, targets, partner):
         pix, _ = project(K, R, t, J[use])
-        errs.append(np.linalg.norm(pix - target, axis=1))
+        errs.append(np.linalg.norm(view_error(pix, target, pr), axis=1))
     err = np.concatenate(errs)
     return sol.x, float(np.sqrt(np.mean(err * err))), n_used
 

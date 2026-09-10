@@ -240,3 +240,49 @@ def test_anatomical_bounds_forbid_a_sideways_knee_and_allow_a_bent_one():
     bp[(4 - 1) * 3 + 2] = 0.8                                            # bent sideways 46 deg: 0.65 over
     e = excess(bp, lo=ANAT_LO, hi=ANAT_HI, margin=0.0)
     assert abs(e[(4 - 1) * 3 + 2] - 0.65) < 1e-9 and e.sum() == e[(4 - 1) * 3 + 2]
+
+
+def test_side_agnostic_residual_rides_through_a_left_right_label_flip():
+    """Frames 1 and 2 carry the detector's arms with left and right swapped; with
+    lr_symmetric the fit keeps the raised arm raised, without it the arm drops."""
+    from scipy.spatial.transform import Rotation
+
+    rest = _rest()
+    forward = fk_forward(rest)
+    base = SMPLXFitConfig()
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 1.0]))
+    cam = (K, R, t)
+    bp = np.zeros(63)
+    bp[(17 - 1) * 3 + 1] = 1.2
+    bp[(19 - 1) * 3 + 1] = 0.6
+    go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
+    p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
+    J = forward(p_true)
+    p_true[-1] -= min(J[7, 2], J[8, 2])
+    J = forward(p_true)
+    uv, _ = project(K, R, t, J)
+    conf = np.ones(22)
+    conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
+    rng = np.random.default_rng(1)
+    T = 4
+    uvs = np.stack([uv + rng.normal(0, 1.0, uv.shape) for _ in range(T)])
+    for f in (1, 2):                                       # the arms' labels flipped on two frames
+        for a, b in ((16, 17), (18, 19), (20, 21)):
+            uvs[f, [a, b]] = uvs[f, [b, a]]
+    rough = np.stack([bp + rng.normal(0, 0.3, 63)] * T)
+    rough_go = np.stack([go] * T)
+    out = {}
+    for sym in (False, True):
+        params, valid, rep = fit_sequence_2d(uvs, np.stack([conf] * T), [cam] * T, np.stack([J[0, :2]] * T), rest, forward,
+                                             cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0), lr_symmetric=sym),
+                                             base_cfg=base, init_body_pose_seq=rough, init_orient_seq=rough_go)
+        assert valid.all()
+        out[sym] = (rep, np.array([forward(p)[21, 2] for p in params]))
+    rep_sym, wrist_sym = out[True]
+    rep_lab, wrist_lab = out[False]
+    assert rep_sym[1] < 4.0 and rep_sym[2] < 4.0, rep_sym          # the flipped frames fit as if unflipped
+    assert np.all(np.abs(wrist_sym - J[21, 2]) < 0.2), wrist_sym   # the raised wrist stays raised
+    # a flip is a realisable pose (the OTHER arm raised), so the labelled fit fits it just as
+    # well -- and drops the right wrist on the flipped frames; only continuity could object
+    assert np.any(np.abs(wrist_lab[1:3] - J[21, 2]) > 0.2), (wrist_lab, J[21, 2])
