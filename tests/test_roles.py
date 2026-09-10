@@ -16,6 +16,7 @@ def formation():
     s[9] = (-21.7, -10.0, 1.65, 100); teams[9] = "KC"
     s[5] = (-17.0, -1.6, 1.93, 100); teams[5] = "KC"        # the back, offset from the centre line
     s[8] = (-18.0, 0.9, 1.6, 100); teams[8] = "KC"          # the passer in the gun, on the centre's line
+    s[16] = (-21.9, 0.6, 1.9, 100); teams[16] = "KC"        # an upright body right behind the centre: under centre
     # BAL: three crouched linemen at -25.2, a standing edge at -25.0 / -5.5, linebackers at -27.5, deep men at -34
     for pid, y, a in ((4, 2.3, 0.85), (13, -1.3, 0.94), (1, 5.6, 1.18)):
         s[pid] = (-25.2, y, a, 100); teams[pid] = "BAL"
@@ -37,7 +38,7 @@ def test_roles_from_the_formation():
     roles = assign_roles(s, teams, "KC", los, sign, yc)
     assert all(roles[p] == "OL" for p in (18, 17, 12, 3))
     assert roles[11] == "TE" and roles[9] == "WR"
-    assert roles[5] == "RB" and roles[8] == "QB"
+    assert roles[5] == "RB" and roles[8] == "QB" and roles[16] == "QB"
     assert all(roles[p] == "DL" for p in (4, 13, 1))
     assert roles[15] == "LB" and all(roles[p] == "LB" for p in (7, 14))
     assert all(roles[p] == "DB" for p in (6, 21, 0, 2, 27, 10))
@@ -53,6 +54,24 @@ def test_only_unnamed_ids_take_the_build():
     assert abs(merged[4].height_m - POSITION_BUILDS["DL"][0]) < 1e-9
     assert abs(merged[4].weight_lb * 0.4536 - POSITION_BUILDS["DL"][1]) < 0.1
     assert merged[5].height_m == 1.78 and merged[5].weight_lb == 215.0
+
+
+def test_inheritance_needs_a_clear_predecessor():
+    from nfl_gsplat.identity.roles import inherit_roles
+    roles = {1: "DL", 2: "DB", 3: "OL"}
+    teams = {1: "BAL", 2: "BAL", 3: "KC", 10: "BAL", 11: "BAL", 12: "KC"}
+    spans = {1: (0, 300), 2: (0, 310), 3: (0, 300), 10: (330, 500), 11: (340, 500), 12: (600, 650)}
+    ends = {1: ((0, 0), (10.0, 0.0)), 2: ((0, 0), (30.0, 5.0)), 3: ((0, 0), (12.0, 1.0)),
+            10: ((10.5, 0.3), (0, 0)),      # continues 1 (2 is 20 m away)
+            11: ((11.0, 0.5), (0, 0)),      # 1 already claimed, 2 too far: nothing
+            12: ((12.0, 1.0), (0, 0))}      # KC, but 300 frames later: nothing
+    got = inherit_roles(roles, teams, spans, ends)
+    assert got == {10: ("DL", 1)}
+    # two predecessors within a metre of each other: ambiguous, nothing inherited
+    roles2 = {1: "DL", 2: "LB"}
+    ends2 = {1: ((0, 0), (10.0, 0.0)), 2: ((0, 0), (10.5, 0.0)), 10: ((10.2, 0.1), (0, 0))}
+    spans2 = {1: (0, 300), 2: (0, 300), 10: (320, 400)}
+    assert inherit_roles(roles2, {1: "BAL", 2: "BAL", 10: "BAL"}, spans2, ends2) == {}
 
 
 def test_snap_is_where_the_bodies_start_moving_together():
