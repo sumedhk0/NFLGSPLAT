@@ -327,3 +327,17 @@ def test_joint_reject_holds_a_limb_whose_keypoint_jumped_to_another_player():
         out[jr] = np.linalg.norm(wr - uv[21])                 # the fitted wrist against the TRUE wrist on frame 2
     assert out[15.0] < 12.0, out
     assert out[0.0] > out[15.0] + 10.0, out
+
+
+def test_blend_params_can_keep_the_fitted_pose():
+    from nfl_gsplat.pose.fit_mono2d import blend_params
+
+    base = SMPLXFitConfig()
+    p_fit = np.concatenate([np.full(63, 0.2), [0.0, 0.0, 0.5], [1.0, 2.0, 0.0]])
+    p_anc = np.concatenate([np.full(63, 0.8), [0.0, 0.0, 1.5], [3.0, 4.0, 0.0]])
+    out = blend_params(p_fit, p_anc, 0.5, base_cfg=base, pose=False)
+    assert np.allclose(out[:63], 0.2)                     # the body pose stays the fit's
+    assert np.allclose(out[-3:], [2.0, 3.0, 0.0])         # the placement is halfway
+    assert abs(out[65] - 1.0) < 1e-6                      # so is the orient (about z)
+    out1 = blend_params(p_fit, p_anc, 1.0, base_cfg=base, pose=False)
+    assert np.allclose(out1[:63], 0.2) and np.allclose(out1[-3:], [3.0, 4.0, 0.0])

@@ -385,11 +385,16 @@ def merge_into_refit(blob, fits, betas_of, *, source: str = "mono2d"):
     return out, added
 
 
-def blend_params(p_fit, p_anchor, w, *, base_cfg=None):
-    """``w`` of ``p_anchor`` and ``1 - w`` of ``p_fit``: body_pose and orient by
-    per-joint axis-angle slerp, transl linearly. Used to cross-fade a one-view
-    block into the two-view fit it borders (a long-gap edge turned 17 deg at
-    the p50 on play 1 however the fit was weighted)."""
+def blend_params(p_fit, p_anchor, w, *, base_cfg=None, pose: bool = True):
+    """``w`` of ``p_anchor`` and ``1 - w`` of ``p_fit``: orient by axis-angle slerp,
+    transl linearly, and the body_pose too (per-joint slerp) when ``pose``. Used to
+    cross-fade a one-view block into the two-view fit it borders (a long-gap edge
+    turned 17 deg at the p50 on play 1 however the fit was weighted).
+
+    ``pose=False`` keeps the fitted body pose: blending the POSE toward a record
+    up to twelve frames away gave play 1's runner a stride phase from 0.2 s later
+    (frames 258-268: arms 40-90 px off their keypoints while the fit itself sat
+    at 3), the placement is what the edge needs continuous."""
     from scipy.spatial.transform import Rotation, Slerp
 
     base_cfg = base_cfg or SMPLXFitConfig()
@@ -399,7 +404,11 @@ def blend_params(p_fit, p_anchor, w, *, base_cfg=None):
     if w <= 0:
         return out
     if w >= 1:
-        return p_anchor.copy()
+        out[go_slice] = p_anchor[go_slice]
+        out[tr_slice] = p_anchor[tr_slice]
+        if pose:
+            out[bp_slice] = p_anchor[bp_slice]
+        return out
     rots_fit = np.concatenate([p_fit[bp_slice].reshape(-1, 3), p_fit[go_slice].reshape(1, 3)])
     rots_anc = np.concatenate([p_anchor[bp_slice].reshape(-1, 3), p_anchor[go_slice].reshape(1, 3)])
     blended = []
@@ -407,7 +416,8 @@ def blend_params(p_fit, p_anchor, w, *, base_cfg=None):
         sl = Slerp([0.0, 1.0], Rotation.from_rotvec(np.stack([a, b])))
         blended.append(sl([w]).as_rotvec()[0])
     blended = np.stack(blended)
-    out[bp_slice] = blended[:-1].reshape(-1)
+    if pose:
+        out[bp_slice] = blended[:-1].reshape(-1)
     out[go_slice] = blended[-1]
     out[tr_slice] = (1 - w) * p_fit[tr_slice] + w * p_anchor[tr_slice]
     return out

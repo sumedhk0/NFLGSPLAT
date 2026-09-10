@@ -54,6 +54,11 @@ FPS = 59.94
 INSIDE_PLACE_WEIGHT = 10.0
 INSIDE_INIT_WEIGHT = 1.0
 EDGE_INIT_WEIGHT = 0.5
+# The cross-fade at a two-view block's edge blends the PLACEMENT (orient, transl) only:
+# blending the body pose toward a record up to twelve frames away gave play 1's
+# runner a stride phase from 0.2 s later (frames 258-268: arms 40-90 px off their
+# keypoints while the fit itself sat at 3 px).
+EDGE_BLEND_POSE = False
 
 
 def heading_diff_deg(go_a, go_b):
@@ -99,7 +104,7 @@ def _fit_job(job):
         for i in range(len(frames)):
             if valid[i] and blend[i] is not None:
                 anchor, w = blend[i]
-                params[i] = blend_params(params[i], anchor, w, base_cfg=base)
+                params[i] = blend_params(params[i], anchor, w, base_cfg=base, pose=EDGE_BLEND_POSE)
     sp_after = np.array([])
     if valid.sum() >= 2:
         sp_after = body_frame_speeds(params[valid], np.asarray(frames)[valid], forward, fps=FPS, base_cfg=base)
