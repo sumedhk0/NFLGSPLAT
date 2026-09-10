@@ -38,7 +38,7 @@ import pandas as pd
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.pose.coco import coco_to_body
-from nfl_gsplat.pose.keypoint_filter import GATE_PX, reject_outliers
+from nfl_gsplat.pose.keypoint_filter import GATE_PX, fix_lr_flips, reject_outliers
 from nfl_gsplat.pose.fit_mono2d import (Mono2DConfig, blend_params, body_frame_speeds, fit_sequence_2d,
                                         merge_into_refit, rigid_start_2d, tilt_rad)
 from nfl_gsplat.pose.forward_kinematics import fk_forward, load_smplx_skeleton
@@ -205,6 +205,9 @@ def two_view_pass(args, P, tracks, df, ground, blob):
     from scipy.spatial.transform import Rotation
 
     kall = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
+    if args.fix_lr:
+        kall, n_lr = fix_lr_flips(kall)
+        print(f"left/right flips swapped back on {n_lr} (camera, player, frame, limb group)")
     if not args.no_keypoint_filter:
         kall, _ = reject_outliers(kall)
     cams_present = sorted(kall["cam"].unique())
@@ -345,6 +348,9 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
+    ap.add_argument("--fix-lr", action="store_true",
+                    help="swap a limb group's left/right labels on the frames where the swapped labels continue "
+                         "the previous frames' motion (pose.keypoint_filter.fix_lr_flips); a probe, off by default")
     ap.add_argument("--no-keypoint-filter", action="store_true",
                     help="skip the temporal outlier rejection on the keypoints (pose.keypoint_filter)")
     ap.add_argument("--one-view-only", action="store_true",
@@ -377,6 +383,9 @@ def main() -> None:
     # measured against that average and applied to the sideline-only point
     # afterwards (the endzone's share along x is what stayed as a 0.37 m jump).
     kdf_all = pd.read_parquet(args.keypoints or P / "keypoints_2d.parquet")
+    if args.fix_lr:
+        kdf_all, n_lr = fix_lr_flips(kdf_all)
+        print(f"left/right flips swapped back on {n_lr} (camera, player, frame, limb group)")
     if not args.no_keypoint_filter:
         kdf_all, n_rej = reject_outliers(kdf_all)
         print(f"keypoint outliers rejected: {n_rej} of {int((kdf_all['conf'] > 0).sum() + n_rej)} confident "
