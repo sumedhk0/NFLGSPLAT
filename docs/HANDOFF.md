@@ -588,6 +588,12 @@ worst at 1.33 m but one.
 - A tighter one-view gate (8 px rms, --one-view-px-max): no help -- the
   runner's occluded frames (258-270) pass an all-joint rms gate while their
   arms alone sit 10-35 px off. Gate stays 20.
+- **v28 poses (CPU, 22:59-23:24):** two-view 21 players, 1813/1859 frames,
+  sideline 5.9 px / endzone 3.9 px (v27: 6.5 / 4.6); one-view 3097 frames at
+  2.7 px (3.2). Strips `diag/overlay_v28/`: the lineman (12) and a walking
+  BAL player (2) sit on their keypoints to the pixel; the runner (9) is on
+  his body except 258-270 (occluded, arms follow bad keypoints). The render
+  waits for the GPU (`p1_v28_render.sh`).
 - Prepared, CPU only: `scratchpad/p1_v28_poses.sh` (the full 05p with the
   roster build and the sole on the turf, teams, strips) and
   `p1_v28_render.sh` (the GPU render, on request).
