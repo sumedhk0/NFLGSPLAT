@@ -606,7 +606,12 @@ worst at 1.33 m but one.
   38 -> 14, 266 36 -> 19 (probe v28edge; the rest is the occlusion, arms
   filtered out and held by the temporal term). Per-joint rejection
   (--joint-reject-px) stays off: no effect there.
-- v28b poses (the same plus the edge fix) running on CPU from 00:12.
+- **v28b poses done (01:46):** two-view 21 players, 1813/1859 frames,
+  sideline 5.9 px / endzone 3.9 px; one-view 3097 frames at 2.6 px. Strips
+  in `diag/overlay_v28/`. `poses_refit.json` is v28b (v28a kept as
+  `poses_refit_v28a.json`, v27 as `poses_refit_v27.json`). The hi-fi render
+  is the only thing left and needs the GPU: `bash scratchpad/p1_v28_render.sh`
+  (~50 min), then send `diag/play_001_v28_hifi_720.mp4` and the runner strip.
 
 - Prepared, CPU only: `scratchpad/p1_v28_poses.sh` (the full 05p with the
   roster build and the sole on the turf, teams, strips) and
