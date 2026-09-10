@@ -106,3 +106,23 @@ def heights_from_identity(merged) -> dict[int, float]:
         if h and 1.4 < float(h) < 2.3:
             out[int(pid)] = float(h)
     return out
+
+
+def roster_builds(model, merged_ident, betas_by_pid: dict) -> dict:
+    """``{pid: betas}`` with the roster's height (and weight where known) imposed on each
+    player's base betas -- the one shape fact worth imposing: the regressor's betas sit
+    near neutral (1.72 m) and these players median 1.85 m. Ids without a height keep
+    their base betas. Used by the timeline AND by the fits (05p): a body fitted at one
+    height and rendered at another sat 20 px off its own keypoints on play 1's runner."""
+    heights = heights_from_identity(merged_ident)
+    weights = weights_from_identity(merged_ident)
+    out = {}
+    for pid, base in betas_by_pid.items():
+        h = heights.get(int(pid))
+        base = np.asarray(base, float)
+        if h is None:
+            out[int(pid)] = base
+            continue
+        kg = weights.get(int(pid))
+        out[int(pid)] = betas_for_height_weight(model, base, h, kg) if kg else betas_for_height(model, base, h)
+    return out

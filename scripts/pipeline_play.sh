@@ -46,12 +46,13 @@ set -u
 # KICKING=1 for a kickoff, punt or field goal: kickers, punters and long snappers
 # may be named (08c vetoes them on scrimmage downs; play 1 named the kicker twice).
 KICK_FLAG=""; [ "${KICKING:-0}" = "1" ] && KICK_FLAG="--kicking-play"
-# ONE_VIEW=1 (default): every body is fitted to the sideline keypoints alone and
-# stands on its box point. Measured on the footage overlay 2026-09-09: sideline
-# reprojection 2.0 px against 8.4 for the triangulate-then-refit chain, skeletons
-# still on a lineman in his stance, the QB on his feet; the two-view chains stay
-# in the script as the validation reference (05p --validate).
-ONE_VIEW_FLAG="--one-view-only"; [ "${ONE_VIEW:-1}" = "0" ] && ONE_VIEW_FLAG=""
+# The two-camera players are fitted to BOTH cameras' keypoints at ENDZONE_WEIGHT
+# (default 1.0) now that the endzone camera is on its paint (08l) and the clip
+# offset measured (05o): v26/v27 on play 1, sideline 6.5 px / endzone 4.6 px on
+# 1812 two-view frames. ONE_VIEW=1 fits every body to the sideline alone (the
+# v25 mode, the right one while the endzone camera was 40-85 px off its paint).
+EZW="${ENDZONE_WEIGHT:-1.0}"
+if [ "${ONE_VIEW:-0}" = "1" ] || [ "$EZW" = "0" ]; then ONE_VIEW_FLAG="--one-view-only"; else ONE_VIEW_FLAG="--two-view --endzone-weight $EZW"; fi
 # A stage is a python run piped through grep for the log; without pipefail
 # the grep decided the stage's fate and a traceback that contained the
 # word "shift" passed the shift stage (play 2, 2026-09-03).

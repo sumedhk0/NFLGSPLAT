@@ -200,6 +200,26 @@ def ankle_anchor(ga, gb, cam_a, cam_b, *, min_conf: float = 0.5, max_miss_m: flo
     return X[:, :2].mean(axis=0)
 
 
+_ROSTER: dict = {}
+
+
+def roster_betas(args, P, pid, betas):
+    """The roster build for ``pid`` on top of ``betas`` (render.roster_shape.roster_builds),
+    the base betas with --no-roster-betas or without an identity."""
+    if getattr(args, "no_roster_betas", False):
+        return betas
+    if "model" not in _ROSTER:
+        import smplx
+
+        from nfl_gsplat.render.roster_shape import roster_builds
+        ident = P / "identity_resolved.pkl"
+        _ROSTER["merged"] = pickle.load(open(ident, "rb")).get("merged", {}) if ident.exists() else {}
+        _ROSTER["model"] = smplx.create(str(args.body_models), model_type="smplx", gender="neutral", num_betas=10,
+                                        use_pca=False, batch_size=1)
+        _ROSTER["fn"] = roster_builds
+    return _ROSTER["fn"](_ROSTER["model"], _ROSTER["merged"], {int(pid): betas})[int(pid)]
+
+
 def two_view_pass(args, P, tracks, df, ground, blob):
     """Refit the two-camera players to both cameras' keypoints; the records replace 05f's in ``blob``."""
     from scipy.spatial.transform import Rotation
@@ -236,6 +256,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
         rec_frames = sorted(rec)
         betas = (np.mean([np.asarray(rec[f]["betas"], float) for f in rec_frames], axis=0) if rec_frames
                  else np.zeros(10))
+        betas = roster_betas(args, P, pid, betas)
         frames, uv, conf, cams, gnd, init_bp, init_go = [], [], [], [], [], [], []
         for f in sorted(f for (f, p) in ka if p == pid):
             if f % args.stride or (f + offset, pid) not in kb or pid not in ground.get(f, {}):
@@ -344,11 +365,17 @@ def main() -> None:
     ap.add_argument("--min-conf", type=float, default=0.3)
     ap.add_argument("--min-joints", type=int, default=6)
     ap.add_argument("--reproj-px-max", type=float, default=20.0)
+    ap.add_argument("--one-view-px-max", type=float, default=None,
+                    help="the one-view pass's gate (rms px); default: --reproj-px-max. A frame the fit cannot reach "
+                         "(the runner behind another player: arms 10-35 px off) is better left to the timeline's bridge")
     ap.add_argument("--max-iter", type=int, default=40)
     ap.add_argument("--max-gap", type=int, default=12)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
+    ap.add_argument("--no-roster-betas", action="store_true",
+                    help="fit with the regressor's betas instead of the roster build the timeline renders "
+                         "(render.roster_shape.roster_builds); the two must agree or the body sits off its keypoints")
     ap.add_argument("--endzone-arm-weight", type=float, default=1.0,
                     help="--two-view: the second camera's shoulder/elbow/wrist confidences are scaled by this "
                          "(the endzone sees a runner's arms from behind at 120 px/m; a probe, 1 = as detected)")
@@ -465,6 +492,7 @@ def main() -> None:
         rec_frames = sorted(rec)
         betas = (np.mean([np.asarray(rec[f]["betas"], float) for f in rec_frames], axis=0) if rec_frames
                  else np.zeros(10))
+        betas = roster_betas(args, P, pid, betas)
         frames, uv, conf, cams, gnd, init_bp, init_go = [], [], [], [], [], [], []
         truth = {}
         for f, rows in g.groupby("frame"):
@@ -577,7 +605,8 @@ def main() -> None:
                      "rec_bp": [np.asarray(rec[f]["body_pose"], float).reshape(-1) for f in rec_frames],
                      "body_models": args.body_models, "max_gap": args.max_gap, "prev_seq": prev_seq,
                      "cfg_overrides": overrides, "blend_seq": blend_seq,
-                     "reproj_px_max": args.reproj_px_max, "truth": truth if args.validate else None,
+                     "reproj_px_max": args.one_view_px_max if args.one_view_px_max is not None else args.reproj_px_max,
+                     "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table,
