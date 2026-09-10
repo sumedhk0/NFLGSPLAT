@@ -1420,6 +1420,23 @@ meanwhile with rule D's kits (keypoints -> tri -> refit -> hifi).
 
 ## What has been measured and rejected (do not re-propose without new evidence)
 
+- **Merging "twin" tracks by box geometry (2026-09-10, play 1, sideline):**
+  three ids look like one body under two ids (16 & 22 the quarterback,
+  18 & 19, 21 & 28), so two avatars stand on one man. A rule of "box centres
+  within 0.25 box heights and IoU >= 0.4 over 20+ common frames" catches them
+  -- and also catches 14 & 27, which the footage shows to be TWO Baltimore
+  players one behind the other (gap 0.19 heights, IoU 0.66). From the sideline
+  the line of scrimmage is seen end-on, so bodies stack in the image at every
+  depth: box geometry cannot tell a duplicate from two men in a line, and the
+  ankle ground points do not separate them either (16 & 22 sit 0.96 m apart,
+  the genuine pair 14 & 27 1.28 m). The one test that did separate them is
+  the KEYPOINTS: 16 & 22 agree to 8 px (0.05 box heights), 18 & 19 to 50 px
+  (0.40) -- but the pose detector's own suppression emits keypoints for only
+  one of a twin pair on all but 3-4 frames, so the test almost never fires.
+  Not adopted. Anything built here must be judged on bodies drawn vs bodies
+  in the footage, per [[corrections-must-beat-what-they-correct]], and the
+  v16 duplicate rule (ground distance) is the cautionary case.
+
 - **The regressor's body pose as a cross-camera pairing cue (2026-09-08,
   play 1, 85 common posed frames, 885 same-id pairs vs 47k other-id):**
   pelvis-relative joint distance same p50 0.109 m, other p50 0.130, 30 % of
