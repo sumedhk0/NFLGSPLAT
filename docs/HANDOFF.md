@@ -573,6 +573,22 @@ worst at 1.33 m but one.
 - The pipeline's refit_mono runs the two-view fit by default
   (ENDZONE_WEIGHT=1.0; ONE_VIEW=1 for the v25 mode).
 
+- **The fit put the ankle joint on the turf; the render puts the sole on it.**
+  SMPL-X's ankle joint sits 0.08 m above the sole (a pointed toe 0.19 m),
+  so every fitted body stood through the turf and the render lifted it
+  6-15 px above its own keypoints (`diag/runner_f242_labelled.jpg`: the
+  whole skeleton shifted up, the pose identical to the record). The roster
+  build was not it (probe v27roster: 20.6 px). `fit_mono2d.sole_height`
+  (ankles - 0.08, feet - 0.02) is the ground term and the rigid start's
+  placement now: the runner's skeleton sits on him (probe v27sole), the
+  lineman's limbs 4.7 -> 2.3 px. The ankle-ray ground anchor (ankle at
+  0.08) and the ground term agree at last.
+- The pose median holds only where a component turns less than 0.5 rad in
+  the window; a fast limb stays raw (runner limbs 17.1 -> 14.7 px).
+- Prepared, CPU only: `scratchpad/p1_v28_poses.sh` (the full 05p with the
+  roster build and the sole on the turf, teams, strips) and
+  `p1_v28_render.sh` (the GPU render, on request).
+
 Open after this: the one-view anchor from the ankle ray (ruler above);
 the pairing's ground points from ankles (its 2 m gate feels the 0.8 m
 box bias; ids 14, 25, 73, 78 still 2.5-3 m mis-paired at lag -15); 08c
