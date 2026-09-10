@@ -61,7 +61,7 @@ VEL_WINDOW: int = 12             # frames over which yaw follows the travel dire
 # alike) where a sprinting limb's real second difference is a few cm. A
 # zero-phase moving average over the interpolated axis-angles, this many
 # source frames wide (0 = off); measured 2026-09-08, see HANDOFF v24.
-POSE_SMOOTH_FRAMES: int = 9
+POSE_SMOOTH_FRAMES: int = 7          # a moving median (see smooth_axis_angles); 9 was the mean's window
 UP = np.array([0.0, 0.0, 1.0])
 
 
@@ -170,21 +170,27 @@ def smooth_xy(xy, *, window: int = 9):
 
 
 def smooth_axis_angles(seq, *, window: int = POSE_SMOOTH_FRAMES):
-    """Zero-phase moving average along axis 0 of ``seq [T, ...]`` (axis-angle
-    vectors per joint; fine while neighbouring rotations are close, which
-    interpolated poses at 60 fps are). ``window`` <= 1 returns the input."""
+    """Moving MEDIAN along axis 0 of ``seq [T, ...]`` (axis-angle vectors per
+    joint), edges held. ``window`` <= 1 returns the input.
+
+    A moving mean (v24-v27) smeared fast limbs: on play 1's runner a 9-frame
+    mean took the legs' reprojection from 19 to 25 px at the median (44 px at
+    the p90) and swung a leg out sideways where the stride turned, while it
+    halved a lineman's jitter (limb speed in the body frame 1.24 -> 0.50 m/s).
+    The median keeps the runner where the fit put him (19 px, p90 37) and
+    still takes the lineman to 0.66 m/s (window 7); a one-frame flip is
+    dropped rather than blended in."""
+    from scipy.ndimage import median_filter
+
     a = np.asarray(seq, float)
     if window is None or window <= 1 or len(a) < 3:
         return a
     k = min(int(window), len(a) if len(a) % 2 else len(a) - 1)
     if k < 3:
         return a
-    pad = k // 2
     shape = a.shape
     flat = a.reshape(len(a), -1)
-    padded = np.concatenate([np.repeat(flat[:1], pad, axis=0), flat, np.repeat(flat[-1:], pad, axis=0)])
-    kern = np.ones(k) / k
-    out = np.stack([np.convolve(padded[:, j], kern, mode="valid") for j in range(flat.shape[1])], axis=1)
+    out = median_filter(flat, size=(k, 1), mode="nearest")
     return out.reshape(shape)
 
 
