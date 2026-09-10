@@ -448,6 +448,71 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### Builds by role, and one id that held two men (2026-09-10)
+
+The user asked two things of v28: fix "joint overlap / player confusion" by giving
+each player a fixed set of joints traced frame to frame (occluded ones inferred from
+SMPL-X's priors), and explain why a defensive lineman and a cornerback come out the
+same body. Both were measured before anything was built.
+
+**Builds.** The roster build (height -> beta 0, weight -> beta 1 via mesh volume)
+reached only the ids the jersey OCR named; unnamed "P<id>" bodies were 1.85 m with
+no weight. `identity/roles.py` + `scripts/08n_role_builds.py` read the role off the
+pre-snap formation: the snap is the first frame after which fewer than 40 % of the
+bodies stand still for 12 frames (play 1: 300); the formation is set where 70 % stand
+still (62); the line of scrimmage is the midpoint of the two teams' crouched lines
+(x = -24.0 m; the play's BAL 24 is -23.8). Offence on the line: the five distinct
+bodies nearest the formation's centre (two ids within 0.7 m are one body) are the OL,
+a stance beyond them a TE, else WR; an upright body on or just behind the line within
+2.5 m of centre is the passer; the backfield within 7 m is RB (QB if on the centre's
+line and standing). Defence: a stance on the line = DL, standing on the line within
+9 m = LB (edge / walked-up), second level within 4 m of centre = LB, else DB; a
+defender more than 0.8 m past the ball is mis-teamed (no role). Named ids take their
+roster position; a track that starts within 90 frames of a same-team roled track's
+end, within 2.5 m + 0.06 m/frame of where it ended, inherits its role if it beats the
+runner-up by 1 m. Builds are the KC/BAL 2024 medians (OL 1.96/143 kg, DL 1.91/134,
+LB 1.88/107, DB 1.83/91, WR 1.83/89, TE 1.96/111, RB 1.78/98, QB 1.87/96), written
+into identity_resolved.pkl (frozen dataclass: `dataclasses.replace`), which both 05p
+and the timeline read. Play 1 v30: 26 roles from the formation, 28 from the roster,
+9 inherited, 31 unnamed ids built. Known limits: with a lineman hidden behind the
+centre the tight end is the fifth body (OL build, 32 kg over); adjacent linemen are
+0.3 m apart laterally in the sideline ground points, so duplicate tracks on one
+lineman look like two bodies.
+
+**Confusion, measured.** A ruler (`scratchpad/kp_conflict.py`): project every
+fitted body's joints into the camera and count detected keypoints that sit within
+12 px of ANOTHER body's same or mirrored joint while more than 8 px from their own.
+Sideline: 0.1 % of 57k keypoints (0.5 % near another body at all); endzone 0.5 %.
+The runner's occluded 262-268 has no stolen keypoints: it is occlusion. The user's
+per-player joint set is what the per-box detector + temporal term already give; the
+prediction-gated assignment was NOT built because there is nothing for it to fix at
+the keypoint level. One outlier: id 17 had 28 % (sideline) / 34 % (endzone) of its
+keypoints more than 40 px from its own fit.
+
+**The outlier was an identity merge.** The v28 strip for 17 at 190-211 shows the drawn
+body on the quarterback's keypoints at the centre's place: sideline id 17 held the
+centre AND the quarterback standing 0.7 m behind him for 165 frames (old sideline 16
+merged into 17 by the lag -15 re-pairing), plus two short fragments; sideline 21 and
+15 and endzone 3, 17, 42 likewise (1883 duplicate rows, keypoint sets of 22-25 rows
+that 05p skips). The greedy loop's continuation waiver ("the same person within 1 m")
+let both sideline tracks hold the endzone centre track and the union-find merged
+them; the fit then sat 46-59 px between the two bodies through 142-374, and the edge
+cross-fade dragged even the one-view frames onto the centre's placement.
+`global_ids_checked` (tracking/pair_by_appearance.py) refuses a union that would put
+two same-camera tracks overlapping in time beyond a short continuation (45 frames,
+half the shorter span) into one id; 08i prints the drops (play 1: 4). Re-running the
+repair needs the `*_oldids` caches (they carry tracks_oldpair.parquet's ids; the live
+caches' merged ids cannot map back by boxes): `08i --keypoints keypoints_2d_oldids.parquet
+--keypoints-ids tracks_oldpair.parquet`, copy the oldids caches into place, `08m --old
+tracks_oldpair.parquet` (scratchpad `p1_v30_repair.sh`). After it: 0 oversized keypoint
+sets, 50 duplicate rows (continuations), the centre a crouched body at the line, the
+quarterback his own chain (16 -> 22 -> 33 -> 49). The veto also keeps genuine duplicate
+tracks (two tracker ids on one lineman) apart; that is the linker's problem, to be
+fixed by box overlap, not ground distance, and measured by bodies drawn vs boxes.
+
+**Versions.** v29 = v28b + role builds (poses only; runner strip unchanged). v30 =
+v29 + the vetoed re-pairing (fits running at the time of writing).
+
 ### The endzone camera was never on its paint; the clips are 15 frames apart (2026-09-09, evening)
 
 Three days of pose-side probes (priors, endzone weights, joint limits,
