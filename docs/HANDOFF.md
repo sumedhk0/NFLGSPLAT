@@ -551,6 +551,28 @@ numbers outrank a kit clash, a same-person continuation shares the span,
 median 2 m / lateral 1.2 m gates on ankle ground points -> 37 pairs, the
 worst at 1.33 m but one.
 
+**Later the same evening (v27 running, GPU paused at the user's request at
+21:28 with the v27 render at 154/324 frames -- resumable):**
+
+- The side-agnostic left/right residual (Mono2DConfig.lr_symmetric, 05p
+  --lr-symmetric): no help on the runner (probe v27sym). His bad frames
+  258-270 have bad sideline keypoints (another player covers him; the fit
+  cannot reach them, 10-35 px), not flips. Off.
+- The 9-frame pose smoothing was a moving MEAN of axis-angle vectors: it
+  smeared the runner's legs (limb reprojection 19 -> 25 px p50, 44 p90; a
+  leg swung out where the stride turned) while halving a lineman's jitter
+  (limb speed in the body frame 1.24 -> 0.50 m/s). Now a moving MEDIAN,
+  window 7: the runner as the fit put him (19 px), the lineman 0.66 m/s.
+  Ruler: `scratchpad/smooth_ruler.py`.
+- The remaining 19 px on the runner: the fit used the regressor's betas
+  (~1.72 m) and the timeline rendered the roster build (1.85 m default for
+  an unnamed id) -- every rendered body sat ~20 px above its own
+  keypoints (`diag/runner_f242_labelled.jpg`). 05p fits with the roster
+  build now (render.roster_shape.roster_builds; --no-roster-betas to
+  compare). Probe v27roster measures it.
+- The pipeline's refit_mono runs the two-view fit by default
+  (ENDZONE_WEIGHT=1.0; ONE_VIEW=1 for the v25 mode).
+
 Open after this: the one-view anchor from the ankle ray (ruler above);
 the pairing's ground points from ankles (its 2 m gate feels the 0.8 m
 box bias; ids 14, 25, 73, 78 still 2.5-3 m mis-paired at lag -15); 08c
