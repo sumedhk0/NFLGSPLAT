@@ -62,6 +62,9 @@ VEL_WINDOW: int = 12             # frames over which yaw follows the travel dire
 # zero-phase moving average over the interpolated axis-angles, this many
 # source frames wide (0 = off); measured 2026-09-08, see HANDOFF v24.
 POSE_SMOOTH_FRAMES: int = 7          # a moving median (see smooth_axis_angles); 9 was the mean's window
+# Measured on play 1 with the sole-on-turf fits (limbs' reprojection p50 / jitter p50):
+# runner median-7 17.1 px / 3.9 m/s, adaptive 14.7 / 4.4; lineman 2.3 px / 0.70 either way.
+POSE_SMOOTH_RANGE_RAD: float = 0.5
 UP = np.array([0.0, 0.0, 1.0])
 
 
@@ -179,8 +182,10 @@ def smooth_axis_angles(seq, *, window: int = POSE_SMOOTH_FRAMES):
     halved a lineman's jitter (limb speed in the body frame 1.24 -> 0.50 m/s).
     The median keeps the runner where the fit put him (19 px, p90 37) and
     still takes the lineman to 0.66 m/s (window 7); a one-frame flip is
-    dropped rather than blended in."""
-    from scipy.ndimage import median_filter
+    dropped rather than blended in. Where a component turns more than
+    POSE_SMOOTH_RANGE_RAD within the window the raw value stays (the
+    runner's arms: 17.1 -> 14.7 px, the lineman unchanged)."""
+    from scipy.ndimage import maximum_filter1d, median_filter, minimum_filter1d
 
     a = np.asarray(seq, float)
     if window is None or window <= 1 or len(a) < 3:
@@ -190,7 +195,11 @@ def smooth_axis_angles(seq, *, window: int = POSE_SMOOTH_FRAMES):
         return a
     shape = a.shape
     flat = a.reshape(len(a), -1)
-    out = median_filter(flat, size=(k, 1), mode="nearest")
+    med = median_filter(flat, size=(k, 1), mode="nearest")
+    # a component that turns more than POSE_SMOOTH_RANGE_RAD within the window is real
+    # motion (a runner's arm), kept raw; the median holds only where the window is quiet
+    rng = maximum_filter1d(flat, k, axis=0, mode="nearest") - minimum_filter1d(flat, k, axis=0, mode="nearest")
+    out = np.where(rng <= POSE_SMOOTH_RANGE_RAD, med, flat)
     return out.reshape(shape)
 
 
