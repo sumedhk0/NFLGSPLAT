@@ -1495,7 +1495,25 @@ generic and football-trained re-ID embeddings (neutral / worse than ImageNet
 at the linker's question); a whole-field coverage gate (rejected the right
 camera); numerals as the only ruler (constant was wrong — the hashes caught it).
 
-## Open items, in value order (2026-09-08, after v21)
+## Open items, in value order (2026-09-10, after v30)
+
+0. Twin tracks: two ids on one body (play 1 sideline: 16 & 22 the
+   quarterback, 18 & 19, 21 & 28) put two avatars on one man in the
+   trenches. Box geometry cannot separate them from two men stacked along
+   the sideline camera's line of sight (see the rejected list); the
+   keypoints can, but the detector emits both sets on 3-4 frames only. The
+   cue not yet tried: appearance (a crop embedding) over the coexisting
+   frames, or the endzone view (where the line is seen from the front and
+   the two would be a metre apart). Ruler: bodies drawn vs bodies in the
+   footage, per frame.
+0b. Left/right label flips: the detector swaps a limb group's labels for
+   one to four frames (play 1's motion man at 267, arms and legs at once)
+   and the arms flail. pose.keypoint_filter.fix_lr_flips catches those
+   frames but swaps 3 % of all (player, group, frame) decisions and 13-24 %
+   for the players who run at the camera, because the shoulders are only
+   16 px apart at the median -- the test runs at the noise level. Gate it
+   on the pair's separation, or decide the flip in 3-D where the body's
+   orientation is known. Probe: scratchpad/probe_lr.sh.
 
 1. Two-view coverage: 9-10 of 22 players a frame are paired; the rest
    stand on one camera's box point (0.5 m from a triangulated pelvis at
