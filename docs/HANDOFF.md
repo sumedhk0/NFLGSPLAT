@@ -448,6 +448,27 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### Where play 1 stands at v31 (2026-09-10, late)
+
+Sent: v30 (role builds, the pairing veto) and v31 (twins folded). Fits on the
+v31 ids: two-view 1577 frames on 22 players at 6.1 px sideline / 4.1 px endzone,
+one-view 3487 frames at 2.6 px, population median against a body's own keypoints
+3.1 px (v28b 3.8, v30 3.2). The render draws 67 players over 647 frames.
+
+The bodies that still sit worst against their own keypoints, all one-view:
+id 13 at 12.9 px over 193 frames -- a defensive lineman in a three-point stance
+whose LEFT arm reads 33-49 px off with keypoint confidence 0.26-0.46 while his
+right arm sits at 10-15 px (the down hand is under his own body and the detector
+barely sees it); then 76 (14.5 px, 34 frames), 40 (12.4, 20), 55 (9.7, 11).
+Nothing there looks like an identity fault any more -- the fits are on the right
+men, in the right poses, with an arm that cannot be seen.
+
+Everything tried against the remaining arm jitter has now been measured and
+rejected: the left/right flip filter, holding an unseen limb at its previous
+pose, per-joint outlier rejection, the restart, anatomical bounds, and the
+side-agnostic residual. The arms move when the detector loses them, and no
+prior built out of the previous frame fixes that.
+
 ### Two ids on one body: the feet tell, the boxes do not (2026-09-10)
 
 The render stood two avatars on one man in play 1's trenches. The sideline
