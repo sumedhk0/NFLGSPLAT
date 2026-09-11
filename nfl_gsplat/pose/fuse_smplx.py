@@ -41,6 +41,11 @@ class SMPLXFitConfig:
     min_frame_validity_frac: float = 0.7
     max_iter: int = 50
     loss: str = "soft_l1"             # scipy least_squares loss
+    f_scale: float = 1.0              # the loss's scale in metres: at 1.0 soft_l1 is plain least
+                                      # squares for any joint error under a metre (a 0.3 m
+                                      # triangulation spike is squared in full)
+    temporal_weight: float = 0.0      # pull of body_pose and orient toward the previous frame's,
+                                      # residual sqrt(w) per radian of change
     use_library_betas: bool = True    # reuse the player's cached shape (see resolve_betas)
 
 
@@ -77,10 +82,13 @@ def fit_single_frame(
     init_params: np.ndarray,     # [D]
     forward: ForwardFn,
     cfg: SMPLXFitConfig,
+    prev_params: np.ndarray | None = None,
 ) -> tuple[np.ndarray, float]:
     """Optimize (body_pose, global_orient, transl) for one frame.
 
-    Returns ``(params, residual_rms_m)``.
+    With ``prev_params`` (the previous frame's solution) and
+    ``cfg.temporal_weight`` > 0, body_pose and global_orient are pulled
+    toward it. Returns ``(params, residual_rms_m)``.
     """
     target = np.asarray(target_joints, dtype=np.float64)
     mask = np.asarray(valid, dtype=bool)
@@ -89,17 +97,22 @@ def fit_single_frame(
             f"only {int(mask.sum())} valid joints (need >= {cfg.min_valid_joints})"
         )
 
-    bp_slice, _, _ = _param_slices(cfg)
+    bp_slice, go_slice, _ = _param_slices(cfg)
+    w_t = np.sqrt(cfg.temporal_weight) if (prev_params is not None and cfg.temporal_weight > 0) else 0.0
 
     def residuals(p: np.ndarray) -> np.ndarray:
         joints = forward(p)                       # [J, 3]
         diff = (joints - target)[mask]            # [Mv, 3]
         data_res = diff.reshape(-1)
         prior_res = np.sqrt(cfg.pose_prior_weight) * p[bp_slice]
-        return np.concatenate([data_res, prior_res])
+        parts = [data_res, prior_res]
+        if w_t > 0:
+            parts.append(w_t * (p[bp_slice] - prev_params[bp_slice]))
+            parts.append(w_t * (p[go_slice] - prev_params[go_slice]))
+        return np.concatenate(parts)
 
     sol = least_squares(
-        residuals, init_params, method="trf", loss=cfg.loss,
+        residuals, init_params, method="trf", loss=cfg.loss, f_scale=cfg.f_scale,
         max_nfev=cfg.max_iter * 10, x_scale="jac",
     )
     joints_final = forward(sol.x)
@@ -133,17 +146,20 @@ def fuse_sequence(
     rms = np.full(T, np.nan, dtype=np.float64)
 
     warm = init_params.copy()
+    last_fit = -2
     for t in range(T):
         j_valid = valid[t]
         if j_valid.sum() < cfg.min_valid_joints:
             continue
         try:
             params, res_rms = fit_single_frame(
-                target_joints[t], j_valid, warm, forward, cfg
+                target_joints[t], j_valid, warm, forward, cfg,
+                prev_params=warm if last_fit == t - 1 else None,   # the temporal pull, consecutive frames only
             )
         except Exception as exc:
             _LOG.warning(f"fit_single_frame failed at t={t}: {exc}")
             continue
+        last_fit = t
         bp, go, tr = _unpack_params(params, cfg)
         body_pose[t] = bp
         global_orient[t] = go

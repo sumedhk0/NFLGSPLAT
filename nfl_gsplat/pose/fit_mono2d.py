@@ -1,0 +1,465 @@
+"""SMPL-X pose refit to ONE camera's 2-D keypoints, feet on the turf.
+
+WHY. Half the bodies in play 1's render are one-view (the sideline alone),
+and their poses come from the monocular regressor on 130 px crops, which
+regresses toward the mean pose: measured 2026-09-08 on v14, their joints
+move 0.25 m/s in the body frame against 1.0 m/s for triangulated bodies
+and 2-4 m/s for a running player's limbs -- mannequins gliding. The 2-D
+keypoints (05m, YOLOv8-pose) exist for every tracked person and carry the
+articulation the regressor lost.
+
+HOW. Per frame, least squares over (body_pose 63, global_orient 3,
+transl 3) on the same forward kinematics the renderer animates
+(pose.forward_kinematics), with residuals:
+  reprojection   (K R t of the camera) of the body joints onto the
+                 keypoints, weighted by confidence, in pixels / px_scale;
+  ground         the sole at z = 0 (the lower ankle 0.08 m up, feet 0.02) -- the depth
+                 along the camera ray is what one view cannot see, and the
+                 turf fixes it;
+  placement      the pelvis' (x, y) within a metre of the box-bottom ground
+                 point -- the same anchor the timeline places the body on;
+  pose prior     L2 on body_pose (as fuse_smplx) and a pull toward the
+                 regressor's pose, small, so joints the keypoints do not see
+                 (spine, collars, feet) keep a plausible bend;
+  temporal       body_pose and global_orient toward the previous frame's.
+Warm-started frame to frame; the first frame starts from the regressor's
+pose and the rigid placement.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+
+import numpy as np
+from scipy.optimize import least_squares
+
+from nfl_gsplat.pose.fuse_smplx import SMPLXFitConfig, _pack_params, _param_slices
+
+
+@dataclass
+class Mono2DConfig:
+    min_conf: float = 0.3
+    min_joints: int = 6
+    px_scale: float = 10.0          # a pixel of reprojection error weighs 1/10 of a metre-unit residual
+    ground_weight: float = 3.0      # metres of ankle height -> residual
+    # The box-bottom ground point IS the one-view body's depth: at 1.0 the
+    # reprojection dragged the pelvis 0.38 m off it along the camera ray (play 1,
+    # 2026-09-09; a runner's skeleton 60 px below his feet on the footage), and
+    # the box point is unbiased against a right triangulated pelvis (0.52 m
+    # spread, which the render camera on the sideline's side foreshortens).
+    place_weight: float = 10.0      # metres of pelvis xy from the box-bottom ground point
+    prior_weight: float = 0.02      # L2 on body_pose
+    init_weight: float = 0.05       # pull toward the regressor's body_pose
+    temporal_weight: float = 0.3    # toward the previous frame's body_pose and orient
+    # One view trades lean against depth: without this the fits leaned 34 deg
+    # (p50) where the triangulated bodies lean 16, 5 % past 60. Measured with
+    # 05p --validate on play 1 (365 two-view frames): weight 3 -> 21 deg, 10 ->
+    # 20 deg, |diff| 7 deg, none past 60, p90 joint error 0.31 -> 0.26 m,
+    # reprojection 3.2 -> 3.4 px.
+    tilt_weight: float = 10.0       # on the lean past tilt_free_deg, radians
+    tilt_free_deg: float = 20.0
+    up_axis: tuple = (0.0, 1.0, 0.0)  # the rest skeleton's up (SMPL-X is y-up)
+    bounds_weight: float = 0.0      # joint-range prior (pose_bounds): sqrt(w) per radian outside the range
+    bounds_table: str = "data"      # "data" (the two-camera fits' range) or "anatomical" (pose_bounds.ANATOMICAL)
+    view_weights: tuple = ()        # per-view multipliers on the reprojection residual (empty = 1 for every view)
+    # The detector's left/right labels flip for a few frames at a time on a player running
+    # at the camera (play 1's runner: 11 % of his frames for the arms). With this the
+    # residual of each left/right joint pair is the smaller of the labelled and the swapped
+    # assignment, so the 3-D pose -- continuous through the temporal term -- chooses the
+    # labelling each frame instead of following a flip.
+    lr_symmetric: bool = False
+    # A joint the first fit leaves further than this from its keypoint, and further than
+    # JOINT_REJECT_RATIO times the frame's median joint error, is an outlier of the frame
+    # (a limb the detector put on the player behind: play 1's runner, frames 258-270,
+    # arms 10-35 px off while the rest fit at 3): the frame is refitted with that keypoint
+    # unobserved, so the temporal term holds the limb from the frame before. 0 = off.
+    joint_reject_px: float = 0.0
+    joint_reject_ratio: float = 3.0
+    # A limb no camera sees this frame -- occluded, or its keypoints thrown out by the temporal
+    # filter -- has nothing holding it but the generic pose prior, and the fit throws it about
+    # (play 1's motion man through the crowd, frames 262-270: arms 8.9 m/s in his own frame
+    # while his shoulders sit at 3 px). With this the pull toward the previous frame's pose is
+    # multiplied by it on the UNSEEN joints only, so an unseen limb keeps the pose it had and a
+    # seen one is untouched. 1 = off. The temporal term is the only place SMPL-X's own notion of
+    # a body can hold a limb: the pose prior is a plain L2 toward the mean pose.
+    unseen_temporal_mult: float = 1.0
+    max_iter: int = 40
+    loss: str = "soft_l1"
+
+
+# SMPL-X body joints in left/right pairs: hips, knees, ankles, feet, collars, shoulders, elbows, wrists
+LR_PAIRS = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20, 21))
+
+
+ANKLES = (7, 8)
+FEET = (10, 11)
+PELVIS = 0
+NUM_BODY_JOINTS = 22
+# A keypoint at a joint constrains the rotation of the joint ABOVE it (the elbow's position is
+# the shoulder's rotation), so an unseen joint's own rotation is held only when nothing below it
+# is seen either. This maps each body_pose joint to the joints whose keypoints constrain it.
+_BELOW: dict[int, tuple[int, ...]] = {
+    1: (1, 4, 7, 10), 2: (2, 5, 8, 11), 4: (4, 7, 10), 5: (5, 8, 11), 7: (7, 10), 8: (8, 11),
+    16: (16, 18, 20), 17: (17, 19, 21), 18: (18, 20), 19: (19, 21), 20: (20,), 21: (21,),
+    13: (13, 16, 18, 20), 14: (14, 17, 19, 21), 12: (12, 15), 15: (15,),
+}
+
+
+def unseen_joints(seen) -> list[int]:
+    """Body-pose joints whose rotation no keypoint constrains this frame: nothing at or below
+    them was seen. Joints outside the table (the spine) are never called unseen -- the torso
+    keypoints constrain them through the chain."""
+    seen = np.asarray(seen, bool)
+    out = []
+    for j, below in _BELOW.items():
+        if not any(seen[b] for b in below if b < len(seen)):
+            out.append(j)
+    return out
+# The turf is the SOLE, not the ankle joint: the timeline places a body with its lowest
+# vertex on the ground, and SMPL-X's ankle joint sits 0.08 m above the sole (its foot
+# joint 0.02, a pointed toe 0.06 below that). Fitting "the lower ankle at z = 0" put the
+# feet through the turf and the render then lifted every body 6-15 px off its own
+# keypoints (play 1's runner, 2026-09-09) -- and the ankle-ray ground anchor already
+# assumes the ankle at 0.08.
+ANKLE_ABOVE_SOLE_M: float = 0.08
+FOOT_ABOVE_SOLE_M: float = 0.02
+
+
+def sole_height(J) -> float:
+    """Height of the body's sole above the turf from its joints: the lowest of the ankles
+    less ANKLE_ABOVE_SOLE_M and the feet less FOOT_ABOVE_SOLE_M (zero = standing on it)."""
+    J = np.asarray(J, float)
+    return float(min(J[ANKLES[0], 2] - ANKLE_ABOVE_SOLE_M, J[ANKLES[1], 2] - ANKLE_ABOVE_SOLE_M,
+                     J[FEET[0], 2] - FOOT_ABOVE_SOLE_M, J[FEET[1], 2] - FOOT_ABOVE_SOLE_M))
+RESTART_PX: float = np.inf      # a warm-started frame this far off its keypoints (rms) is refitted from the rigid start;
+                                # OFF: measured on play 1 (the runner, probe v27) the restart found lower-rms but wider
+                                # legs on one-view frames -- the warm start was the regulariser the depth ambiguity needs
+
+
+def tilt_rad(global_orient, up_axis=(0.0, 1.0, 0.0)):
+    """The body's lean from upright: the rest skeleton's up axis (SMPL-X +y) against world +z."""
+    from scipy.spatial.transform import Rotation
+
+    up = Rotation.from_rotvec(np.asarray(global_orient, float)).apply(np.asarray(up_axis, float))
+    return float(np.arccos(np.clip(up[2], -1.0, 1.0)))
+
+
+def project(K, R, t, X):
+    p = (K @ (R @ np.asarray(X, float).T + np.asarray(t, float)[:, None])).T
+    z = p[:, 2:3]
+    return p[:, :2] / np.where(np.abs(z) < 1e-9, 1e-9, z), z[:, 0]
+
+
+def _views(uv, conf, cam):
+    """Normalise one view or a list of views to lists (uv, conf, cam per view)."""
+    if isinstance(cam, (list, tuple)) and len(cam) and isinstance(cam[0], (list, tuple)) and len(cam[0]) == 3 \
+            and np.ndim(cam[0][0]) == 2:
+        return list(uv), list(conf), list(cam)
+    return [uv], [conf], [cam]
+
+
+def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConfig, base_cfg: SMPLXFitConfig,
+                 init_body_pose=None, prev_params=None):
+    """``(params, reproj_rms_px, n_used)`` for one frame; ``uv [22, 2]``, ``conf [22]``,
+    ``cam = (K, R, t)`` world -> image, ``ground_xy`` the body's ground point.
+    With LISTS (one entry per camera) the frame is fitted to every view's
+    keypoints at once -- a two-view fit straight to the detections, which
+    keeps the depth the second camera gives without a triangulation step
+    between (measured 2026-09-09: the triangulate-then-refit chain wobbles
+    10 cm on a lineman whose keypoints hold still)."""
+    uvs, confs, cams = _views(uv, conf, cam)
+    uses, ws, targets = [], [], []
+    vw = list(cfg.view_weights) + [1.0] * (len(uvs) - len(cfg.view_weights))
+    for v, (u, c) in enumerate(zip(uvs, confs)):
+        use = np.asarray(c, float) >= cfg.min_conf
+        uses.append(use)
+        ws.append(np.sqrt(np.asarray(c, float)[use]) * float(vw[v]))
+        targets.append(np.asarray(u, float)[use])
+    n_used = int(sum(int(u.sum()) for u in uses))
+    if n_used < cfg.min_joints:
+        raise ValueError(f"only {n_used} keypoints above {cfg.min_conf}")
+    bp_slice, go_slice, _ = _param_slices(base_cfg)
+    bp_init = None if init_body_pose is None else np.asarray(init_body_pose, float).reshape(-1)
+    gxy = np.asarray(ground_xy, float)
+    # the pull toward the previous frame's pose, per body_pose coefficient: heavier where no
+    # camera saw the joint or anything below it
+    n_bp = (bp_slice.stop or 0) - (bp_slice.start or 0)
+    temporal_w = np.full(n_bp, np.sqrt(cfg.temporal_weight))
+    if cfg.unseen_temporal_mult != 1.0:
+        seen = np.zeros(NUM_BODY_JOINTS, bool)
+        for use in uses:
+            u = np.asarray(use, bool)
+            seen[: len(u)] |= u[: NUM_BODY_JOINTS]
+        for j in unseen_joints(seen):
+            k = (j - 1) * 3                            # body_pose holds joints 1..21
+            if 0 <= k < n_bp:
+                temporal_w[k:k + 3] *= np.sqrt(cfg.unseen_temporal_mult)
+
+    # for the side-agnostic residual: per view, the index of each used joint's partner within
+    # the used set (-1 when the partner is not used) -- swapping means comparing joint a's
+    # projection with joint b's target and vice versa
+    partner = []
+    for use in uses:
+        idx = {int(j): k for k, j in enumerate(np.flatnonzero(use))}
+        pr = np.full(len(idx), -1, int)
+        for a, b in LR_PAIRS:
+            if a in idx and b in idx:
+                pr[idx[a]], pr[idx[b]] = idx[b], idx[a]
+        partner.append(pr)
+
+    def view_error(pix, target, pr):
+        """Pixel error per used joint; with lr_symmetric each left/right pair takes the
+        labelled or the swapped assignment, whichever the pair as a whole fits better."""
+        err = pix - target
+        if cfg.lr_symmetric and (pr >= 0).any():
+            has = pr >= 0
+            own = np.arange(len(pix))
+            mate = np.where(has, pr, own)
+            d_keep = np.linalg.norm(err, axis=1)
+            d_swap = np.where(has, np.linalg.norm(pix - target[mate], axis=1), d_keep)
+            take = has & (d_swap + d_swap[mate] < d_keep + d_keep[mate])
+            err = np.where(take[:, None], pix - target[np.where(take, pr, own)], err)
+        return err
+
+    def residuals(p):
+        J = forward(p)
+        rep_parts, behind_parts = [], []
+        for (K, R, t), use, w, target, pr in zip(cams, uses, ws, targets, partner):
+            pix, depth = project(K, R, t, J[use])
+            err = view_error(pix, target, pr)
+            rep_parts.append((err * w[:, None] / cfg.px_scale).reshape(-1))
+            behind_parts.append(np.maximum(0.0, -depth))          # nothing behind a camera
+        rep = np.concatenate(rep_parts)
+        behind = np.concatenate(behind_parts)
+        ground = cfg.ground_weight * np.array([sole_height(J)])
+        place = cfg.place_weight * (J[PELVIS, :2] - gxy)
+        prior = np.sqrt(cfg.prior_weight) * p[bp_slice]
+        parts = [rep, behind, ground, place, prior]
+        if cfg.tilt_weight > 0:
+            parts.append(np.array([cfg.tilt_weight * max(0.0, tilt_rad(p[go_slice], cfg.up_axis)
+                                                         - np.radians(cfg.tilt_free_deg))]))
+        if cfg.bounds_weight > 0:
+            from nfl_gsplat.pose.pose_bounds import ANAT_HI, ANAT_LO, excess
+
+            if cfg.bounds_table == "anatomical":
+                parts.append(np.sqrt(cfg.bounds_weight) * excess(p[bp_slice], lo=ANAT_LO, hi=ANAT_HI, margin=0.0))
+            else:
+                parts.append(np.sqrt(cfg.bounds_weight) * excess(p[bp_slice]))
+        if bp_init is not None:
+            parts.append(np.sqrt(cfg.init_weight) * (p[bp_slice] - bp_init))
+        if prev_params is not None:
+            parts.append(temporal_w * (p[bp_slice] - prev_params[bp_slice]))
+            parts.append(np.sqrt(cfg.temporal_weight) * (p[go_slice] - prev_params[go_slice]))
+        return np.concatenate(parts)
+
+    # max_nfev counts iterations here (one residual call each, the Jacobian
+    # numerical: 70 more); at x10 a noisy frame ran 400 iterations = 5 s
+    sol = least_squares(residuals, init_params, method="trf", loss=cfg.loss, max_nfev=cfg.max_iter,
+                        x_scale="jac")
+    J = forward(sol.x)
+    errs = []
+    for (K, R, t), use, target, pr in zip(cams, uses, targets, partner):
+        pix, _ = project(K, R, t, J[use])
+        errs.append(np.linalg.norm(view_error(pix, target, pr), axis=1))
+    err = np.concatenate(errs)
+    if cfg.joint_reject_px > 0 and len(err) > cfg.min_joints:
+        gate = max(cfg.joint_reject_px, cfg.joint_reject_ratio * float(np.median(err)))
+        bad = err > gate
+        if bad.any() and (~bad).sum() >= cfg.min_joints:
+            confs2, k = [], 0
+            for c, use in zip(confs, uses):
+                c2 = np.asarray(c, float).copy()
+                idx = np.flatnonzero(use)
+                c2[idx[bad[k:k + len(idx)]]] = 0.0
+                k += len(idx)
+                confs2.append(c2)
+            cfg2 = replace(cfg, joint_reject_px=0.0)
+            return fit_frame_2d(uvs if len(uvs) > 1 else uvs[0], confs2 if len(confs2) > 1 else confs2[0],
+                                cams if len(cams) > 1 else cams[0], sol.x, forward, ground_xy, cfg2, base_cfg,
+                                init_body_pose=init_body_pose, prev_params=prev_params)
+    return sol.x, float(np.sqrt(np.mean(err * err))), n_used
+
+
+def rigid_start_2d(rest_joints, ground_xy, cam, uv, conf, forward, base_cfg, init_body_pose=None, *, min_conf=0.3,
+                   init_orient=None, heading_span_deg: float = 40.0):
+    """Initial params: the regressor's body pose (or zero), the pelvis over
+    the ground point, and the heading. With ``init_orient`` (the regressor's
+    world orientation) the headings tried are within ``heading_span_deg`` of
+    it; without, a coarse search over 12 headings -- which a symmetric body
+    cannot disambiguate front from back (measured: the mirrored heading
+    wins on noise and drags the fit into the wrong arm basin)."""
+    from scipy.spatial.transform import Rotation
+
+    rest = np.asarray(rest_joints, float)
+    bp = np.zeros(base_cfg.body_pose_dim) if init_body_pose is None else np.asarray(init_body_pose, float).reshape(-1)
+    uvs, confs, cams = _views(uv, conf, cam)
+    uv, conf, (K, R, t) = uvs[0], confs[0], cams[0]              # the start is scored on the first view
+    use = np.asarray(conf, float) >= min_conf
+    best = None
+    if init_orient is not None:
+        base_rot = Rotation.from_rotvec(np.asarray(init_orient, float))
+        headings = [Rotation.from_euler("z", np.radians(d)) * base_rot
+                    for d in (-heading_span_deg, -heading_span_deg / 2, 0.0, heading_span_deg / 2, heading_span_deg)]
+    else:
+        headings = [Rotation.from_euler("z", yaw) for yaw in np.linspace(0, 2 * np.pi, 12, endpoint=False)]
+    for rot in headings:
+        go = rot.as_rotvec()
+        p = _pack_params(bp, go, np.zeros(3))
+        J = forward(p)
+        # the pelvis over the ground point, the sole on the turf (z = 0)
+        p[-3:-1] += np.asarray(ground_xy, float) - J[PELVIS, :2]
+        p[-1] -= sole_height(J)
+        J = forward(p)
+        pix, depth = project(K, R, t, J[use])
+        if (depth <= 0).any():
+            continue
+        e = float(np.sqrt(np.mean(np.sum((pix - np.asarray(uv, float)[use]) ** 2, axis=1))))
+        if best is None or e < best[0]:
+            best = (e, p)
+    if best is None:
+        raise ValueError("no heading puts the body in front of the camera")
+    return best[1], best[0]
+
+
+def fit_sequence_2d(uv_seq, conf_seq, cams, ground_seq, rest_joints, forward, *, cfg=None, base_cfg=None,
+                    init_body_pose_seq=None, init_orient_seq=None, frames=None, max_gap=12, prev_seq=None,
+                    cfg_overrides=None):
+    """``uv_seq [T, 22, 2]``, ``conf_seq [T, 22]``, ``cams`` a list of (K, R, t) per frame,
+    ``ground_seq [T, 2]``. Returns ``(params [T, 69], valid [T], reproj_px [T])``.
+    With ``frames``, a gap over ``max_gap`` frames restarts from the rigid start
+    (the temporal pull would otherwise drag a pose across the gap). ``prev_seq``
+    (a params vector or None per frame) replaces the warm start and the temporal
+    anchor for that frame -- the neighbouring two-view fit where one exists, so
+    a one-view frame between two fused blocks continues them instead of the
+    pose from before the block (measured: 187 boundaries on play 1 with pelvis
+    jumps of 0.43 m and 35 deg of orientation at the p50). ``cfg_overrides``
+    (a dict of Mono2DConfig fields or None per frame) reweights single frames:
+    inside a fused span the placement and the pull to the fused pose are made
+    strong, so the keypoints refine the two-view fit rather than replace it."""
+    cfg = cfg or Mono2DConfig()
+    base_cfg = base_cfg or SMPLXFitConfig()
+    T = len(uv_seq)
+    params = np.zeros((T, base_cfg.body_pose_dim + base_cfg.global_orient_dim + base_cfg.transl_dim))
+    valid = np.zeros(T, bool)
+    rep = np.full(T, np.nan)
+    prev = None
+    last_frame = None
+    for i in range(T):
+        init_bp = None if init_body_pose_seq is None else init_body_pose_seq[i]
+        init_go = None if init_orient_seq is None else init_orient_seq[i]
+        if frames is not None and last_frame is not None and int(frames[i]) - last_frame > max_gap:
+            prev = None
+        if prev_seq is not None and prev_seq[i] is not None:
+            prev = np.asarray(prev_seq[i], float).copy()
+        cfg_i = cfg if (cfg_overrides is None or not cfg_overrides[i]) else replace(cfg, **cfg_overrides[i])
+        try:
+            if prev is None:
+                start, _ = rigid_start_2d(rest_joints, ground_seq[i], cams[i], uv_seq[i], conf_seq[i], forward,
+                                          base_cfg, init_bp, min_conf=cfg.min_conf, init_orient=init_go)
+            else:
+                start = prev.copy()
+                # keep the pelvis over this frame's ground point
+                start[-3:-1] += np.asarray(ground_seq[i], float) - forward(prev)[PELVIS, :2]
+            p, e, n = fit_frame_2d(uv_seq[i], conf_seq[i], cams[i], start, forward, ground_seq[i], cfg_i, base_cfg,
+                                   init_body_pose=init_bp, prev_params=prev)
+            # A warm start that lands badly stays badly: the soft-L1 loss is flat far from the
+            # keypoints and a limb flipped on the frame before is a minimum of its own (play 1's
+            # runner, frames 272-281: one leg out sideways at 7 px median over the rest). A
+            # frame worse than RESTART_PX is refitted from the rigid start and the better kept.
+            if prev is not None and e > RESTART_PX:
+                try:
+                    start2, _ = rigid_start_2d(rest_joints, ground_seq[i], cams[i], uv_seq[i], conf_seq[i], forward,
+                                               base_cfg, init_bp, min_conf=cfg.min_conf, init_orient=init_go)
+                    p2, e2, _n2 = fit_frame_2d(uv_seq[i], conf_seq[i], cams[i], start2, forward, ground_seq[i], cfg_i,
+                                               base_cfg, init_body_pose=init_bp, prev_params=prev)
+                    if e2 < e:
+                        p, e = p2, e2
+                except ValueError:
+                    pass
+        except ValueError:
+            continue
+        params[i], valid[i], rep[i] = p, True, e
+        prev = p
+        last_frame = None if frames is None else int(frames[i])
+    return params, valid, rep
+
+
+def body_frame_speeds(params_seq, frames, forward, *, fps: float, base_cfg=None):
+    """Joint speeds in the BODY frame (pose only: orient and transl zeroed),
+    metres per second between consecutive records: ``[T-1, 22]``. The ruler
+    for gliding: play 1 v14 regressor bodies 0.25 m/s, triangulated 1.0."""
+    base_cfg = base_cfg or SMPLXFitConfig()
+    bp_slice, _, _ = _param_slices(base_cfg)
+    J = []
+    for p in params_seq:
+        q = np.zeros(len(p))
+        q[bp_slice] = np.asarray(p, float)[bp_slice]
+        J.append(forward(q))
+    J = np.stack(J)
+    dt = np.diff(np.asarray(frames, float)) / float(fps)
+    return np.linalg.norm(np.diff(J, axis=0), axis=2) / dt[:, None]
+
+
+def merge_into_refit(blob, fits, betas_of, *, source: str = "mono2d"):
+    """``blob`` (the 05f pose cache) with ``fits`` (pid -> (frames, params [T, 69], valid))
+    added where the fused refit has no record for that frame and player; the
+    fused record wins. Returns the new blob and the number of records added."""
+    base = SMPLXFitConfig()
+    bp_slice, go_slice, tr_slice = _param_slices(base)
+    frames = {int(f): dict(recs) for f, recs in blob.get("frames", {}).items()}
+    added = 0
+    mono = {}
+    for pid, (fs, params, valid) in fits.items():
+        for f, p, ok in zip(fs, params, valid):
+            f, pid = int(f), int(pid)
+            if not ok or pid in frames.get(f, {}):
+                continue
+            frames.setdefault(f, {})[pid] = {
+                "betas": np.asarray(betas_of[pid], np.float32),
+                "body_pose": np.asarray(p[bp_slice], np.float32),
+                "global_orient": np.asarray(p[go_slice], np.float32),
+                "transl": np.asarray(p[tr_slice], np.float32),
+            }
+            added += 1
+            mono[pid] = mono.get(pid, 0) + 1
+    out = dict(blob)
+    out["frames"] = frames
+    out["mono"] = {"source": source, "records": mono}
+    return out, added
+
+
+def blend_params(p_fit, p_anchor, w, *, base_cfg=None, pose: bool = True):
+    """``w`` of ``p_anchor`` and ``1 - w`` of ``p_fit``: orient by axis-angle slerp,
+    transl linearly, and the body_pose too (per-joint slerp) when ``pose``. Used to
+    cross-fade a one-view block into the two-view fit it borders (a long-gap edge
+    turned 17 deg at the p50 on play 1 however the fit was weighted).
+
+    ``pose=False`` keeps the fitted body pose: blending the POSE toward a record
+    up to twelve frames away gave play 1's runner a stride phase from 0.2 s later
+    (frames 258-268: arms 40-90 px off their keypoints while the fit itself sat
+    at 3), the placement is what the edge needs continuous."""
+    from scipy.spatial.transform import Rotation, Slerp
+
+    base_cfg = base_cfg or SMPLXFitConfig()
+    bp_slice, go_slice, tr_slice = _param_slices(base_cfg)
+    p_fit, p_anchor = np.asarray(p_fit, float), np.asarray(p_anchor, float)
+    out = p_fit.copy()
+    if w <= 0:
+        return out
+    if w >= 1:
+        out[go_slice] = p_anchor[go_slice]
+        out[tr_slice] = p_anchor[tr_slice]
+        if pose:
+            out[bp_slice] = p_anchor[bp_slice]
+        return out
+    rots_fit = np.concatenate([p_fit[bp_slice].reshape(-1, 3), p_fit[go_slice].reshape(1, 3)])
+    rots_anc = np.concatenate([p_anchor[bp_slice].reshape(-1, 3), p_anchor[go_slice].reshape(1, 3)])
+    blended = []
+    for a, b in zip(rots_fit, rots_anc):
+        sl = Slerp([0.0, 1.0], Rotation.from_rotvec(np.stack([a, b])))
+        blended.append(sl([w]).as_rotvec()[0])
+    blended = np.stack(blended)
+    if pose:
+        out[bp_slice] = blended[:-1].reshape(-1)
+    out[go_slice] = blended[-1]
+    out[tr_slice] = (1 - w) * p_fit[tr_slice] + w * p_anchor[tr_slice]
+    return out

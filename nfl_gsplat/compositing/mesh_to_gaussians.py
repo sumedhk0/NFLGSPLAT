@@ -70,7 +70,8 @@ def mesh_to_gaussians(vertices, faces, *, colour=(0.7, 0.7, 0.7),
                       thickness_ratio: float = 0.25) -> GaussianBatch:
     """One flat, surface-aligned gaussian per vertex.
 
-    ``colour`` is linear RGB in [0, 1]. In-plane extent is derived from the mesh
+    ``colour`` is linear RGB in [0, 1], either one triple for the whole body or
+    ``[V, 3]`` per vertex. In-plane extent is derived from the mesh
     itself -- the mean distance between connected vertices -- so the shell stays
     closed whatever the body's size, rather than needing a hand-tuned radius per
     player.
@@ -88,13 +89,29 @@ def mesh_to_gaussians(vertices, faces, *, colour=(0.7, 0.7, 0.7),
         np.linalg.norm(tri[:, 2] - tri[:, 1], axis=1),
         np.linalg.norm(tri[:, 0] - tri[:, 2], axis=1),
     ])
-    sigma_xy = float(np.mean(edges)) * 0.75      # overlap slightly, no gaps
-    sigma_n = max(thickness_ratio * sigma_xy, 1e-4)
-
+    # Per-vertex extent: the mean length of the edges at THAT vertex. One
+    # body-wide mean was dominated by SMPL-X's dense face (half the
+    # vertices) and left gaps between the torso's splats -- bodies rendered
+    # as stipple at 150 px. Each Gaussian now covers its own spacing.
     n = len(vertices)
-    scale = np.tile(np.log([sigma_xy, sigma_xy, sigma_n]).astype(np.float32), (n, 1))
+    ends = np.concatenate([faces[:, 0], faces[:, 1], faces[:, 1], faces[:, 2], faces[:, 2], faces[:, 0]])
+    lens = np.concatenate([edges[: len(faces)], edges[: len(faces)],
+                           edges[len(faces): 2 * len(faces)], edges[len(faces): 2 * len(faces)],
+                           edges[2 * len(faces):], edges[2 * len(faces):]])
+    acc = np.zeros(n)
+    cnt = np.zeros(n)
+    np.add.at(acc, ends, lens)
+    np.add.at(cnt, ends, 1.0)
+    per_vertex = np.where(cnt > 0, acc / np.maximum(cnt, 1.0), float(np.mean(edges)))
+    sigma_xy = per_vertex * 0.75                  # overlap slightly, no gaps
+    sigma_n = np.maximum(thickness_ratio * sigma_xy, 1e-4)
+    scale = np.log(np.stack([sigma_xy, sigma_xy, sigma_n], axis=1)).astype(np.float32)
     alpha = float(np.clip(opacity, 1e-4, 1 - 1e-4))
-    rgb = np.tile(np.asarray(colour, np.float32), (n, 1))
+    colour = np.asarray(colour, np.float32)
+    # One colour for the body, or one per vertex (appearance sampled from the
+    # footage, compositing.appearance) -- the batch does not care which.
+    rgb = (colour.reshape(n, 3) if colour.ndim == 2 and len(colour) == n
+           else np.tile(colour.reshape(3), (n, 1)))
 
     return GaussianBatch(
         xyz=vertices.astype(np.float32),

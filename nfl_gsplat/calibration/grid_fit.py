@@ -1,0 +1,143 @@
+"""Does the calibrated yard-line grid lie on the painted lines? In pixels.
+
+WHY. A sideline camera can read both paint rulers at 1.00 and put players at
+1.82 m and still be wrong: play 2 (2026-09-04) chose a camera whose
+projected 5-yard lines ran skewed across the painted ones and labelled them
+the wrong way round. The rulers test row positions along the lines the
+camera believes in; the heights test the lens; neither asks whether the
+grid is ON the paint. This does, directly: project every 5-yard line, detect
+the white near-vertical segments, and report the median distance from a
+detected segment's midpoint to the nearest projected line.
+
+A right camera reads a few pixels (line width, detection jitter); the play-2
+camera reads tens.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from nfl_gsplat.calibration.field_landmarks import (GOAL_LINE_X_M, HALF_WIDTH_M,
+                                                    YARD_LINE_SPACING_M)
+
+# A candidate whose grid sits farther than this from the paint (median over
+# detected segments, 1080p) is not on the field. Measured: play 1's right
+# camera 10.1 px (line width, detector jitter, interpolated per-frame
+# cameras); play 2's skewed one 148.9 px.
+MAX_GRID_PX_1080: float = 25.0
+# Yard lines may lean this far from vertical (08's default; the detector's own
+# 35 left a dead zone on red-zone views), and fewer detected segments than
+# this is no measurement: on play 2 the frames with two segments read 150 px
+# off two edges that were not yard lines, the frames with three read 8 px.
+GRID_VERTICAL_DEG: float = 45.0
+MIN_SEGMENTS: int = 4
+
+
+def projected_lines(K, R, t, *, half_width_m: float = HALF_WIDTH_M):
+    """Homogeneous 2-D lines ``[L, 3]`` (normalised so ``|(a, b)| = 1``) of
+    every 5-yard line between the goal lines, plus the goal lines."""
+    P = np.asarray(K, float) @ np.column_stack([np.asarray(R, float)[:, :2],
+                                                np.asarray(t, float).reshape(3)])
+    n = int(round(2 * GOAL_LINE_X_M / YARD_LINE_SPACING_M))
+    xs = -GOAL_LINE_X_M + YARD_LINE_SPACING_M * np.arange(0, n + 1)
+    out = []
+    for x in xs:
+        a = P @ np.array([x, -half_width_m, 1.0])
+        b = P @ np.array([x, half_width_m, 1.0])
+        if a[2] <= 1e-9 or b[2] <= 1e-9:
+            continue
+        pa, pb = a[:2] / a[2], b[:2] / b[2]
+        line = np.cross([pa[0], pa[1], 1.0], [pb[0], pb[1], 1.0])
+        norm = np.hypot(line[0], line[1])
+        if norm < 1e-9:
+            continue
+        out.append(line / norm)
+    return np.asarray(out).reshape(-1, 3)
+
+
+def segment_distances_px(segments, lines, *, orient_tol_deg=None):
+    """Per segment, the mean distance of its two ENDPOINTS to the nearest
+    projected line (nearest by the midpoint). Endpoints, not the midpoint: a
+    grid rotated about the image centre leaves midpoints near the lines and
+    swings the endpoints by tens of pixels -- the skew is the failure mode.
+
+    With ``orient_tol_deg`` a segment counts only when its direction is
+    within that many degrees of its nearest projected line's direction:
+    the way to score a view where the yard lines are not vertical (the
+    endzone camera sees them running across the image) without letting
+    hash marks and numerals vote."""
+    if len(segments) == 0 or len(lines) == 0:
+        return np.zeros(0)
+    p0 = np.asarray([[s.p0[0], s.p0[1], 1.0] for s in segments])
+    p1 = np.asarray([[s.p1[0], s.p1[1], 1.0] for s in segments])
+    mids = 0.5 * (p0 + p1)
+    mids[:, 2] = 1.0
+    nearest = np.argmin(np.abs(mids @ lines.T), axis=1)           # [S]
+    L = lines[nearest]                                            # [S, 3]
+    d = 0.5 * (np.abs(np.einsum("ij,ij->i", p0, L)) + np.abs(np.einsum("ij,ij->i", p1, L)))
+    if orient_tol_deg is None:
+        return d
+    seg_ang = np.degrees(np.arctan2(p1[:, 1] - p0[:, 1], p1[:, 0] - p0[:, 0]))
+    line_ang = np.degrees(np.arctan2(L[:, 0], -L[:, 1]))          # direction of (a, b)-normal line
+    diff = np.abs((seg_ang - line_ang + 90.0) % 180.0 - 90.0)
+    return d[diff <= orient_tol_deg]
+
+
+def detect_segments_any(image_bgr, player_boxes=None, *, min_len_frac: float = 0.15):
+    """White segments of EVERY orientation, unmerged: detect_lines keeps
+    near-vertical ones and merges them by x, which collapses the yard lines
+    as the endzone camera sees them (running across the image). The
+    orientation gate against the projected lines does the selecting."""
+    import cv2
+
+    from nfl_gsplat.calibration import field_detect as fd
+    from nfl_gsplat.calibration.field_features import YardLineSeg
+
+    cfg = fd.FieldDetectConfig()
+    img = np.asarray(image_bgr)
+    mask = fd._zero_boxes(fd._white_mask(img, cfg), player_boxes)
+    min_len = int(min_len_frac * min(img.shape[0], img.shape[1]))
+    segs = cv2.HoughLinesP(mask, 1, np.pi / 180, threshold=80, minLineLength=min_len,
+                           maxLineGap=cfg.max_line_gap_px)
+    if segs is None:
+        return []
+    return [YardLineSeg((float(x1), float(y1)), (float(x2), float(y2)))
+            for x1, y1, x2, y2 in fd._hough_rows(segs)]
+
+
+def grid_distance_px(image_bgr, K, R, t, *, cfg=None, player_boxes=None, orient_tol_deg=None):
+    """``(median_px, n_segments)`` for one frame. NaN when no segment is found.
+    ``orient_tol_deg`` scores any view (see segment_distances_px); without
+    it the sideline's near-vertical filter applies."""
+    from nfl_gsplat.calibration.field_detect import FieldDetectConfig, detect_lines
+
+    if orient_tol_deg is not None:
+        segs = detect_segments_any(np.asarray(image_bgr), player_boxes)
+    else:
+        cfg = cfg or FieldDetectConfig(vertical_deg=GRID_VERTICAL_DEG)
+        segs = detect_lines(np.asarray(image_bgr), cfg, player_boxes)
+    d = segment_distances_px(segs, projected_lines(K, R, t), orient_tol_deg=orient_tol_deg)
+    if len(d) < MIN_SEGMENTS:
+        return float("nan"), int(len(d))
+    return float(np.median(d)), int(len(d))
+
+
+def grid_scores(video_path, cams, frames, *, cfg=None, orient_tol_deg=None):
+    """Median grid distance over ``frames`` through per-frame ``cams``
+    (nearest solved frame), and the total segment count."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(video_path))
+    ds, n_total = [], 0
+    for f in frames:
+        key = min(cams, key=lambda k: abs(k - f))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(key))
+        ok, img = cap.read()
+        if not ok:
+            continue
+        K, R, t = cams[key]
+        d, n = grid_distance_px(img, K, R, t, cfg=cfg, orient_tol_deg=orient_tol_deg)
+        if np.isfinite(d):
+            ds.append(d)
+            n_total += n
+    cap.release()
+    return (float(np.median(ds)) if ds else float("nan")), n_total

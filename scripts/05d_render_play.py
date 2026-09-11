@@ -34,7 +34,8 @@ from nfl_gsplat.utils.logging import get_logger
 _LOG = get_logger(__name__)
 
 BODY_RGB = (0.72, 0.62, 0.55)
-TEAM_RGB = {"ARI": (0.62, 0.11, 0.22), "SEA": (0.11, 0.22, 0.34)}
+TEAM_RGB = {"ARI": (0.62, 0.11, 0.22), "SEA": (0.11, 0.22, 0.34),
+            "KC": (0.89, 0.09, 0.22), "BAL": (0.14, 0.13, 0.44)}
 
 # A track must survive this FRACTION of the posed frames to be drawn. Twenty-two
 # players are on the field and a real one is tracked for most of the play; a
@@ -68,6 +69,23 @@ def main() -> None:
     ap.add_argument("--field-res-m", type=float, default=0.15)
     ap.add_argument("--width", type=int, default=960)
     ap.add_argument("--height", type=int, default=540)
+    ap.add_argument("--ply-dir", type=Path, default=None,
+                    help="also write each frame's merged Gaussian scene as a "
+                         "PLY (field + bodies), for a real gsplat render on PACE")
+    ap.add_argument("--appearance-mean", action="store_true",
+                    help="average a body's colours over its frames instead of "
+                         "the median (the median rejects grass sampled at the "
+                         "silhouette; the mean was measured to wash reds pink)")
+    ap.add_argument("--min-facing", type=float, default=0.1,
+                    help="cosine a vertex must face the camera by to be "
+                         "sampled; higher erodes the silhouette, where grass "
+                         "bleeds into the body's colour")
+    ap.add_argument("--no-appearance", dest="appearance", action="store_false",
+                    help="flat team colours instead of colours sampled from "
+                         "the footage (compositing.appearance)")
+    ap.add_argument("--fitted-appearance", type=Path, default=None,
+                    help="directory of appearance_<pid>.npz from scripts/05i; bodies "
+                         "with a file use the fitted colour, scale and opacity")
     ap.add_argument("--min-cutoff", type=float, default=2.0,
                     help="zero-phase filters twice, so this runs HIGHER than a "
                          "causal cutoff would")
@@ -77,7 +95,9 @@ def main() -> None:
     import smplx
     import torch
 
-    from nfl_gsplat.compositing.merge_ply import batch_from_arrays
+    from nfl_gsplat.compositing.appearance import (median_colours,
+                                                   vertex_colours_from_view)
+    from nfl_gsplat.compositing.merge_ply import batch_from_arrays, save_gaussian_ply
     from nfl_gsplat.compositing.mesh_to_gaussians import merge, mesh_to_gaussians
     from nfl_gsplat.compositing.preview_cpu import (intrinsics, look_at,
                                                     render_gaussians_cpu)
@@ -90,6 +110,13 @@ def main() -> None:
 
     blob = pickle.load(open(args.poses, "rb"))
     cam_name, cache = blob["cam"], blob["frames"]
+    # WORLD mode (scripts/05f): recs carry `transl` in metres on the field,
+    # fitted to fused two-view joints, instead of a foot pixel to ground
+    # through a camera; ids are the merged player ids. A real camera is still
+    # needed to read appearance off the footage.
+    world = bool(blob.get("world", False))
+    if world:
+        cam_name = blob["appearance_cam"]
     frames = sorted(cache)
     if not frames:
         raise SetupError(f"{args.poses} holds no posed frames")
@@ -102,8 +129,8 @@ def main() -> None:
     # tracker's raw fragment ids. Map every fragment of a player onto that
     # player, or nothing here matches and every body is drawn generic.
     stitched = (ident_blob.get("stitch") or {}).get(cam_name, {})
-    by_player = {p.tracks[cam_name]: p for p in merged.values()
-                 if cam_name in p.tracks}
+    by_player = ({pid: p for pid, p in merged.items()} if world else
+                 {p.tracks[cam_name]: p for p in merged.values() if cam_name in p.tracks})
     player_of = {frag: by_player[pid] for frag, pid in stitched.items()
                  if pid in by_player}
     for pid, p in by_player.items():          # unstitched ids map to themselves
@@ -152,8 +179,11 @@ def main() -> None:
     for tid, fs in tracks.items():
         body = np.stack([cache[f][tid]["body_pose"].reshape(-1) for f in fs])
         orient = np.stack([cache[f][tid]["global_orient"].reshape(-1) for f in fs])
-        foot = np.stack([[0.5 * (cache[f][tid]["bbox"][0] + cache[f][tid]["bbox"][2]),
-                          float(cache[f][tid]["bbox"][3])] for f in fs])
+        if world:
+            foot = np.stack([cache[f][tid]["transl"] for f in fs])       # metres
+        else:
+            foot = np.stack([[0.5 * (cache[f][tid]["bbox"][0] + cache[f][tid]["bbox"][2]),
+                              float(cache[f][tid]["bbox"][3])] for f in fs])
 
         # Drop impossible jumps BEFORE smoothing. A zero-phase filter spreads an
         # outlier both forwards and backwards, so one bad frame smears over its
@@ -164,8 +194,10 @@ def main() -> None:
         # once across 816 frames -- a threshold that cannot trigger is not a
         # guard. The camera is available per frame, so the real quantity is
         # cheap: a player who covers more than MAX_SPEED_M_S has jumped.
-        ground = np.full((len(fs), 2), np.nan)
+        ground = foot[:, :2].copy() if world else np.full((len(fs), 2), np.nan)
         for i, f in enumerate(fs):
+            if world:
+                break
             intr_i, pose_i = track.at(f)
             try:
                 ground[i] = ground_point(tuple(foot[i]), intr_i.K(),
@@ -196,7 +228,7 @@ def main() -> None:
         for i, f in enumerate(fs):
             smoothed.setdefault(f, {})[tid] = {
                 "body_pose": body_s[i], "global_orient": orient_s[i],
-                "bbox": cache[f][tid]["bbox"], "foot": foot_s[i]}
+                "bbox": cache[f][tid].get("bbox"), "foot": foot_s[i]}
     _LOG.info("smoothed %d tracks; replaced %d impossible foot-point jumps",
               len(tracks), n_outliers)
 
@@ -218,6 +250,9 @@ def main() -> None:
         intr, pose = track.at(f)
         k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
         for rec in smoothed[f].values():
+            if world:
+                feet.append(np.asarray(rec["foot"], float))
+                continue
             try:
                 feet.append(ground_point(tuple(rec["foot"]),
                                          k_cam, rot_cam, tvec_cam))
@@ -236,7 +271,83 @@ def main() -> None:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     k_mat = intrinsics(args.width, args.height, fov_deg=55.0)
+    # Appearance comes from the frame each body was posed in: project the
+    # placed mesh through that frame's camera, read the pixels under the
+    # vertices that face it, team colour where the frame did not see them.
+    # One frame per body for now; the median over a track's frames is the
+    # next step and appearance.median_colours is built for it.
+    reader = (imageio.get_reader(str(args.play_dir / f"{cam_name}.mp4"))
+              if args.appearance else None)
+
+    def posed_mesh(tid, rec):
+        with torch.no_grad():
+            res = model(
+                betas=torch.tensor(betas_of[tid][None, :model.num_betas],
+                                   dtype=torch.float32),
+                body_pose=torch.tensor(rec["body_pose"].reshape(1, -1),
+                                       dtype=torch.float32),
+                global_orient=torch.tensor(rec["global_orient"].reshape(1, 3),
+                                           dtype=torch.float32))
+        return (res.vertices[0].cpu().numpy().astype(np.float64),
+                res.joints[0].cpu().numpy().astype(np.float64))
+
+    def placed_mesh(tid, rec, k_cam, rot_cam, tvec_cam):
+        """World vertices of a body: the fit's own translation in world mode,
+        else the foot pixel grounded through this frame's camera."""
+        verts, joints = posed_mesh(tid, rec)
+        if world:
+            return verts + np.asarray(rec["foot"], float)
+        return place_mesh(verts, joints, tuple(rec["foot"]), k_cam, rot_cam, tvec_cam)
+
+    # Pass 1: a body's colours from EVERY frame it was posed in, averaged per
+    # vertex over the frames that saw that vertex. One frame carries motion
+    # blur, whoever ran in front, and a single viewing side; over a track the
+    # occluders move on and both sides get seen. Sums and counts per body,
+    # so memory is two arrays per player, not one per frame.
+    # Per body, per frame, the sampled colours (NaN where unseen), float16:
+    # ~60 frames x 30 bodies x 10k vertices x 3 x 2 bytes is about 100 MB,
+    # and it buys the median, which the mean's grass bleed made necessary.
+    samples: dict[int, list] = {}
+    if reader is not None:
+        t_app = time.time()
+        for f in frames:
+            if f not in smoothed:
+                continue
+            try:
+                frame_rgb = reader.get_data(int(f))
+            except (IndexError, ValueError):
+                continue
+            intr, pose = track.at(f)
+            k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
+            for tid, rec in smoothed[f].items():
+                placed = placed_mesh(tid, rec, k_cam, rot_cam, tvec_cam)
+                seen = vertex_colours_from_view(placed, faces, k_cam, rot_cam,
+                                                tvec_cam, frame_rgb,
+                                                min_facing=args.min_facing)
+                samples.setdefault(tid, []).append(seen.astype(np.float16))
+        _LOG.info("appearance: %d bodies coloured from the footage (%.0f s)",
+                  len(samples), time.time() - t_app)
+    # Reduce once per body: median by default, mean on request.
+    body_colour: dict[int, np.ndarray] = {}
+    for tid, frames_seen in samples.items():
+        stack = np.stack(frames_seen).astype(np.float32)       # [F, V, 3]
+        with np.errstate(all="ignore"):
+            body_colour[tid] = (np.nanmean(stack, axis=0) if args.appearance_mean
+                                else np.nanmedian(stack, axis=0))
     t0 = time.time()
+
+    # Fitted appearance (scripts/05i) replaces the sampled colour AND adjusts
+    # each Gaussian's scale and opacity, for the bodies that have a file.
+    fitted: dict[int, dict] = {}
+    if args.fitted_appearance is not None:
+        for tid in tracks:
+            path = args.fitted_appearance / f"appearance_{tid}.npz"
+            if path.exists():
+                z = np.load(path)
+                fitted[tid] = {k: np.asarray(z[k], np.float32)
+                               for k in ("colour", "log_scale_mult", "opacity_logit")}
+        _LOG.info("fitted appearance for %d of %d bodies from %s", len(fitted),
+                  len(tracks), args.fitted_appearance)
 
     for n, f in enumerate(frames):
         if f not in smoothed:
@@ -245,27 +356,31 @@ def main() -> None:
         k_cam, rot_cam, tvec_cam = intr.K(), pose.R, pose.t
         batches = []
         for tid, rec in smoothed[f].items():
-            with torch.no_grad():
-                res = model(
-                    betas=torch.tensor(betas_of[tid][None, :model.num_betas],
-                                       dtype=torch.float32),
-                    body_pose=torch.tensor(rec["body_pose"].reshape(1, -1),
-                                           dtype=torch.float32),
-                    global_orient=torch.tensor(rec["global_orient"].reshape(1, 3),
-                                               dtype=torch.float32))
-            verts = res.vertices[0].cpu().numpy().astype(np.float64)
-            joints = res.joints[0].cpu().numpy().astype(np.float64)
-            placed = place_mesh(verts, joints, tuple(rec["foot"]),
-                                k_cam, rot_cam, tvec_cam)
+            placed = placed_mesh(tid, rec, k_cam, rot_cam, tvec_cam)
             player = player_of.get(tid)
             colour = (TEAM_RGB.get(player.team, BODY_RGB) if player is not None
                       else BODY_RGB)
+            if tid in fitted:
+                body = mesh_to_gaussians(placed, faces, colour=fitted[tid]["colour"])
+                body.scale = body.scale + fitted[tid]["log_scale_mult"][:, None]
+                body.opacity = fitted[tid]["opacity_logit"]
+                batches.append(body)
+                continue
+            if tid in body_colour:
+                colour, _unseen = median_colours(body_colour[tid][None],
+                                                 fallback=colour)
             batches.append(mesh_to_gaussians(placed, faces, colour=colour))
 
         scene = merge([field] + batches)
+        if args.ply_dir is not None:
+            args.ply_dir.mkdir(parents=True, exist_ok=True)
+            save_gaussian_ply(args.ply_dir / f"scene_{f:05d}.ply", scene)
         img = render_gaussians_cpu(scene, k_mat, rot_v, tvec_v,
                                    width=args.width, height=args.height)
-        imageio.imwrite(args.out_dir / f"frame_{f:05d}.png", img)
+        # render_gaussians_cpu returns BGR; imageio writes RGB. Every render
+        # before this swapped red and blue, and the green field hid it until
+        # the first footage-coloured bodies came out the wrong team colour.
+        imageio.imwrite(args.out_dir / f"frame_{f:05d}.png", img[..., ::-1])
         if n % 10 == 0:
             done = n + 1
             rate = done / max(1e-6, time.time() - t0)

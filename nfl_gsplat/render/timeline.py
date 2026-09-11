@@ -1,0 +1,431 @@
+"""A body for every detected player on every frame.
+
+WHY. The world-mode render drew only players fused in both views with four
+or more fused frames and a 21-frame track floor, from poses every sixth
+frame: on play 1 that was a median of 14 bodies where 21-23 players were
+detected, jumping in and out with the track fragments, at 10 frames per
+second, and a spine tilt of 39 degrees median (falling over). This module
+builds, per frame, the state of EVERY detected player -- ground position,
+pose parameters, yaw -- from what the pipeline already has:
+
+  position   both views' feet through their cameras, fused per frame, then
+             zero-phase smoothed per player and gaps up to a limit filled
+  pose       the fused refit (world) where it exists; else the sideline
+             per-view pose turned into the world; else the play's MEDIAN
+             pose (a real stance from the data, not a T-pose), facing the
+             player's direction of travel. Interpolated to every frame:
+             per-joint SLERP between posed frames, held at the ends
+  upright    the world orientation is split into yaw about the vertical and
+             a tilt off it; the tilt is clamped to MAX_TILT_DEG, the yaw kept
+
+Fragments are not stitched here: a player whose id changes keeps a body
+either side of the change; appearance continuity is a later problem.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+from scipy.spatial.transform import Rotation, Slerp
+
+from nfl_gsplat.utils.logging import get_logger
+
+_LOG = get_logger(__name__)
+
+MAX_TILT_DEG: float = 35.0       # single-view poses: a lineman's stance; nobody stands past this
+# Two-view poses (fused, or triangulated from keypoints) are measured, not
+# guessed: on play 1 the triangulated refit tilts p50 16 deg, p90 38, none
+# past 60 -- bent linemen and lunges, not bodies falling over. The 35 deg
+# clamp built for monocular garbage trimmed 13 % of them.
+MAX_TILT_TWO_VIEW_DEG: float = 60.0
+DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one player
+# An id the endzone alone sees this frame is its unreconciled detection,
+# poor along its depth axis (x). Within these distances of a kept state it
+# is the endzone's copy of that player: play 2 drew six red bodies strung
+# along x from one group of players. (The sideline's own detections are
+# never deduped -- see dedupe_frames.)
+ONE_VIEW_DEPTH_M: float = 4.0
+ONE_VIEW_ACROSS_M: float = 1.5
+MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
+# A body interpolated through a detection gap is anchored (its player was
+# seen within MAX_GAP_FRAMES) -- unless it stands on top of a body the
+# sideline detects in that frame: then it is the same player under a second
+# fragment id. Measured on play 1 v23 (visible vanishes / double bodies per
+# rendered frame-pair): the plain rule 155 / 108, anchoring alone 39 / 360,
+# anchoring with this radius 46 / 123 at 0.4 m, 55 / 121 at 0.5.
+INTERP_DUP_M: float = 0.4
+MIN_FRAMES: int = 6              # shorter fragments are noise
+VEL_WINDOW: int = 12             # frames over which yaw follows the travel direction
+# Poses as rendered still shake: hands and feet move 27 cm between rendered
+# frames at the p90 in second differences (play 1 v23, fused and one-view
+# alike) where a sprinting limb's real second difference is a few cm. A
+# zero-phase moving average over the interpolated axis-angles, this many
+# source frames wide (0 = off); measured 2026-09-08, see HANDOFF v24.
+POSE_SMOOTH_FRAMES: int = 7          # a moving median (see smooth_axis_angles); 9 was the mean's window
+# Measured on play 1 with the sole-on-turf fits (limbs' reprojection p50 / jitter p50):
+# runner median-7 17.1 px / 3.9 m/s, adaptive 14.7 / 4.4; lineman 2.3 px / 0.70 either way.
+POSE_SMOOTH_RANGE_RAD: float = 0.5
+UP = np.array([0.0, 0.0, 1.0])
+
+
+@dataclass
+class PlayerState:
+    pid: int
+    xy: np.ndarray               # [2] ground, metres
+    body_pose: np.ndarray        # [21, 3]
+    global_orient: np.ndarray    # [3] world axis-angle (upright-clamped)
+    betas: np.ndarray            # [10]
+    source: str                  # fused | sideline | default
+    clamped: bool = False
+    views: tuple = ("sideline", "endzone")   # which cameras saw this id on this frame
+
+
+@dataclass
+class Timeline:
+    frames: list[int]
+    states: dict[int, list[PlayerState]] = field(default_factory=dict)
+    n_clamped: int = 0
+    n_default: int = 0
+    n_duplicates: int = 0
+    members: dict = field(default_factory=dict)   # player id -> member ids (after stitching)
+
+
+# ---- orientation helpers ---------------------------------------------------
+
+def body_up(global_orient) -> np.ndarray:
+    """World direction of the body's up axis (SMPL-X canonical +y)."""
+    return Rotation.from_rotvec(np.asarray(global_orient, float)).apply([0.0, 1.0, 0.0])
+
+
+def tilt_deg(global_orient) -> float:
+    u = body_up(global_orient)
+    return float(np.degrees(np.arccos(np.clip(u @ UP, -1.0, 1.0))))
+
+
+def clamp_tilt(global_orient, max_tilt_deg: float = MAX_TILT_DEG):
+    """``(orient, clamped)``: the same yaw, tilt reduced to ``max_tilt_deg``.
+
+    The correction is the smallest rotation that brings the body's up axis
+    to the cone, applied on the left (in the world), so the facing direction
+    survives."""
+    r = Rotation.from_rotvec(np.asarray(global_orient, float))
+    u = r.apply([0.0, 1.0, 0.0])
+    ang = np.degrees(np.arccos(np.clip(u @ UP, -1.0, 1.0)))
+    if ang <= max_tilt_deg:
+        return np.asarray(global_orient, float), False
+    axis = np.cross(u, UP)
+    n = np.linalg.norm(axis)
+    if n < 1e-9:                                  # upside down: fall back to yaw only
+        return upright_from_yaw(yaw_of(global_orient)), True
+    fix = Rotation.from_rotvec(axis / n * np.radians(ang - max_tilt_deg))
+    return (fix * r).as_rotvec(), True
+
+
+def yaw_of(global_orient) -> float:
+    """Facing direction on the ground: the body's forward (+z) projected."""
+    f = Rotation.from_rotvec(np.asarray(global_orient, float)).apply([0.0, 0.0, 1.0])
+    return float(np.arctan2(f[1], f[0]))
+
+
+def upright_from_yaw(yaw: float) -> np.ndarray:
+    """An upright body (canonical y up -> world z up) facing ``yaw``."""
+    stand = Rotation.from_euler("x", 90.0, degrees=True)           # y -> z, and forward +z -> -y
+    turn = Rotation.from_rotvec([0.0, 0.0, yaw + np.pi / 2.0])      # -y (-90 deg) -> yaw
+    return (turn * stand).as_rotvec()
+
+
+# ---- interpolation ---------------------------------------------------------
+
+def interp_axis_angle(frames_known, values_known, frames_out):
+    """Per-joint SLERP of ``[N, J, 3]`` axis-angle rows at ``frames_known``
+    onto ``frames_out``, held constant beyond the ends."""
+    fk = np.asarray(frames_known, float)
+    vk = np.asarray(values_known, float)
+    fo = np.asarray(frames_out, float)
+    if vk.ndim == 2:
+        vk = vk[:, None, :]
+    if len(fk) == 1:
+        return np.repeat(vk, len(fo), axis=0)
+    fo_c = np.clip(fo, fk[0], fk[-1])
+    out = np.empty((len(fo), vk.shape[1], 3))
+    for j in range(vk.shape[1]):
+        out[:, j] = Slerp(fk, Rotation.from_rotvec(vk[:, j]))(fo_c).as_rotvec()
+    return out
+
+
+def smooth_xy(xy, *, window: int = 9):
+    """Zero-phase moving average with edge handling; NaN rows stay NaN."""
+    xy = np.asarray(xy, float)
+    out = xy.copy()
+    ok = np.isfinite(xy).all(1)
+    if ok.sum() < 3:
+        return out
+    idx = np.flatnonzero(ok)
+    for d in range(2):
+        v = xy[idx, d]
+        k = min(window, len(v) if len(v) % 2 else len(v) - 1)
+        if k < 3:
+            continue
+        pad = k // 2
+        vp = np.concatenate([np.full(pad, v[0]), v, np.full(pad, v[-1])])
+        out[idx, d] = np.convolve(vp, np.ones(k) / k, mode="valid")
+    return out
+
+
+def smooth_axis_angles(seq, *, window: int = POSE_SMOOTH_FRAMES):
+    """Moving MEDIAN along axis 0 of ``seq [T, ...]`` (axis-angle vectors per
+    joint), edges held. ``window`` <= 1 returns the input.
+
+    A moving mean (v24-v27) smeared fast limbs: on play 1's runner a 9-frame
+    mean took the legs' reprojection from 19 to 25 px at the median (44 px at
+    the p90) and swung a leg out sideways where the stride turned, while it
+    halved a lineman's jitter (limb speed in the body frame 1.24 -> 0.50 m/s).
+    The median keeps the runner where the fit put him (19 px, p90 37) and
+    still takes the lineman to 0.66 m/s (window 7); a one-frame flip is
+    dropped rather than blended in. Where a component turns more than
+    POSE_SMOOTH_RANGE_RAD within the window the raw value stays (the
+    runner's arms: 17.1 -> 14.7 px, the lineman unchanged)."""
+    from scipy.ndimage import maximum_filter1d, median_filter, minimum_filter1d
+
+    a = np.asarray(seq, float)
+    if window is None or window <= 1 or len(a) < 3:
+        return a
+    k = min(int(window), len(a) if len(a) % 2 else len(a) - 1)
+    if k < 3:
+        return a
+    shape = a.shape
+    flat = a.reshape(len(a), -1)
+    med = median_filter(flat, size=(k, 1), mode="nearest")
+    # a component that turns more than POSE_SMOOTH_RANGE_RAD within the window is real
+    # motion (a runner's arm), kept raw; the median holds only where the window is quiet
+    rng = maximum_filter1d(flat, k, axis=0, mode="nearest") - minimum_filter1d(flat, k, axis=0, mode="nearest")
+    out = np.where(rng <= POSE_SMOOTH_RANGE_RAD, med, flat)
+    return out.reshape(shape)
+
+
+def fill_gaps(frames, xy, *, max_gap: int = MAX_GAP_FRAMES):
+    """Linear fill of NaN rows between known rows when the gap is short."""
+    xy = np.asarray(xy, float).copy()
+    ok = np.isfinite(xy).all(1)
+    idx = np.flatnonzero(ok)
+    for a, b in zip(idx[:-1], idx[1:]):
+        if b - a > 1 and (frames[b] - frames[a]) <= max_gap:
+            w = np.linspace(0, 1, b - a + 1)[1:-1, None]
+            xy[a + 1:b] = (1 - w) * xy[a] + w * xy[b]
+    return xy
+
+
+def yaw_from_motion(xy, *, window: int = VEL_WINDOW, fallback: float = 0.0):
+    """Facing from the direction of travel, per row; ``fallback`` when still."""
+    xy = np.asarray(xy, float)
+    n = len(xy)
+    yaw = np.full(n, fallback)
+    for i in range(n):
+        a, b = max(0, i - window // 2), min(n - 1, i + window // 2)
+        d = xy[b] - xy[a]
+        if np.isfinite(d).all() and np.linalg.norm(d) > 0.3:
+            yaw[i] = float(np.arctan2(d[1], d[0]))
+    # hold the last known heading through still stretches
+    last = fallback
+    for i in range(n):
+        if yaw[i] == fallback and i > 0:
+            yaw[i] = last
+        last = yaw[i]
+    return yaw
+
+
+# ---- stitching ------------------------------------------------------------------
+
+def relabel(ground_by_frame, views_by_frame, poses_by_pid, player_of):
+    """Merge ids under ``player_of`` (id -> player id, from tracking.stitch).
+
+    Positions: one per player per frame (mean when two members share a
+    frame); views: the union; poses: fused wins over single-view, else the
+    earlier id. Returns ``(ground, views, poses, members)`` with ``members``
+    mapping player id -> sorted member ids, so a texture fitted to any
+    member can dress the player."""
+    rank = {"fused": 0, "sideline": 1, "default": 2}
+    members: dict[int, list] = {}
+    ground, views, poses = {}, {}, {}
+    for f, d in ground_by_frame.items():
+        acc: dict[int, list] = {}
+        vs: dict[int, set] = {}
+        for pid, xy in d.items():
+            new = int(player_of.get(pid, pid))
+            members.setdefault(new, set()).add(int(pid))
+            acc.setdefault(new, []).append(np.asarray(xy, float))
+            if views_by_frame and pid in views_by_frame.get(f, {}):
+                vs.setdefault(new, set()).update(views_by_frame[f][pid])
+        ground[f] = {new: np.mean(v, axis=0) for new, v in acc.items()}
+        if views_by_frame:
+            views[f] = {new: tuple(sorted(v)) for new, v in vs.items()}
+    for pid, byf in poses_by_pid.items():
+        new = int(player_of.get(pid, pid))
+        members.setdefault(new, set()).add(int(pid))
+        dst = poses.setdefault(new, {})
+        for f, rec in byf.items():
+            if f not in dst or (rank.get(rec[3], 3), pid) < (rank.get(dst[f][3], 3), dst[f][4]):
+                dst[f] = (rec[0], rec[1], rec[2], rec[3], int(pid))
+    poses = {pid: {f: rec[:4] for f, rec in byf.items()} for pid, byf in poses.items()}
+    return ground, (views if views_by_frame else None), poses, {k: sorted(v) for k, v in members.items()}
+
+
+# ---- the timeline -------------------------------------------------------------
+
+_SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
+
+
+def _anchored_by_frame(frames, views_by_frame, anchor_cam: str, gap: int) -> dict:
+    """frame -> {pid}: ids the anchor camera detected within ``gap`` frames of that
+    frame. A body interpolated through a short detection gap is that player,
+    not a duplicate of the neighbour it stands 0.8 m from: play 1 (2026-09-08)
+    had 223 disappear/reappear events over 54 drawn ids, gaps of 4-16 frames,
+    most of them linemen deduped while their track blinked."""
+    seen: dict = {}
+    for f, d in (views_by_frame or {}).items():
+        for pid, v in d.items():
+            if anchor_cam in v:
+                seen.setdefault(int(pid), []).append(int(f))
+    out: dict = {int(f): set() for f in frames}
+    fr = np.asarray(sorted(int(f) for f in frames))
+    for pid, fs in seen.items():
+        fs = np.asarray(sorted(fs))
+        lo = np.searchsorted(fr, fs - gap, side="left")
+        hi = np.searchsorted(fr, fs + gap, side="right")
+        for a, b in zip(lo, hi):
+            for f in fr[a:b]:
+                out[int(f)].add(pid)
+    return out
+
+
+def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_frame=None,
+                  anchor_cam: str = "sideline", anchored=None) -> int:
+    """Drop, per frame, states that are another state's duplicate.
+
+    A state whose id the anchor camera DETECTED in this frame is never a
+    duplicate: the sideline sees the whole field and two of its boxes in
+    one frame are two people. Measured on play 1 (2026-09-08): the older
+    rule -- any one-view state within its view's depth/across radii of a
+    kept state is the other camera's copy -- dropped 11.6 states a frame,
+    mostly linemen a metre apart along the sideline's depth axis (4 m);
+    the sideline had 20 unexcluded ids a frame and 16 bodies were drawn.
+    The rest (an id the endzone alone sees this frame, or nobody: an
+    interpolated frame) dedupe against the kept states: endzone-only
+    within the endzone's depth/across radii (its copy of a sideline
+    player the pairing missed), interpolated within ``radius_m``. Without
+    ``views_by_frame`` nothing is anchored and every state dedupes at
+    ``radius_m``, two-view first, best pose first. Returns the number dropped."""
+    dropped = 0
+    for f, states in tl.states.items():
+        seen = views_by_frame.get(f, {}) if views_by_frame else {}
+        recent = anchored.get(f, set()) if anchored else set()
+        detected = [s for s in states if anchor_cam in seen.get(s.pid, ())]
+        interp = [s for s in states if anchor_cam not in seen.get(s.pid, ()) and s.pid in recent]
+        rest = [s for s in states if anchor_cam not in seen.get(s.pid, ()) and s.pid not in recent]
+        order = sorted(rest, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
+        kept: list = list(detected)
+        for s in sorted(interp, key=lambda s: s.pid):
+            if any(float(np.hypot(*(s.xy - k.xy))) < INTERP_DUP_M for k in detected):
+                dropped += 1                                   # a second fragment id on a detected body
+                continue
+            kept.append(s)
+        for s in order:
+            this = seen.get(s.pid, ())
+            if this and anchor_cam not in this:
+                d = [np.abs(s.xy - k.xy) for k in kept]
+                dup = any(dd[0] < ONE_VIEW_DEPTH_M and dd[1] < ONE_VIEW_ACROSS_M for dd in d)
+            else:
+                dup = any(float(np.hypot(*(s.xy - k.xy))) < radius_m for k in kept)
+            if dup:
+                dropped += 1
+                continue
+            kept.append(s)
+        tl.states[f] = sorted(kept, key=lambda s: s.pid)
+    return dropped
+
+
+def median_pose(records):
+    """Element-wise median body pose over ``records`` (each ``[21, 3]``), a
+    data-driven stance to give players who were never posed."""
+    if not records:
+        return np.zeros((21, 3))
+    return np.median(np.stack([np.asarray(r, float).reshape(21, 3) for r in records]), axis=0)
+
+
+def _nearest_views(views_by_frame, pid, f, frames_with_record):
+    """The id's recorded views at ``f``, else at its nearest recorded frame,
+    else both cameras (an id nobody recorded is not gated as one-view)."""
+    rec = views_by_frame.get(f, {}).get(pid)
+    if rec:
+        return rec
+    best, best_d = None, None
+    for g in frames_with_record:
+        v = views_by_frame.get(g, {}).get(pid)
+        if v and (best_d is None or abs(g - f) < best_d):
+            best, best_d = v, abs(g - f)
+    return best or ("sideline", "endzone")
+
+
+def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
+                   default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
+                   min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
+                   pose_smooth: int = POSE_SMOOTH_FRAMES) -> Timeline:
+    """``frames``: every frame to render. ``ground_by_frame``: frame ->
+    {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
+    global_orient_world[3], betas[10], source)} at posed frames (any
+    subset). Returns a Timeline with a state per player per frame."""
+    frames = [int(f) for f in frames]
+    f_index = {f: i for i, f in enumerate(frames)}
+    exclude = set(int(p) for p in (exclude or ()))
+    pids = sorted({pid for g in ground_by_frame.values() for pid in g} - exclude)
+    default_pose = np.zeros((21, 3)) if default_pose is None else np.asarray(default_pose, float)
+    default_betas = np.zeros(10) if default_betas is None else np.asarray(default_betas, float)
+    tl = Timeline(frames=frames)
+    for pid in pids:
+        xy = np.full((len(frames), 2), np.nan)
+        for f, g in ground_by_frame.items():
+            if pid in g and f in f_index:
+                xy[f_index[f]] = g[pid]
+        seen = np.flatnonzero(np.isfinite(xy).all(1))
+        if len(seen) < min_frames:
+            continue
+        xy = smooth_xy(fill_gaps(frames, xy))
+        posed = poses_by_pid.get(pid, {})
+        pf = sorted(f for f in posed if f in f_index)
+        if pf:
+            bp = interp_axis_angle(pf, [posed[f][0] for f in pf], frames)
+            go = interp_axis_angle(pf, [np.asarray(posed[f][1]).reshape(1, 3) for f in pf], frames)[:, 0]
+            bp = smooth_axis_angles(bp, window=pose_smooth)
+            go = smooth_axis_angles(go, window=pose_smooth)
+            betas = np.mean([np.asarray(posed[f][2], float) for f in pf], axis=0)
+            source = posed[pf[0]][3]
+        else:
+            yaw = yaw_from_motion(xy)
+            bp = np.repeat(default_pose[None], len(frames), axis=0)
+            go = np.stack([upright_from_yaw(y) for y in yaw])
+            betas = default_betas
+            source = "default"
+            tl.n_default += 1
+        for i, f in enumerate(frames):
+            if not np.isfinite(xy[i]).all():
+                continue
+            limit = max(max_tilt_deg, MAX_TILT_TWO_VIEW_DEG) if source == "fused" else max_tilt_deg
+            orient, clamped = clamp_tilt(go[i], limit)
+            tl.n_clamped += int(clamped)
+            # A frame without a views record for this id (interpolated, filled)
+            # inherits the nearest recorded one: defaulting it to two views let
+            # a one-view id pass as two-view at every interpolated frame --
+            # past the one-view dedupe and under the two-view tilt limit
+            # (measured 2026-09-05: "s/e" printed for one-view ids).
+            views = (tuple(_nearest_views(views_by_frame, pid, f, seen))
+                     if views_by_frame else ("sideline", "endzone"))
+            tl.states.setdefault(f, []).append(PlayerState(
+                pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
+                source=source, clamped=clamped, views=views))
+    anchored = _anchored_by_frame(frames, views_by_frame, "sideline", MAX_GAP_FRAMES) if views_by_frame else None
+    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, views_by_frame=views_by_frame, anchored=anchored)
+    _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
+              "%d frames tilt-clamped", len(pids), len(frames),
+              float(np.median([len(v) for v in tl.states.values()])) if tl.states else 0,
+              tl.n_default, tl.n_clamped)
+    return tl

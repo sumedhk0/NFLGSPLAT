@@ -5,7 +5,7 @@ def test_number_anchor_landmarks_exist_with_correct_Y():
     from nfl_gsplat.calibration.field_landmarks import (
         NFL_LANDMARKS, NUMBER_CENTER_Y_M, _yardline_x_m,
     )
-    assert abs(NUMBER_CENTER_Y_M - 14.3256) < 1e-6
+    assert abs(NUMBER_CENTER_Y_M - 12.4968) < 1e-6
     p = NFL_LANDMARKS["away_30_left_number"]
     assert np.allclose(p, [_yardline_x_m("away_30"), +NUMBER_CENTER_Y_M, 0.0])
     p = NFL_LANDMARKS["home_20_right_number"]
