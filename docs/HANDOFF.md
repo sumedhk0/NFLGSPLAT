@@ -448,6 +448,24 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### The cameras' ankle RAYS, not their ground points, say whether a pair is right (2026-09-10)
+
+Chasing the motion man's arms at 262-270 produced a false lead worth keeping.
+The two cameras' ankle ground points (each camera's ankle ray taken to z = 0.08)
+disagree by 1.11 m in x for him where every other player's agree to 0.20 m, which
+looks like a mis-pair. They are not: the two rays miss each other by 0.15 m. The
+sideline camera is nearly horizontal, so a ray that passes within a hand's width
+of the truth lands a metre away on the turf, and the ground-point difference is
+mostly the z assumption. The ray miss is the honest test: 3189 of play 1's frames
+have confident ankles in both cameras, they miss by 0.15 m at the median, and 1 %
+by more than 0.6 m. `05p --two-view-max-miss` (default 0.6 m) leaves those frames
+to the one-view pass.
+
+What the arms actually are: at 262-272 the temporal keypoint filter throws out
+his left elbow and wrist (the crowd), so no camera constrains that limb and only
+the L2 pose prior holds it. `Mono2DConfig.unseen_temporal_mult` holds an unseen
+limb at the pose it had instead (off by default until measured).
+
 ### Builds by role, and one id that held two men (2026-09-10)
 
 The user asked two things of v28: fix "joint overlap / player confusion" by giving
