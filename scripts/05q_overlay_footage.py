@@ -1,19 +1,32 @@
 #!/usr/bin/env python
-"""The avatars on the All-22 footage: skeletons projected into the sideline camera, per frame and per player.
+"""The avatars on the All-22 footage: skeletons projected into a camera, per frame and per player.
 
 WHY. Every ruler so far scored the caches; the user scores the clip
 against the footage, and on v24 still sees arms all over the place. This
 puts the two side by side: for each frame, the timeline's bodies (the same
-states 05k renders, placed the same way) are projected through the
-sideline camera onto the footage frame as bone skeletons in team colour,
-with the 2-D keypoints as dots; a player strip shows one body over
-consecutive frames, footage crop with the skeleton, so a limb that swings
-where the real one does not is visible at the frame it happens.
+states 05k renders, placed the same way) are projected through a camera
+onto that camera's footage frame as bone skeletons in team colour, with the
+2-D keypoints the detector found drawn over them; a player strip shows one
+body over consecutive frames, so a limb that swings where the real one does
+not is visible at the frame it happens.
+
+WHAT THE COLOURS ARE. The fitted 3-D body (the one the render draws) in its
+team's colour: RED = Kansas City, WHITE = Baltimore, YELLOW = team unknown.
+GREEN = the pose detector's 2-D keypoints in that camera's own film, the
+measurement the fit was made to match. The cyan number is the player id.
+
+WHY BOTH CAMERAS. The sideline overlay cannot see an error along its own
+line of sight: a body a metre too near or too far lines up in the sideline
+image exactly as a right one does. The endzone camera looks across that axis.
+--cam endzone draws the same bodies into the endzone film, whose clip runs
+clip_offset.json frames off the sideline's (play 1: 15 ahead), so timeline
+frame f is endzone frame f + offset; --cam both puts the two side by side.
 
 USAGE (smplx env):
   python scripts/05q_overlay_footage.py --play-dir P --frames 100 200 300 --out diag/overlay
   python scripts/05q_overlay_footage.py --play-dir P --player 5 --start 120 --count 8 --step 2 --out diag/overlay
   python scripts/05q_overlay_footage.py --play-dir P --video --stride 2 --out diag/overlay   (an mp4 of every rendered frame)
+  python scripts/05q_overlay_footage.py --play-dir P --video --cam both --out diag/overlay   (sideline | endzone)
 """
 from __future__ import annotations
 
@@ -27,7 +40,7 @@ import torch
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.pose.forward_kinematics import SMPLX_BODY_PARENTS
-from nfl_gsplat.render.play_timeline import load_play_timeline
+from nfl_gsplat.render.play_timeline import clip_offset, load_play_timeline
 
 COLOUR = {"KC": (40, 40, 230), "BAL": (240, 240, 240), "?": (0, 220, 220)}
 KP_EDGES = [(5, 7), (7, 9), (6, 8), (8, 10), (11, 13), (13, 15), (12, 14), (14, 16), (5, 6), (11, 12), (5, 11), (6, 12)]
@@ -82,7 +95,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--play-dir", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--cam", default="sideline")
+    ap.add_argument("--cam", default="sideline", choices=["sideline", "endzone", "both"],
+                    help="the film to draw on; 'both' = sideline and endzone side by side (video and --frames)")
     ap.add_argument("--frames", type=int, nargs="*", default=None, help="frames to overlay (full frame PNGs)")
     ap.add_argument("--player", type=int, default=None, help="a strip of this id over consecutive frames")
     ap.add_argument("--start", type=int, default=120)
@@ -99,56 +113,83 @@ def main() -> None:
     model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral", num_betas=10, use_pca=False,
                          batch_size=1)
     tl, tracks, df, frames_all, poses = load_play_timeline(P, model, poses_refit=args.refit)
-    track = tracks[args.cam]
     import pickle
 
     ident = pickle.load(open(P / "identity_resolved.pkl", "rb")).get("merged", {}) if (P / "identity_resolved.pkl").exists() else {}
     team_of = {int(p): m.team for p, m in ident.items()}
-    kdf = None
+    cams = ["sideline", "endzone"] if args.cam == "both" else [args.cam]
+    # the timeline runs on the sideline clock; the endzone clip is clip_offset frames off it
+    offset = {"sideline": 0, "endzone": clip_offset(P)}
+    kdf_all = None
     if not args.no_keypoints and (P / "keypoints_2d.parquet").exists():
-        kdf = pd.read_parquet(P / "keypoints_2d.parquet")
-        kdf = kdf[kdf["cam"] == args.cam]
-    cap = cv2.VideoCapture(str(P / f"{args.cam}.mp4"))
-    boxes = df[df["cam"] == args.cam].set_index(["frame", "track_id"])
+        kdf_all = pd.read_parquet(P / "keypoints_2d.parquet")
+    kdf = {c: (None if kdf_all is None else kdf_all[kdf_all["cam"] == c]) for c in cams}
+    caps = {c: cv2.VideoCapture(str(P / f"{c}.mp4")) for c in cams}
+    boxes_of = {c: df[df["cam"] == c].set_index(["frame", "track_id"]) for c in cams}
+    cam = cams[0]
+    boxes = boxes_of[cam]
 
-    def frame_image(f):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(f))
-        ok, img = cap.read()
+    def frame_image(c, cf):
+        caps[c].set(cv2.CAP_PROP_POS_FRAMES, int(cf))
+        ok, img = caps[c].read()
         return img if ok else None
 
-    def overlay(f, only=None):
-        img = frame_image(f)
-        if img is None or f >= len(track.conf) or track.conf[f] <= 0:
+    def overlay(f, only=None, c=None):
+        """Timeline frame f drawn on camera c's footage frame f + offset[c]."""
+        c = c or cam
+        track = tracks[c]
+        cf = int(f) + int(offset[c])
+        img = frame_image(c, cf) if cf >= 0 else None
+        if img is None or cf >= len(track.conf) or track.conf[cf] <= 0:
             return None, {}
         proj = {}
         for s in tl.states.get(f, []):
             if only is not None and s.pid != only:
                 continue
             J = placed_joints(s, model)
-            uv, depth = project(track, f, J)
+            uv, depth = project(track, cf, J)
             proj[s.pid] = (uv, depth)
             draw_skeleton(img, uv, depth, COLOUR.get(team_of.get(s.pid, "?"), COLOUR["?"]))
             if depth[15] > 0 and np.isfinite(uv[15]).all():
                 cv2.putText(img, str(s.pid), (int(uv[15][0]) + 4, int(uv[15][1]) - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
                             (255, 255, 0), 1, cv2.LINE_AA)
-        if kdf is not None:
-            k = kdf[kdf["frame"] == f]
+        if kdf[c] is not None:
+            k = kdf[c][kdf[c]["frame"] == cf]
             for pid, g in k.groupby("global_player_id"):
                 if only is not None and int(pid) != only:
                     continue
                 draw_keypoints(img, g)
-        cv2.putText(img, f"f{f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
+        label = f"f{f}" if c == "sideline" else f"{c} f{cf} (= sideline f{f})"
+        cv2.putText(img, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2, cv2.LINE_AA)
         return img, proj
 
+    def overlay_both(f):
+        """Sideline and endzone at the same instant, side by side at one height; a camera with no
+        view of that instant gets a dark panel."""
+        panels = []
+        for c in ("sideline", "endzone"):
+            img, _ = overlay(f, c=c)
+            if img is None:
+                img = np.full((720, 1280, 3), 24, np.uint8)
+                cv2.putText(img, f"{c}: no view of f{f}", (40, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (200, 200, 200), 2,
+                            cv2.LINE_AA)
+            panels.append(img)
+        h = 720
+        panels = [cv2.resize(p, (int(round(p.shape[1] * h / p.shape[0])), h), interpolation=cv2.INTER_AREA) for p in panels]
+        return np.hstack(panels)
+
     if args.player is not None:
+        if args.cam == "both":
+            raise SystemExit("--player strips take one camera: --cam sideline or --cam endzone")
         pid = args.player
         tiles = []
         for f in range(args.start, args.start + args.count * args.step, args.step):
             img, proj = overlay(f, only=pid)
             if img is None:
                 continue
-            if (f, pid) in boxes.index:
-                b = boxes.loc[(f, pid)]
+            cf = f + offset[cam]
+            if (cf, pid) in boxes.index:
+                b = boxes.loc[(cf, pid)]
                 if isinstance(b, pd.DataFrame):          # two boxes for one id on a frame (a merged duplicate track)
                     b = b.iloc[0]
                 cx, cy = int((b.bbox_x1 + b.bbox_x2) / 2), int((b.bbox_y1 + b.bbox_y2) / 2)
@@ -167,7 +208,7 @@ def main() -> None:
         rows = [np.hstack(tiles[i:i + 4]) for i in range(0, len(tiles), 4)]
         w = max(r.shape[1] for r in rows)
         rows = [np.pad(r, ((0, 0), (0, w - r.shape[1]), (0, 0))) for r in rows]
-        out = args.out / f"player_{pid}_f{args.start}.jpg"
+        out = args.out / (f"player_{pid}_f{args.start}.jpg" if cam == "sideline" else f"player_{pid}_f{args.start}_{cam}.jpg")
         cv2.imwrite(str(out), np.vstack(rows), [cv2.IMWRITE_JPEG_QUALITY, 92])
         print(f"wrote {out} ({len(tiles)} frames)")
         return
@@ -175,7 +216,7 @@ def main() -> None:
     frames = args.frames if args.frames else (frames_all[:: max(1, args.stride)] if args.video else frames_all[::80])
     writer = None
     for f in frames:
-        img, _ = overlay(f)
+        img = overlay_both(f) if args.cam == "both" else overlay(f)[0]
         if img is None:
             continue
         if args.video:
@@ -184,7 +225,8 @@ def main() -> None:
                                          59.94 / max(1, args.stride), (img.shape[1], img.shape[0]))
             writer.write(img)
         else:
-            cv2.imwrite(str(args.out / f"overlay_f{f:05d}.jpg"), img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            name = f"overlay_f{f:05d}.jpg" if args.cam == "sideline" else f"overlay_f{f:05d}_{args.cam}.jpg"
+            cv2.imwrite(str(args.out / name), img, [cv2.IMWRITE_JPEG_QUALITY, 90])
     if writer is not None:
         writer.release()
         print(f"wrote {args.out / f'overlay_{args.cam}.mp4'} ({len(frames)} frames)")

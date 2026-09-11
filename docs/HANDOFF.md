@@ -448,6 +448,30 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### The endzone overlay, and what it showed (2026-09-11)
+
+The user asked which camera the overlay uses. It used the SIDELINE alone, and
+that is a blind ruler for the one axis that matters most: the sideline looks
+down the line of scrimmage, so a body a metre too near or too far lines up in
+its image exactly as a right one does. 05q now draws into either camera (the
+endzone clip runs at f + clip_offset, so the label says which film frame it is)
+and `--cam both` puts them side by side. Colours: GREEN the detector's 2-D
+keypoints in that camera's film, RED a fitted Kansas City body, WHITE a fitted
+Baltimore body, cyan the track id.
+
+The first endzone frame showed three things the sideline overlay had hidden:
+
+1. Two officials and a sideline marker are drawn as Baltimore players. All the
+   drawn endzone-only ids are non-players: 85 and 89 and 108 are officials
+   (85 wears 83 on his back, so the jersey reader gave him Baltimore's Qadir
+   Ismail) and 109 is a marker. The frustum test in endzone_only_rule keeps
+   endzone-only ids the sideline could not have seen, which is right for a wide
+   receiver and wrong for the referee standing 14 m behind the ball.
+2. The counts are wrong: the render draws a median of 9 Kansas City bodies and
+   13 Baltimore ones, where the truth is 11 and 11. Bodies per team per frame is
+   the sharpest ruler this project has had; it was never being looked at.
+3. Several one-view bodies sit up to a metre off in depth, visible only here.
+
 ### Where play 1 stands at v31 (2026-09-10, late)
 
 Sent: v30 (role builds, the pairing veto) and v31 (twins folded). Fits on the
