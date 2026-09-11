@@ -267,14 +267,22 @@ def cam_tracks_from_frame(df, cams, *, kit_margin: float = 0.4, min_number_votes
         if smooth > 1 and len(fr) >= smooth:
             ker = np.ones(smooth) / smooth
             pts = np.column_stack([np.convolve(pts[:, k], ker, mode="same") for k in range(2)])
+        # The kit of a TRACK is the side its median box sits on, not a vote among the boxes that
+        # clear a threshold. The threshold (|margin| >= 0.4, i.e. 80 % of the way from the split
+        # to a cluster centre) left a third of play 1's tracks with no kit at all, and an unknown
+        # kit blocks a cross-camera pair exactly as a clash does. Scored on the ids the roster
+        # names, both rules are right on every one; the median covers 89 of 90 endzone tracks
+        # against 75. The share of boxes on the winning side is kept as the confidence.
         kit, kit_frac, kit_n = -1, 1.0, 10 ** 6
         if "kit_margin" in g:
             m = g["kit_margin"].to_numpy(float)
-            m = m[np.isfinite(m) & (np.abs(m) >= kit_margin)]
+            m = m[np.isfinite(m)]
             if len(m) >= 3:
-                share = float((m > 0).mean())
-                kit = int(share > 0.5)
-                kit_frac, kit_n = max(share, 1.0 - share), int(len(m))
+                kit = int(np.median(m) > 0)
+                sure = m[np.abs(m) >= kit_margin]
+                share = float((sure > 0).mean()) if len(sure) else float((m > 0).mean())
+                kit_frac = share if kit else 1.0 - share
+                kit_n = int(len(sure)) if len(sure) else int(len(m))
         number = -1
         if "jersey_number_ocr" in g:
             n = g["jersey_number_ocr"].to_numpy(int)
