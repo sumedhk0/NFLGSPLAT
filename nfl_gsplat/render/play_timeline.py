@@ -14,6 +14,7 @@ import numpy as np
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
+from nfl_gsplat.render.depth_snap import snap_ground
 from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
 from nfl_gsplat.render.pair_rule import mispaired_ids
 from nfl_gsplat.errors import SetupError
@@ -41,6 +42,20 @@ def clip_offset(play_dir) -> int:
 
     f = Path(play_dir) / "clip_offset.json"
     return int(json.loads(f.read_text())["offset"]) if f.exists() else 0
+
+
+def _teams(play_dir):
+    """``{pid: team}`` from identity_resolved.pkl, empty without it."""
+    import pickle
+
+    f = Path(play_dir) / "identity_resolved.pkl"
+    if not f.exists():
+        return {}
+    try:
+        merged = pickle.load(open(f, "rb")).get("merged", {})
+    except Exception:                                    # noqa: BLE001
+        return {}
+    return {int(k): getattr(v, "team", None) for k, v in merged.items()}
 
 
 def _line_of_scrimmage(play_dir):
@@ -232,7 +247,8 @@ def poses_from_caches(refit, side_blob, tracks, model):
 
 
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
-                       stitch_ids: bool = False, place_from_refit_transl: bool = True):
+                       stitch_ids: bool = False, place_from_refit_transl: bool = True,
+                       no_depth_snap: bool = False):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -282,7 +298,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     # play 1) and refused 9 % of the one-view records' placements against it;
     # the endzone's point stands only where the sideline has none.
     if "sideline" in tracks:
-        for f, d in ground_positions(df[df["cam"] == "sideline"], tracks, ankles=ankles, frame_shift=shift).items():
+        side_ground = ground_positions(df[df["cam"] == "sideline"], tracks, ankles=ankles, frame_shift=shift)
+        # ... and the sideline cannot see along its OWN line of sight, so a body slides on that
+        # ray onto the endzone's detection of it where the two agree (render.depth_snap).
+        if "endzone" in tracks and not no_depth_snap:
+            end_ground = ground_positions(df[df["cam"] == "endzone"], tracks, ankles=ankles, frame_shift=shift)
+            teams_of = _teams(P)
+            side_ground, n_snap = snap_ground(side_ground, end_ground, tracks["sideline"], teams=teams_of)
+            print(f"depth from the endzone on {n_snap} body-frames (the sideline's own line of sight)")
+        for f, d in side_ground.items():
             for pid, xy in d.items():
                 ground.setdefault(f, {})[pid] = xy
     # A paired id lives on its sideline span: beyond it the endzone track

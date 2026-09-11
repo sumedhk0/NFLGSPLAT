@@ -413,6 +413,10 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
+    ap.add_argument("--no-depth-snap", action="store_true",
+                    help="do not take a one-view body's depth from the other camera's detections "
+                         "(render.depth_snap); the fit then places it where its own camera's ankle ray "
+                         "meets the turf, which slides along that ray")
     ap.add_argument("--no-roster-betas", action="store_true",
                     help="fit with the regressor's betas instead of the roster build the timeline renders "
                          "(render.roster_shape.roster_builds); the two must agree or the body sits off its keypoints")
@@ -475,7 +479,25 @@ def main() -> None:
               f"(a one-frame jump past {GATE_PX:.0f} px from its neighbours' midpoints)")
     kdf = kdf_all[kdf_all["cam"] == args.cam]
     # the pelvis pin: the ankle keypoints' ground point where the camera has them, the box point otherwise
-    ground = ground_positions(df[df["cam"] == args.cam], tracks, ankles=ankle_ground(kdf_all, tracks))
+    ankles_all = ankle_ground(kdf_all, tracks)
+    ground = ground_positions(df[df["cam"] == args.cam], tracks, ankles=ankles_all)
+    # ... and the depth along this camera's own line of sight from the OTHER camera's detections,
+    # which needs no pairing (render.depth_snap). The render places bodies the same way, and a body
+    # fitted at one place and drawn at another sits off its own keypoints.
+    other_cam = "endzone" if args.cam == "sideline" else "sideline"
+    if not args.no_depth_snap and other_cam in tracks:
+        from nfl_gsplat.render.depth_snap import snap_ground
+        from nfl_gsplat.render.play_timeline import clip_offset
+
+        offset = clip_offset(P)
+        ident_f = P / "identity_resolved.pkl"
+        teams_of = ({int(k): getattr(v, "team", None)
+                     for k, v in pickle.load(open(ident_f, "rb")).get("merged", {}).items()}
+                    if ident_f.exists() else None)
+        other_ground = ground_positions(df[df["cam"] == other_cam], tracks, ankles=ankles_all)
+        other_ground = {int(f) - offset: d for f, d in other_ground.items()} if offset else other_ground
+        ground, n_snap = snap_ground(ground, other_ground, tracks[args.cam], teams=teams_of)
+        print(f"depth from the {other_cam} on {n_snap} body-frames (this camera's own line of sight)")
     side = pickle.load(open(args.poses or P / "poses_sideline.json", "rb"))
     if side["cam"] != args.cam:
         raise SystemExit(f"the pose cache is the {side['cam']} camera's, not {args.cam}")
