@@ -28,6 +28,8 @@
 #             (play 1: -15 frames where +3 had been assumed; a runner is 2 m from himself in 15 frames)
 #   repair    08i --lag <offset> re-pairs the camera tracks, 08m carries the keypoints and pose caches to the
 #             new ids by their boxes, 08c --from-cache names them            -> tracks.parquet, identity_resolved.pkl
+#   twins     scripts/08o (two tracker ids on one body folded into one, by their ankle rays)
+#             then 08c --from-cache again                                -> tracks.parquet
 #   roles     scripts/08n (the pre-snap formation gives each unnamed id its position group's
 #             roster height and weight)                                 -> identity_resolved.pkl
 #   tri       scripts/05n (joints triangulated with both cameras)       -> poses_tri.json
@@ -266,6 +268,16 @@ if ! done_ repair; then
   cp "$P/tracks_identity.parquet" "$P/tracks.parquet"
   "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" $KICK_FLAG --from-cache 2>&1 | grep -v "Warning\|warn" | tail -3 || fail repair
   mark repair
+fi
+
+if ! done_ twins; then
+  # Two tracker ids on ONE body put two avatars on one man (play 1: the left tackle and the
+  # quarterback). They are told apart from two men stacked along the sideline's line of sight by
+  # their ankle rays on the turf, not by their boxes. The ids change, so 08c names them again.
+  log "fold the ids that hold one body (08o), name them again"
+  "$PYS" scripts/08o_merge_twins.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" || fail twins
+  "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" $KICK_FLAG --from-cache 2>&1 | grep -v "Warning\|warn" | tail -2 || fail twins
+  mark twins
 fi
 
 if ! done_ roles; then
