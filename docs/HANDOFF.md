@@ -1616,9 +1616,13 @@ camera); numerals as the only ruler (constant was wrong — the hashes caught it
 3. Officials inside the field are not tracked as separate bodies (the
    detector/linker folds them in); boundary staff and the sideline
    official are excluded by position and stripes.
-4. Compute hygiene: play_001 holds 12 GB, 13 superseded render/appearance
-   dirs (render_hifi_v10..v20, render_abs, appearance_v1/v2) -- the user's
-   call to delete. The 05d render is opt-in now (RENDER_ABS=1).
+4. Compute hygiene: DONE 2026-09-11 with the user's go-ahead -- the 30
+   superseded render_hifi_* directories and render_abs were deleted (play_001
+   16 GB -> 765 MB); only render_hifi (v31) is kept, and every delivered
+   version's 720p clip stays in C:\Users\sumedh\diag\play_001_vNN_hifi_720.mp4.
+   appearance_v1/v2 (26 MB) were left. A render script that moves render_hifi
+   aside before rendering should delete the old one once the new clip is sent.
+   The 05d render is opt-in (RENDER_ABS=1).
 5. Plumbing: 08c's --kicking-play is manual (the pipeline does not pass
    it); a kickoff/punt/field-goal play needs it or its specialists render
    unnamed.
