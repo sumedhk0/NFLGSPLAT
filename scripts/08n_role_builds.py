@@ -56,21 +56,23 @@ def main() -> None:
     roles = assign_roles(summary, teams, args.offence, los, sign, yc)
     roster = pd.read_parquet(args.rosters) if args.rosters.exists() else None
     builds = position_builds(roster, {args.offence} | {t for t in teams.values() if t}) if roster is not None else POSITION_BUILDS
+    n_formation = len(roles)
+    # the roster's position beats the formation for a named id: it is ground truth, and the
+    # formation reads a back who lines up behind the centre as the passer (play 1's Pacheco)
+    named = roles_from_roster(merged, roster) if roster is not None else {}
+    roles.update(named)
     print(f"snap at frame {snap} (formation set at {settled}); pre-snap window {window}; line of scrimmage x = "
           f"{los:.1f} m, offence on the {'+' if sign > 0 else '-'}x side, formation centre y = {yc:.1f}")
     print("  id team role   dx    dy   aspect  name -> build")
-    for pid in sorted(roles, key=lambda p: ((summary[p][0] - los) * sign, summary[p][1])):
+    on_field = [p for p in roles if p in summary]          # a named id may never appear before the snap
+    for pid in sorted(on_field, key=lambda p: ((summary[p][0] - los) * sign, summary[p][1])):
         x, y, a, n = summary[pid]
         p = merged.get(pid) or merged.get(str(pid))
         name = getattr(p, "player", "?")
         h, kg = builds.get(roles[pid], POSITION_BUILDS["DB"])
         tag = f"{h:.2f} m {kg:.0f} kg" if str(name).startswith("P") else f"named ({getattr(p, 'height_m', 0):.2f} m)"
         print(f"  {pid:3d} {teams[pid]:3s} {roles[pid]:3s} {(x - los) * sign:+5.1f} {y - yc:+5.1f}  {a:5.2f}   {name} -> {tag}")
-    n_formation = len(roles)
-    # named ids carry the roster's position; every roled track passes its role to the track that continues it
-    named = roles_from_roster(merged, roster) if roster is not None else {}
-    for pid, role in named.items():
-        roles.setdefault(pid, role)
+    # every roled track passes its role to the track that continues it
     spans, ends = track_ends(ground, set(teams))
     inherited = inherit_roles(roles, teams, spans, ends)
     for pid, (role, q) in sorted(inherited.items(), key=lambda kv: spans[kv[0]][0]):
