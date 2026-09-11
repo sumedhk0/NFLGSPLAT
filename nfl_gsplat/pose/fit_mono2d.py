@@ -74,6 +74,14 @@ class Mono2DConfig:
     # unobserved, so the temporal term holds the limb from the frame before. 0 = off.
     joint_reject_px: float = 0.0
     joint_reject_ratio: float = 3.0
+    # A limb no camera sees this frame -- occluded, or its keypoints thrown out by the temporal
+    # filter -- has nothing holding it but the generic pose prior, and the fit throws it about
+    # (play 1's motion man through the crowd, frames 262-270: arms 8.9 m/s in his own frame
+    # while his shoulders sit at 3 px). With this the pull toward the previous frame's pose is
+    # multiplied by it on the UNSEEN joints only, so an unseen limb keeps the pose it had and a
+    # seen one is untouched. 1 = off. The temporal term is the only place SMPL-X's own notion of
+    # a body can hold a limb: the pose prior is a plain L2 toward the mean pose.
+    unseen_temporal_mult: float = 1.0
     max_iter: int = 40
     loss: str = "soft_l1"
 
@@ -85,6 +93,27 @@ LR_PAIRS = ((1, 2), (4, 5), (7, 8), (10, 11), (13, 14), (16, 17), (18, 19), (20,
 ANKLES = (7, 8)
 FEET = (10, 11)
 PELVIS = 0
+NUM_BODY_JOINTS = 22
+# A keypoint at a joint constrains the rotation of the joint ABOVE it (the elbow's position is
+# the shoulder's rotation), so an unseen joint's own rotation is held only when nothing below it
+# is seen either. This maps each body_pose joint to the joints whose keypoints constrain it.
+_BELOW: dict[int, tuple[int, ...]] = {
+    1: (1, 4, 7, 10), 2: (2, 5, 8, 11), 4: (4, 7, 10), 5: (5, 8, 11), 7: (7, 10), 8: (8, 11),
+    16: (16, 18, 20), 17: (17, 19, 21), 18: (18, 20), 19: (19, 21), 20: (20,), 21: (21,),
+    13: (13, 16, 18, 20), 14: (14, 17, 19, 21), 12: (12, 15), 15: (15,),
+}
+
+
+def unseen_joints(seen) -> list[int]:
+    """Body-pose joints whose rotation no keypoint constrains this frame: nothing at or below
+    them was seen. Joints outside the table (the spine) are never called unseen -- the torso
+    keypoints constrain them through the chain."""
+    seen = np.asarray(seen, bool)
+    out = []
+    for j, below in _BELOW.items():
+        if not any(seen[b] for b in below if b < len(seen)):
+            out.append(j)
+    return out
 # The turf is the SOLE, not the ankle joint: the timeline places a body with its lowest
 # vertex on the ground, and SMPL-X's ankle joint sits 0.08 m above the sole (its foot
 # joint 0.02, a pointed toe 0.06 below that). Fitting "the lower ankle at z = 0" put the
@@ -151,6 +180,19 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
     bp_slice, go_slice, _ = _param_slices(base_cfg)
     bp_init = None if init_body_pose is None else np.asarray(init_body_pose, float).reshape(-1)
     gxy = np.asarray(ground_xy, float)
+    # the pull toward the previous frame's pose, per body_pose coefficient: heavier where no
+    # camera saw the joint or anything below it
+    n_bp = (bp_slice.stop or 0) - (bp_slice.start or 0)
+    temporal_w = np.full(n_bp, np.sqrt(cfg.temporal_weight))
+    if cfg.unseen_temporal_mult != 1.0:
+        seen = np.zeros(NUM_BODY_JOINTS, bool)
+        for use in uses:
+            u = np.asarray(use, bool)
+            seen[: len(u)] |= u[: NUM_BODY_JOINTS]
+        for j in unseen_joints(seen):
+            k = (j - 1) * 3                            # body_pose holds joints 1..21
+            if 0 <= k < n_bp:
+                temporal_w[k:k + 3] *= np.sqrt(cfg.unseen_temporal_mult)
 
     # for the side-agnostic residual: per view, the index of each used joint's partner within
     # the used set (-1 when the partner is not used) -- swapping means comparing joint a's
@@ -205,7 +247,7 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
         if bp_init is not None:
             parts.append(np.sqrt(cfg.init_weight) * (p[bp_slice] - bp_init))
         if prev_params is not None:
-            parts.append(np.sqrt(cfg.temporal_weight) * (p[bp_slice] - prev_params[bp_slice]))
+            parts.append(temporal_w * (p[bp_slice] - prev_params[bp_slice]))
             parts.append(np.sqrt(cfg.temporal_weight) * (p[go_slice] - prev_params[go_slice]))
         return np.concatenate(parts)
 
