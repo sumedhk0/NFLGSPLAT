@@ -31,3 +31,19 @@ def test_stripe_stats_tell_vertical_stripes_from_a_flat_or_horizontal_torso():
     assert r_s > 2.5 and d_s >= 0.25
     assert not (r_f > 2.5 and d_f >= 0.25)
     assert r_b < 1.0
+
+
+def test_bodies_behind_the_offence_are_officials():
+    from nfl_gsplat.render.offfield_rule import behind_the_offence
+    # the offence stands at larger x than the defence: sign +1, line at -24
+    ground = {}
+    for f in range(60):
+        ground[f] = {
+            1: (-22.0, 1.0),      # a lineman on the line
+            2: (-17.0, -1.0),     # the passer, 7 m behind it
+            3: (-9.5, 5.0),       # the referee, 14.5 m behind it
+            4: (-30.0, 2.0),      # a defender, well the other side
+        }
+    got = behind_the_offence(ground, -24.0, 1.0)
+    assert got == {3}
+    assert behind_the_offence(ground, -24.0, 1.0, ids={1, 2}) == set()   # the rule can be limited

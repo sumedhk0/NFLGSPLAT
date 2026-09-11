@@ -29,6 +29,38 @@ STRIPE_DARK: float = 0.25      # share of torso pixels under gray 70
 STRIPE_FRAMES: int = 6
 
 
+BEHIND_OFFENCE_M: float = 10.0   # no offensive player lines up this far behind his own line ...
+BEHIND_FRAC: float = 0.8         # ... for this share of his frames; the referee and the umpire do
+
+
+def behind_the_offence(ground_by_frame, los_x: float, sign: float, ids=None, *,
+                       behind_m: float = BEHIND_OFFENCE_M, frac: float = BEHIND_FRAC,
+                       min_frames: int = 10) -> set:
+    """Ids standing more than ``behind_m`` behind the line of scrimmage on the OFFENCE's side.
+
+    The officials live there -- the referee behind the passer, the umpire behind him -- and the
+    SIDELINE camera's narrow lens does not look that far back, so the endzone-only rule keeps
+    them (it keeps a body the sideline could not have seen, which is right for a wide receiver).
+    On play 1 every endzone-only body the render drew was one of these: two officials and a
+    marker at 14.5 m behind the line, in the white kit, one of them named from the 83 on his
+    back. The deepest real offensive body is the passer at about 7 m. ``sign`` is +1 when the
+    offence stands at larger x than the defence; ``ids`` limits the rule to a set."""
+    deep: dict = {}
+    total: dict = {}
+    for d in ground_by_frame.values():
+        for pid, xy in d.items():
+            pid = int(pid)
+            if ids is not None and pid not in ids:
+                continue
+            x = float(np.asarray(xy, float)[0])
+            if not np.isfinite(x):
+                continue
+            total[pid] = total.get(pid, 0) + 1
+            if (x - los_x) * sign > behind_m:
+                deep[pid] = deep.get(pid, 0) + 1
+    return {pid for pid, n in total.items() if n >= min_frames and deep.get(pid, 0) / n >= frac}
+
+
 def sideline_dwellers(ground_by_frame, *, sideline_m: float = SIDELINE_M, frac: float = DWELL_FRAC,
                       min_frames: int = 5) -> set:
     """``ground_by_frame``: frame -> {pid: (x, y)}."""

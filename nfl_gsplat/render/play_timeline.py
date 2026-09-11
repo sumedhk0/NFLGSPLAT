@@ -14,7 +14,7 @@ import numpy as np
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
-from nfl_gsplat.render.offfield_rule import sideline_dwellers, striped_ids
+from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
 from nfl_gsplat.render.pair_rule import mispaired_ids
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
@@ -41,6 +41,19 @@ def clip_offset(play_dir) -> int:
 
     f = Path(play_dir) / "clip_offset.json"
     return int(json.loads(f.read_text())["offset"]) if f.exists() else 0
+
+
+def _line_of_scrimmage(play_dir):
+    """08n's line of scrimmage block from identity_resolved.pkl, or None when it has not run."""
+    import pickle
+
+    f = Path(play_dir) / "identity_resolved.pkl"
+    if not f.exists():
+        return None
+    try:
+        return pickle.load(open(f, "rb")).get("line_of_scrimmage")
+    except Exception:                                    # noqa: BLE001 - a cache without the block
+        return None
 
 
 def ankle_ground(kdf, tracks, *, z: float = ANKLE_Z_M, min_conf: float = ANKLE_MIN_CONF, frame_shift=None) -> dict:
@@ -303,7 +316,19 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         striped = striped_ids(df, side_video) - dwellers
         if striped:
             print(f"striped (officials) left out: {len(striped)}")
-    clipped = set(clipped) | ghosts | dwellers | striped
+    # The officials the SIDELINE camera never sees: they stand behind the offence, where the
+    # sideline's narrow lens does not look, so the endzone-only rule keeps them (it keeps a body
+    # the sideline could not have seen, which is right for a wide receiver). Play 1 drew the
+    # referee, the umpire and a marker 14.5 m behind the line, one of them named from the 83 on
+    # his back. No offensive player lines up that deep.
+    behind = set()
+    ez_only = {int(p) for p, g in df[df["track_id"] >= 0].groupby("track_id") if set(g["cam"]) == {"endzone"}}
+    los = _line_of_scrimmage(P)
+    if los is not None and ez_only:
+        behind = behind_the_offence(ground, los["x"], los["sign"], ids=ez_only)
+        if behind:
+            print(f"bodies behind the offence (officials) left out: {sorted(behind)}")
+    clipped = set(clipped) | ghosts | dwellers | striped | behind
     poses = poses_from_caches(refit, side_blob, tracks, model)
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.

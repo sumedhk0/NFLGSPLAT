@@ -91,6 +91,8 @@ def main() -> None:
     if not backup.exists():
         shutil.copy(ident_path, backup)
     blob["roles"] = {int(k): v for k, v in roles.items()}
+    # the render needs the line of scrimmage too: a body far BEHIND the offence is an official
+    blob["line_of_scrimmage"] = {"x": float(los), "sign": float(sign), "y_centre": float(yc), "snap": int(snap)}
     with open(ident_path, "wb") as fh:
         pickle.dump(blob, fh)
     print(f"wrote {ident_path} (original in {backup.name})")
