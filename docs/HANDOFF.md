@@ -464,7 +464,14 @@ to the one-view pass.
 What the arms actually are: at 262-272 the temporal keypoint filter throws out
 his left elbow and wrist (the crowd), so no camera constrains that limb and only
 the L2 pose prior holds it. `Mono2DConfig.unseen_temporal_mult` holds an unseen
-limb at the pose it had instead (off by default until measured).
+limb at the pose it had instead. MEASURED at 6 (ids 9 and 12): the runner's arm
+speed p90 in his own frame went 10.8 -> 11.7 m/s and the footage strip is
+unchanged. It does not help: the limb is unseen for two or three frames at a
+time, so holding it only delays the snap back, and the pose it is held at came
+from the frame the detector had already lost. OFF by default. If this is picked
+up again, the thing to hold an occluded limb with is a real pose prior (a
+learned one, or the player's own pose distribution over the play), not the
+previous frame.
 
 ### Builds by role, and one id that held two men (2026-09-10)
 
