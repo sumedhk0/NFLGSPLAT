@@ -1555,12 +1555,12 @@ camera); numerals as the only ruler (constant was wrong — the hashes caught it
 
 0. Twin tracks: DONE 2026-09-10 (scripts/08o, tracking.twins) -- see the
    entry below. Play 1 folded the left tackle (18 & 19) and the
-   quarterback (16 & 22); 148 ids -> 146. What is left open is coverage:
-   21 & 28 sit 0.02 m apart at the feet but carry ankles on 8 frames, under
-   the 20-frame minimum, so they stay two ids. Lowering the minimum on a
-   play where the detector is stingier needs the false-positive check
-   repeated (the endzone quarterback and the lineman beside him sit 0.29 m
-   apart, and they are two men).
+   quarterback (16 & 22); 148 ids -> 146. Do NOT lower the 20-frame
+   minimum to catch more: at 6 frames the rule folds ids 21 & 28 (0.02 m
+   at the feet over 8 frames) and 14 & 32 (0.05 m over 6), and the footage
+   shows 21 & 28 to be two Baltimore players one behind the other -- with
+   few ankle frames the filled tracks agree by construction. The margin
+   that makes the rule safe is many frames, not a tighter distance.
 0b. Left/right label flips: the detector swaps a limb group's labels for
    one to four frames (play 1's motion man at 267, arms and legs at once).
    pose.keypoint_filter.fix_lr_flips catches those frames but swaps 3 % of
