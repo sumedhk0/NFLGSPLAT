@@ -448,6 +448,37 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### Two ids on one body: the feet tell, the boxes do not (2026-09-10)
+
+The render stood two avatars on one man in play 1's trenches. The sideline
+tracker held the left tackle as ids 18 and 19 for 139 frames and the quarterback
+as 16 and 22 for 58, which shows structurally too: six interior linemen on a
+five-man line, two quarterbacks under centre.
+
+Box geometry cannot find them. From the sideline the line of scrimmage is seen
+end-on, so two men standing a metre apart in depth overlap in the image exactly
+as a duplicate does: ids 14 and 27 (two Baltimore players, one behind the other
+in the footage) sit 0.19 box heights apart with IoU 0.66 and any box rule flags
+them. The ankle keypoints' rays taken to the turf resolve depth and separate the
+two cases cleanly -- over play 1's same-team sideline pairs the duplicates sit
+0.03 and 0.11 m apart and the next pair 0.80 m. Each id's ankle track is filled
+across gaps of up to 4 frames first: the pose detector suppresses one of two
+overlapping boxes, so a twin pair carries ankles on the same frame only 3 times
+in 58, and the raw test (both ankles, same frame) read 18 & 19 as 1.30 m apart
+off those three frames alone.
+
+`tracking.twins` + `scripts/08o_merge_twins.py`: same team, no disagreeing
+jersey numbers, feet within 0.20 m, boxes overlapping 0.3 IoU, 20+ frames
+judged. 0.35 m was the first threshold and it folded the endzone's quarterback
+into the lineman beside him (0.29 m at the feet, two men in the footage) --
+that is the calibration of this rule. The merge is per BODY, not per camera:
+ids are global, so a merge found in one camera moves the other camera's rows too
+(the first cut folded endzone 113 into 22 while the sideline folded 22 into 16,
+splitting one person's two views). Where the merge leaves two boxes of one
+camera on a frame, the less confident is dropped, so the merged id holds one box
+per frame. The stage runs between the repair and the roles, under numpy 1, and
+08c --from-cache follows it.
+
 ### The cameras' ankle RAYS, not their ground points, say whether a pair is right (2026-09-10)
 
 Chasing the motion man's arms at 262-270 produced a false lead worth keeping.
@@ -1522,21 +1553,14 @@ camera); numerals as the only ruler (constant was wrong — the hashes caught it
 
 ## Open items, in value order (2026-09-10, after v30)
 
-0. Twin tracks: two ids on one body (play 1 sideline: 16 & 22 the
-   quarterback, and 21 & 28 by their identical pre-snap positions) put two
-   avatars on one man. Box geometry cannot separate them from two men
-   stacked along the sideline camera's line of sight (see the rejected
-   list). THE TEST THAT WORKS is the ankle ground points, on the frames
-   where both ids have confident ankles: 16 & 22 sit 0.16 m apart, 18 & 19
-   (adjacent linemen, which box geometry called a twin) 1.30 m, and known
-   different pairs 1.6-3.4 m. Its limit is coverage -- the pose detector
-   suppresses one of two overlapping boxes, so a twin pair has ankles for
-   both on 3 frames of 58, and 21 & 28 and 14 & 27 have none at all.
-   The plumbing is the other blocker: merging two ids means dropping one
-   box per frame, and tracking.relabel's box map requires every old row to
-   have a box in the new table, so the merge has to happen where the boxes
-   are written (the linker), not after. Ruler: bodies drawn vs bodies in
-   the footage, per frame.
+0. Twin tracks: DONE 2026-09-10 (scripts/08o, tracking.twins) -- see the
+   entry below. Play 1 folded the left tackle (18 & 19) and the
+   quarterback (16 & 22); 148 ids -> 146. What is left open is coverage:
+   21 & 28 sit 0.02 m apart at the feet but carry ankles on 8 frames, under
+   the 20-frame minimum, so they stay two ids. Lowering the minimum on a
+   play where the detector is stingier needs the false-positive check
+   repeated (the endzone quarterback and the lineman beside him sit 0.29 m
+   apart, and they are two men).
 0b. Left/right label flips: the detector swaps a limb group's labels for
    one to four frames (play 1's motion man at 267, arms and legs at once).
    pose.keypoint_filter.fix_lr_flips catches those frames but swaps 3 % of
