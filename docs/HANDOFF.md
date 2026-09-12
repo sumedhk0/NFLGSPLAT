@@ -614,8 +614,52 @@ were never paired -- which of the two they are is the number that picks the fix.
 Kansas City's pooled count is **right**. The two cameras together do see all eleven; the snap deficit is
 pure bookkeeping, and the repair is to join the ids rather than to admit more bodies. Ground-point distance
 alone cannot do that joining -- 0.7 m folded two real men once before (the passer and the lineman beside him
-at 0.29 m) -- but the cameras' ankle RAYS can, as they already do for twins: a true pair's rays meet
-(0.03-0.19 m on play 1) and two different men's do not (1.11 m).
+at 0.29 m) -- and the obvious alternative, the cameras' ankle RAYS, **does not work per frame either**.
+Tested over 137 (frame, endzone id) pairs at frames 300-420: only **10** gave a confident join (best miss
+<= 0.30 m and at least 0.30 m clear of the runner-up), **113 were close but ambiguous** and 14 had no
+sideline body agreeing at all. The runner-up typically sits 0.03-0.05 m behind the best, because at ~100 m
+the rays to a neighbour standing a metre away miss by almost as little as the rays to the right man. The
+"0.20 m against 1.11 m" separation quoted for twins was a grossly mis-paired case, not adjacent players,
+and it does not generalise to picking one man out of a formation.
+
+The signal is real but thin: where a pair is already correct (ids 2, 3, 5, 9, 12, 15, 30) the true partner
+does come out best. So the form that can work is not a per-frame threshold but a **one-to-one assignment
+per frame accumulated over the whole play** -- the ambiguity is mostly two endzone ids competing for one
+sideline id, which a global assignment resolves, and per-frame noise averages out over hundreds of frames.
+
+Tried, as a Hungarian assignment on the ray-miss matrix over 124 frames. The first run gave 9 of 31 ids a
+partner winning 60 % of their frames and several plainly wrong winners, including cross-team ones -- but
+two of those failures were the measurement's, not the method's: nothing forbade a cross-team assignment,
+and the "share" divided by every frame the endzone id appears in, including frames where its true partner
+was not detected at all, which penalises exactly the intermittent tracks this is meant to repair. With a
+team gate and the share taken over co-present frames, **14 of 28** ids have a partner winning at least
+60 %, and seven are joins the pipeline does not currently make:
+
+    89 -> 7 (82 %, 89 frames)   5 -> 19 (74 %, 50)   38 -> 17 (71 %, 34)   45 -> 4 (71 %, 31)
+    101 -> 5 (71 %, 34)         22 -> 80 (69 %, 29)  17 -> 25 (61 %, 33)
+
+all same-team, and two of them (45->4 and 89->7) were independently flagged as the same man at 0.33 m by
+the ground-point test above -- two instruments agreeing. **Not adopted, and checking each one against the pairing it
+would replace is why:**
+
+    endzone -> sideline   ray miss proposed/current   ground gap proposed/current   verdict
+      5 -> 19                 0.33 / 0.19 m               6.44 / 0.48 m             WRONG, six metres apart
+     38 -> 17                 0.30 / 0.10                 1.27 / 0.54               wrong
+     17 -> 25                 0.14 / 0.18                 0.96 / 0.71               ambiguous, rulers disagree
+     22 -> 80                 0.17 / 0.22                 0.71 / 0.45               ambiguous, rulers disagree
+     45 ->  4                 0.11 / 0.90 (1 frame)       0.59 / 1.17               good
+     89 ->  7                 0.08 (179 frames) / --      0.36 / --                 good, no current pairing
+    101 ->  5                 0.25 (71) / --              0.89 / --                 plausible, no current pairing
+
+The suspicion about `5 -> 19` was right and worse than expected: those two bodies stand **6.44 m apart**,
+so a 74 %-confidence vote would have welded together two men at opposite ends of the formation. The
+Hungarian one-to-one competition manufactures that -- when the true partner is undetected on a frame, the
+assignment must still give the id to somebody. Two of seven candidates are flatly wrong and two more have
+the two rulers disagreeing, which is far too high a false-positive rate to apply automatically; a wrong
+merge costs more than a merge not made, as the 0.35 m twin threshold proved when it folded a passer into
+the lineman beside him. Three survive an independent ruler (45->4, 89->7 at 0.08 m over 179 frames, and
+101->5), and 89->7 in particular is a man the two cameras have never had under one id. The route forward
+is the vote as a CANDIDATE GENERATOR with the ground-gap check as the gate, not the vote as a decision.
 
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
