@@ -841,6 +841,39 @@ a much smaller change than the earlier finding implied. The mechanism is plain e
 incumbent's replacement is chosen on the frames where both ids have confident ankles, and applied to the
 whole span, so the edges of that span are where it goes wrong.
 
+### v38: every join trimmed to the frames its rays agree, and it wins on all three rulers (2026-09-12)
+
+08r now emits `frame_from`/`frame_to` -- the longest unbroken run whose ray miss is within
+`--max-ray-miss` -- and 08s converts that by the clip offset and relabels only inside it, refusing a
+proposal that carries no interval. v38 replays every join from the pre-pair backups rather than trimming
+in place: six applied (0<-102, 7<-89, 11<-19, 25<-33, 28<-21, 80<-22), one eviction confined to its
+interval (endzone 25 over 385-471 only, 51 track rows). Two-view coverage 25 -> **27 players**.
+
+    05u, 2155 identical body-frames, 27 players    v37        v38
+    id 25                                        0.23 m     0.04 m
+    id 22                                        0.20       0.01
+    every other player                           identical to the centimetre
+    pooled |along-ray| p90 / p99              0.06 / 0.83   0.04 / 0.39
+    players worse by more than 0.10 m                       0 of 27
+
+    05t, 2299 paired body-frames                   v37        v38
+    endzone p50 / p90 / p99               8.5/16.5/135.5   8.4/15.3/60.1
+    endzone frames over  20 px              134 ( 5.8 %)    71 ( 3.1 %)
+    endzone frames over  30 px               98 ( 4.3 %)    33 ( 1.4 %)
+    endzone frames over 100 px               36 ( 1.6 %)    13 ( 0.6 %)
+    sideline p50 / p90                        4.2 / 12.1    4.3 / 12.4
+
+    census                                        2.94        2.84   (exactly 11 and 11: 9 -> 10)
+
+The trim hits exactly what it was aimed at -- the tail. id 25's endzone p90 of 483 px is gone, and the
+pooled p99 halves on both rulers while the sideline stays flat and no player regresses.
+
+**And one result nobody proposed: id 22 improved from 0.20 m to 0.01 m without being a candidate.**
+Endzone track 22 was relabelled onto sideline 80 only over frames 363-511; outside that window it keeps
+its own id, and sideline 22 holds it there at 0.01 m. That single endzone track was covering **two
+different men at different times**, and splitting it by interval gave each his own -- a failure whole-track
+joining cannot even express, let alone repair.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
