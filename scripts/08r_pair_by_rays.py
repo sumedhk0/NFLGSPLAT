@@ -123,11 +123,19 @@ def pair_medians(A, B, gs, ge, tracks, cam: str, other: str, offset: int, teams:
                 m = ray_miss(ca, cb, pa, pb)
                 if m is not None:
                     miss.setdefault((s, e), []).append(m)
-                a = gs.get(int(f), {}).get(s)
-                b = ge.get(int(f) + offset, {}).get(e)
-                if a is not None and b is not None:
-                    turf.setdefault((s, e), []).append(
-                        float(np.linalg.norm(np.asarray(a, float) - np.asarray(b, float))))
+        # The turf gap is measured over EVERY frame both ids stand somewhere, not only the
+        # ankle-confident frames the rays need -- that subset is exactly where a pairing looks its
+        # best. Measured on it, `37 <- 139` reported 0.58 m and passed the gate while the two
+        # actually stand 2.69 m apart across their shared span, which is two different men.
+        GS, GE = gs.get(int(f), {}), ge.get(int(f) + offset, {})
+        for s, a in GS.items():
+            ts = teams.get(s)
+            for e, b in GE.items():
+                te = teams.get(e)
+                if ts is not None and te is not None and ts != te:
+                    continue
+                turf.setdefault((s, e), []).append(
+                    float(np.linalg.norm(np.asarray(a, float) - np.asarray(b, float))))
     out = {}
     for key, v in miss.items():
         g = turf.get(key, [])
