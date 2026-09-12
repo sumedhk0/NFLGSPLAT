@@ -43,10 +43,12 @@ def test_ankle_ground_lands_between_the_feet():
 
 def test_ground_positions_prefers_the_ankles_over_the_box():
     tr = track((-3.7, -101.6, 42.5), (-20.0, 0.0, 0.0), 9400.0)
-    df = pd.DataFrame([{"frame": 1, "cam": "sideline", "track_id": 7, "bbox_x1": 900.0, "bbox_x2": 940.0,
-                        "bbox_y1": 400.0, "bbox_y2": 560.0},
-                       {"frame": 1, "cam": "sideline", "track_id": 8, "bbox_x1": 1100.0, "bbox_x2": 1140.0,
-                        "bbox_y1": 400.0, "bbox_y2": 560.0}])
+    # both ids, as the real table carries them: ground_positions keys by the PLAYER, and ankle_ground
+    # keys its dict the same way, so a fixture with only the tracker's id tests the wrong contract
+    df = pd.DataFrame([{"frame": 1, "cam": "sideline", "track_id": 7, "global_player_id": 7,
+                        "bbox_x1": 900.0, "bbox_x2": 940.0, "bbox_y1": 400.0, "bbox_y2": 560.0},
+                       {"frame": 1, "cam": "sideline", "track_id": 8, "global_player_id": 8,
+                        "bbox_x1": 1100.0, "bbox_x2": 1140.0, "bbox_y1": 400.0, "bbox_y2": 560.0}])
     box_only = ground_positions(df, {"sideline": tr})
     ankles = {("sideline", 1, 7): np.array([-20.2, 1.1])}
     mixed = ground_positions(df, {"sideline": tr}, ankles=ankles)

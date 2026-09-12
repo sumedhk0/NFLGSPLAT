@@ -115,6 +115,12 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
     clip's frames (the camera pose is the clip frame's)."""
     from nfl_gsplat.pose.place_on_field import ground_point
 
+    if "global_player_id" not in df.columns:
+        raise SetupError(
+            "ground_positions keys by global_player_id and this table has none. The tracker's id is NOT "
+            "the key -- the two are equal only until a track is relabelled onto another player (08s), "
+            "and falling back to track_id silently would put a relabelled body under an id no caller "
+            "asks for.")
     out: dict[int, dict[int, list]] = {}
     seen: dict[int, dict[int, list]] = {}
     for cam, sub in df.groupby("cam"):
@@ -128,10 +134,20 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
             intr, pose = tr.at(fc)
             K, R, t = intr.K(), pose.R, pose.t
             for r in rows.itertuples():
-                g = None if ankles is None else ankles.get((str(cam), f, int(r.track_id)))
+                # The key is the PLAYER, not this camera's tracker id. The two have always been equal
+                # in this pipeline, so they were used interchangeably until 08s relabelled an endzone
+                # track onto another player's global id -- after which those ids reported NO ground
+                # points at all (id 11: 423 endzone rows, 405 keypoint boxes, 0 ground frames, against
+                # control id 12 at 381/377/381), because their points landed under the old track id and
+                # the ankle lookup missed every time: ankle_ground keys by global_player_id. Every
+                # caller asks by player id -- 05p tests `pid not in ground.get(f, {})` with pid from the
+                # keypoints, the depth snap matches endzone candidates the same way, the census counts
+                # players -- so the docstring's "{pid: xy}" was the contract and track_id broke it.
+                pid = int(r.global_player_id)
+                g = None if ankles is None else ankles.get((str(cam), f, pid))
                 if g is not None:
-                    out.setdefault(f, {}).setdefault(int(r.track_id), []).append(np.asarray(g[:2], float))
-                    seen.setdefault(f, {}).setdefault(int(r.track_id), []).append(str(cam))
+                    out.setdefault(f, {}).setdefault(pid, []).append(np.asarray(g[:2], float))
+                    seen.setdefault(f, {}).setdefault(pid, []).append(str(cam))
                     continue
                 try:
                     foot_v = float(r.bbox_y2) - margin_frac * float(r.bbox_y2 - r.bbox_y1)
@@ -139,8 +155,8 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
                 except Exception:
                     continue
                 if abs(g[0]) < 60 and abs(g[1]) < 30:
-                    out.setdefault(f, {}).setdefault(int(r.track_id), []).append(np.asarray(g[:2], float))
-                    seen.setdefault(f, {}).setdefault(int(r.track_id), []).append(str(cam))
+                    out.setdefault(f, {}).setdefault(pid, []).append(np.asarray(g[:2], float))
+                    seen.setdefault(f, {}).setdefault(pid, []).append(str(cam))
     ground = {f: {pid: np.mean(v, axis=0) for pid, v in d.items()} for f, d in out.items()}
     if not with_views:
         return ground
@@ -291,7 +307,9 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         if bad:
             print("mispaired ids drawn from the sideline alone: "
                   + ", ".join(f"{pid} ({d:.1f} m)" for pid, d in sorted(bad.items())))
-            df = df[~((df["cam"] == "endzone") & df["track_id"].isin(list(bad)))]
+            # bad holds PLAYER ids, because ground_positions keys by global_player_id; dropping the
+            # rows by the tracker's id instead would miss exactly the relabelled tracks
+            df = df[~((df["cam"] == "endzone") & df["global_player_id"].isin(list(bad)))]
     ground, views = ground_positions(df, tracks, with_views=True, ankles=ankles, frame_shift=shift)
     # The sideline's point places a body wherever the sideline sees it: the
     # two-camera average carried the endzone's depth error (1.9 m on id 2 of

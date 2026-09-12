@@ -236,8 +236,9 @@ def test_ground_positions_take_the_foot_above_the_box_margin():
     K = intrinsics(1920, 1080, fov_deg=12.0)
     R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 0.0]))
     track = CameraTrack(K=K[None], R=R[None], t=t[None], conf=np.ones(1), width=1920, height=1080)
-    box = pd.DataFrame([{"cam": "sideline", "frame": 0, "track_id": 1, "bbox_x1": 940, "bbox_y1": 400,
-                         "bbox_x2": 980, "bbox_y2": 540}])
+    # both ids, as the real table carries them; ground_positions keys by the player, not the tracker
+    box = pd.DataFrame([{"cam": "sideline", "frame": 0, "track_id": 1, "global_player_id": 1,
+                         "bbox_x1": 940, "bbox_y1": 400, "bbox_x2": 980, "bbox_y2": 540}])
     g0 = ground_positions(box, {"sideline": track}, margin_frac=0.0)[0][1]
     g1 = ground_positions(box, {"sideline": track})[0][1]
     assert BOX_MARGIN_FRAC > 0
