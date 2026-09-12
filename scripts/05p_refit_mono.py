@@ -406,6 +406,17 @@ TWO_VIEW_MAX_MISS_M = 0.6
 # at 0.36 m and id 25 at 0.33 m -- just the wrong side of 0.3 -- read 142 px and 14.5 px (p90 113),
 # id 19's hips landing 149 px sideways in the endzone, which is depth along the sideline ray.
 ANCHOR_MAX_MISS_M = 0.3
+# The two-view pass's OWN validity bound. It used to share --reproj-px-max (20 px) with the one-view
+# pass, which rejected the frames carrying the most information: a two-view fit pays reprojection in
+# one camera to satisfy the other by construction (play 1, whole play: sideline 6.7 px, endzone 4.3),
+# and every frame the bound rejected was refitted ONE-VIEW, reaching 4 px by sliding the body along
+# the ray that camera cannot see. At 40 px the pass keeps 1787 of 1793 frames instead of about 1100,
+# and both rulers improve: cross-view (05t) endzone p99 341 -> 140 px and frames over 100 px 129 -> 24,
+# while the gap from the point both cameras put the feet falls at p90 0.21 -> 0.05 m and p99
+# 2.51 -> 0.34 m, with 0 of 23 players worse by more than 0.10 m. The sideline's own pixels get worse
+# (p90 11.0 -> 12.7, frames over 20 px 6 -> 147) and that is the trade, not a cost: the camera a body
+# was fitted to cannot see where it stands along its own ray.
+TWO_VIEW_PX_MAX = 40.0
 
 
 def main() -> None:
@@ -470,12 +481,12 @@ def main() -> None:
                     help="ignore the fused (05f) cache: every player is fitted to the sideline keypoints alone "
                          "(an experiment: the pairing's ~1 m ambiguity corrupts two-view poses and placement)")
     ap.add_argument("--two-view-place-weight", type=float, default=TWO_VIEW_PLACE_WEIGHT)
-    ap.add_argument("--two-view-px-max", type=float, default=None,
-                    help="the two-view pass's own validity bound (px); default: --reproj-px-max. A two-view "
-                         "frame costs reprojection in one camera to satisfy the other -- play 1's five-player "
-                         "probe fitted at sideline 14.6 px and endzone 4.9 px -- and every frame the 20 px "
-                         "bound rejects is refitted ONE-VIEW, which reaches 4 px by sliding the body along the "
-                         "ray it cannot see. Raising this keeps the two-view fit instead; score it with 05t")
+    ap.add_argument("--two-view-px-max", type=float, default=TWO_VIEW_PX_MAX,
+                    help="the two-view pass's own validity bound (px). A two-view frame costs reprojection in "
+                         "one camera to satisfy the other, and every frame this bound rejects is refitted "
+                         "ONE-VIEW, which reaches 4 px by sliding the body along the ray it cannot see. Sharing "
+                         "the one-view gate (20) cost play 1 a fivefold worse cross-view tail; see "
+                         "TWO_VIEW_PX_MAX for the measurement. Score any change with 05t")
     ap.add_argument("--two-view-max-miss", type=float, default=TWO_VIEW_MAX_MISS_M,
                     help="a two-view frame whose two cameras' ankle rays miss by more than this (m) is left to "
                          "the one-view pass: the frame is mis-paired. 0 disables the check")

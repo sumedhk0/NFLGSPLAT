@@ -688,6 +688,28 @@ The broken player improves twentyfold and **not one other player moves a centime
 adoption test passed: beaten on a ruler that is not the one being optimised, with no regression
 elsewhere. v35 applies it to the whole play and re-scores with 05t, the census and both overlays.
 
+**v35, the whole play, and it holds.** The two-view pass now keeps **1787 of 1793 frames across 24
+players** (its own medians: sideline 6.7 px, endzone 4.3) instead of throwing the informative ones to a
+one-view refit:
+
+    whole play, ~1820 body-frames both cameras see     v34        v35
+    endzone p50 / p90 / p99                        8.7/25.3/341.3   8.8/16.7/140.3
+    endzone frames over  20 px                       197 (10.9 %)     92 ( 5.0 %)
+    endzone frames over  30 px                       178 ( 9.8 %)     55 ( 3.0 %)
+    endzone frames over 100 px                       129 ( 7.1 %)     24 ( 1.3 %)
+    sideline p50 / p90                                3.4 / 11.0      3.4 / 12.7
+    sideline frames over 20 px                         6 ( 0.3 %)    147 ( 8.1 %)
+
+and in metres, over 1680 paired body-frames on 23 players: |along-ray| **p90 0.21 -> 0.05 m, p99
+2.51 -> 0.34 m**, id 19 1.04 -> 0.05, and **0 of 23 players worse by more than 0.10 m** -- every other
+player identical to the centimetre. The catastrophic tail is cut fivefold, nothing regresses in metres,
+and the sideline's own pixels get worse, which is the trade rather than the cost. `TWO_VIEW_PX_MAX = 40`
+is now the default in 05p and carries these numbers in its comment.
+
+(08f declined to re-split the teams on the new cache -- "no clear two-way split: largest gap 9 at 189,
+123 below, 2 above; refusing" -- so the labels are v34's. Refusing beats guessing, and it is the same
+one-sided saturation histogram the kit work has hit before.)
+
 **The depth snap is exonerated and re-measured as a win.** It is not the source of the along-ray
 error: it never moves id 19 (1.09 m before, 1.09 m after; worse on 3 frames of 107, better on 1).
 Where it fires it is strongly right -- id 5 0.40 m -> 0.05 m of along-ray error (better on 115 of
