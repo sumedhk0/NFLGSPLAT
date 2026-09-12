@@ -583,6 +583,48 @@ exceptions**, deep safeties (BAL ids 2 and 30, ten metres off the line) and the 
 into his own backfield included. The kit vote from torso saturation is sound at the snap; so is
 `line_of_scrimmage`. When a check fails on literally every sample, suspect the check.
 
+**Then the footage settled what the geometry could not.** I had a promising theory that the ball-following
+All-22 sideline crop simply does not frame the whole field, which would make "eleven a side" unreachable
+and part of the census error not a defect at all. The visible ground footprint is real enough -- at the
+line of scrimmage the sideline frames y = -12 to +24 m of a +-24.4 m field and the endzone only -6 to +7,
+about 25 % and 21 % of the ground around the ball -- but the theory is **wrong for the snap**. Looking at
+sideline frame 300 itself: nothing is clipped at either edge (the leftmost body sits at x 250 px, the
+Kansas City receiver split widest at x 1765), and a human count gives 11 Baltimore in white against 9-10
+Kansas City in red. The 21 tracked boxes match what is actually visible. Kansas City's missing men are not
+out of frame and are not missed by the detector -- **the sideline views the line of scrimmage nearly
+end-on, so the offensive line overlaps into one mass**. Endzone frame 285 shows exactly those men
+separately (76, 62, 65, 74, 83, with the passer 15 and the back 10 behind them).
+
+**So the snap deficit is a cross-camera bookkeeping failure.** At frame 300 the sideline holds 21 ids and
+the endzone 24, and only **12 of them share an id**: 12 endzone-only, 9 sideline-only, a union of KC 14 and
+BAL 19 against a truth of 11 and 11, while the v34 cache draws 19 bodies (KC 8, BAL 11). The five
+endzone-only Kansas City ids (22, 37, 38, 74, 86) stand at x -22.7 to -24.2, on the line: the occluded
+linemen, tracked perfectly well by the camera that can see them and never joined to the sideline. Admitting
+them wholesale would overshoot badly, because some endzone-only ids are the same men as sideline ids that
+were never paired -- which of the two they are is the number that picks the fix.
+
+**Measured, by asking each endzone-only id how far the nearest sideline body is** (frames 300-400):
+
+    of the 12-14 endzone-only ids per frame
+      5-7  stand 0.14-0.70 m from a sideline body: the SAME MAN under two ids -- a pairing miss
+      2-4  have no sideline body within 1.5 m: genuinely unseen there (the occluded linemen, and officials)
+      rest ambiguous at 0.7-1.5 m
+    both cameras pooled, 45 ids fall in 26-28 distinct places: KC 11-12, BAL 15-18 (truth 11 and 11)
+
+Kansas City's pooled count is **right**. The two cameras together do see all eleven; the snap deficit is
+pure bookkeeping, and the repair is to join the ids rather than to admit more bodies. Ground-point distance
+alone cannot do that joining -- 0.7 m folded two real men once before (the passer and the lineman beside him
+at 0.29 m) -- but the cameras' ankle RAYS can, as they already do for twins: a true pair's rays meet
+(0.03-0.19 m on play 1) and two different men's do not (1.11 m).
+
+Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
+stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
+(-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
+Baltimore. And **one body can carry different teams in the two cameras**: endzone id 86 (KC) is sideline id
+82 (BAL) at 0.55 m, endzone 99 (KC) is sideline 6 (BAL) at 0.49 m, endzone 91 (BAL) is sideline 3 (KC) at
+0.68 m. The kit vote is per camera and per id, so nothing forces the two views of one man to agree; the vote
+belongs on the merged id, after pairing, not before it.
+
 **The cause is the two-view gate.** Simulating `two_view_pass`'s filters per player showed the
 cross-view error is monotone in the fraction of a player's frames that got the triangulated ankle
 anchor:
