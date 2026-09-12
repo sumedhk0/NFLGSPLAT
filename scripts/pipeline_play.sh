@@ -280,6 +280,35 @@ if ! done_ twins; then
   mark twins
 fi
 
+if ! done_ pair; then
+  # The two cameras hold the same man under two global ids -- at play 1's snap the sideline has 21 ids
+  # and the endzone 24 with only 12 shared, while the two POOLED see Kansas City in the right 11-12
+  # places. 08r proposes joins from one global assignment on per-pair median ankle-ray miss (a per-frame
+  # test cannot pick a partner: at ~100 m a neighbour misses almost as little as the right man), gates
+  # each on the turf gap, and emits the interval its rays actually agree over; 08s relabels the other
+  # camera's rows onto the sideline id INSIDE that interval only, never unioning the global ids.
+  # Measured on play 1 (v36-v38): along-ray p90 0.21 -> 0.04 m with no player worse, endzone p99
+  # 341 -> 60 px, census 2.95 -> 2.84. It must run BEFORE roles/tri/refit, which all read these tables.
+  # v38's gains came FROM the re-pairings (sideline 7 <- endzone 89 at 0.08 m over 184 frames, 25 <- 33),
+  # each of which gives up a sitting endzone track to a fresh unused id rather than deleting it. The gate
+  # (beat the incumbent on both rulers, turf gap capped) and the interval trim are what make that safe, so
+  # they are ON by default -- a pipeline that shipped without them could not reproduce the measured best
+  # state. PAIR_ADDITIONS_ONLY=1 restricts to joins that evict nothing.
+  if [ "${PAIR_ADDITIONS_ONLY:-0}" = "1" ]; then PAIR_PROPOSE=""; PAIR_APPLY=""
+  else PAIR_PROPOSE="--allow-repairing"; PAIR_APPLY="--give-up-incumbent"; fi
+  log "join the ids the two cameras hold separately (08r propose, 08s apply inside their intervals)"
+  "$PYN" scripts/08r_pair_by_rays.py --play-dir "$P" $PAIR_PROPOSE 2>&1 \
+     | grep -v "Warning\|warn" | grep -E "assignment|PROPOSE|survive|Error|Traceback" || fail pair
+  if [ -s "$P/pair_proposal.json" ] && grep -q '"rejected": null' "$P/pair_proposal.json"; then
+    "$PYN" scripts/08s_apply_pairs.py --play-dir "$P" $PAIR_APPLY 2>&1 \
+       | grep -v "Warning\|warn" | grep -E "proposals|moved|gives up|now has|Error|Traceback" || fail pair
+    "$PYN" scripts/08c_identity_all22.py --play-dir "$P" --week 1 --saturated "$RED" $KICK_FLAG --from-cache 2>&1 | grep -v "Warning\|warn" | tail -2 || fail pair
+  else
+    log "pair: no proposal survived the gate; tables unchanged"
+  fi
+  mark pair
+fi
+
 if ! done_ roles; then
   # The jersey OCR names about half the ids and the rest were 1.85 m with no weight, so a
   # defensive lineman and a cornerback came out the same body. The pre-snap formation gives the
