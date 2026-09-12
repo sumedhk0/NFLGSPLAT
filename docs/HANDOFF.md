@@ -989,6 +989,24 @@ two cameras' ankle rays there miss by **2.34 m**, so the triangulated "truth" is
 mis-paired window, not a misplaced body, and it accounts for id 17's 0.13 m across-ray component, the
 last named placement defect. A candidate for the same interval trim.
 
+**So 05u was scoring bodies against a truth it had never checked, and the fix moves the headline.** The
+ruler now drops any frame whose two cameras' ankle rays miss by more than 0.6 m -- the same bound the
+two-view fit uses to call a frame mis-paired -- because a crossing point the cameras disagree about is
+not a truth to score against. On play 1 that is **15 body-frames of 2161**, and the effect is entirely
+in the tail:
+
+    pooled |along-ray|        v37 before -> after     v38 before -> after
+    p99                        0.83 -> 0.70 m          0.39 -> 0.36 m
+    max                        4.49 -> 1.50            4.49 -> 0.62
+
+Every player's median is unchanged and it is still 0 of 27 worse, which is the signature of removing
+noise rather than data. **The worst body-frame in play 1 is 0.62 m, not 4.49 m** -- the figure quoted in
+the v36, v37 and v38 entries above was the mis-paired id 17 window being scored as placement error.
+
+The general lesson, which cost three entries' worth of inflated maxima: a ruler that scores against a
+triangulated point must validate the triangulation first. The same discipline as the cross-view ruler
+itself -- measure with an instrument whose own error you have bounded.
+
 Three times now the geometry has proposed something the footage refused -- a body supposedly drawn on
 the camera rig (it was a drone in the plate), players supposedly cut off by the sideline crop (nothing
 was clipped), and now the endzone supposedly over-segmenting the line. **Look at the frame before

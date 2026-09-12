@@ -53,6 +53,11 @@ ANKLE_JOINTS = (15, 16)
 ANKLE_CONF = 0.5
 FEET_JOINTS = (7, 8)          # the SMPL-X ankles, whose midpoint is where the body stands
 WORSE_M = 0.10                # a player this much worse is a regression, not noise
+# A frame whose two cameras' ankle rays do not meet has no trustworthy crossing point, so it cannot serve
+# as truth. Play 1's "worst body-frame in the play" was id 17 at frames 458-460, reported 4.49 m out --
+# where the rays miss by 2.34 m. That body is MIS-PAIRED on those frames, not misplaced, and scoring it
+# as placement error inflated the max and p99 of every comparison run against this ruler.
+MAX_RAY_MISS_M = 0.60         # the same bound the two-view fit uses to call a frame mis-paired
 
 
 def ankle_pixels(kdf, cam: str) -> dict:
@@ -104,6 +109,7 @@ def main() -> None:
     ids = set.intersection(*[set(c) for c in caches.values()])
     pooled = {n: [] for n in names}
     rows = []
+    n_unreliable = 0          # frames whose crossing point is not trustworthy enough to score against
     for pid in sorted(ids):
         fw = {}
         for n in names:
@@ -126,7 +132,10 @@ def main() -> None:
             k = min(len(pa), len(pb))
             C1, d1 = _rays(i1.K(), np.asarray(p1.R, float), np.asarray(p1.t, float), pa[:k])
             C2, d2 = _rays(i2.K(), np.asarray(p2.R, float), np.asarray(p2.t, float), pb[:k])
-            X, _m = _closest_points(C1, d1, C2, d2)
+            X, miss = _closest_points(C1, d1, C2, d2)
+            if float(np.median(miss)) > MAX_RAY_MISS_M:
+                n_unreliable += 1          # the two cameras disagree about this man here: no truth
+                continue
             tri = X[:, :2].mean(axis=0)
             centre = (-np.asarray(p1.R, float).T @ np.asarray(p1.t, float))[:2]
             u = tri - centre
@@ -146,6 +155,9 @@ def main() -> None:
             for n in names:
                 pooled[n].extend(out[n]["al"])
 
+    if n_unreliable:
+        print(f"{n_unreliable} body-frames left out: the two cameras' ankle rays miss by more than "
+              f"{MAX_RAY_MISS_M} m there, so the crossing point is not a truth to score against")
     if not rows:
         raise SystemExit("no player has enough frames both cameras see")
     head = "  id  frames | " + " | ".join(f"{n[:22]:>22s}" for n in names)
