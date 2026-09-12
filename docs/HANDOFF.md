@@ -493,13 +493,30 @@ is his 107 frames.
 **And the blind spot this ruler cannot reach.** Only 1832 of the cache's 5103 body-frames have a
 second view on that frame. 3271 (64 %) are sideline-only, and 1165 of those belong to ids the endzone
 never sees at all. Their depth is not unconstrained -- an ankle ray meets the turf at exactly one
-point, so one camera plus the ground plane does fix a position -- but it carries the whole error of
-the feet-on-ground assumption, and where that could be checked it was **~0.4 m along the ray** (id 5
-sat 0.40 m out before the depth snap, 0.05 m after). The snap is the only correction those bodies can
-get and it reaches few of them: 610 of the 3271 sideline-only body-frames were moved (p50 0.25 m, p90
-0.95, max 2.46 against its 2.5 m cap) and **2661 (52 % of the cache) were left on the turf estimate
-alone**. That is where placement work goes after id 19, and it needs a ruler that is not the second
-camera, because these frames do not have one.
+point, so one camera plus the ground plane does fix a position -- it carries the error of the
+feet-on-ground assumption, and that error is **smaller than it looks**: measured against the
+triangulated feet on the 1719 frames where truth exists, the ankle-turf depth is out by **p50 0.19 m,
+p90 0.56 m**. (An earlier line here said ~0.4 m; that was id 5's pre-snap figure, one player, and the
+population number is half it.) The depth snap reached 610 of the 3271 sideline-only body-frames
+(moving them p50 0.25 m, p90 0.95, max 2.46 against its 2.5 m cap), leaving 2661 (52 % of the cache)
+on the turf estimate alone -- which is decent, not dire.
+
+**A ruler for those frames was designed, calibrated and thrown away the same hour.** A player's
+standing height is fixed by his build (the 51 ids span 1.75-1.96 m, p50 1.87), so his box height in
+pixels measures his range independently of the ankle ray, and two disagreeing estimates would localise
+a bad placement with no second camera at all. It does not work, and the numbers say why:
+
+    1719 paired frames, error against the triangulated feet   p50      p90
+    ankle ray meets the turf (what the fit uses)              0.19 m   0.56 m
+    box height against known standing height                  6.73 m  59.44 m
+    the same, upright boxes only (857 frames)                  3.27 m  10.08 m
+
+and the disagreement between the two carries no information: bucketing by it, from under 0.5 m to
+over 5 m, |ankle - truth| stays flat at 0.13-0.21 m p50. The cause is geometry, not implementation:
+at the median range of **112 m**, depth from apparent size inherits the box's RELATIVE error, so ten
+pixels of slop on a 140 px box is eight metres of depth. Intersecting a ray with the turf is far
+better conditioned. Do not re-propose depth-from-apparent-size at All-22 ranges; it is unusable
+whatever the pose gating.
 
 **The cause is the two-view gate.** Simulating `two_view_pass`'s filters per player showed the
 cross-view error is monotone in the fraction of a player's frames that got the triangulated ankle
