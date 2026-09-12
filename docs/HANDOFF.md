@@ -710,6 +710,30 @@ is now the default in 05p and carries these numbers in its comment.
 123 below, 2 above; refusing" -- so the labels are v34's. Refusing beats guessing, and it is the same
 one-sided saturation histogram the kit work has hit before.)
 
+**The census did not move, and that is the useful part.** v35 scores `|KC-11| + |BAL-11| = 3.02` bodies
+a frame from the snap against v34's 2.95, with KC mean 11.7 and BAL 12.0 and only 4 frames of 361
+exactly eleven and eleven. Placement improved fivefold on its own ruler and the body count got very
+slightly worse, which settles that these are independent axes: the two-view bound fixes where a body
+stands, not whether the right bodies exist. **The census is now the binding problem.** What the render
+threw away on the way to that number:
+
+    frames beyond an id's sideline span left out   2110
+    endzone-only ids left out                        34
+    edge-clipped one-view ids left out               25
+    sideline dwellers left out                       20
+    bodies behind the offence (officials)            ids 85, 88, 106, 107
+
+which corrects something written above: the officials that the kit vote labels Baltimore are **already
+excluded from the drawn bodies** -- id 85, the motionless referee at (-10.1, +5.2), is in that list. The
+vote is still wrong about them (white stripes read as Baltimore) and that wrong label still reaches
+anything reading `identity_resolved.pkl` directly, but they were never inflating the census. The surplus
+of 15-18 "distinct places" for Baltimore is a count of RAW ids, before these rules.
+
+Note also `endzone-only ids left out: 34` sitting beside the finding above that 2-4 endzone-only ids a
+frame are men no sideline body is within 1.5 m of -- the occluded linemen. The rule that drops them is
+the same one protecting the count from double-drawing unpaired duplicates, which is exactly why the fix
+has to be pairing (join the ids by ankle-ray agreement) rather than relaxing the rule.
+
 **The depth snap is exonerated and re-measured as a win.** It is not the source of the along-ray
 error: it never moves id 19 (1.09 m before, 1.09 m after; worse on 3 frames of 107, better on 1).
 Where it fires it is strongly right -- id 5 0.40 m -> 0.05 m of along-ray error (better on 115 of
