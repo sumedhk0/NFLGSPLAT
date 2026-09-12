@@ -15,6 +15,15 @@ and quarterback into one sideline id). If the target already has endzone rows on
 track covers, the relabel is refused and the run fails loud -- disjoint spans are fine, overlapping ones
 are not.
 
+GIVING UP AN INCUMBENT (--give-up-incumbent). A re-pairing can only be applied by moving the sitting
+track out of the way first, so with this flag the incumbent is relabelled to a FRESH unused id rather
+than deleted: it survives as an unpaired track of its own camera and the existing drawing rules decide
+whether it appears. Use it only where the evidence is lopsided. Play 1's case is the example --
+sideline 7's endzone partner is id 7 on 13 ankle frames at 0.17 m with a 0.80 m turf gap, against id 89
+on 184 frames at 0.08 m with a 0.37 m gap; id 89 spans 125-634, the whole play, while id 7 exists only
+at 539-634, which is precisely the collision, and id 7's best alternative partner is 7.61 m away, so it
+has no other home. Evicting it is the honest reading of the geometry, not a convenience.
+
 WHAT TO DO AFTERWARDS. The two-view pass pairs by global id, so 05p has to run again for the new pairing
 to reach the fits, and the result is scored with 05t (the camera the bodies were NOT fitted to) plus the
 along-ray gap from the point both cameras put the feet. The sideline's own reprojection is not evidence
@@ -41,15 +50,22 @@ def frames_of(df: pd.DataFrame, cam: str, pid: int) -> set:
     return set(int(x) for x in g["frame"].unique())
 
 
-def check(df: pd.DataFrame, cam: str, own: int, other: int) -> None:
-    """Refuse a relabel that would put two tracks of one camera under one id on the same frame."""
+def check(df: pd.DataFrame, cam: str, own: int, other: int, *, give_up: bool = False) -> int:
+    """The number of frames the incumbent track collides on. Refuses the relabel unless ``give_up``,
+    because one id may not hold two tracks of one camera at the same time."""
     clash = frames_of(df, cam, own) & frames_of(df, cam, other)
-    if clash:
+    if clash and not give_up:
         lo, hi = min(clash), max(clash)
         raise ApplyError(
             f"{cam} id {own} already holds a track on {len(clash)} of the frames {cam} id {other} covers "
             f"({lo}-{hi}); relabelling would put two {cam} tracks under id {own} at once. Give one up "
-            f"first, or drop this proposal.")
+            f"first (--give-up-incumbent), or drop this proposal.")
+    return len(clash)
+
+
+def fresh_id(*frames: pd.DataFrame) -> int:
+    """An id no table uses, for a track being moved out of the way rather than deleted."""
+    return max(int(d["global_player_id"].max()) for d in frames) + 1
 
 
 def relabel(df: pd.DataFrame, cam: str, own: int, other: int) -> int:
@@ -67,6 +83,11 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="report and write nothing")
     ap.add_argument("--only", type=int, nargs="*", default=None,
                     help="apply only the proposals whose own_id is in this list")
+    ap.add_argument("--give-up-incumbent", action="store_true",
+                    help="a re-pairing needs the sitting other-camera track moved out of the way; with this "
+                         "it is relabelled to a FRESH unused id (it survives unpaired, it is not deleted) "
+                         "instead of the run refusing. Only where the evidence is lopsided -- see the "
+                         "docstring for play 1's 184 frames at 0.08 m against 13 at 0.17 m")
     args = ap.parse_args()
     P = args.play_dir
     prop_path = args.proposal or P / "pair_proposal.json"
@@ -87,9 +108,10 @@ def main() -> None:
     print(f"{len(rows)} proposals from {prop_path.name}; relabelling {other} tracks onto {cam} ids")
     for r in rows:
         own, oid = int(r["own_id"]), int(r["other_id"])
-        check(tdf, other, own, oid)
+        clash = check(tdf, other, own, oid, give_up=args.give_up_incumbent)
+        note = "" if not clash else f", evicting the incumbent {other} {own} from {clash} frames"
         print(f"  {cam} {own:3d} <- {other} {oid:3d}: rays {r['ray_miss_m']} m, turf {r['ground_gap_m']} m "
-              f"over {r['frames']} frames ({r['kind']}, would apply by {r.get('apply_as', '?')})")
+              f"over {r['frames']} frames ({r['kind']}, would apply by {r.get('apply_as', '?')}){note}")
     if args.dry_run:
         print("dry run; nothing written")
         return
@@ -103,6 +125,12 @@ def main() -> None:
     moved_t = moved_k = 0
     for r in rows:
         own, oid = int(r["own_id"]), int(r["other_id"])
+        if check(tdf, other, own, oid, give_up=args.give_up_incumbent):
+            spare = fresh_id(tdf, kdf)
+            n_t = relabel(tdf, other, spare, own)      # the incumbent steps aside, it is not deleted
+            n_k = relabel(kdf, other, spare, own)
+            print(f"  {other} {own} gives up the id: {n_t} track rows and {n_k} keypoint rows moved to "
+                  f"the unused id {spare}, where they stay as an unpaired {other} track")
         moved_t += relabel(tdf, other, own, oid)
         moved_k += relabel(kdf, other, own, oid)
     tdf.to_parquet(tracks_path, index=False)
