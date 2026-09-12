@@ -723,6 +723,46 @@ endzone 7, whose pairing with sideline 7 has *zero* frames with confident ankles
 very likely right and still needs a deliberate decision. Nothing is merged: applying is a separate step and
 its ruler is 05t plus the along-ray gap, never the sideline's own pixels.
 
+### v36: the four pairings applied, and they pay in metres (2026-09-12)
+
+08s relabels an endzone track onto its real sideline owner -- it never unions the ids, because an id
+spans both cameras and unioning 11 with 19 would sweep in sideline 19, a different man present on 370 of
+the same frames. Applied to play 1's four accepted proposals: **1453 track rows and 22457 keypoint rows**
+moved, three ids that had no second view now have one, and 05p refitted (two-view coverage 24 -> 25
+players, 1793 -> 2047 frames, 1851 anchored on the triangulated ankles).
+
+    05u, the same 1900 body-frames on 24 players     v35        v36
+    id 80                                          0.26 m     0.02 m
+    id  0                                          0.23       0.02
+    id 11                                          0.12       0.01
+    id 28                                          0.07       0.01
+    every other player                             identical to the centimetre
+    pooled |along-ray| p90 / p99                0.21 / 0.65   0.05 / 0.41
+    players worse by more than 0.10 m                         0 of 24
+
+    05t, the same 2061 paired body-frames            v35        v36
+    endzone p50 / p90 / p99                    9.7/45.8/163.5  8.7/15.5/80.5
+    endzone frames over 20 px                   478 (23.2 %)   78 ( 3.8 %)
+    endzone frames over 30 px                   371 (18.0 %)   41 ( 2.0 %)
+    sideline p50 / p90                            3.4 / 12.7   4.0 / 12.5
+
+**Read the v35 column carefully.** It is v35's BODIES scored against the CORRECTED pairing, which is why
+its endzone numbers are worse here than when v35 was scored against its own wrong pairing (p90 16.7
+then, 45.8 now). Both columns share one truth, which is the only fair comparison, but it means the
+headline 45.8 -> 15.5 partly measures the pairing fix rather than the fit. The metres are the cleaner
+statement: four players improve by 0.06-0.24 m and nobody moves the wrong way.
+
+**The census did not move: 3.02 bodies a frame, 3 frames of 361 exactly eleven and eleven.** Placement
+and population are independent axes and this was a placement change. Also worth noting what the ruler
+cannot show: id 19, v35's worst body, had a wrong endzone partner (the two cameras' own ground points
+for "him" 1.31 m apart); relabelling that track onto its real owner leaves him one-view and therefore
+absent from 05u's table rather than visibly better. Removing a wrong pairing is right, but count the
+players in each column before reading the percentiles.
+
+Still held back: **`7 <- 89` at 0.08 m over 184 frames**, the strongest pairing evidence in the play,
+because taking it means giving up endzone 7 -- whose pairing with sideline 7 has *zero* frames with
+confident ankles in both cameras. It needs `--allow-repairing` and a deliberate decision.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
