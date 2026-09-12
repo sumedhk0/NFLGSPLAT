@@ -697,6 +697,32 @@ a whole-track identity. The honest state: the cross-camera bookkeeping is real (
 at the snap) but neither ankle rays nor an accumulated assignment can fix it at track granularity, and the
 placement upside for the bodies it would join is a fifth of a metre.
 
+**Then the generator got better, and two of its own rules were wrong.** 08r now builds candidates from ONE
+global assignment on per-pair MEDIANS -- the median ray miss over every frame two ids share -- instead of
+accumulating per-frame votes. A single frame cannot separate neighbours, and votes fail in a way a summary
+hides: when the true partner is undetected the assignment must still give the id to somebody, which is how
+a referee got proposed onto a player 14.24 m away at 91 % confidence. The median version is validated by
+what it leaves alone -- of 25 pairs it keeps **16** exactly as the pipeline has them, including every
+pairing independently confirmed good -- and it corroborates six candidates that two other methods found
+separately. It still cannot be trusted as a decision, because a complete matching displaces a chain into
+worse slots (22 -> 38 at 0.45 m against its current 0.22), so the gate remains what decides.
+
+The second wrong rule was mine: **a relabel is not a union.** A global id spans both cameras, so joining
+endzone 19 to sideline 11 can either relabel the endzone track onto 11 -- leaving sideline 19's man, a
+different person, alone -- or union ids 11 and 19, which sweeps him in. Only a collision in the OTHER
+camera means a track must be given up; an own-camera collision merely dictates that the join is a relabel.
+Classifying on the own-camera overlap had rejected `sideline 11 <- endzone 19` (0.14 m over 150 frames) for
+"370 sideline frames collide" when its endzone collision was zero. Four candidates now survive on play 1:
+
+    0 <- 102  (0.13 m rays, 0.44 m turf,  35 frames, union)    11 <- 19  (0.14, 0.38, 150, relabel)
+   28 <-  21  (0.08 m rays, 0.44 m turf, 138 frames, relabel)  80 <- 22  (0.17, 0.64,  59, union)
+
+held back as re-pairings: `4 <- 45`, `7 <- 89`, `33 <- 37`, `37 <- 139`. The one that hurts is **`7 <- 89`,
+0.08 m over 184 frames** -- the strongest pairing evidence in the play -- because taking it means giving up
+endzone 7, whose pairing with sideline 7 has *zero* frames with confident ankles in both cameras. That is
+very likely right and still needs a deliberate decision. Nothing is merged: applying is a separate step and
+its ruler is 05t plus the along-ray gap, never the sideline's own pixels.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
