@@ -448,6 +448,31 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### Counting bodies per team: the ruler, and what it says (2026-09-11)
+
+Eleven a side is the one number in this problem that is known without labelling
+anything, and nothing was checking it. Per frame, from the snap onward, play 1
+draws |KC - 11| + |BAL - 11| = 2.9 bodies wrong on average, and exactly eleven a
+side on 2 frames of 361. The median hides two different faults pulling opposite
+ways:
+
+- AT THE SNAP Kansas City is three short. The sideline detector has 8 boxes for
+  their 11 players; the endzone camera has 11. The men it loses are the linemen
+  in the pile at the line of scrimmage. The render can only draw what the
+  sideline tracks, so those three are simply absent.
+- LATER IN THE PLAY both teams run one or two OVER, as the tracker re-acquires a
+  player under a new id and both are drawn.
+
+Tried and rejected (2026-09-11): keeping an id beyond its sideline span wherever
+the sideline has no body within 1.2 m of it. It is the right idea for the first
+fault -- four Kansas City players are seen by the endzone through a sideline gap
+-- but it admits a ghost for every player it recovers: 2.93 -> 3.01. The
+capability stays in endzone_only_rule (side_ground=), unused.
+
+The honest read: the count is limited by the sideline DETECTOR's recall in the
+trenches, which is upstream of everything in the render. That is the next place
+to look, not the render's rules.
+
 ### The endzone overlay, and what it showed (2026-09-11)
 
 The user asked which camera the overlay uses. It used the SIDELINE alone, and
