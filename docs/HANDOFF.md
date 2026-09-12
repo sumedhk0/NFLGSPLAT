@@ -661,6 +661,23 @@ the lineman beside him. Three survive an independent ruler (45->4, 89->7 at 0.08
 101->5), and 89->7 in particular is a man the two cameras have never had under one id. The route forward
 is the vote as a CANDIDATE GENERATOR with the ground-gap check as the gate, not the vote as a decision.
 
+`scripts/08r_pair_by_rays.py` is that, and it proposes only -- on play 1, 254 frames, 13 candidates clear
+the vote and the gate throws out seven, including `85 -> 84` at **14.24 m** (the referee, at 91 % vote
+confidence) and `5 -> 19` at 6.44 m. But the six survivors are not all applyable, because a union may not
+put two tracks of one camera under one id at the same time:
+
+    97 -> 11   CLEAN addition (endzone 11 has no track at all)      102 -> 0   CLEAN addition
+    89 ->  7   81 endzone frames collide                             45 -> 4   53 endzone + 14 sideline
+    101 -> 5   17 endzone frames collide                             27 -> 14  41 sideline frames collide
+
+**Four of six are re-pairings, not additions.** Sideline 7 already carries an endzone track under id 7 on
+81 of the same frames, so joining endzone 89 to it means unpairing endzone 7 first -- a different and
+riskier operation. The evidence does favour 89 (the existing (7,7) pairing has *zero* frames with
+confident ankles in both cameras, while (89,7) has 184 at 0.08 m), but that is a decision to state
+explicitly rather than smuggle inside a merge, so 08r proposes clean additions by default and needs
+`--allow-repairing` for the rest. Applying any of them must route through
+`pair_by_appearance.global_ids_checked`, which refuses the union outright.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as

@@ -154,6 +154,12 @@ def main() -> None:
                     help="the GATE: two ids this far apart on the turf are not one man, whatever the vote "
                          "says (the vote proposed a pair 6.44 m apart on play 1)")
     ap.add_argument("--max-ray-miss", type=float, default=0.30)
+    ap.add_argument("--allow-repairing", action="store_true",
+                    help="also propose joins that collide with an existing cross-camera pairing. Applying one "
+                         "of those means UNPAIRING the target's current other-camera track first, not adding a "
+                         "view to it, because a union may not put two tracks of one camera under one id at the "
+                         "same time (pair_by_appearance.global_ids_checked refuses it). Four of play 1's six "
+                         "gated candidates are re-pairings of this kind")
     args = ap.parse_args()
     P = args.play_dir
     other = "endzone" if args.cam == "sideline" else "sideline"
@@ -182,6 +188,12 @@ def main() -> None:
         n = co.get((s, e), 0)
         if n >= args.min_frames:
             by_other.setdefault(e, []).append((v / n, v, n, s))
+    # every frame a track exists on, to tell an ADDITION from a RE-PAIRING: a union may not put two
+    # tracks of one camera under one id at the same time, so a candidate whose target already holds an
+    # other-camera track on the same frames can only be applied by unpairing that track first
+    spans = {(c, int(p)): set(int(x) for x in g["frame"].unique())
+             for (c, p), g in df.groupby(["cam", "global_player_id"])}
+
     proposals = []
     for e in sorted(by_other):
         share, v, n, s = sorted(by_other[e], reverse=True)[0]
@@ -189,7 +201,13 @@ def main() -> None:
             continue
         pm, pg, pn = pair_stats(A, B, gs, ge, tracks, args.cam, other, offset, s, e, frames)
         cm, cg, cn = pair_stats(A, B, gs, ge, tracks, args.cam, other, offset, e, e, frames)
+        ov_other = len(spans.get((other, e), set()) & spans.get((other, s), set()))
+        ov_own = len(spans.get((args.cam, s), set()) & spans.get((args.cam, e), set()))
+        kind = "addition" if not (ov_other or ov_own) else "re-pairing"
         why = None
+        if kind == "re-pairing" and not args.allow_repairing:
+            why = (f"a re-pairing, not an addition: {ov_other} {other} and {ov_own} {args.cam} frames collide, "
+                   f"so applying it means unpairing {other} {s} first")
         if pg is None or pm is None:
             why = "the proposed pair never co-occurs"
         elif pg > args.max_ground_gap:
@@ -199,7 +217,8 @@ def main() -> None:
         elif cn and cm is not None and cg is not None and not (pm < cm and pg < cg):
             why = (f"it does not beat the pairing it would replace on both rulers "
                    f"(rays {pm:.2f} vs {cm:.2f} m, turf {pg:.2f} vs {cg:.2f} m)")
-        row = {"other_id": int(e), "own_id": int(s), "share": round(float(share), 3), "frames": int(n),
+        row = {"other_id": int(e), "own_id": int(s), "kind": kind, "collide_other": int(ov_other),
+               "collide_own": int(ov_own), "share": round(float(share), 3), "frames": int(n),
                "ray_miss_m": None if pm is None else round(pm, 3),
                "ground_gap_m": None if pg is None else round(pg, 3),
                "current_ray_miss_m": None if cm is None else round(cm, 3),
