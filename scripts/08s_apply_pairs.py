@@ -50,10 +50,27 @@ def frames_of(df: pd.DataFrame, cam: str, pid: int) -> set:
     return set(int(x) for x in g["frame"].unique())
 
 
-def check(df: pd.DataFrame, cam: str, own: int, other: int, *, give_up: bool = False) -> int:
-    """The number of frames the incumbent track collides on. Refuses the relabel unless ``give_up``,
-    because one id may not hold two tracks of one camera at the same time."""
-    clash = frames_of(df, cam, own) & frames_of(df, cam, other)
+def interval_of(row: dict, offset: int) -> tuple:
+    """``(lo, hi)`` in the OTHER camera's frame numbers: the span the join is actually evidenced over,
+    converted from the proposal's own-camera frames by the clip offset. A proposal without one is
+    refused -- applying a join to a whole track on the strength of the frames where it happened to be
+    measured is what left play 1's id 25 with an endzone p90 of 483 px."""
+    a, b = row.get("frame_from"), row.get("frame_to")
+    if a is None or b is None:
+        raise ApplyError(
+            f"proposal {row.get('own_id')} <- {row.get('other_id')} carries no agreeing interval "
+            "(frame_from/frame_to). Re-run 08r: a join must not be applied beyond the frames whose rays "
+            "agree.")
+    return int(a) + int(offset), int(b) + int(offset)
+
+
+def check(df: pd.DataFrame, cam: str, own: int, other: int, *, give_up: bool = False, lo=None, hi=None) -> int:
+    """The number of frames the incumbent track collides on WITHIN the applied interval. Refuses the
+    relabel unless ``give_up``, because one id may not hold two tracks of one camera at the same time.
+    Outside the interval nothing moves, so a collision there is not a collision at all."""
+    incoming = {f for f in frames_of(df, cam, other)
+                if (lo is None or f >= int(lo)) and (hi is None or f <= int(hi))}
+    clash = frames_of(df, cam, own) & incoming
     if clash and not give_up:
         lo, hi = min(clash), max(clash)
         raise ApplyError(
@@ -68,9 +85,15 @@ def fresh_id(*frames: pd.DataFrame) -> int:
     return max(int(d["global_player_id"].max()) for d in frames) + 1
 
 
-def relabel(df: pd.DataFrame, cam: str, own: int, other: int) -> int:
-    """Move every row of ``other`` in ``cam`` onto ``own``; returns the number of rows moved."""
+def relabel(df: pd.DataFrame, cam: str, own: int, other: int, *, lo=None, hi=None) -> int:
+    """Move rows of ``other`` in ``cam`` onto ``own``; returns the number moved. ``lo``/``hi`` bound it
+    to the frames the join is evidenced over -- in THIS camera's own frame numbers, so the caller
+    converts the proposal's sideline frames by the clip offset first."""
     m = (df["cam"] == cam) & (df["global_player_id"] == other)
+    if lo is not None:
+        m &= df["frame"] >= int(lo)
+    if hi is not None:
+        m &= df["frame"] <= int(hi)
     n = int(m.sum())
     df.loc[m, "global_player_id"] = own
     return n
@@ -105,13 +128,18 @@ def main() -> None:
     tdf = pd.read_parquet(tracks_path)
     kdf = pd.read_parquet(kp_path)
 
-    print(f"{len(rows)} proposals from {prop_path.name}; relabelling {other} tracks onto {cam} ids")
+    offset = int(blob.get("offset", 0))
+    print(f"{len(rows)} proposals from {prop_path.name}; relabelling {other} tracks onto {cam} ids, each "
+          f"only over the frames its rays agree")
     for r in rows:
         own, oid = int(r["own_id"]), int(r["other_id"])
-        clash = check(tdf, other, own, oid, give_up=args.give_up_incumbent)
+        lo, hi = interval_of(r, offset)
+        clash = check(tdf, other, own, oid, give_up=args.give_up_incumbent, lo=lo, hi=hi)
         note = "" if not clash else f", evicting the incumbent {other} {own} from {clash} frames"
         print(f"  {cam} {own:3d} <- {other} {oid:3d}: rays {r['ray_miss_m']} m, turf {r['ground_gap_m']} m "
-              f"over {r['frames']} frames ({r['kind']}, would apply by {r.get('apply_as', '?')}){note}")
+              f"over {r['frames']} frames, agreeing {cam} {r['frame_from']}-{r['frame_to']} "
+              f"({r.get('interval_samples')} samples) = {other} {lo}-{hi} "
+              f"({r['kind']}, would apply by {r.get('apply_as', '?')}){note}")
     if args.dry_run:
         print("dry run; nothing written")
         return
@@ -125,14 +153,17 @@ def main() -> None:
     moved_t = moved_k = 0
     for r in rows:
         own, oid = int(r["own_id"]), int(r["other_id"])
-        if check(tdf, other, own, oid, give_up=args.give_up_incumbent):
+        lo, hi = interval_of(r, offset)
+        if check(tdf, other, own, oid, give_up=args.give_up_incumbent, lo=lo, hi=hi):
+            # only the incumbent rows INSIDE the interval are in the way; outside it nothing moves, so
+            # the incumbent keeps the id there and the two never share a frame
             spare = fresh_id(tdf, kdf)
-            n_t = relabel(tdf, other, spare, own)      # the incumbent steps aside, it is not deleted
-            n_k = relabel(kdf, other, spare, own)
-            print(f"  {other} {own} gives up the id: {n_t} track rows and {n_k} keypoint rows moved to "
-                  f"the unused id {spare}, where they stay as an unpaired {other} track")
-        moved_t += relabel(tdf, other, own, oid)
-        moved_k += relabel(kdf, other, own, oid)
+            n_t = relabel(tdf, other, spare, own, lo=lo, hi=hi)
+            n_k = relabel(kdf, other, spare, own, lo=lo, hi=hi)
+            print(f"  {other} {own} gives up the id over {lo}-{hi}: {n_t} track rows and {n_k} keypoint "
+                  f"rows moved to the unused id {spare}, where they stay as an unpaired {other} track")
+        moved_t += relabel(tdf, other, own, oid, lo=lo, hi=hi)
+        moved_k += relabel(kdf, other, own, oid, lo=lo, hi=hi)
     tdf.to_parquet(tracks_path, index=False)
     kdf.to_parquet(kp_path, index=False)
     print(f"moved {moved_t} track rows and {moved_k} keypoint rows onto {len(rows)} {cam} ids")

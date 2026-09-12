@@ -47,6 +47,16 @@ Getting that distinction wrong costs real candidates: classifying on the own-cam
 `sideline 11 <- endzone 19` (0.14 m over 150 frames) for "370 sideline frames collide" when its
 endzone collision was zero, along with `28 <- 21` (0.08 m over 138 frames).
 
+EVERY PROPOSAL CARRIES THE INTERVAL IT IS EVIDENCED OVER (`frame_from`, `frame_to`). A join is chosen on
+the frames where both ids have confident ankles and would otherwise be applied to the track's whole span,
+where nothing supports it. Play 1's two v37 re-pairings hold for one long run each and then break
+cleanly -- id 7 at 0.08 m over frames 140-494 jumping to 1.40 m from 498, id 25 at 0.13 m over 400-486
+jumping to 1.81 m from 518 -- and they break at the SAME moment, around frame 495-500, which is when the
+play ends and the field fills with players converging on the ball. Applied past its interval, id 25's
+join left an endzone p90 of 483 px while its median improved sixfold. Only 2 of 16 pairings vary over
+time at all, and both are freshly re-paired ones, so this is a trim on new joins rather than a property
+of the tracker.
+
 This writes a proposal and changes nothing: a wrong merge costs more than a merge not made (the 0.35 m
 twin threshold folded a passer into the lineman beside him), so applying is a separate, measured step.
 """
@@ -107,7 +117,7 @@ def pair_medians(A, B, gs, ge, tracks, cam: str, other: str, offset: int, teams:
                  *, stride: int = 2) -> dict:
     """``{(own id, other id): (ray miss p50, turf gap p50, frames shared)}`` over every frame the two
     appear together. Medians, not per-frame decisions: a single frame cannot tell neighbours apart."""
-    miss: dict = {}
+    miss: dict = {}          # {(own, other): [(frame, ray miss)]} -- the frames matter, see agreeing_interval
     turf: dict = {}
     for f in frames[::stride]:
         ca, cb = cam_of(tracks[cam], f), cam_of(tracks[other], f + offset)
@@ -122,7 +132,7 @@ def pair_medians(A, B, gs, ge, tracks, cam: str, other: str, offset: int, teams:
                     continue                       # one man cannot be on both teams
                 m = ray_miss(ca, cb, pa, pb)
                 if m is not None:
-                    miss.setdefault((s, e), []).append(m)
+                    miss.setdefault((s, e), []).append((int(f), m))
         # The turf gap is measured over EVERY frame both ids stand somewhere, not only the
         # ankle-confident frames the rays need -- that subset is exactly where a pairing looks its
         # best. Measured on it, `37 <- 139` reported 0.58 m and passed the gate while the two
@@ -137,10 +147,38 @@ def pair_medians(A, B, gs, ge, tracks, cam: str, other: str, offset: int, teams:
                 turf.setdefault((s, e), []).append(
                     float(np.linalg.norm(np.asarray(a, float) - np.asarray(b, float))))
     out = {}
+    series = {}
     for key, v in miss.items():
         g = turf.get(key, [])
-        out[key] = (float(np.median(v)), float(np.median(g)) if g else None, len(v))
-    return out
+        vals = [m for _f, m in v]
+        out[key] = (float(np.median(vals)), float(np.median(g)) if g else None, len(vals))
+        series[key] = sorted(v)
+    return out, series
+
+
+def agreeing_interval(samples, max_miss: float):
+    """``(first frame, last frame, samples)`` of the longest unbroken run whose ray miss is within
+    ``max_miss``, or None. ``samples`` is ``[(frame, miss)]``, sorted.
+
+    WHY. A join is chosen on the frames where both ids carry confident ankles and then applied to the
+    track's WHOLE span, so its edges rest on no evidence at all. Play 1: both tracks re-paired in v37
+    hold for one long run and then break cleanly -- id 7 sits at 0.08 m over frames 140-494 and jumps to
+    1.40 m from 498, id 25 at 0.13 m over 400-486 and jumps to 1.81 m from 518. They break at the same
+    moment, around frame 495-500, which is when the play ends and the field fills: the endzone track
+    wanders onto one of the players converging on the ball. Applying a join beyond its interval is what
+    left id 25 with an endzone p90 of 483 px while its median improved sixfold."""
+    best = None
+    run: list = []
+    for f, m in samples:
+        if m <= max_miss:
+            run.append(f)
+            continue
+        if run and (best is None or len(run) > best[2]):
+            best = (run[0], run[-1], len(run))
+        run = []
+    if run and (best is None or len(run) > best[2]):
+        best = (run[0], run[-1], len(run))
+    return best
 
 
 def assign(stats: dict, *, min_frames: int, max_turf: float) -> list:
@@ -196,7 +234,8 @@ def main() -> None:
     A, B = ankle_points(kdf, args.cam), ankle_points(kdf, other)
     frames = sorted(A)
 
-    stats = pair_medians(A, B, gs, ge, tracks, args.cam, other, offset, teams, frames, stride=args.stride)
+    stats, series = pair_medians(A, B, gs, ge, tracks, args.cam, other, offset, teams, frames,
+                                 stride=args.stride)
     pairs = assign(stats, min_frames=args.min_frames, max_turf=args.max_ground_gap)
     kept = sum(1 for s, e in pairs if s == e)
     print(f"{P.name}: one global assignment on per-pair medians over {len(frames[::args.stride])} frames; "
@@ -212,6 +251,8 @@ def main() -> None:
             continue
         pm, pg, pn = stats[(s, e)]
         cm, cg, cn = stats.get((s, s), (None, None, 0))
+        # where the join is actually evidenced, rather than the whole span it could be applied to
+        iv = agreeing_interval(series.get((s, e), []), args.max_ray_miss)
         ov_other = len(spans.get((other, e), set()) & spans.get((other, s), set()))
         ov_own = len(spans.get((args.cam, s), set()) & spans.get((args.cam, e), set()))
         # Only a collision in the OTHER camera makes this a re-pairing: id s already holds a track there
@@ -235,6 +276,8 @@ def main() -> None:
             why = (f"it does not beat the pairing it would replace on both rulers "
                    f"(rays {pm:.2f} vs {cm:.2f} m, turf {pg:.2f} vs {cg:.2f} m)")
         row = {"own_id": int(s), "other_id": int(e), "kind": kind, "apply_as": apply_as,
+               "frame_from": None if iv is None else int(iv[0]), "frame_to": None if iv is None else int(iv[1]),
+               "interval_samples": 0 if iv is None else int(iv[2]),
                "collide_other": int(ov_other), "collide_own": int(ov_own), "frames": int(pn),
                "ray_miss_m": None if pm is None else round(pm, 3),
                "ground_gap_m": None if pg is None else round(pg, 3),
@@ -243,8 +286,9 @@ def main() -> None:
                "current_frames": int(cn), "rejected": why}
         proposals.append(row)
         mark = "PROPOSE" if why is None else "reject "
+        span = "" if iv is None else f", agrees {iv[0]}-{iv[1]} ({iv[2]}/{pn} samples)"
         print(f"  {mark} {args.cam} {s:3d} <- {other} {e:3d}  rays {pm:.2f} m, turf "
-              f"{'--' if pg is None else format(pg, '.2f')} m over {pn:3d} frames"
+              f"{'--' if pg is None else format(pg, '.2f')} m over {pn:3d} frames{span}"
               + (f", apply by {apply_as}" if why is None else f"   [{why}]"))
     keep = [p for p in proposals if p["rejected"] is None]
     out = args.out or P / "pair_proposal.json"
