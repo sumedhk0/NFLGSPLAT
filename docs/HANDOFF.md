@@ -473,6 +473,22 @@ The honest read: the count is limited by the sideline DETECTOR's recall in the
 trenches, which is upstream of everything in the render. That is the next place
 to look, not the render's rules.
 
+Measured there (2026-09-11, yolov8x at imgsz 1920 on play 1's sideline, twelve
+frames): person boxes at the detector's 0.35 threshold against lower ones --
+
+    frame   0.35  0.20  0.15  0.10
+    160-400  19-23  19-26  19-26  19-27   (the play: 22 players + 2-4 officials)
+    440-600  26-42  28-54  31-63  34-76   (the camera pans, the crowd enters)
+
+At frame 300, the snap, the two boxes that appear only below 0.35 are a Kansas
+City lineman half hidden behind another, at confidence 0.17 and 0.13 -- exactly
+the men the census says are missing. But a blanket threshold drop is not the
+answer: late in the play it triples the detections as the sideline crowd comes
+into frame. The shape of the fix is to fill the GAPS OF EXISTING TRACKS: where a
+track has no box on a frame inside its own life, look for a low-confidence
+detection near where the track should be, and take it only there. That keeps the
+threshold high everywhere else and creates no new identities.
+
 ### The endzone overlay, and what it showed (2026-09-11)
 
 The user asked which camera the overlay uses. It used the SIDELINE alone, and
