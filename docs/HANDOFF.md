@@ -481,6 +481,26 @@ against where the two cameras' ankle rays actually cross:
 Nine sampled frames of id 19, every one a metre out along the ray and 2 cm across it. A pure depth
 slide is the signature of a body placed by one camera.
 
+**That decomposition is also an identity test, and it clears the pairing.** Splitting every paired
+body's gap from the triangulated crossing into along-ray and across-ray over the whole cache -- 23
+players with 15+ paired frames -- gives |along| p50 **0.01 m** and |across| p50 **0.02 m**. Not one
+player exceeds 0.25 m ACROSS the ray (the worst is id 6 at 0.16 m), which is what a wrong-man pairing
+would look like, so no mis-pairing survives among the paired ids. Exactly one player exceeds 0.5 m
+along it: id 19 at 1.04 m, the next worst being id 17 at 0.25 m. The entire metric placement defect
+of the paired population is one man -- which is why the endzone p99 of 341 px reads like carnage: it
+is his 107 frames.
+
+**And the blind spot this ruler cannot reach.** Only 1832 of the cache's 5103 body-frames have a
+second view on that frame. 3271 (64 %) are sideline-only, and 1165 of those belong to ids the endzone
+never sees at all. Their depth is not unconstrained -- an ankle ray meets the turf at exactly one
+point, so one camera plus the ground plane does fix a position -- but it carries the whole error of
+the feet-on-ground assumption, and where that could be checked it was **~0.4 m along the ray** (id 5
+sat 0.40 m out before the depth snap, 0.05 m after). The snap is the only correction those bodies can
+get and it reaches few of them: 610 of the 3271 sideline-only body-frames were moved (p50 0.25 m, p90
+0.95, max 2.46 against its 2.5 m cap) and **2661 (52 % of the cache) were left on the turf estimate
+alone**. That is where placement work goes after id 19, and it needs a ruler that is not the second
+camera, because these frames do not have one.
+
 **The cause is the two-view gate.** Simulating `two_view_pass`'s filters per player showed the
 cross-view error is monotone in the fraction of a player's frames that got the triangulated ankle
 anchor:
@@ -511,6 +531,38 @@ the sideline's, so 4.9 px there may be metrically better than 14.6 px here -- wh
 principled form of this gate is metric, not pixel. The deeper fix may be simpler still: a frame the
 two-view pass attempted should never be handed to the one-view pass, because a one-view fit is
 strictly worse in 3-D whatever its pixels say.
+
+**Measured, on five players, with the harness validated first.** The baseline arm (`--refit
+<nonexistent>`, otherwise v34's invocation) reproduces the v34 cache under 05t to the last digit, so
+a difference in any arm belongs to the flag. Then:
+
+    five players, 05t                     baseline   --anchor-max-miss 0.6   --two-view-px-max 40
+    two-view frames kept                   202/328          201/328               327/328
+    frames anchored on the ankles          179/328          290/328               179/328
+    endzone p50 / p90 / p99 (px)      17.4/150.8/382.6   17.4/150.9/382.7      16.2/ 24.9/153.7
+    endzone frames over 100 px          118 (34.8 %)     118 (34.9 %)            15 ( 4.3 %)
+    id 19 endzone p50 (px)                 142.2            142.2                  16.5
+    sideline p50 / p90 (px)              3.8 / 13.8       3.8 / 13.8            5.6 / 30.5
+
+`--anchor-max-miss 0.6` is a **null result** and an instructive one: it anchored 111 more frames on
+the point both cameras agree about and moved nothing that survives -- the anchor decides how often a
+player is exposed to the gate, not what the gate does. `--two-view-px-max 40` collapses the
+catastrophic tail, and the sideline pixels rise, which is the correct trade rather than a cost: that
+number was never evidence, it was the symptom of a body placed to satisfy one camera.
+
+**The second ruler, in metres, is unambiguous** -- gap from the point both cameras put the feet:
+
+    id (ankle miss)   along-ray p50 base -> px40     across-ray p50
+    id 19 (0.36 m)        1.04 m  ->  0.05 m          0.02 -> 0.01
+    id  5 (0.19 m)        0.02    ->  0.02            0.00 -> 0.00
+    id 17 (0.16 m)        0.25    ->  0.25            0.13 -> 0.13
+    id 25 (0.34 m)        0.06    ->  0.06            0.03 -> 0.03
+    id 37 (0.19 m)        0.02    ->  0.02            0.02 -> 0.01
+    pooled                p50 0.07 -> 0.04, p90 1.12 -> 0.23
+
+The broken player improves twentyfold and **not one other player moves a centimetre**, which is the
+adoption test passed: beaten on a ruler that is not the one being optimised, with no regression
+elsewhere. v35 applies it to the whole play and re-scores with 05t, the census and both overlays.
 
 **The depth snap is exonerated and re-measured as a win.** It is not the source of the along-ray
 error: it never moves id 19 (1.09 m before, 1.09 m after; worse on 3 frames of 107, better on 1).
