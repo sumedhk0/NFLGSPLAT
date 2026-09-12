@@ -547,6 +547,42 @@ wider `LATERAL_M` would mostly buy wrong matches. With the turf estimate already
 snap's remaining upside is small. The two levers that are left are extending the endzone camera solve
 and fixing fragmentation -- not tuning this rule.
 
+**And "fragmentation" turns out to be the wrong word for the census problem.** The v34 entry below
+reads the 32 Kansas City and 51 Baltimore sideline ids as a player being lost and re-acquired under a
+new id, which would be repaired by stitching the pieces back together. It is not that. Pairing every
+id with its most plausible continuation (a later id starting within 90 frames of its end, close enough
+that the join needs no more than 9 m/s) and chaining greedily leaves **KC 32 -> 28 chains and BAL
+51 -> 40**: only 4 and 11 ids respectively have any successor at all. The ids are not sequential
+pieces of one man. Many of them start at frame 14 and run for hundreds of frames side by side
+(3[14-636], 5[14-628], 11[14-660], 12[14-638]), and where they coexist they stand in **different
+places**: 11.2 concurrent KC ids occupy 10.4 distinct positions at 0.5 m single linkage, 14.2 BAL ids
+occupy 13.8. They are separate people, so neither stitching nor the twin merge (08o, which only folds
+ids sharing one body) has much left to take.
+
+Two more things the count exposes. `entity_type` cannot be used to exclude non-players: it types only
+**6 of 83** sideline ids as `player` and the other 77 as `other`. And the raw tracked population is
+wildly phase-dependent -- at the snap 21 ids in 20 places, every one on the field (|y| <= 9.5 m),
+against 36-37 ids in 30-36 places by frames 580-620 with **12-14 of them beyond the sideline**
+(|y| > 24.4 m) and x spreading from -43.8 to -10.8. That late crowd is staff and players arriving after
+the play is over. The drawing rules filter most of it (the census counts timeline states, not raw
+tracks), but it means any census averaged from the snap to the end of the clip is scoring the aftermath
+as much as the play, and the phase split already in the v34 entry (a deficit at the snap, a surplus
+during and after the run) is the real signal.
+
+The snap itself is the sharpest number: **21 bodies for 22 players, split KC 9 / BAL 12** by the kit
+vote, in 20 distinct places. So two Kansas City players are never tracked at all at the snap, and one
+Baltimore pair is a duplicate -- 9 + 11 real men + 1 duplicate = 21.
+
+**The kit vote is not the problem, and I nearly recorded that it was.** Wanting a team ruler
+independent of colour, I checked every body clear of the line against which side of the line of
+scrimmage it stands on, and got **13 disagreements out of 13** -- which I first read as a labelling
+catastrophe. Thirteen of thirteen is not a defect, it is an inverted convention: I had assumed the
+offence stands at `sign * (x - LOS) < 0`, and play 1 has every KC body at +1.6 to +7.1 m and every BAL
+body at -2.1 to -10.4 m. Read the right way round the two rulers agree on **13 of 13 bodies with no
+exceptions**, deep safeties (BAL ids 2 and 30, ten metres off the line) and the KC back seven metres
+into his own backfield included. The kit vote from torso saturation is sound at the snap; so is
+`line_of_scrimmage`. When a check fails on literally every sample, suspect the check.
+
 **The cause is the two-view gate.** Simulating `two_view_pass`'s filters per player showed the
 cross-view error is monotone in the fraction of a player's frames that got the triangulated ankle
 anchor:
