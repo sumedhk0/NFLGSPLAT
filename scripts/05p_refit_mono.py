@@ -350,7 +350,8 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                      "init_bp": np.stack(init_bp) if has_init else None,
                      "init_go": np.stack(init_go) if has_init else None,
                      "body_models": args.body_models, "max_gap": args.max_gap,
-                     "reproj_px_max": args.reproj_px_max, "gate": args.two_view_gate,
+                     "reproj_px_max": (args.two_view_px_max if args.two_view_px_max is not None
+                                       else args.reproj_px_max), "gate": args.two_view_gate,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
@@ -469,6 +470,12 @@ def main() -> None:
                     help="ignore the fused (05f) cache: every player is fitted to the sideline keypoints alone "
                          "(an experiment: the pairing's ~1 m ambiguity corrupts two-view poses and placement)")
     ap.add_argument("--two-view-place-weight", type=float, default=TWO_VIEW_PLACE_WEIGHT)
+    ap.add_argument("--two-view-px-max", type=float, default=None,
+                    help="the two-view pass's own validity bound (px); default: --reproj-px-max. A two-view "
+                         "frame costs reprojection in one camera to satisfy the other -- play 1's five-player "
+                         "probe fitted at sideline 14.6 px and endzone 4.9 px -- and every frame the 20 px "
+                         "bound rejects is refitted ONE-VIEW, which reaches 4 px by sliding the body along the "
+                         "ray it cannot see. Raising this keeps the two-view fit instead; score it with 05t")
     ap.add_argument("--two-view-max-miss", type=float, default=TWO_VIEW_MAX_MISS_M,
                     help="a two-view frame whose two cameras' ankle rays miss by more than this (m) is left to "
                          "the one-view pass: the frame is mis-paired. 0 disables the check")
