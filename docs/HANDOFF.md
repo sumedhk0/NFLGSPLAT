@@ -874,6 +874,29 @@ its own id, and sideline 22 holds it there at 0.01 m. That single endzone track 
 different men at different times**, and splitting it by interval gave each his own -- a failure whole-track
 joining cannot even express, let alone repair.
 
+**Scanned for more of them, and there are none.** Asking which sideline id wins each 60-frame block of
+every endzone track flagged **19 of 25** -- which is not a finding, it is the same mistake as the
+per-frame ray test, made again: no margin requirement, on a measurement where a neighbour at ~100 m
+misses almost as little as the right man (10 confident joins out of 137 per-frame tests). Requiring the
+block winner to beat its runner-up by 0.15 m and each claimant to hold two or more blocks leaves **1 of
+19**, and that one does not survive inspection either: endzone 74 is claimed by sideline 74 over frames
+440-559 at 0.08 m rays / 0.67 m turf, which is simply its own correct pairing, and by sideline 3 over
+140-379 at 0.17 m rays but **1.42 m turf**, failing the 1.0 m cap outright. So the id 22 case was the
+only real one, the interval trim already repaired it, and no further machinery is warranted.
+
+**id 17, the worst remaining player (0.24 m along, 0.13 m across), is not a pairing problem either.**
+Searched against every endzone track: the one in use is the best on both rulers (0.18 m rays, 0.71 m
+turf), and every alternative is worse (0.25/0.70, 0.30/1.27, 0.80/1.93, 0.83/2.80, 1.19/6.11). A clean
+negative -- stop looking for a partner there.
+
+**So placement is done to diminishing returns and the census is the binding problem.** At pooled
+|along-ray| p90 0.04 m and endzone p99 60 px, the remaining error is the body count at 2.84 a frame. The
+measured cause at the snap is 21 ids for 22 players, KC 9 and BAL 12, because the sideline views the line
+end-on and merges the offensive line into one mass -- while the endzone sees those men individually and
+`endzone_only_ids` discards them as ghosts. The targeted fix is to keep an endzone-only id when NO
+sideline body stands within ~1.5 m of it (2-4 such ids a frame, measured), which is the same "is the
+sideline drawing that man" test `beyond_sideline_span` already carries.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
