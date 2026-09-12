@@ -893,9 +893,28 @@ negative -- stop looking for a partner there.
 |along-ray| p90 0.04 m and endzone p99 60 px, the remaining error is the body count at 2.84 a frame. The
 measured cause at the snap is 21 ids for 22 players, KC 9 and BAL 12, because the sideline views the line
 end-on and merges the offensive line into one mass -- while the endzone sees those men individually and
-`endzone_only_ids` discards them as ghosts. The targeted fix is to keep an endzone-only id when NO
+`endzone_only_ids` discards them as ghosts. The targeted fix looked like keeping an endzone-only id when NO
 sideline body stands within ~1.5 m of it (2-4 such ids a frame, measured), which is the same "is the
 sideline drawing that man" test `beyond_sideline_span` already carries.
+
+**Measured before building it, and it is dead.** Counting endzone bodies with no sideline body within
+1.5 m, by phase:
+
+    snap (300-340)       3.5 a frame     KC 0.2     BAL 3.4
+    run  (340-460)       3.0             KC 0.3     BAL 2.8
+    after the whistle    5.0             KC 2.1     BAL 3.0
+    late (560-660)      16.3             KC 9.9     BAL 6.4
+
+At the snap they are almost entirely Baltimore and essentially **zero Kansas City** -- and KC is the team
+short by two, while BAL is already over at twelve. The rule would add bodies to the wrong team. The ids
+most often "alone" are 85 and 87 at 510 frames each, which are the officials the behind-the-offence rule
+already excludes, plus 88 and 106 from the same list.
+
+The reason is structural: **in a pile every occluded man has a sideline body within 1.5 m by
+construction -- his neighbour.** So "no sideline body nearby" cannot tell a man the sideline merged into
+his neighbour from a man it already draws, which was the entire point. Recovering the line needs the
+endzone bodies admitted with a correct identity, and that is the pairing problem again -- which needs
+both cameras to see the ankles, exactly what a pile denies. Do not re-propose a proximity test here.
 
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
