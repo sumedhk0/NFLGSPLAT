@@ -448,6 +448,98 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### The ruler was blind, and the gate preferred it (2026-09-12)
+
+Every placement ruler used so far scores a body against the keypoints of the camera it was fitted
+to. That is blind by construction: depth along the camera ray and rotation about it are exactly what
+one view cannot constrain, so the number cannot rise however wrong the 3-D is. `05t`
+(`scripts/05t_cross_view_error.py`) scores the same cached bodies in the OTHER camera and is now the
+standing ruler for placement.
+
+    v34 cache, the same 1812 body-frames both cameras see     sideline (fitted)   endzone
+    rms p50                                                          7.6 px        8.7 px
+    rms p90                                                         14.3          25.8
+    rms p99                                                          --          341.5
+    over  20 px                                                       6 (0.3 %)   197 (10.9 %)
+    over 100 px                                                       0           129 ( 7.1 %)
+
+Across all 5099 sideline body-frames the cache reads p50 3.4 px, p90 11.0, 0.3 % over 20 px. By the
+fitted camera's ruler play 1 is finished; by the other camera 7 % of it is over 100 px wrong. **The
+sideline footage overlay (05q) shares this blindness** -- red skeletons sit on green keypoints while
+the body stands a metre downrange -- so it cannot show what a free-viewpoint render will.
+
+**The worst player, and a second ruler in metres.** id 19: 4.0 px sideline, 142.2 px endzone (p90
+339.5) over 107 paired frames, his hips 149 px sideways from his own endzone box and 16 px down.
+Sideways in the endzone is depth along the sideline ray, so the defect was measured again in metres
+against where the two cameras' ankle rays actually cross:
+
+    id (ankle-ray miss p50)   gap from the triangulated feet   along the ray   across it
+    id 30 (0.03 m)                      0.01-0.03 m               -0.01 m       0.02 m
+    id  5 (0.17-0.22 m)                 0.01-0.03 m               +0.02 m       0.00 m
+    id 19 (0.33-0.38 m)                 0.89-1.10 m               +0.89..+1.10  0.02 m
+
+Nine sampled frames of id 19, every one a metre out along the ray and 2 cm across it. A pure depth
+slide is the signature of a body placed by one camera.
+
+**The cause is the two-view gate.** Simulating `two_view_pass`'s filters per player showed the
+cross-view error is monotone in the fraction of a player's frames that got the triangulated ankle
+anchor:
+
+    id 12  187 frames reach the two-view fit, 180 anchored (96 %)  ->  endzone   9.3 px
+    id  5  118                              , 116         (98 %)  ->  endzone  16.2
+    id 17   62                              ,  31         (50 %)  ->  endzone  20.1
+    id 25   34                              ,  12         (35 %)  ->  endzone  14.5
+    id 19   93                              ,   4         ( 4 %)  ->  endzone 142.2
+
+But id 19 *did* reach the two-view fit on 93 frames, and the fit is innocent: on these five players
+its own medians were **sideline 14.6 px and endzone 4.9 px** -- better in the second view than the
+first. `_two_view_job` gated validity on `first_rms`, the fitted camera alone, at
+`--reproj-px-max 20`. 126 of 328 frames failed that sideline gate with excellent endzone error, and
+**not one of id 19's 93 frames survived it**, so all 170 of his frames fell through to the one-view
+pass, which reported `id 19: 170/170 frames, reproj 13.1 -> 4.0 px`. That four-fold "improvement" IS
+the defect: `merge_into_refit` skips a frame whose `valid` is False, so it is absent from the cache,
+counts as uncovered, and the one-view pass refits it to the sideline alone -- where 4 px is trivially
+reachable by sliding the body along the ray that camera cannot see. The gate's own comment records
+the original reasoning ("a weak second view's residuals are large by design, endzone 17 px at weight
+0.3"), which inverted when the endzone became an equal partner at weight 1.0. Nobody re-measured the
+rule when its premise changed.
+
+`--two-view-gate first|worst|mean` now exposes it, default unchanged. Note that **`worst` is
+stricter and would reject id 19 too**; `mean` is the setting that keeps a frame whose second view is
+good. And pixels are not comparable between these cameras -- the endzone's px per metre differs from
+the sideline's, so 4.9 px there may be metrically better than 14.6 px here -- which means the
+principled form of this gate is metric, not pixel. The deeper fix may be simpler still: a frame the
+two-view pass attempted should never be handed to the one-view pass, because a one-view fit is
+strictly worse in 3-D whatever its pixels say.
+
+**The depth snap is exonerated and re-measured as a win.** It is not the source of the along-ray
+error: it never moves id 19 (1.09 m before, 1.09 m after; worse on 3 frames of 107, better on 1).
+Where it fires it is strongly right -- id 5 0.40 m -> 0.05 m of along-ray error (better on 115 of
+117 frames), id 25 0.60 m -> 0.11 m (better on 19 of 33).
+
+**Two hypotheses killed, and a trap.** `two_view_pass` takes its endzone offset from
+`poses_tri.json` rather than `clip_offset`; a disagreement would silently mis-pair every player, and
+they agree (both -15). The edge cross-fade of `global_orient` did not fire on the records in question
+(the anchor it would blend toward sits at 71 deg while the cache holds -172). And 05p's resume path
+reads: if `poses_refit.json` holds "mono", start again from `poses_refit_fused.json` -- a backup only
+written when `poses_refit.json` existed at the start, which the pipeline deletes first, so the file
+on disk is from 09-09 and a plain re-run would build on a two-day-old two-view cache computed with
+the old endzone camera. **Check that backup's mtime before trusting it**; pass `--refit
+<nonexistent>` to reproduce the pipeline's empty-blob state.
+
+**Pose, place or facing: how to tell.** `05s` holds a record's `body_pose` and re-solves only what
+you allow to move. On id 9's frames 258-270 (rms px): cache 18.7/25.1/29.5/22.9, translation-only
+12.2/19.6/26.2/19.1, `global_orient`+translation **3.2/3.2/3.3/3.6**, and a 180 deg turn 28-39. The
+limbs were never wrong -- the heading was, drifting +80 deg across twelve frames while the man ran
+straight. This is local: only 16 of 5099 frames exceed 20 px in the sideline.
+
+**Measured and rejected before building it:** a velocity-heading prior. 51 % of 1778 body-frames over
+1.5 m/s face more than 90 deg from their own travel direction, which looks like a catastrophe and is
+mostly correct football -- turning those bodies 180 deg beats the cache on 0-1 % of them. id 12 holds
+163 deg while sliding at 85 deg (7.6 px as cached, 49.5 px flipped) because he is a lineman blocking,
+and defensive backs backpedal the same way. Such a prior would wreck exactly the players it appears
+to save.
+
 ### v34: the gap fill lands, and the count turns out to be fragmentation (2026-09-11)
 
 08q recovered 607 sideline boxes inside gaps in existing tracks, from detections

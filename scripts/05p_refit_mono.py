@@ -144,12 +144,20 @@ def _two_view_job(job):
     params, valid, rep = fit_sequence_2d(job["uv"], job["conf"], job["cams"], job["ground"], rest, forward,
                                          cfg=cfg, base_cfg=base, init_body_pose_seq=job["init_bp"],
                                          init_orient_seq=job["init_go"], frames=job["frames"], max_gap=job["max_gap"])
-    # the gate is the FIRST view's reprojection: a weak second view's residuals are
-    # large by design (endzone 17 px at weight 0.3) and rejected half the frames
+    # The gate WAS the first view's reprojection alone, because a weak second view's residuals
+    # are large by design (endzone 17 px at weight 0.3) and rejected half the frames. At endzone
+    # weight 1.0 that reasoning inverts and the gate throws away the frames it should keep:
+    # play 1 (2026-09-12), 5 players, the two-view fit's own medians were sideline 14.6 px and
+    # endzone 4.9 px, so 126 of 328 frames failed a 20 px SIDELINE gate while their second view
+    # was excellent. A rejected frame is not written, so it counts as uncovered and the one-view
+    # pass refits it to the sideline alone -- which reaches 4 px by sliding the body along the
+    # ray it cannot see. That is how id 19 ended up 4.0 px in the sideline, 142 px in the endzone
+    # and 1.1 m from the point both cameras agreed on. "worst" and "mean" gate on both views.
     from nfl_gsplat.pose.fit_mono2d import project
     per_view = [[], []]
-    first_rms = np.full(len(job["frames"]), np.inf)
-    for i in range(len(job["frames"])):
+    n_f = len(job["frames"])
+    rms_by_view = np.full((n_f, 2), np.nan)
+    for i in range(n_f):
         if not valid[i]:
             continue
         J = forward(params[i])
@@ -158,10 +166,16 @@ def _two_view_job(job):
             if use.sum():
                 pix, _ = project(K, R, t, J[use])
                 err = np.linalg.norm(pix - np.asarray(job["uv"][i][v], float)[use], axis=1)
-                if v == 0:
-                    first_rms[i] = float(np.sqrt(np.mean(err * err)))
+                rms_by_view[i, v] = float(np.sqrt(np.mean(err * err)))
                 per_view[v].append(float(np.median(err)))
-    valid &= first_rms <= job["reproj_px_max"]
+    gate = job.get("gate", "first")
+    if gate == "worst":
+        gate_rms = np.nanmax(rms_by_view, axis=1)
+    elif gate == "mean":
+        gate_rms = np.nanmean(rms_by_view, axis=1)
+    else:
+        gate_rms = rms_by_view[:, 0]
+    valid &= np.nan_to_num(gate_rms, nan=np.inf) <= job["reproj_px_max"]
     return (job["pid"], job["frames"], params, valid, rep, per_view)
 
 
@@ -336,7 +350,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                      "init_bp": np.stack(init_bp) if has_init else None,
                      "init_go": np.stack(init_go) if has_init else None,
                      "body_models": args.body_models, "max_gap": args.max_gap,
-                     "reproj_px_max": args.reproj_px_max,
+                     "reproj_px_max": args.reproj_px_max, "gate": args.two_view_gate,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
@@ -458,6 +472,12 @@ def main() -> None:
     ap.add_argument("--two-view-max-miss", type=float, default=TWO_VIEW_MAX_MISS_M,
                     help="a two-view frame whose two cameras' ankle rays miss by more than this (m) is left to "
                          "the one-view pass: the frame is mis-paired. 0 disables the check")
+    ap.add_argument("--two-view-gate", default="first", choices=["first", "worst", "mean"],
+                    help="which view's reprojection a two-view frame is gated on against --reproj-px-max: "
+                         "'first' the fitted camera alone (the old behaviour), 'worst' or 'mean' both. A frame "
+                         "the gate rejects is handed to the one-view pass, which satisfies one camera while "
+                         "sliding the body along the ray that camera cannot see, so gating on the first view "
+                         "prefers a depth-blind fit to a two-view one -- score any change with 05t")
     ap.add_argument("--anchor-max-miss", type=float, default=ANCHOR_MAX_MISS_M,
                     help="place a two-view body on the triangulated ankle midpoint when its two cameras' ankle "
                          "rays agree to within this (m); above it the body takes a ground point that slides "
