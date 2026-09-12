@@ -310,7 +310,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
             if miss is not None and args.two_view_max_miss > 0 and miss > args.two_view_max_miss:
                 n_miss += 1
                 continue
-            anchor = ankle_anchor(ga, gb, cam_a, cam_b, min_conf=0.5)
+            anchor = ankle_anchor(ga, gb, cam_a, cam_b, min_conf=0.5, max_miss_m=args.anchor_max_miss)
             if rec_frames:
                 fr = min(rec_frames, key=lambda x: abs(x - f))
                 r = rec[fr]
@@ -384,6 +384,13 @@ TWO_VIEW_PLACE_WEIGHT = 2.0
 # box holds another player. Play 1 (2026-09-10): every player's two views agree to 0.20 m at the
 # median (MAD 0.12) and the mis-paired motion man's to 1.11 m.
 TWO_VIEW_MAX_MISS_M = 0.6
+# ankle_anchor's own gate, and a CLIFF: below it a body is placed on the triangulated ankle
+# midpoint, which both cameras agree on; above it the body falls back to a ground point that slides
+# along one camera's ray. Play 1 (2026-09-12), cross-view reprojection (05t) against ankle-ray
+# agreement per player: 0.04-0.19 m of agreement -> 8-16 px in the camera NOT fitted to, while id 19
+# at 0.36 m and id 25 at 0.33 m -- just the wrong side of 0.3 -- read 142 px and 14.5 px (p90 113),
+# id 19's hips landing 149 px sideways in the endzone, which is depth along the sideline ray.
+ANCHOR_MAX_MISS_M = 0.3
 
 
 def main() -> None:
@@ -451,6 +458,11 @@ def main() -> None:
     ap.add_argument("--two-view-max-miss", type=float, default=TWO_VIEW_MAX_MISS_M,
                     help="a two-view frame whose two cameras' ankle rays miss by more than this (m) is left to "
                          "the one-view pass: the frame is mis-paired. 0 disables the check")
+    ap.add_argument("--anchor-max-miss", type=float, default=ANCHOR_MAX_MISS_M,
+                    help="place a two-view body on the triangulated ankle midpoint when its two cameras' ankle "
+                         "rays agree to within this (m); above it the body takes a ground point that slides "
+                         "along one camera's ray. A player just over the default lands metres out in depth and "
+                         "still reads 4 px in the camera he was fitted to -- score any change with 05t")
     ap.add_argument("--two-view", action="store_true",
                     help="fit the two-camera players to BOTH cameras' keypoints (no triangulation) and write them as "
                          "the fused records, replacing 05f's for those players; then the one-view pass as usual")
