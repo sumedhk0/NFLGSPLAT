@@ -792,6 +792,40 @@ artifacts, not a contradicting contract** -- `test_ankle_ground` and `test_timel
 only `track_id`, so they hit an AttributeError; neither asserted the old key, and both assertions stand
 once the fixture carries the column the real table always has. Suite 1112 passed.
 
+### v37: two re-pairings, and the census finally moves (2026-09-12)
+
+`08s --give-up-incumbent` applied the two the gate passed, evicting each sitting endzone track to a
+**fresh unused id rather than deleting it** (endzone 7 -> id 145, endzone 25 -> id 146; 648 track rows and
+10676 keypoint rows moved). sideline 7 went from 95 to 467 endzone frames, sideline 25 from 172 to 181.
+
+    05u, 2093 identical body-frames, 25 players    v36        v37
+    id 25                                        0.69 m     0.02 m
+    id  7                                        0.23       0.00
+    every other player                           identical to the centimetre
+    pooled |along-ray| p90                       0.22       0.05
+    players worse by more than 0.10 m                       0 of 25
+
+    05t per player (the same keypoints)      sideline p50/p90     endzone p50/p90
+    id 7  v36                                    1.8 /  2.3        27.1 /  38.6
+    id 7  v37                                    5.0 /  7.3         6.3 /   7.9
+    id 25 v36                                   17.0 / 32.3        98.4 / 386.2
+    id 25 v37                                    8.9 / 13.2        15.5 / 483.4
+
+id 7 is the textbook case: near-perfect in the camera it was fitted to and 27 px in the other -- the
+blind-camera signature -- replaced by 5-6 px in **both**, which is what a correct pairing looks like.
+
+**The census moved for the first time this session: 3.02 -> 2.94 bodies a frame, and frames exactly
+eleven-and-eleven 3 -> 9 of 361.** The mechanism is in the log rather than inferred: "frames beyond an
+id's sideline span left out" fell **2110 -> 1412**, because a relabelled endzone track now sits under an
+id with a long sideline span instead of being cut as out-of-span. Correct pairing buys population, not
+just placement.
+
+**The residual, named.** id 25 keeps the tail: its endzone p50 improves six-fold but p90 goes 386 -> 483
+px, and it owns the pooled p99 rise (313.7 -> 388.5) while the metres stay flat (p99 1.01 -> 1.03, max
+4.49 unchanged). That is time-localisation inside the new pairing -- right for most frames, badly wrong
+on a minority -- and endzone 33 spans 378-562 against sideline 25's 381-634. The join should be per
+interval, exactly as the earlier finding said.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
