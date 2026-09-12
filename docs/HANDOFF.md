@@ -448,6 +448,32 @@ name -- 37 (Pacheco, kept 5), 17 (Butker, kept 16), 89 (Brown, kept 53),
 a 2nd-and-20: `specialist_veto` (K, P, LS unnamed unless `--kicking-play`)
 takes that one too.
 
+### v34: the gap fill lands, and the count turns out to be fragmentation (2026-09-11)
+
+08q recovered 607 sideline boxes inside gaps in existing tracks, from detections
+the 0.35 threshold had rejected, and the keypoints were re-read for them. At the
+snap Kansas City goes from 8 drawn bodies to 9 of 11, and 27 players triangulate
+from both cameras instead of 25. The overall count error did not move: 2.93 ->
+2.95 bodies a frame from the snap.
+
+What that says is where the error really lives. Play 1's eleven Kansas City
+players are carried by 32 separate sideline track ids, and Baltimore's by 51. A
+player is tracked, lost, and picked up again as a NEW id -- which produces both
+halves of the error at once: a hole while nobody holds him, and a surplus where
+the old id and the new one overlap. Filling the small holes inside a track cannot
+reach either.
+
+By phase of play (bodies drawn, truth 11 and 11):
+
+    at the snap (280-340)   KC 8.8   BAL 11.7
+    the run     (340-460)   KC 12.2  BAL 11.8
+
+The next piece is joining fragments into one identity per player. Position-only
+stitching is a measured dead end (2026-09-07: it welded a wrong pair for every
+right one). What is new since: the kit read from the pose torso, the role and
+build per player, depth-corrected positions, and the one-place-at-a-time veto in
+the pairing. A stitch gated on those is worth measuring against the census.
+
 ### Counting bodies per team: the ruler, and what it says (2026-09-11)
 
 Eleven a side is the one number in this problem that is known without labelling
