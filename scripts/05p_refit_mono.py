@@ -410,6 +410,13 @@ def main() -> None:
                          "(the runner behind another player: arms 10-35 px off) is better left to the timeline's bridge")
     ap.add_argument("--max-iter", type=int, default=40)
     ap.add_argument("--max-gap", type=int, default=12)
+    ap.add_argument("--no-edge-blend", action="store_true",
+                    help="do not cross-fade a one-view frame's PLACEMENT (global_orient and transl) toward the "
+                         "nearest two-view record within --max-gap frames (pose.fit_mono2d.blend_params). The "
+                         "blend puts up to 92 %% of a record up to twelve frames away into this frame's "
+                         "orientation, and rotating a whole body displaces every joint: play 1's motion man "
+                         "reprojects 19-30 px at frames 258-268 in the cache where his own fit reported 3 px, "
+                         "and re-solving his translation alone recovers only a third of it (05s)")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--ids", type=int, nargs="*", default=None, help="only these player ids (a probe)")
     ap.add_argument("--dry-run", action="store_true", help="fit and report, write nothing")
@@ -669,7 +676,7 @@ def main() -> None:
                     prev_seq[i] = fr[near]
                 # within a max-gap of a fused block: cross-fade toward its edge record
                 d = abs(near - f)
-                if d <= args.max_gap:
+                if d <= args.max_gap and not args.no_edge_blend:
                     blend_seq[i] = (fr[near], 1.0 - d / float(args.max_gap + 1))
             gnd = list(gnd_arr)
         has_init = all(b is not None for b in init_bp)
