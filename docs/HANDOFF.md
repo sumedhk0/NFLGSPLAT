@@ -826,6 +826,21 @@ px, and it owns the pooled p99 rise (313.7 -> 388.5) while the metres stay flat 
 on a minority -- and endzone 33 spans 378-562 against sideline 25's 381-634. The join should be per
 interval, exactly as the earlier finding said.
 
+**And time-localisation turns out NOT to be general, which makes that job small.** Scanning every
+pairing's ray miss per 60-frame block (16 ids with 40+ paired ankle frames):
+
+    id  frames  overall p50   best block   worst block   spread   over 0.6 m
+    25      46        0.17         0.11          1.90     1.79       37 %     <- re-paired in v37
+     7     184        0.08         0.03          1.54     1.51        7 %     <- re-paired in v37
+    the other 14      0.04-0.19       --            --    0.02-0.10   0-2 %
+
+Only **2 of 16** vary by more than 0.25 m between blocks, and they are precisely the two tracks v37
+re-paired by eviction. Every long-standing pairing is flat. So the fix is not general interval support
+in 08r/08s: it is trimming a newly applied relabel to the span where its rays actually agree, which is
+a much smaller change than the earlier finding implied. The mechanism is plain enough -- an evicted
+incumbent's replacement is chosen on the frames where both ids have confident ankles, and applied to the
+whole span, so the edges of that span are where it goes wrong.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
