@@ -40,8 +40,11 @@ def _inside_sideline(xy, track, f, *, margin: float = MARGIN_PX) -> bool:
     return margin <= u <= track.width - margin and margin <= v <= track.height - margin
 
 
+SAME_BODY_M: float = 1.2         # a sideline body this close is the same man under another id
+
+
 def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sideline",
-                         margin: float = MARGIN_PX):
+                         margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -60,8 +63,12 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     span = sub.groupby("track_id")["frame"].agg(["min", "max"])
     lo = {int(pid): int(r["min"]) - gap for pid, r in span.iterrows()}
     hi = {int(pid): int(r["max"]) + gap for pid, r in span.iterrows()}
+    side_at = None
+    if side_ground is not None:
+        side_at = {int(f): {int(p): np.asarray(v, float) for p, v in d.items()} for f, d in side_ground.items()}
     out = {}
     dropped = 0
+    kept_gap = 0
     for f, d in ground.items():
         f = int(f)
         keep = {}
@@ -69,8 +76,20 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
             pid = int(pid)
             if pid in lo and not (lo[pid] <= f <= hi[pid]) and sideline is not None \
                     and f < len(sideline.conf) and _inside_sideline(xy, sideline, f, margin=margin):
-                dropped += 1
-                continue
+                # Beyond its sideline span this id is drawn from the endzone alone. That is a second
+                # copy of a man the sideline tracks under another id ONLY if the sideline has a body
+                # there; where it has none, the sideline simply lost him and this is the only body he
+                # has. Play 1: four Kansas City players are seen by the endzone through a sideline gap,
+                # and dropping them left nine of eleven on the field.
+                if side_at is None:
+                    dropped += 1                      # without the sideline's bodies, the old rule stands
+                    continue
+                near = min((float(np.linalg.norm(np.asarray(xy, float) - q))
+                            for j, q in side_at.get(f, {}).items() if j != pid), default=np.inf)
+                if near <= same_body_m:
+                    dropped += 1
+                    continue
+                kept_gap += 1
             keep[pid] = xy
         out[f] = keep
     return out, dropped

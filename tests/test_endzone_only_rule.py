@@ -77,3 +77,27 @@ def test_beyond_sideline_span_drops_the_endzone_tail_the_sideline_could_see():
         else:
             assert 1 not in out[f], f                                 # beyond the span, in view: dropped
     assert dropped == 5 + (50 - 26)
+
+
+def test_beyond_the_span_is_kept_when_the_sideline_has_nobody_there():
+    """Past its sideline span an id is a second copy only if the sideline draws that man."""
+    import numpy as np
+    import pandas as pd
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    class _Side:
+        # a camera at the origin looking down +y; everything in front of it is inside the image
+        K = [np.array([[1000.0, 0, 960.0], [0, 1000.0, 540.0], [0, 0, 1.0]])] * 400
+        R = [np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])] * 400
+        t = [np.zeros(3)] * 400
+        conf = np.ones(400)
+        width, height = 1920, 1080
+
+    df = pd.DataFrame({"cam": ["sideline"] * 3, "frame": [10, 11, 12], "track_id": [1, 1, 1]})
+    ground = {300: {1: np.array([0.5, 40.0])}}                  # id 1, long past its sideline span
+    side = {300: {2: np.array([0.6, 40.1])}}                    # ... and the sideline draws that man as id 2
+    out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side)
+    assert dropped == 1 and out[300] == {}
+    side_far = {300: {2: np.array([9.0, 40.0])}}                # nobody near: the sideline lost him
+    out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side_far)
+    assert dropped == 0 and 1 in out[300]

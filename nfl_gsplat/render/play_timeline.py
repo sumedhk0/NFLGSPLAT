@@ -312,9 +312,11 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     # A paired id lives on its sideline span: beyond it the endzone track
     # alone draws a second copy of a player (endzone_only_rule).
     if "sideline" in tracks:
-        ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"], gap=tlm.MAX_GAP_FRAMES)
+        ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"], gap=tlm.MAX_GAP_FRAMES,
+                                                side_ground=side_ground if "sideline" in tracks else None)
         if n_beyond:
-            print(f"frames beyond an id's sideline span left out: {n_beyond}")
+            print(f"frames beyond an id's sideline span left out: {n_beyond} (kept where the sideline "
+                  "has no body there: the sideline lost him, the endzone did not)")
     if place_from_refit_transl and refit:
         ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
         if len(shifts):
