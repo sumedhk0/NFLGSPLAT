@@ -916,6 +916,29 @@ his neighbour from a man it already draws, which was the entire point. Recoverin
 endzone bodies admitted with a correct identity, and that is the pairing problem again -- which needs
 both cameras to see the ankles, exactly what a pile denies. Do not re-propose a proximity test here.
 
+**But the deficit IS recoverable, and I nearly concluded otherwise on a bad number.** In the line box
+(|x - LOS| <= 3 m, |y| <= 8 m) the endzone resolves **9-11 Kansas City ground points** on every sampled
+frame from 290 to 360, against the sideline's 7-8 and the 6-7 the render actually draws. Pooling the two
+cameras' points at 0.6 m then gave KC **12-13 places**, which is more men than can be in that box, and I
+read that as the endzone over-segmenting the pile -- which would have killed the whole line of attack.
+It is a clustering artifact: a man whose sideline and endzone points sit more than 0.6 m apart is
+counted twice by the pooling, so the pooled figure inflates and means nothing here.
+
+The film settles it. Marking the endzone's line-box ground points on frame 285 (= sideline 300) gives
+**10 markers and exactly 10 distinct red-jerseyed men** -- 87, 76, 62, 15, 65, 7, 83, 12, 10 and one
+half-hidden behind 87 -- each marker at a different man's feet, none stacked on one body. The endzone
+genuinely resolves the men the sideline merges into a mass.
+
+So the route is admission by **region and count, not identity**: inside the line box, where the endzone
+resolves more distinct places than the sideline, the surplus are real men. That needs no pairing, which
+is what the pile denies. The risk is drawing a body at the wrong depth, so it must be scored on 05t and
+05u as well as the census. That is the next build.
+
+Three times now the geometry has proposed something the footage refused -- a body supposedly drawn on
+the camera rig (it was a drone in the plate), players supposedly cut off by the sideline crop (nothing
+was clipped), and now the endzone supposedly over-segmenting the line. **Look at the frame before
+believing a count.**
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
