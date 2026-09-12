@@ -763,6 +763,35 @@ Still held back: **`7 <- 89` at 0.08 m over 184 frames**, the strongest pairing 
 because taking it means giving up endzone 7 -- whose pairing with sideline 7 has *zero* frames with
 confident ankles in both cameras. It needs `--allow-repairing` and a deliberate decision.
 
+### ground_positions keyed by the TRACKER's id, not the player's (2026-09-12)
+
+`ankle_ground` keys `(cam, frame, global_player_id)`. `ground_positions` looked those ankles up by
+`r.track_id` and emitted its own output under `r.track_id` too, while **every caller asks by player id**
+-- 05p tests `pid not in ground.get(f, {})` with `pid` from the keypoints, the depth snap matches endzone
+candidates the same way, the census counts players, and the docstring says `{pid: xy}`. It never showed
+because this pipeline had never assigned a global id different from a track id.
+
+08s is the first thing that does, and all four relabelled ids reported **zero endzone ground frames**
+with their rows and keypoints perfectly intact (id 11: 423 endzone rows, 405 keypoint boxes, 0 ground
+frames, against control id 12 at 381/377/381). Their points were landing under the OLD track ids and the
+ankle lookup missed every time, falling back silently to the box bottom.
+
+What it did and did not break, measured rather than assumed. The **fits are unaffected**: 05p uses the
+sideline ground dict and the relabel only touched endzone rows, so the ids still coincide there, which is
+why 05u showed v36 as a clean win. What was blind is the depth snap's endzone candidates for those ids
+and **08r's turf ruler** -- the missing turf statistic is why the "beat the incumbent on both rulers"
+check silently skipped and proposed `11 <- 97` (0.19 m over 30 frames) against an incumbent measuring
+0.14 m over 150. After the fix that candidate disappears from the assignment entirely (23 pairs, 18
+unchanged, against 20 and 14 before).
+
+Fixed to key by `global_player_id`, and a table without that column is now refused with a `SetupError`
+naming it rather than falling back to `track_id` -- silence is how this hid. Confirmed on the play: the
+four ids now report 75, 423, 464 and 491 endzone ground frames, the stale keys 19/21/22/102 are empty,
+and the controls are untouched. Two existing tests failed on the change and **both were fixture
+artifacts, not a contradicting contract** -- `test_ankle_ground` and `test_timeline` built rows carrying
+only `track_id`, so they hit an AttributeError; neither asserted the old key, and both assertions stand
+once the fixture carries the column the real table always has. Suite 1112 passed.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
