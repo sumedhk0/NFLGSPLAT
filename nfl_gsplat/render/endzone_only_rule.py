@@ -60,7 +60,12 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     endzone refines position inside it. Beyond the span the id is kept only
     where the sideline camera could not have seen it (outside its image)."""
     sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
-    span = sub.groupby("track_id")["frame"].agg(["min", "max"])
+    # Keyed by the PLAYER, because `ground` is: ground_positions keys by global_player_id, and the two
+    # ids are equal only until a track is relabelled onto another player (08s). Grouping by track_id
+    # here would silently stop span-limiting exactly the relabelled ids -- the same confusion that made
+    # ground_positions report zero endzone frames for every one of them (2026-09-12). Latent rather
+    # than live so far, because 08s relabels endzone rows and this reads the sideline's.
+    span = sub.groupby("global_player_id")["frame"].agg(["min", "max"])
     lo = {int(pid): int(r["min"]) - gap for pid, r in span.iterrows()}
     hi = {int(pid): int(r["max"]) + gap for pid, r in span.iterrows()}
     side_at = None

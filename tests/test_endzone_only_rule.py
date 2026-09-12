@@ -50,10 +50,11 @@ def test_beyond_sideline_span_drops_the_endzone_tail_the_sideline_could_see():
 
     from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
 
-    # id 1: sideline frames 10..20, endzone frames 0..60; id 2: sideline only, 0..60
-    rows = [{"cam": "sideline", "track_id": 1, "frame": f} for f in range(10, 21)]
-    rows += [{"cam": "endzone", "track_id": 1, "frame": f} for f in range(0, 61)]
-    rows += [{"cam": "sideline", "track_id": 2, "frame": f} for f in range(0, 61)]
+    # id 1: sideline frames 10..20, endzone frames 0..60; id 2: sideline only, 0..60.
+    # Both ids, as the real table carries them: the span is keyed by the PLAYER, because `ground` is.
+    rows = [{"cam": "sideline", "track_id": 1, "global_player_id": 1, "frame": f} for f in range(10, 21)]
+    rows += [{"cam": "endzone", "track_id": 1, "global_player_id": 1, "frame": f} for f in range(0, 61)]
+    rows += [{"cam": "sideline", "track_id": 2, "global_player_id": 2, "frame": f} for f in range(0, 61)]
     df = pd.DataFrame(rows)
     ground = {f: {1: np.array([5.0, 0.0]), 2: np.array([-5.0, 0.0])} for f in range(0, 61)}
     # far downfield from frame 50 on: outside the sideline image
@@ -93,7 +94,8 @@ def test_beyond_the_span_is_kept_when_the_sideline_has_nobody_there():
         conf = np.ones(400)
         width, height = 1920, 1080
 
-    df = pd.DataFrame({"cam": ["sideline"] * 3, "frame": [10, 11, 12], "track_id": [1, 1, 1]})
+    df = pd.DataFrame({"cam": ["sideline"] * 3, "frame": [10, 11, 12], "track_id": [1, 1, 1],
+                       "global_player_id": [1, 1, 1]})
     ground = {300: {1: np.array([0.5, 40.0])}}                  # id 1, long past its sideline span
     side = {300: {2: np.array([0.6, 40.1])}}                    # ... and the sideline draws that man as id 2
     out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side)
