@@ -518,6 +518,35 @@ pixels of slop on a 140 px box is eight metres of depth. Intersecting a ray with
 better conditioned. Do not re-propose depth-from-apparent-size at All-22 ranges; it is unusable
 whatever the pose gating.
 
+**So why does the depth snap reach so few of the blind bodies?** Its own docstring measures it firing
+on 69 % of frames, but that was the PAIRED population; on the bodies that actually need it, it fires
+on 19 %. Counting the refusals by reason:
+
+    reason                                          paired (1907)   blind (3196)
+    SNAPPED                                          1260 (66 %)     614 (19 %)
+    no endzone bodies that frame at all                  0          1278 (40 %)
+    no endzone body within LATERAL_M 0.6 m of the ray   112           492 (15 %)
+    a body is on the ray but beyond MAX_MOVE_M 2.5 m     86           433 (14 %)
+    two candidates within MARGIN_M: refused            449 (24 %)    379 (12 %)
+    the team gate left no candidate                      0             0
+
+A suspicion of mine died here: `snap_ground` filters candidates to `teams.get(q) == side`, which
+drops a candidate whose team is UNKNOWN whenever the sideline body's team is known (the docstring
+only promises leniency for an unknown sideline id). It costs nothing on play 1 -- all 90 endzone ids
+carry a team label, 0 candidate-slots were dropped for an unknown team, and that bucket is empty in
+both populations.
+
+The largest bucket is not a gate. **1278 of the 3196 blind body-frames (40 %) have no endzone ground
+points at that instant**, because the endzone camera is solved on 510 frames (sideline 140-649) while
+the play is rendered over roughly 14-660: before frame ~140 there is no second view by construction.
+That is calibration coverage, not a threshold, and it is the ceiling on everything two-view --
+including 05t's own reach. Nor is loosening the gates attractive: the blind bodies' nearest candidate
+sits p50 0.28 m and p90 1.44 m off the ray against 0.16 m and 0.51 m for paired ones, so the endzone
+track frequently does not hold that man at all (the same fragmentation as the census problem) and a
+wider `LATERAL_M` would mostly buy wrong matches. With the turf estimate already at 0.19 m p50 the
+snap's remaining upside is small. The two levers that are left are extending the endzone camera solve
+and fixing fragmentation -- not tuning this rule.
+
 **The cause is the two-view gate.** Simulating `two_view_pass`'s filters per player showed the
 cross-view error is monotone in the fraction of a player's frames that got the triangulated ankle
 anchor:
