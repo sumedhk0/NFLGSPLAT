@@ -678,6 +678,25 @@ explicitly rather than smuggle inside a merge, so 08r proposes clean additions b
 `--allow-repairing` for the rest. Applying any of them must route through
 `pair_by_appearance.global_ids_checked`, which refuses the union outright.
 
+**And then the two clean additions turned out not to be worth applying, which is the most useful thing
+this thread produced.** Checking what `97 -> 11` would buy: over its 30 frames the one-view cache stands
+p50 0.34 m but p90 8.38 m and max 10.27 m along the ray from the two-camera point, with 0.01 m across it.
+That looks like a body wandering ten metres in depth. It is not. The 12 frames with over a metre of error
+have a ray miss of **p50 1.65 m**, against **0.06 m** for the other 18 -- they are the frames where endzone
+97 is not sideline 11's man at all. At frames 360-380 the cached body stands still at (-22.9, -4.5) while
+the "two-camera point" walks from (-24.4, +2.5) to (-25.0, +5.5): two different people. Where the rays do
+agree (468-510, 628-638, miss 0.02-0.14 m) the one-view placement is **already** 0.04-0.36 m accurate.
+
+So the join buys almost nothing, and the 67 % vote share means something worse than "probably right": the
+pairing is **time-localised**, valid over some stretches of the track and wrong over others. A whole-id
+merge is therefore the wrong granularity -- it would weld the correct frames together and actively corrupt
+the rest by fitting one man's body against another man's keypoints, which is exactly the failure the
+two-view work spent this session repairing. Any future version of this has to join per interval, with the
+ray miss deciding frame by frame where the join holds, and 08r's `share` must not be read as confidence in
+a whole-track identity. The honest state: the cross-camera bookkeeping is real (12 shared ids of 21 and 24
+at the snap) but neither ankle rays nor an accumulated assignment can fix it at track granularity, and the
+placement upside for the bodies it would join is a fifth of a metre.
+
 Baltimore's 15-18 is the other half, and two new faults sit in it. **Officials are voted onto a team**: id 85
 stands motionless at (-10.1, +5.2) through frames 300-400, 8.6 m from any sideline body, and id 87 at
 (-51.7, -0.4) is 17.7 m behind everyone -- officials wear white, so the saturation vote reads them as
