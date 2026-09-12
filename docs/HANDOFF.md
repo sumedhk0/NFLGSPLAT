@@ -932,7 +932,38 @@ genuinely resolves the men the sideline merges into a mass.
 So the route is admission by **region and count, not identity**: inside the line box, where the endzone
 resolves more distinct places than the sideline, the surplus are real men. That needs no pairing, which
 is what the pile denies. The risk is drawing a body at the wrong depth, so it must be scored on 05t and
-05u as well as the census. That is the next build.
+05u as well as the census. That was the next build, and it is dead too -- measured before writing it.
+
+The candidates do not separate from the duplicates by distance. Splitting every Kansas City endzone body
+in the line box by whether the sideline tracks that id **anywhere** (so the sideline can see him: a
+re-count) or **never** (so it cannot: plausibly a man it merged), and measuring how far each sits from
+the nearest sideline KC body:
+
+    the sideline DOES track this id elsewhere (a re-count)   1150 body-frames   p50 1.16 m
+    the sideline NEVER tracks this id (plausibly unseen)      579 body-frames   p50 1.17 m
+
+    threshold   admits unseen   admits re-counts   purity
+      0.6 m          436              873           33 %
+      1.0            301              654           32 %
+      1.2            287              531           35 %
+      1.5            216              149           59 %
+      2.0             82              101           45 %
+
+Identical medians, and no threshold reaches even 60 % purity; the 1.5 m bump sits between 35 % and 45 %,
+so it is a wiggle in a noisy curve, not a boundary. Tuning to it would be fitting noise.
+
+The film had already shown why, on the snap frame: of the four candidates there, id 37 sits at lineman
+76's feet with the sideline's own point 0.68 m away and id 22 sits on the back 10 with sideline points
+beneath it -- both re-counts -- while id 38 and id 74 stand on men carrying no sideline point at all. Two
+real and two duplicates, at 1.38/1.49 m and 0.68/1.06 m, ranges that overlap the moment cross-camera
+disagreement is included. **A man the sideline merged into his neighbour and a man it already draws sit
+the same distance from that neighbour.** Proximity cannot tell them apart, in the line box or anywhere
+else.
+
+So the census route through geometry is closed: admitting the line needs identity for those bodies, and
+the pile is exactly what denies identity (both cameras must see the ankles). The remaining honest
+options are a detector that separates overlapping bodies in the sideline view, or accepting that the
+snap deficit is not recoverable from this footage.
 
 Three times now the geometry has proposed something the footage refused -- a body supposedly drawn on
 the camera rig (it was a drone in the plate), players supposedly cut off by the sideline crop (nothing
