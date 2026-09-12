@@ -965,6 +965,30 @@ the pile is exactly what denies identity (both cameras must see the ankles). The
 options are a detector that separates overlapping bodies in the sideline view, or accepting that the
 snap deficit is not recoverable from this footage.
 
+**Jersey identity cannot admit them either.** The obvious next door: the endzone plainly shows the
+linemen's numbers, the OCR reads them confidently (id 86 reads 62 on 250 frames, id 97 reads 82 on 215,
+id 38 reads 55 on 326), so a body with a number is a man whether or not the ankle rays can pair him.
+Dead, because `player_uid` is **not unique per man**: seven uids are claimed by two or three different ids
+(`2024_T1_7` by ids 22, 76 and 80; `2024_T1_62` by 33, 139 and 140; `2024_T1_52` by 17 and 104), three
+ids carry more than one uid (id 25 reads 76 on 112 frames, 62 on 87, 5 on 9), and the totals are 16 and
+16 against a truth of 11 and 11. Admitting a body because it carries a number would draw the same man two
+or three times -- the ghost problem in a new costume.
+
+**Two corrections to myself, both from reading rather than assuming.** I reported the line-box candidates
+as having "no identity" because `PlayerIdentity.name` was None: that attribute does not exist on the
+object at all (`cameras, corroborated, height_m, jersey, player, team, total_votes, tracks, votes,
+weight_lb`), and the identities are populated -- the sample resolves to jersey 21, BAL, "Brandon
+Stephens". And I reported that `pipeline_play.sh` would reproduce roughly v34 because it runs 05p without
+`--two-view`: it does not, line 59 sets `--two-view --endzone-weight $EZW` unless `ONE_VIEW=1`, and
+`TWO_VIEW_PX_MAX = 40` is already the committed default inside 05p. The real gap was narrower -- 08r/08s
+were not pipeline stages, so a fresh play got v38's fitting but not its pairing. Now wired in as `pair`,
+between `twins` and `roles`, because 08s rewrites the tables that roles/tri/refit all read.
+
+**The single worst body-frame in the play is id 17 at frames 458-460**, 4.49 m along the ray -- and the
+two cameras' ankle rays there miss by **2.34 m**, so the triangulated "truth" is itself wrong. It is a
+mis-paired window, not a misplaced body, and it accounts for id 17's 0.13 m across-ray component, the
+last named placement defect. A candidate for the same interval trim.
+
 Three times now the geometry has proposed something the footage refused -- a body supposedly drawn on
 the camera rig (it was a drone in the plate), players supposedly cut off by the sideline crop (nothing
 was clipped), and now the endzone supposedly over-segmenting the line. **Look at the frame before
