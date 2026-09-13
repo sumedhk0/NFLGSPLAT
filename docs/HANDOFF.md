@@ -1172,6 +1172,28 @@ drawn Kansas City body, and whether any id labelled KC is misassigned. Note the 
 8.89 at the snap (a deficit), 11.07 over the play, 11.79 in the run -- so it grows as the players spread
 out, which is the opposite of what a merged-box fault would do.
 
+**First attempt at that measurement was invalid, in two ways worth recording.** It counted PAIRS of drawn
+Kansas City bodies closer than 0.95 m and got 2.31 a frame, which cannot be compared with a 0.79 surplus:
+pairs overlap -- (17, 25), (25, 33) and (19, 25) all share id 25 -- and the phantom count is bodies minus
+CLUSTERS, not pairs. Second, 0.95 m was the p90 of the CROSS-CAMERA control (the same id seen by both
+cameras), which is not a "two different teammates" radius at all; teammates legitimately stand about a metre
+apart, so that test declares real players duplicates. It is the 0.6 m clustering artifact from earlier in
+this document wearing a different hat. Any cluster radius here has to be one below which two real players
+cannot both stand (~0.4-0.5 m), and even then same-team clustering during a run is a weak instrument.
+
+**What does survive: fourteen ids are drawn as Kansas City in the run window.** Nine run near-continuously
+(111-121 of 121 frames: ids 3, 5, 9, 12, 37, 11, 25, 38, 17) and five are partial -- 80 (84 frames), 33
+(83), 19 (75), 39 (69), 74 (52). With truth at eleven, the surplus rides on the partial ids, which is the
+signature of fragments rather than of a threshold.
+
+Two leads, neither yet confirmed:
+  - id 39 carries jersey 6 and a roster name that is a DEFENSIVE back. Kansas City has the ball on this
+    play, so a safety cannot be on the field; if the roster confirms the position, that is 69 frames of a
+    body that should not exist. Verify against the pipeline's roster rather than from memory.
+  - id 74's "defence side of the line" flag is an artifact: its mean x is 0.69 m past the line of scrimmage,
+    which is where a tight end on the line stands. Not evidence, and not a reason to doubt the footage and
+    control-group verdict that id 74 is a real man.
+
 Worth recording separately: the probe's baseline census reproduces the ad-hoc figures recorded for v38
 (snap 2.82 vs 2.85, play 1.98 vs 1.98, run 1.79 vs 1.79, aftermath 3.44 vs 3.46), so the two instruments
 agree and the census numbers in this document are reproducible rather than one-off.
