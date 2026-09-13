@@ -1218,6 +1218,32 @@ a real body with a wrong TEAM label corrupts the census directly, because the ce
 team labelling is now a third suspect instrument, alongside the pair-versus-cluster error and the borrowed
 radius. Before trusting any census number by team again, establish how often the team label is wrong.
 
+**Cross-team double-drawing is NOT the explanation, and the census-by-team survives (2026-09-13).** At frame
+420 the id-39 cross sat beside Baltimore body id 4, which would mean one man drawn under two team labels --
+inflating BOTH counts, matching KC 11.79 and BAL 11.84 both sitting over eleven, and invisible to a dedupe
+that never looks at team. Measured over 380-440 it is false: id 39's nearest opposite-team body is **p50
+1.89 m** (id 4 is its commonest neighbour but on 23 of 54 frames at ~1.9 m), and id 80's is **p50 3.16 m,
+min 3.06 m** -- nowhere near a Baltimore body. The picture was single-frame proximity, not co-location.
+
+Across the whole clip, cross-team pairs closer than 0.30 m are **1.0 %** of 14 397 drawn body-frames and
+closer than 0.40 m **1.4 %**. That is not systemic, so every census-by-team figure in this document stands,
+**including the snap 8.9 -> 10.8 result**. It also cannot explain a 0.79-a-frame surplus, which would need
+~6.7 % of the Kansas City bodies.
+
+What the same probe did find: **id 19's nearest SAME-team body is p50 0.58 m, min 0.17 m** -- inside the
+control distribution, so that one is a genuine double. Accounting for the 0.79 surplus so far: same-team
+near-duplicates account for ~0.2-0.5 of it (clusters 11.56 at 0.40 m, 11.29 at 0.50 m against 11.79 bodies),
+leaving ~0.3-0.5 as bodies standing genuinely apart. The remaining candidate is officials or staff drawn as
+players -- a failure mode already recorded on this play, where three officials and a field marker were drawn
+as Baltimore players and one got a roster name.
+
+**Where this leaves the dedupe fix.** Its two supporting rulers -- the cross-camera control group (paired ids
+agree at p50 0.42 m, so ids 74 and 38 at 1.24-1.44 m with |dy| ~1.19 m are real men) and the footage -- are
+both independent of team labels, so neither depends on the census being sound. The run regression is now
+explained as a pre-existing census error the fix does not cause. `ONE_VIEW_ACROSS_M` also has a data-driven
+justification rather than a census-fitted one: the same man reads <= 0.95 m across cameras, real separate men
+read >= 1.19 m, so a radius of 1.0 m sits between the two populations.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
