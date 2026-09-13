@@ -1368,6 +1368,29 @@ A near-permanent body that no roster number matches is the shape of an official 
 surplus better than anything tested tonight, and would be a bounded fix rather than a threshold. The footage
 decides it; proximity statistics demonstrably do not.
 
+**The footage kills both remaining explanations: they are all real players (2026-09-13).** id 3 is a Kansas
+City man in full uniform in a three-point stance at the line, on two separate frames -- so the "officials the
+off-field rules missed" idea is dead, and the biggest flagged id (623 frames) is correctly counted with only
+its jersey misread. Detection status settles the rest:
+
+    id 19  drawn 407  detected 380  interpolated 27 (7 %)   frame 500 interpolated
+    id 78  drawn 167  detected 167 (100 %)                  frame 500 DETECTED (sideline)
+    id  3  drawn 623  detected 622                          frames 400 and 500 detected
+
+**And my "phantom on empty grass" reading was a sampling error.** I cropped id 19 at frame 500 -- one of its
+27 interpolated frames, 7 % of its life -- and read it as evidence about the id as a whole. id 78 is 100 %
+detected including that frame, so its cross belongs to a real player in the crop (most likely the Baltimore
+man above right) with the ground point placed low, not to a body on bare turf. Tenth instance tonight of
+sampling the rare case and generalising from it.
+
+So there are no phantoms and nothing to remove: **all six flagged ids are real detected bodies with wrong
+labels**, and the count-fault half of the identity thread is dead alongside the officials idea.
+
+**What is left is the one assumption never tested: that truth is eleven in that window.** If the whistle
+falls before frame 460, the tail of the "run" window is people walking on -- exactly the error already
+corrected once in this document, when the census was scoring 200 frames of aftermath. The end of the play
+has never actually been located; it was assumed from the window bounds.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
