@@ -45,17 +45,23 @@ DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one
 # along x from one group of players. (The sideline's own detections are
 # never deduped -- see dedupe_frames.)
 ONE_VIEW_DEPTH_M: float = 4.0
-# The across radius is set BETWEEN two measured populations rather than tuned to a score
-# (play 1, 2026-09-13): the same man seen by both cameras sits <= 0.95 m apart at the p90
-# (p50 0.42 m over 380 rows at the snap), while genuinely separate men -- ids 74 and 38, the
-# linemen the sideline merges into one box -- stand 1.19-1.30 m apart ACROSS the field. 1.5 m
-# reached over that gap and deleted them: with beyond_sideline_span also fixed to pass
-# side_ground, Kansas City at the snap goes 8.9 -> 10.8 and frames exactly eleven-a-side 0 -> 23
-# (census snap 2.82 -> 1.20, play 1.98 -> 1.73, whole clip 2.89 -> 2.52, Baltimore unchanged).
-# CAVEAT, not yet discharged: this constant exists for PLAY 2's endzone ghosts strung along x,
-# and only play 1 has been measured. Re-measure play 2 before trusting 1.0 there -- if the ghosts
-# return, the fix belongs behind a per-play setting rather than in this constant.
-ONE_VIEW_ACROSS_M: float = 1.0
+# 1.0 was tried on play 1 evidence and REVERTED the same day: it recovers the linemen the sideline
+# merges (Kansas City at the snap 8.9 -> 10.8, census 2.82 -> 1.20) but readmits play 2's ghosts.
+# Measured on play 2: of 123 states 1.0 keeps that 1.5 drops, |dx| to the killer is p50 2.87 m
+# (p90 3.52) -- id 2 on 53 frames at 3.46, id 34 at 2.90, id 1 at 2.87 -- which is the endzone's
+# copy strung along its own depth axis, the exact failure this radius exists to prevent.
+#
+# The two populations do separate, just not on THIS axis. In the marginal band (|dy| 1.0-1.5):
+#   play 2 ghosts        |dx| 2.4-3.5 m   the endzone's copy, displaced in depth
+#   play 1 merged linemen |dx| 0.38-0.79 m  a different man standing beside him, same depth
+# That suggested a depth-aware exception -- keep a state near in depth but clear across -- and it
+# was measured on both plays and REJECTED: nothing on play 1 (snap 2.82 at near_depth 0.8/1.0/1.5,
+# id 74 drawn on 3 frames against 66 under the blanket radius) and 54 states newly kept on play 2.
+# The premise was a population error: 0.38-0.79 m is id 74's distance to the nearest SIDELINE
+# BODY, not to the kept state this box actually compares against. Three replacements for this rule
+# are now measured and rejected (same-body gate, blanket radius, depth-aware exception); measure
+# the separation to the KILLER on both plays before proposing a fourth. See HANDOFF, 2026-09-13.
+ONE_VIEW_ACROSS_M: float = 1.5
 MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
 # A body interpolated through a detection gap is anchored (its player was
 # seen within MAX_GAP_FRAMES) -- unless it stands on top of a body the

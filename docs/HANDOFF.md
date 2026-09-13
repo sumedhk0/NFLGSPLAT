@@ -1258,8 +1258,41 @@ discrimination is also sharper than the census alone shows -- body-frames drawn 
 which the same control called a copy at 0.65 m (inside the 0.95 m p90), is still dropped. The change admits
 exactly what the two non-census rulers vouched for and nothing they rejected.
 
-Two caveats, neither discharged. `ONE_VIEW_ACROSS_M` exists for PLAY 2's endzone ghosts strung along x and
-only play 1 is measured -- if those ghosts return, this belongs behind a per-play setting rather than in the
+**The `ONE_VIEW_ACROSS_M` half was REVERTED within the hour: play 2 regresses.** Measured on play 2, of the
+123 states 1.0 keeps that 1.5 drops, |dx| to the body they duplicate is **p50 2.87 m** (p90 3.52) -- id 2 on
+53 frames at 3.46 m, id 34 at 2.90, id 1 at 2.87 -- the endzone's copy strung along its own depth axis,
+exactly the failure that radius exists to prevent. Breaking play 2 to fix play 1 is the thing
+corrections-must-beat-what-they-correct forbids, so the constant is back at 1.5 and the test now guards the
+play 2 case instead. `side_ground` stays: it is the half that restores the bodies, and it harms nothing on
+its own (play 1 +0.00, play 2 unaffected) -- it simply cannot pay off until dedupe stops eating what it
+restores.
+
+**But the same measurement hands over the discriminator.** In the marginal band (|dy| 1.0-1.5) the two
+populations separate cleanly on |dx|, the axis nobody was looking at:
+
+    play 2 ghosts          |dx| 2.4-3.5 m    the endzone's copy, displaced in DEPTH
+    play 1 merged linemen  |dx| 0.38-0.79 m  a different man beside him, at the SAME depth
+
+A copy is displaced along x; a separate man is displaced across y at the same depth. So the fix looked like a
+depth-aware exception -- an endzone-only state beside a kept state (|dx| small) but clear of it across
+(|dy| >= ~1.0) is a different player -- rather than a wider or narrower box.
+
+**Measured on both plays, and REJECTED (2026-09-13), because the premise was my own measurement error.**
+The exception does nothing on play 1: the snap census stays 2.82 at near_depth 0.8, 1.0 and 1.5, with id 74
+drawn on 3 frames against 66 under the blanket radius; only 2.0 moves it at all (2.64, 14 frames). On play 2
+it newly keeps 54 states at every setting (|dx| p50 0.29) -- the ghosts stay dead, but it is pure cost with
+no benefit.
+
+The premise was wrong: **|dx| 0.38-0.79 m was id 74's distance to the nearest SIDELINE BODY** (from the
+offset-control probe), not its separation from the kept state that dedupe actually compares against, which
+is id 1. Two different relationships; I carried the statistic from one into the other and built a rule on
+it. Sixth instance this session of the same error family -- see the standing note about stating the
+population before reading a number. The real killer geometry is measured next, and if play 1's linemen and
+play 2's ghosts overlap in (|dx|, |dy|) to their killer, no box in this feature space separates them and the
+line of attack is closed rather than untuned.
+
+Two caveats from the original entry, one now discharged. `ONE_VIEW_ACROSS_M` exists for PLAY 2's endzone
+ghosts strung along x and only play 1 was measured -- if those ghosts return, this belongs behind a per-play setting rather than in the
 constant. And no unit test guards the call-site wiring: a future edit could drop `side_ground` at
 play_timeline.py:337 and only the constant's test would still pass.
 
