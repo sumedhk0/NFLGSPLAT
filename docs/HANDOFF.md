@@ -1409,6 +1409,26 @@ which fits neither "aftermath crowd" nor any removal route -- all six flagged id
 players. The end of the play needs settling on the FOOTAGE, since eyes have been reliable tonight and
 derived proxies have not.
 
+**The play is LIVE through frame 470, so the window was right and the census thread closes here
+(2026-09-13).** At frame 425 (24 bodies, KC 13, BAL 11) players are running and engaged in blocks with a
+carrier in the scrum; at frame 470 (25 bodies, KC 12, BAL 13) a tackle is still forming, and the people at
+the top of the plate are off-field on the sideline. No whistle, no converging officials, nobody standing
+around. The aftermath explanation for the run surplus is therefore dead too, and 340-460 is all live play.
+
+**Where that leaves play 1's body count.** Every removal route is closed -- the ghost rule, dedupe, cross-team
+double-drawing, duplicates, officials, phantoms, and now the window itself. All six odd ids are real detected
+players carrying wrong labels. The surplus is genuine over-counting during the congested phase, of which the
+cluster test accounts for only ~0.2-0.5 bodies a frame (clusters 11.56 at 0.40 m and 11.29 at 0.50 m against
+11.79 bodies); the remainder is unexplained. **Census stands at 1.98 a frame over the play, where the session
+found it.**
+
+One discrepancy recorded rather than acted on: at frame 425 the census reads KC 13 while a count of red
+shirts on the plate gives roughly 10-11, with a dense knot of Kansas City dots over some 4-5 players in the
+pile. That looks like more duplication than the cluster test measured. Eyeballing a pile is precisely what
+produced several of this session's errors, so the instrument stands until a better one is built -- but the
+disagreement is real and is the first thing to re-measure, with a method that can count bodies in a pile
+without a radius.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
