@@ -1099,6 +1099,41 @@ and it is the pairing being locally wrong across a window where the track as a w
 does not move a median. Next test: per frame at the snap, the gap between a global id's sideline and
 endzone ground points; where it is large the endzone row is a different man and deserves an id of its own.
 
+**THE SNAP DEFICIT IS RECOVERABLE, and two claims above are now wrong (2026-09-13).** Two rules were each
+masking the other, which is why every single-rule measurement read as a no-op:
+
+  - `beyond_sideline_span` drops ids 74/38/22 at the snap, so they never reach dedupe. Measuring dedupe
+    alone therefore showed 0 Kansas City states killed by the one-view box and no sensitivity to its
+    radius -- true of the shipped configuration, FALSE of the mechanism. The claim above that the box
+    "binds nowhere on this play" holds only while the span rule deletes its inputs first.
+  - Give the span rule its same-body test and those 751 body-frames reach dedupe, where the one-view box
+    kills every one (id 74 by id 1 on 65 of 65 frames, id 38 by id 4, id 22 by id 13; `n_duplicates`
+    500 -> 1585). That is why the span fix alone measured +0.00.
+
+Corrected together, the census moves for the first time. Kansas City at the snap 8.9 -> 10.8, frames
+exactly eleven-a-side at the snap 0 -> 23, and Baltimore never moves (11.7), so the change is targeted:
+
+    configuration          snap   play    run  after   full
+    baseline (shipped)     2.82   1.98   1.79   3.44   2.89
+    span fix only          2.82   2.03   1.86   3.53   2.90
+    span fix + across 1.0  1.20   1.73   2.00   3.57   2.52
+    span fix + across 0.8  0.93   1.67   2.01   3.66   2.43
+
+**The footage and a control group say ids 74 and 38 are real men, and 22 and 86 are not.** Paired Kansas
+City ids agree between cameras at p50 **0.42 m** (n = 380 rows in 280-345). Ids 74 and 38 stand **1.44** and
+**1.24 m** from the nearest sideline body, and the gap is mostly ACROSS the field (|dy| p50 1.19 m for
+both), which is the direction a formation's linemen separate -- not along the endzone's blind depth axis.
+Ids 22 and 86 come in at 0.65 m, inside the control distribution, and contributed only 1 and 10 frames.
+Zoomed crops agree: box 12 plainly spans two to three Kansas City players with a single ground point inside
+it, the merged box this document describes.
+
+**NOT SHIPPED, because the fix as swept is a blanket threshold and it over-admits.** The run window
+regresses 1.79 -> 2.01 with Kansas City at 12.1, over eleven: a smaller dedupe box recovers real men at the
+line and admits copies once the players spread out. The principled form is the same-body test INSIDE the
+one-view box -- an endzone-only state is a copy only where the sideline actually has a body -- rather than
+a narrower box, which is the same lesson as `beyond_sideline_span` carrying `side_ground`. Measure that
+before changing any constant.
+
 Worth recording separately: the probe's baseline census reproduces the ad-hoc figures recorded for v38
 (snap 2.82 vs 2.85, play 1.98 vs 1.98, run 1.79 vs 1.79, aftermath 3.44 vs 3.46), so the two instruments
 agree and the census numbers in this document are reproducible rather than one-off.
