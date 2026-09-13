@@ -1391,6 +1391,24 @@ falls before frame 460, the tail of the "run" window is people walking on -- exa
 corrected once in this document, when the census was scoring 200 frames of aftermath. The end of the play
 has never actually been located; it was assumed from the window bounds.
 
+**The end of the play is still unlocated, and the probe built to find it was broken (2026-09-13).** Two
+proxies, both useless, recorded so nobody rebuilds them:
+
+  - **Runner speed.** Taking the FASTEST Kansas City body per frame reports 48.0 m/s at frame 430, 35.6 at
+    500 and 24.6 at 465. A world-class sprinter peaks near 12. A max over all bodies is dominated by
+    whichever id is glitching, so "fastest KC >= 4 m/s across 300-560" says the metric is noise, not that
+    the play is live. Any speed signal here needs ONE identified carrier and a median filter.
+  - **Bodies beyond the sideline.** Zero anywhere in 300-560 -- but the crowd-crossing evidence recorded
+    earlier in this document is at frames **580-620**, outside the window I scanned. The signal was real and
+    I looked in the wrong place.
+
+Eleventh instrument error of the session. What the run does show is genuine: drawn bodies climb from 20-21
+at frames 300-335 (Kansas City 9, the snap deficit), to 23 at 345 as the pile separates, to **25-26 with
+Kansas City at 13-14 across 390-430**. The surplus is concentrated exactly where the play is most congested,
+which fits neither "aftermath crowd" nor any removal route -- all six flagged ids being real detected
+players. The end of the play needs settling on the FOOTAGE, since eyes have been reliable tonight and
+derived proxies have not.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
