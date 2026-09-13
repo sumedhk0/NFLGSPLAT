@@ -1134,6 +1134,26 @@ one-view box -- an endzone-only state is a copy only where the sideline actually
 a narrower box, which is the same lesson as `beyond_sideline_span` carrying `side_ground`. Measure that
 before changing any constant.
 
+**And that principled gate is measured and REJECTED -- it is worse than the blanket threshold (2026-09-13).**
+Requiring the sideline to have a body within `same_body` before calling an endzone-only state a copy
+regresses the run to 2.24-2.50 against a baseline of 1.79 (the blanket radius gave 2.00), and it breaks what
+the blanket never touched: Baltimore goes 11.7 -> 12.7 at EVERY window, a whole extra body a frame, with
+frames exactly eleven-a-side collapsing to 2-3 where the blanket at 0.8 gave 41. Whole clip 2.98-3.21
+against 2.89 baseline, a net loss.
+
+The reason, plain in hindsight: the gate replaced "near a kept state" with "the sideline has a body nearby",
+so a state FAR from any sideline body is kept -- which is exactly the play-2 endzone ghosts strung along x
+that `ONE_VIEW_DEPTH_M` was built to kill. The rule I called principled readmitted the precise failure the
+box exists for. Ninth entry in corrections-must-beat-what-they-correct. A second tell, worth remembering:
+`box AND sideline` and `sideline only` print identical numbers at every threshold, so once the same-body
+test is added the 4.0 x 1.5 m box never binds -- the two conditions are not independent and pairing them
+buys nothing.
+
+So the only configuration that helps Kansas City without disturbing Baltimore is still the blanket
+`span fix + across ~1.0`, and its run regression (1.79 -> 2.00) is the open question. Diagnose which bodies
+that window gains before shipping anything: if they are copies, a discriminator exists; if the control test
+calls them real men while truth is still eleven, something else is wrong.
+
 Worth recording separately: the probe's baseline census reproduces the ad-hoc figures recorded for v38
 (snap 2.82 vs 2.85, play 1.98 vs 1.98, run 1.79 vs 1.79, aftermath 3.44 vs 3.46), so the two instruments
 agree and the census numbers in this document are reproducible rather than one-off.
