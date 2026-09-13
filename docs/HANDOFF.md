@@ -1429,6 +1429,15 @@ produced several of this session's errors, so the instrument stands until a bett
 disagreement is real and is the first thing to re-measure, with a method that can count bodies in a pile
 without a radius.
 
+**And the obvious candidate for that method does not work.** Pose skeletons look like a radius-free counter
+-- one skeleton per person by construction -- but `keypoints_2d.parquet` is
+`[frame, cam, global_player_id, joint, x, y, conf]` with exactly 17 joints per id and **no per-detection
+key**. Each skeleton IS an id, so counting skeletons recounts the very ids the census counts and arbitrates
+nothing. (Consistent at frame 425: 20 sideline skeletons against 24 drawn bodies, the difference being
+endzone-only and interpolated states.) A genuinely independent count needs a FRESH pose inference over the
+crop, ungated by tracking -- a GPU build rather than a query. Recorded so nobody spends an hour rediscovering
+that the keypoints are id-keyed.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
