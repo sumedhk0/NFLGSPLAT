@@ -1037,6 +1037,22 @@ from seeing that same pile face-on, not from a better detector.
 
 So no detector threshold recovers them: separating bodies that overlap this completely needs instance
 segmentation or a pose-driven split of a shared box, which is a different project, not a tuning change.
+
+**The pose model was the cheap version of that split, and it does not reach them either.** 05m already
+runs `yolov8x-pose.pt`, and a pose model returns one skeleton per person it finds, so a skeleton inside a
+merged box would be the split for free. Tested per man at the snap: of the six Kansas City men the
+endzone resolves and the sideline lacks, exactly **one** (id 38) has a pose skeleton nearer than any
+existing box. No `-seg` weights are on disk, so true instance segmentation is a download plus rework of
+every box-keyed stage downstream.
+
+**A correction to my own first reading of that test.** The single-frame version appeared to show three of
+the six "already inside a tracked box", which would have meant the men were detected and merely
+unmatched -- a pairing problem, not a detection one. That was a pixel-versus-field artifact: it measured
+to a box's bottom-centre in pixels, while a merged box yields **one** id and therefore **one** ground
+point, so a cross can land inside a box with no separate body there at all. Repeating it on the field,
+across frames 280-345: **69 of 72** missing-KC instances have no sideline body within 0.6 m under any id
+or team, and only 3 do. The men really are absent from the sideline's body set, exactly as merging
+predicts, and the closure stands.
 **The snap deficit is not recoverable from the sideline view**, and with it the last geometric route to
 the census is closed. Play 1's honest body-count error is 1.98 a frame over the play, and the ~2 missing
 Kansas City men at the snap are a property of the camera angle.
