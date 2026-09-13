@@ -1244,6 +1244,25 @@ explained as a pre-existing census error the fix does not cause. `ONE_VIEW_ACROS
 justification rather than a census-fitted one: the same man reads <= 0.95 m across cameras, real separate men
 read >= 1.19 m, so a radius of 1.0 m sits between the two populations.
 
+**SHIPPED 2026-09-13.** `play_timeline` now passes `side_ground` to `beyond_sideline_span`, and
+`ONE_VIEW_ACROSS_M` is 1.0 (was 1.5), set between the two measured populations -- same man across cameras
+<= 0.95 m at the p90, separate men 1.19-1.30 m. Play 1: snap 2.82 -> 1.20, play 1.98 -> 1.73, whole clip
+2.89 -> 2.52, frames exactly eleven-a-side 10 -> 33, Kansas City at the snap 8.9 -> 10.8 with Baltimore
+unchanged. A test covers the dedupe half (an endzone-only state 1.2 m across is kept; it fails at 1.5).
+
+Verified on the SHIPPED path rather than the prototype: every figure above came from probes that
+monkeypatched `beyond_sideline_span` and rebuilt `side_ground`, while production passes the real local that
+has been through `snap_ground`. An unpatched `load_play_timeline` reproduces every window exactly. The
+discrimination is also sharper than the census alone shows -- body-frames drawn over 280-345 are
+**{74: 66, 38: 39, 22: 0}**: the two ids the control group and footage called real men are drawn, and id 22,
+which the same control called a copy at 0.65 m (inside the 0.95 m p90), is still dropped. The change admits
+exactly what the two non-census rulers vouched for and nothing they rejected.
+
+Two caveats, neither discharged. `ONE_VIEW_ACROSS_M` exists for PLAY 2's endzone ghosts strung along x and
+only play 1 is measured -- if those ghosts return, this belongs behind a per-play setting rather than in the
+constant. And no unit test guards the call-site wiring: a future edit could drop `side_ground` at
+play_timeline.py:337 and only the constant's test would still pass.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze

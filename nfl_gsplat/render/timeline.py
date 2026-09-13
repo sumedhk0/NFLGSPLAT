@@ -45,7 +45,17 @@ DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one
 # along x from one group of players. (The sideline's own detections are
 # never deduped -- see dedupe_frames.)
 ONE_VIEW_DEPTH_M: float = 4.0
-ONE_VIEW_ACROSS_M: float = 1.5
+# The across radius is set BETWEEN two measured populations rather than tuned to a score
+# (play 1, 2026-09-13): the same man seen by both cameras sits <= 0.95 m apart at the p90
+# (p50 0.42 m over 380 rows at the snap), while genuinely separate men -- ids 74 and 38, the
+# linemen the sideline merges into one box -- stand 1.19-1.30 m apart ACROSS the field. 1.5 m
+# reached over that gap and deleted them: with beyond_sideline_span also fixed to pass
+# side_ground, Kansas City at the snap goes 8.9 -> 10.8 and frames exactly eleven-a-side 0 -> 23
+# (census snap 2.82 -> 1.20, play 1.98 -> 1.73, whole clip 2.89 -> 2.52, Baltimore unchanged).
+# CAVEAT, not yet discharged: this constant exists for PLAY 2's endzone ghosts strung along x,
+# and only play 1 has been measured. Re-measure play 2 before trusting 1.0 there -- if the ghosts
+# return, the fix belongs behind a per-play setting rather than in this constant.
+ONE_VIEW_ACROSS_M: float = 1.0
 MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
 # A body interpolated through a detection gap is anchored (its player was
 # seen within MAX_GAP_FRAMES) -- unless it stands on top of a body the

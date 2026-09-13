@@ -330,11 +330,23 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     # A paired id lives on its sideline span: beyond it the endzone track
     # alone draws a second copy of a player (endzone_only_rule).
     if "sideline" in tracks:
-        # side_ground would keep an id beyond its span where the sideline has no body within 1.2 m
-        # (the sideline lost him, the endzone did not). MEASURED 2026-09-11 on play 1, per frame from
-        # the snap: |KC - 11| + |BAL - 11| mean 2.93 -> 3.01, frames exactly 11 and 11 unchanged at 2
-        # of 361. It recovers a body here and admits a ghost there, so it is not passed.
-        ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"], gap=tlm.MAX_GAP_FRAMES)
+        # side_ground keeps an id beyond its span where the sideline has no body within SAME_BODY_M:
+        # the sideline lost him, the endzone did not. This was measured on 2026-09-11 and REJECTED
+        # (census 2.93 -> 3.01), and that rejection was wrong twice over (2026-09-13):
+        #   - it was scored from the snap to the END OF CLIP, ~200 frames of which are the post-whistle
+        #     crowd; on the play itself the same change is +0.00, not +0.08;
+        #   - and +0.00 is not "no effect". It restores 751 body-frames, 466 of them Kansas City, which
+        #     then die one rule later: dedupe_frames' one-view box kills every one (id 74 by id 1 on
+        #     65 of 65 frames, id 38 by id 4, id 22 by id 13; n_duplicates 500 -> 1585). The two rules
+        #     delete the same men, so fixing EITHER alone measures nothing. Fixed together, Kansas City
+        #     at the snap goes 8.9 -> 10.8 and frames exactly eleven-a-side 0 -> 23.
+        # The men are real, on two rulers that do not involve the census: the cross-camera control has
+        # paired ids agreeing at p50 0.42 m, while ids 74 and 38 stand 1.24-1.44 m from the nearest
+        # sideline body with |dy| ~1.19 m -- across the field, where linemen separate, not along the
+        # endzone's blind depth axis -- and the footage shows the merged box (one ground point over two
+        # to three players). See ONE_VIEW_ACROSS_M in render.timeline for the other half.
+        ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"], gap=tlm.MAX_GAP_FRAMES,
+                                                side_ground=side_ground)
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
     if place_from_refit_transl and refit:
