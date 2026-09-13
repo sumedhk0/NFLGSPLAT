@@ -1007,6 +1007,47 @@ The general lesson, which cost three entries' worth of inflated maxima: a ruler 
 triangulated point must validate the triangulation first. The same discipline as the cross-view ruler
 itself -- measure with an instrument whose own error you have bounded.
 
+### The census metric was scoring the aftermath (2026-09-12)
+
+`|KC-11| + |BAL-11|` has been averaged from the snap to the END OF CLIP, and roughly half of it is the
+post-play crowd rather than a defect:
+
+    window                frames   KC mean   BAL mean   error   exactly 11/11
+    current metric           360      11.5       12.0    2.82      10 of 360
+    the play only (300-460)  160      11.1       11.7    1.98       9 of 160
+      the snap  (280-340)     60       8.9       11.7    2.85       0 of  60
+      the run   (340-460)    120      11.8       11.8    1.79       9 of 120
+    after the whistle        100      12.8       12.6    3.46       1 of 100
+    late (560-660)           100      11.0       11.7    3.52       0 of 100
+
+So play 1's real body-count error is **1.98 a frame, not 2.84**, and every figure quoted above (2.95,
+2.94, 2.84) includes 200 frames of players and staff walking onto the field after the whistle. Score the
+play, not the aftermath. **The snap remains the one phase this does not explain away** -- KC 8.9 against
+a truth of 11, 0 of 60 frames correct -- and that is the pile, whose only surviving route was a detector
+that separates overlapping bodies in the sideline view.
+
+**That route is closed too, and the film closed it.** Projecting the six Kansas City men the endzone
+resolves in the line box but the sideline does not, onto the sideline plate at frame 300, and drawing
+every box the detector actually found: **not one cross lands on bare grass.** id 74's falls on a lineman
+already boxed twice; 38 and 22 land in the overlapping tangle of boxes 17, 25 and 82; 86 and 37 land on
+bodies inside boxes 11 and 17; id 9's lands at the feet of a man the detector did find. The sideline
+detector is not MISSING these men -- it is **merging** them, because from the sideline the line of
+scrimmage is viewed edge-on and several players occupy one box. The endzone's extra resolution comes
+from seeing that same pile face-on, not from a better detector.
+
+So no detector threshold recovers them: separating bodies that overlap this completely needs instance
+segmentation or a pose-driven split of a shared box, which is a different project, not a tuning change.
+**The snap deficit is not recoverable from the sideline view**, and with it the last geometric route to
+the census is closed. Play 1's honest body-count error is 1.98 a frame over the play, and the ~2 missing
+Kansas City men at the snap are a property of the camera angle.
+
+**And the "worst body-frame" is not a fit or pairing fault at all.** id 17 has records on only frames 458
+and 460 in that entire stretch: an isolated two-frame island where the sideline ground point (-26.3,
++3.9) sits **4 m** from the endzone's (-22.9, -1.2), with the cached translation matching the sideline
+exactly. The sideline track produced a ground point on those two frames only, and produced a wrong one.
+A tracking artifact, already excluded from the ruler by the 0.6 m ray-miss gate -- not something the
+fits or the joins can repair.
+
 Three times now the geometry has proposed something the footage refused -- a body supposedly drawn on
 the camera rig (it was a drone in the plate), players supposedly cut off by the sideline crop (nothing
 was clipped), and now the endzone supposedly over-segmenting the line. **Look at the frame before
