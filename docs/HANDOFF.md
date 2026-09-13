@@ -1194,6 +1194,36 @@ Two leads, neither yet confirmed:
     which is where a tight end on the line stands. Not evidence, and not a reason to doubt the footage and
     control-group verdict that id 74 is a real man.
 
+**The run surplus is localised and it is an IDENTITY fault, not a geometry one (2026-09-13).** Counting
+clusters rather than pairs: bodies 11.79 a frame, clusters 11.56 at 0.40 m and 11.29 at 0.50 m, so only
+~0.2-0.5 of the surplus is one man counted twice and the rest stand genuinely apart. (At 0.95 m clusters
+read **9.69**, below truth -- independent proof that radius merges real men and that the earlier pair-based
+reading was invalid.) The surplus is not spread across the window either: frames 340-380 read 10-11 bodies,
+correct, and it climbs to 13-14 across **390-430**. Two ids carry it: id 39 adds +1.41 bodies a frame when
+present and id 80 adds +1.52, against 74 (+0.75), 19 (+0.50) and 33 (+0.26).
+
+Checked against the 2024 roster, those ids' jerseys do not belong on the field:
+
+    id 39  jersey  6  Bryan Cook          DB   -- defence, and Kansas City has the ball
+    id 38  jersey 55  Uche / Bozeman      LB   -- defence (Bozeman is practice squad, status DEV)
+    id 19  jersey 67  no Kansas City player wore 67 in 2024
+    id 80  jersey 80  Montrell Washington WR   -- practice squad, status DEV
+    id 74  jersey 83  Noah Gray           TE   -- correct
+    id 25  jersey 76  Kingsley Suamataia  OL   -- correct
+    id  5  jersey 10  Isiah Pacheco       RB   -- correct
+
+**A wrong jersey does not make a body false, and the two failures need separating.** id 38 was validated as
+a real man by the control group and the footage; what is wrong there is its identity, not its existence. But
+a real body with a wrong TEAM label corrupts the census directly, because the census counts by team -- so
+team labelling is now a third suspect instrument, alongside the pair-versus-cluster error and the borrowed
+radius. Before trusting any census number by team again, establish how often the team label is wrong.
+
+**A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
+2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
+2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
+Bozeman" is in the 2024 table (KC 55, LB, DEV). My query had printed `player_name` for both files, so the
+2024 names were never displayed at all. The schema difference is real; the conclusion drawn from it was not.
+
 Worth recording separately: the probe's baseline census reproduces the ad-hoc figures recorded for v38
 (snap 2.82 vs 2.85, play 1.98 vs 1.98, run 1.79 vs 1.79, aftermath 3.44 vs 3.46), so the two instruments
 agree and the census numbers in this document are reproducible rather than one-off.
