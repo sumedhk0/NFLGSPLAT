@@ -1207,7 +1207,7 @@ Checked against the 2024 roster, those ids' jerseys do not belong on the field:
     id 39  jersey  6  Bryan Cook          DB   -- defence, and Kansas City has the ball
     id 38  jersey 55  Uche / Bozeman      LB   -- defence (Bozeman is practice squad, status DEV)
     id 19  jersey 67  no Kansas City player wore 67 in 2024
-    id 80  jersey 80  Montrell Washington WR   -- practice squad, status DEV
+    id 80  jersey  0  P80  -- NO jersey was read for this id at all (corrected below)
     id 74  jersey 83  Noah Gray           TE   -- correct
     id 25  jersey 76  Kingsley Suamataia  OL   -- correct
     id  5  jersey 10  Isiah Pacheco       RB   -- correct
