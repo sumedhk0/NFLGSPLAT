@@ -1154,6 +1154,24 @@ So the only configuration that helps Kansas City without disturbing Baltimore is
 that window gains before shipping anything: if they are copies, a discriminator exists; if the control test
 calls them real men while truth is still eleven, something else is wrong.
 
+**Measured: the run regression is NOT caused by the change, and the census is the broken instrument there
+(2026-09-13).** The bodies that window gains under `span fix + across 1.0` come to 41 body-frames over 121
+frames -- **0.34 a frame** -- and by the control test most are real men: id 74 for 33 frames at |gap| 1.40 m
+with |dy| 1.30 (the same man the snap analysis found), plus ids 38, 54 and 19 for one or two frames each.
+Only ids 11 and 25 are copies, 4 frames between them at 0.26 and 0.19 m, inside the control distribution.
+
+The arithmetic that matters: baseline Kansas City in the run window is already **11.79** against a truth of
+eleven, so roughly **0.8 phantom Kansas City bodies a frame exist before any change**. Adding 0.34
+mostly-real men lifts |KC - 11| from 0.79 to 1.13, which reads as a regression while the render is getting
+MORE correct. A census cannot referee a change that adds true bodies to a count that is already too high.
+
+So the run is not a reason to withhold the dedupe fix -- but it is not yet a reason to ship it either,
+because the pre-existing surplus is unexplained and could share a cause with the bodies being added. Find
+the phantom first: which drawn Kansas City bodies in 340-460 stand within the control's 0.95 m of another
+drawn Kansas City body, and whether any id labelled KC is misassigned. Note the surplus is phase-specific --
+8.89 at the snap (a deficit), 11.07 over the play, 11.79 in the run -- so it grows as the players spread
+out, which is the opposite of what a merged-box fault would do.
+
 Worth recording separately: the probe's baseline census reproduces the ad-hoc figures recorded for v38
 (snap 2.82 vs 2.85, play 1.98 vs 1.98, run 1.79 vs 1.79, aftermath 3.44 vs 3.46), so the two instruments
 agree and the census numbers in this document are reproducible rather than one-off.
