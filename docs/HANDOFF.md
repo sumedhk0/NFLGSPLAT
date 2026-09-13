@@ -1320,6 +1320,29 @@ ghosts strung along x and only play 1 was measured -- if those ghosts return, th
 constant. And no unit test guards the call-site wiring: a future edit could drop `side_ground` at
 play_timeline.py:337 and only the constant's test would still pass.
 
+**The run surplus is an identity fault, and it splits into two faults needing opposite fixes (2026-09-13).**
+Of 17 jersey-carrying drawn ids on play 1, 11 are consistent with the play and 6 are not, covering **1798 of
+14445 body-frames (12.4 %)**. Kansas City has the ball, so KC ids should carry offensive numbers:
+
+    id 39  KC  jersey  6 = DB (Bryan Cook)      233 frames   nearest body p50 0.60 m, 70 % inside 0.95 -> DUPLICATE
+    id 42  BAL jersey 76 = OL (Dalcourt)        196 frames   nearest body p50 0.60 m, 84 % inside      -> DUPLICATE
+    id  3  KC  jersey 18 = not on the roster    623 frames   p50 2.72 m,  0 % inside                   -> distinct
+    id 38  KC  jersey 55 = LB (Uche/Bozeman)    172 frames   p50 1.47 m, 15 % inside                   -> distinct
+    id 78  BAL jersey  4 = WR (Zay Flowers)     167 frames   p50 4.17 m,  0 % inside                   -> distinct
+    id 19  KC  jersey 67 = not on the roster    407 frames   p50 1.21 m, 41 % inside                   -> BIMODAL
+
+A wrong jersey does not make a body false: the distinct ones are real men whose LABEL is wrong, and deleting
+them would delete players. The two duplicates are extra bodies. Note `dedupe_frames` cannot remove them --
+a state the sideline detected that frame is never a duplicate (the 2026-09-08 rule) and these are
+sideline-detected -- so whatever fixes this is a different mechanism, not a radius.
+
+**Two corrections to claims I already committed.** id 39 was called "a distinct real body, not a duplicate"
+on the strength of the cross-team probe, which measured **frames 380-440 only** (nearest same-team 1.20 m);
+over the whole clip it sits 0.60 m from something 70 % of the time. Same id, different window, opposite
+answer. And id 19's "distinct" verdict is an artifact of reading a median: p50 1.21 m with 41 % of frames
+inside 0.95 m is bimodal, not distinct. Seventh and eighth instances tonight of a number read without its
+population.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
