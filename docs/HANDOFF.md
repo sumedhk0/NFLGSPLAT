@@ -1343,6 +1343,31 @@ answer. And id 19's "distinct" verdict is an artifact of reading a median: p50 1
 inside 0.95 m is bimodal, not distinct. Seventh and eighth instances tonight of a number read without its
 population.
 
+**None of them is a duplicate: the "count fault" half is wrong and withdrawn (2026-09-13).** Asking WHICH
+body each flagged id sits on, rather than how often something is near it:
+
+    id 39  162 close frames  partners id 25 x74 (46 %), 80 x22, 42 x21, 84 x13   -> rotating
+    id 42  164 close frames  partners id 25 x43 (26 %), 15 x37, 39 x35, 37 x20   -> rotating
+    id 19  166 close frames  partners id 25 x79 (48 %), 33 x39, 20 x24           -> rotating
+    id  3    0 close frames  p50 2.72 m from anything                            -> distinct
+    id 78    0 close frames  p50 4.17 m from anything                            -> distinct
+
+No twin tracks. The "70 % within 0.95 m" figure measured CONGESTION, not duplication -- id 25 (Suamataia, an
+interior lineman) is the commonest neighbour of three different ids because everyone near the pile is near
+him. The earlier "DUPLICATE (count fault)" verdict on ids 39 and 42 rested on a proximity share without ever
+asking whether the neighbour was the same body, and it is withdrawn. Ninth instance tonight of a number read
+without its population.
+
+So all six flagged ids are **real bodies carrying wrong labels**, removing any of them deletes a man, and the
+census cannot be improved by removal at all.
+
+**What that sharpens.** id 3 is drawn on **623 of 647 frames** (KC, jersey 18, not on the 2024 roster)
+standing p50 2.72 m clear of everyone, and id 19 on **407 frames** (KC, jersey 67, also not on the roster).
+A near-permanent body that no roster number matches is the shape of an official or a staff member that
+`sideline_dwellers` / `striped_ids` / `behind_the_offence` did not catch -- which would explain the run
+surplus better than anything tested tonight, and would be a bounded fix rather than a threshold. The footage
+decides it; proximity statistics demonstrably do not.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
