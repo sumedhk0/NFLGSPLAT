@@ -1287,9 +1287,33 @@ The premise was wrong: **|dx| 0.38-0.79 m was id 74's distance to the nearest SI
 offset-control probe), not its separation from the kept state that dedupe actually compares against, which
 is id 1. Two different relationships; I carried the statistic from one into the other and built a rule on
 it. Sixth instance this session of the same error family -- see the standing note about stating the
-population before reading a number. The real killer geometry is measured next, and if play 1's linemen and
-play 2's ghosts overlap in (|dx|, |dy|) to their killer, no box in this feature space separates them and the
-line of attack is closed rather than untuned.
+population before reading a number.
+
+**Measured, and the line is CLOSED (2026-09-13).** Separation from each dropped state to the kept state that
+actually kills it:
+
+                     n    |dx| p50   p90     |dy| p50   p90
+    play 1 (KC snap)   163     2.07    2.48       1.11    1.39
+    play 2 (all)      1267     2.38    3.75       0.70    1.28
+
+    |dx|      p10    p25    p50    p75    p90
+    play 1   0.94   1.98   2.07   2.29   2.48
+    play 2   0.09   0.77   2.38   3.22   3.75
+
+Play 2's ghosts span 0.09-3.75 m and straddle play 1's entire 0.94-2.48 range, so **no threshold in
+(|dx|, |dy|) keeps the linemen and drops the ghosts**. Narrowing the DEPTH reach instead fails for the same
+reason: a quarter of play 2's ghosts sit inside 0.77 m.
+
+This also corrects the framing above. id 74's killer is id 1 at **|dx| 2.03**, and id 38's is id 4 at 2.41 --
+not a box-mate 0.38-0.79 m away, which was the distance to the nearest sideline BODY. The linemen are
+deleted because a body sits ~2.4 m off in depth, so it is the box's 4.0 m depth reach that swallows them,
+not the across radius I spent the evening adjusting.
+
+**What would be needed is a different feature, not a better threshold** -- the pair's geometry does not carry
+the answer. Candidates never attempted: appearance (do the two states look like the same player?), or
+tracking which camera's detection is genuinely unpaired rather than inferring it from distance. Four
+replacements for this rule are now measured and rejected. `side_ground` stays on main because it is
+measured-neutral and a prerequisite for any future version; the snap gain does not ship.
 
 Two caveats from the original entry, one now discharged. `ONE_VIEW_ACROSS_M` exists for PLAY 2's endzone
 ghosts strung along x and only play 1 was measured -- if those ghosts return, this belongs behind a per-play setting rather than in the
