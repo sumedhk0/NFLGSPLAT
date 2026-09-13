@@ -1075,7 +1075,29 @@ sees dedupes against every kept state inside an axis-aligned `ONE_VIEW_DEPTH_M` 
 metre apart in y, which is inside that box -- the 7th correction-must-beat case recurring in the other
 camera, since that fix protected only sideline-detected states. This also fits the 0.6 m number above
 rather than contradicting it: a man 1.2 m from the merged body is genuinely "no sideline body within
-0.6 m" and still inside the dedupe box. UNTESTED as of this entry.
+0.6 m" and still inside the dedupe box.
+
+**That dedupe hypothesis is measured and rejected too (same day).** The one-view box kills ZERO Kansas City
+states in the snap window. Of 500 dedupe drops in the clip, 42 fall in 280-345 and every one is the
+`interp` branch at `INTERP_DUP_M` = 0.4 m (35 Baltimore, 7 Kansas City) -- a second fragment id standing on
+a body the sideline detected, which at 0.4 m is the same man. Sweeping the across-radius 1.5 -> 1.0 -> 0.8
+-> 0.6 m changes the drop count not at all (500 every time) and every census window to the digit, so that
+branch binds nowhere on this play. The reason is `_nearest_views`: an id with any sideline record within
+`MAX_GAP_FRAMES` inherits "sideline" among its views and is then either protected as detected or deduped as
+interpolated, so almost nothing reaches the one-view box. The instrument passed its own validity gate --
+the instrumented copy of `dedupe_frames` reproduced the real run exactly (0 frames differing, identical id
+sets, 500 drops both).
+
+**Both exclusion routes are now closed, and what is left is bookkeeping.** The six men are in the endzone's
+detections, are not endzone-only, are not excluded by any rule, and are not deduped -- so their endzone
+rows hang off global ids whose SIDELINE rows belong to other men. Because `side_ground` overwrites `ground`
+(play_timeline.py:327-329), such a body is drawn where the sideline puts its own man and the endzone's extra
+detection adds no body at all: ten endzone men plus eight sideline bodies still render eight. That is the
+bookkeeping figure already recorded -- 21 sideline ids and 24 endzone ids at frame 300 sharing only 12 --
+and it is the pairing being locally wrong across a window where the track as a whole is right, which
+`mispaired_ids` cannot see because it gates on the MEDIAN distance over a whole track and a 60-frame error
+does not move a median. Next test: per frame at the snap, the gap between a global id's sideline and
+endzone ground points; where it is large the endzone row is a different man and deserves an id of its own.
 
 Worth recording separately: the probe's baseline census reproduces the ad-hoc figures recorded for v38
 (snap 2.82 vs 2.85, play 1.98 vs 1.98, run 1.79 vs 1.79, aftermath 3.44 vs 3.46), so the two instruments
