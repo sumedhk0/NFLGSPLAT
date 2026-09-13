@@ -1053,9 +1053,39 @@ point, so a cross can land inside a box with no separate body there at all. Repe
 across frames 280-345: **69 of 72** missing-KC instances have no sideline body within 0.6 m under any id
 or team, and only 3 do. The men really are absent from the sideline's body set, exactly as merging
 predicts, and the closure stands.
-**The snap deficit is not recoverable from the sideline view**, and with it the last geometric route to
-the census is closed. Play 1's honest body-count error is 1.98 a frame over the play, and the ~2 missing
-Kansas City men at the snap are a property of the camera angle.
+
+**And the ghost rule is not what deletes them either -- measured and rejected 2026-09-13.**
+`endzone_only_ids` drops an endzone-only id for its WHOLE life on a >= 50 % frustum vote, with no test of
+whether the sideline actually has a body there, while its sibling `beyond_sideline_span` carries exactly
+that test (`SAME_BODY_M = 1.2`). The asymmetry looked like the snap deficit's cause. It is not. Giving
+`endzone_only_ids` the same-body test keeps 13 of 35 ghost ids back and the census gets WORSE on every
+window: snap 2.82 -> 3.18, play 1.98 -> 2.23, run 1.79 -> 1.94, aftermath 3.44 -> 4.00, whole clip
+2.89 -> 3.21. Kansas City at the snap does not move at all (8.89 either way), because none of the 13 kept
+ids live at the snap: 11 of 13 are Baltimore, and the two Kansas City ones begin at frames 457 and 538,
+after the play. They add surplus to a team already over eleven (BAL 11.70 -> 12.07). Eighth entry in
+corrections-must-beat-what-they-correct.
+
+The negative is the useful part: the six missing Kansas City linemen are NOT excluded as endzone-only
+ghosts. Their endzone detections must reach the timeline under ids that also carry sideline rows, so no
+endzone-only rule ever classifies them. The per-frame mechanisms that can still delete a body at the snap
+are `beyond_sideline_span` (1680 body-frames left out on this play) and the timeline's own `dedupe_frames`:
+a state the SIDELINE detected that frame is protected (the 2026-09-08 fix), but a state the ENDZONE alone
+sees dedupes against every kept state inside an axis-aligned `ONE_VIEW_DEPTH_M` x `ONE_VIEW_ACROSS_M` =
+4.0 x 1.5 m box in FIELD axes. On the line of scrimmage every lineman shares x and they stand about a
+metre apart in y, which is inside that box -- the 7th correction-must-beat case recurring in the other
+camera, since that fix protected only sideline-detected states. This also fits the 0.6 m number above
+rather than contradicting it: a man 1.2 m from the merged body is genuinely "no sideline body within
+0.6 m" and still inside the dedupe box. UNTESTED as of this entry.
+
+Worth recording separately: the probe's baseline census reproduces the ad-hoc figures recorded for v38
+(snap 2.82 vs 2.85, play 1.98 vs 1.98, run 1.79 vs 1.79, aftermath 3.44 vs 3.46), so the two instruments
+agree and the census numbers in this document are reproducible rather than one-off.
+
+**The sideline DETECTOR's share of the deficit is closed**: those men cannot be separated in that view.
+What is not closed -- and what an earlier version of this section asserted too broadly -- is that the last
+geometric route is gone. A render can also delete a body it already holds, which is a different mechanism
+from a camera that never resolved one, and `dedupe_frames` above is exactly that and still unmeasured.
+Play 1's honest body-count error is 1.98 a frame over the play.
 
 **And the "worst body-frame" is not a fit or pairing fault at all.** id 17 has records on only frames 458
 and 460 in that entire stretch: an isolated two-frame island where the sideline ground point (-26.3,
