@@ -1468,6 +1468,28 @@ from play 2's ghosts in (|dx|, |dy|) -- but if an endzone-only state is truly th
 sideline player, their two rays should nearly intersect, while two different men's rays miss by a metre or
 more. 05u already computes that quantity and the dedupe rule has never used it.
 
+**Cross-camera ray miss fails too, and backwards (2026-09-14).** The prediction was that an endzone GHOST is
+the endzone's copy of a man the sideline also sees, so the two rays nearly intersect, while a merged LINEMAN
+is a different man whose ray misses by a metre. Measured over every one-view-box kill on both plays:
+
+    play 1 (merged linemen)  p10 0.28  p25 0.68  p50 0.75  p75 0.81  p90 0.84   under 1.0 m: 100 %
+    play 2 (endzone ghosts)  p10 0.28  p25 0.75  p50 0.99  p75 1.31  p90 1.74   under 1.0 m:  51 %
+
+Play 2 sits HIGHER than play 1, the p10s are identical and the sub-0.5 m shares are 14 % against 18 %. No
+separation, and the sign is inverted. Two reasons it could never have worked, worth keeping: the
+cross-camera control already showed the SAME man disagrees by 0.42 m, so a 0.4-0.5 m noise floor swamps a
+signal of this size; and only 514 of 1089 kills on play 1 and 290 of 1267 on play 2 have ankle rays in both
+cameras, so it would gate under half the cases even if it separated.
+
+**That is the fifth rejected candidate and the (dx, dy)-style dedupe line is closed permanently** -- ghost
+rule, blanket radius, depth-aware exception, any box at all, ray miss. No sixth variant of the same shape.
+
+**What the failures point at is a COUNT, not a distance.** Every rule so far asks "is this endzone state near
+a kept sideline state?". The mechanism is the other question: "does the endzone resolve TWO men where the
+sideline sees ONE?" A merged lineman should show two endzone detections against one sideline body; a play 2
+ghost should show one endzone detection duplicating one sideline man. That uses the endzone's own separation
+as evidence, which no rule has done, and it is the last untried shape.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
