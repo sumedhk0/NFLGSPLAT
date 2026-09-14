@@ -1438,6 +1438,36 @@ endzone-only and interpolated states.) A genuinely independent count needs a FRE
 crop, ungated by tracking -- a GPU build rather than a query. Recorded so nobody spends an hour rediscovering
 that the keypoints are id-keyed.
 
+**Tiled inference does NOT recover the merged players -- rejected on the footage, twice (2026-09-14).**
+The full-frame pose pass finds 19-20 people where 22 players plus officials stand, so it under-detects, and
+the obvious remedy was tiling: 3x2 overlapping tiles each resized to 1920, merged by NMS. The gate passed
+perfectly (every full-frame person reproduced, none lost) and it "recovered" 7/6/9/26 extra people. All of
+it collapsed under inspection:
+
+  - **off-field contamination.** At f470, 14 of 26 recoveries are bench and staff at |y| ~26.8 m, which a
+    2x resolution now resolves. Recovered is not recovered PLAYER.
+  - **truncated boxes.** Recoveries at 0.03-0.14 m from an existing body are the same man re-detected: a
+    partial box's bottom edge is at mid-torso, so back-projecting it to the ground lands metres beyond the
+    player. The "0.6-1.6 m separation" I read as shoulder-to-shoulder lineman spacing was that artifact.
+  - **the height test was necessary but not sufficient.** Back-projecting each box to an implied stature
+    (gate: real full-frame boxes read p50 1.78-1.80 m, matching the project's 1.85 m) dropped the slivers at
+    0.50-1.38 m and kept 2 per frame at 1.43-2.11 m. The footage then showed all four survivors are narrow
+    FULL-HEIGHT strips down men who already have a box. Testing vertical extent never tested width.
+
+So higher resolution yields duplicate boxes of the same men, not the merged ones. The earlier closure --
+those bodies overlap genuinely in the image and need instance segmentation rather than more pixels -- now
+rests on much stronger evidence, and a future session should not spend a GPU build rediscovering it.
+
+**This also walks back the "pile over-count" reading, in the conservative direction.** The census drawing 24
+bodies where the sideline detector sees 20 is NOT evidence of over-counting: the sideline merges 2-4 men and
+the endzone legitimately supplies them. The "duplicates" found by matching drawn bodies to sideline skeletons
+are that merging, which was already known, not extra bodies.
+
+**The untried feature is cross-camera RAY MISS.** The one-view dedupe box cannot separate play 1's linemen
+from play 2's ghosts in (|dx|, |dy|) -- but if an endzone-only state is truly the endzone's copy of a kept
+sideline player, their two rays should nearly intersect, while two different men's rays miss by a metre or
+more. 05u already computes that quantity and the dedupe rule has never used it.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
