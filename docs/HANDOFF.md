@@ -1490,6 +1490,36 @@ sideline sees ONE?" A merged lineman should show two endzone detections against 
 ghost should show one endzone detection duplicating one sideline man. That uses the endzone's own separation
 as evidence, which no rule has done, and it is the last untried shape.
 
+**The wide-killer-box rule is the first one that MECHANICALLY works, and still is not shippable
+(2026-09-14).** Rule: in the one-view branch, a killing sideline box that is anomalously wide for its height
+holds two men, so the state it would kill is the second man and survives. It measures merging rather than
+inferring it from position, which the six earlier candidates all did.
+
+    play 1  threshold   snap    play    run    full   11/11   watch 74/38/22
+            off         2.82    2.03   1.86    2.90    10     0/1/0
+            0.79        2.49    2.09   2.09    2.97     7     61/26/0
+            0.90+       2.82    2.03   1.86    2.90    10     0/1/0     (exact no-op)
+
+    play 2  off 35.10 | 0.79 35.15 | 0.90 35.14 | 0.96 35.14 | 1.05 35.13   bodies a frame
+
+Two genuine firsts. **Play 2 is untouched at every threshold** (+0.03 to +0.05 bodies a frame) -- the first
+candidate all session that does not pay for play 1 with play 2's ghosts. And at 0.79 it draws **ids 74 and
+38** (61 and 26 frames at the snap), exactly the men the cross-camera control and the footage independently
+validated as real.
+
+Rejected as shippable on two pre-committed criteria. There is **no plateau**: only 0.79 acts, and 0.90 upward
+are exact no-ops -- mechanically sensible, since skipping one wide killer merely lets a narrower kept body
+kill the victim instead, so enough killers must be skipped, which makes the effect fragile. And it is **net
+worse**: the snap improves 2.82 -> 2.49 while play, run, aftermath and the whole clip all regress
+(2.90 -> 2.97), with exact eleven-a-side frames 10 -> 7.
+
+**The reason is diagnostic, not fatal.** Kansas City rises 8.9 -> 10.2, toward truth. Baltimore rises
+11.7 -> 12.7, away from it. The test is not team-aware and Baltimore's defensive linemen are merged in the
+same pile, so it recovers real men on BOTH sides -- and Baltimore was already over eleven before any change
+of mine. **Baltimore's baseline surplus is what stands between play 1 and a correct census**, and nothing
+tonight has examined it: at the snap BAL reads 11.70 against a truth of 11. The relabel experiment cannot
+explain it either, since all four flipped ids contribute zero body-frames at the snap.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
