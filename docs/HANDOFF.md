@@ -1520,6 +1520,43 @@ of mine. **Baltimore's baseline surplus is what stands between play 1 and a corr
 tonight has examined it: at the snap BAL reads 11.70 against a truth of 11. The relabel experiment cannot
 explain it either, since all four flipped ids contribute zero body-frames at the snap.
 
+**THE TELEPORTS -- what the user sees, and the census cannot (2026-09-15).** v38 shows players swapping,
+teleporting and jittering; a Baltimore man standing in the Chiefs' O-line then snapping back to linebacker.
+A plausibility ruler (per-id contiguous step; nobody exceeds 0.20 m/frame = 12 m/s) finds 487 of 14 384
+body-frames over the sprint bound and a top speed of 73 m/s. I had this signal a day earlier -- a probe
+reported the fastest body at 48 m/s -- and dismissed it as a noisy metric. It was the defect.
+
+Three distinct mechanisms, each found by tracing raw per-camera positions through the pipeline stages:
+
+  1. **A welded tail.** id 19 = a KC sideline track (14-430) with a Baltimore ENDZONE track (483-639)
+     stitched onto the same global id. Its kit vote says BAL while the head says KC; three independent
+     signals (73 m/s step, live-play colour flip 0.90 -> 0.20, tail's own kit majority) agree. Cut at 430
+     -- the sideline span's end, NOT the teleport frame 493, which was interpolation racing toward the tail.
+     **Verified: id 19's worst step 1.23 m -> 0.32 m** (74 -> 19 m/s). The tail (id 146, BAL) is
+     endzone-only and the ghost rule drops it, correctly -- that linebacker has his own sideline id.
+  2. **Interval mispairs.** A pairing right for most of a track and wrong for a stretch: id 17 carries four
+     sideline frames (457-460) of a man 6.2 m from its endzone track; id 82's endzone rows from 315 begin
+     5.9 m from where its sideline ended; id 5's endzone sits 6.2 m from context for 389-403. mispaired_ids
+     misses all of it because it gates on the whole-track MEDIAN. Fix: per-frame cross-camera disagreement
+     over the control's 0.95 m for >= 4 frames marks a bad run; the intruder camera is whichever is
+     discontinuous with the id's own positions outside the run; its rows move to a fresh id with a team
+     from its own kit colour. A margin (intruder >= 1.5 m and >= 2x the other camera) is essential -- without
+     it 50 intervals fire, most coin-flips at 0.6 m vs 0.6 m. With it, 13 intervals, 187 rows, every one
+     unambiguous. APPLIED; timeline verification running.
+  3. **Interpolation ramps** (hypothesis, being traced). id 21 moves 0.88 m/frame at 240-242 with NO raw
+     detection in either camera from 244 to 320 and raw positions at 236/242 only 0.1 m apart. The jump is
+     manufactured after ground_positions -- most likely place_from_refit shifting detected frames while the
+     interpolated frames between them stay unshifted.
+
+Failed calibrations, so nobody rebuilds them: a ratio-to-own-median teleport test flags the STILLEST ids
+(median 0.006 m/frame makes any motion a 40x outlier); a colour-flip test over the whole clip flags 21 ids
+because the post-whistle crowd occludes torsos -- restricted to the live play it flags 2.
+
+**Team colour is the identity to keep.** kit_margin in tracks.parquet is finite on 96 % of rows and
+separates cleanly (BAL 0.09 / KC 0.88 positive share over 68 and 58 ids). Jersey OCR gave 3 of 13 Baltimore
+ids a number and the roster path produced defenders drawn on offence. Every fragment created above takes its
+team from its own kit majority, never inherited.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
