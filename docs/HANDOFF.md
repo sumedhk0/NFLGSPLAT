@@ -1561,9 +1561,16 @@ Three distinct mechanisms, each found by tracing raw per-camera positions throug
      END_LIVE=470: 16 cuts, 3524 rows, frames 41-465.
 
 **Progress on the timeline ruler** (contiguous steps over 0.6 m/frame, whole play): v38 **26** -> id 19 cut
-22 -> 08u 14 -> smooth_xy fix **3** (ids 76 post-whistle, 82 at its 307 switch) -> 08t applied, verified
-next at the tighter 0.25 m/frame bound, since the corrected smoother spreads a 4-frame ramp over 9 and hides
-it below 0.6. All of it is now a pipeline stage (`switches`, after `pair` so 08c cannot erase the fragment
+22 -> 08u 14 -> smooth_xy fix 3 -> 08t (16 cuts) **1** (id 76 at 637, after the whistle). At the tighter
+0.25 m/frame bound (15 m/s), which the corrected smoother makes necessary because it spreads a 4-frame ramp
+over 9, 218 steps remain across 30 ids -- mostly 0.3-0.5 m and mostly after the whistle, plus a handover
+artifact on fragment 161 at 47-50 where its endzone rows precede its sideline rows by three frames. Census
+unchanged by all of it (play 2.01, full 2.90): the cuts moved men, they removed none.
+
+**And 08v** (scripts/08v_remap_poses_after_relabel.py): the pose caches are keyed by global id, so every
+fragment 08t/08u/08s creates rendered DEFAULT-POSED until now -- 29 fragments, 900 posed frames on play 1.
+The mapping is exact by (cam, frame, track_id) between a snapshot and the result; a pose follows the
+SIDELINE row's relabel, because that is where the timeline draws the body. Runs under PYS (numpy-1 pickles). All of it is now a pipeline stage (`switches`, after `pair` so 08c cannot erase the fragment
 identities), with 08u and 08t carrying pure, tested planning functions.
 
 Failed calibrations, so nobody rebuilds them: a ratio-to-own-median teleport test flags the STILLEST ids

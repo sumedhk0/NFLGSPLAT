@@ -322,6 +322,9 @@ if ! done_ switches; then
   # 08t is scoped to the LIVE play (END_LIVE = the last live frame, 470 on play 1); after the whistle the
   # crowd hops between milling bodies and cutting there fragments tracks for no visible gain.
   log "unpair intervals where the cameras hold different men (08u); cut tracks that switch men (08t)"
+  # snapshot first: 08v carries posed frames across every relabel below by joining this table to the
+  # result on (cam, frame, track_id), so the caches stop rendering fragments default-posed
+  cp "$P/tracks.parquet" "$P/tracks.parquet.preswitches"
   "$PYN" scripts/08u_unpair_bad_runs.py --play-dir "$P" --apply 2>&1 \
      | grep -v "Warning\|warn" | grep -E "intervals|rows moved|identit|Error|Traceback" || fail switches
   if [ -n "${END_LIVE:-}" ]; then
@@ -330,6 +333,9 @@ if ! done_ switches; then
   else
     log "switches: END_LIVE (last live frame) not set -- 08t skipped. Play 1: END_LIVE=470"
   fi
+  # the caches are numpy-1 pickles: only PYS may write them
+  "$PYS" scripts/08v_remap_poses_after_relabel.py --play-dir "$P" --before tracks.parquet.preswitches --apply 2>&1 \
+     | grep -v "Warning\|warn" | grep -E "relabels|posed frames|Error|Traceback" || fail switches
   mark switches
 fi
 
