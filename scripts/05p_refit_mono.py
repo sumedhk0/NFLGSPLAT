@@ -512,9 +512,9 @@ def main() -> None:
     ap.add_argument("--bounds-weight", type=float, default=Mono2DConfig.bounds_weight,
                     help="joint-range prior (pose.pose_bounds); 0 = off")
     ap.add_argument("--bounds-table", default=Mono2DConfig.bounds_table, choices=["data", "anatomical"])
-    ap.add_argument("--hard-hinges", action="store_true",
-                    help="box the knees and elbows INSIDE the optimiser (flexion -5..150 deg, off-axis 25); "
-                         "the soft range prior lost to the reprojection, a bound cannot (fit_mono2d.hinge_bounds)")
+    ap.add_argument("--no-hard-hinges", dest="hard_hinges", action="store_false",
+                    help="do NOT box the knees and elbows inside the optimiser (fit_mono2d.hinge_bounds; on by "
+                         "default: measured better than the shipped fit on violations, jitter AND reprojection)")
     ap.add_argument("--tilt-weight", type=float, default=Mono2DConfig.tilt_weight)
     ap.add_argument("--tilt-free-deg", type=float, default=Mono2DConfig.tilt_free_deg)
     args = ap.parse_args()

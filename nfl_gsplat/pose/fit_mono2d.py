@@ -88,8 +88,12 @@ class Mono2DConfig:
     # and lost to the reprojection every time (HANDOFF 2026-09-10); the post-hoc clamp in
     # render.timeline then zeroed the backwards and sideways hinges at +1.7 px on the endzone's limb
     # reprojection p90. With the bound INSIDE the fit the other joints can compensate while the
-    # optimiser runs, which a clamp after the fact cannot do. False = off.
-    hard_hinges: bool = False
+    # optimiser runs, which a clamp after the fact cannot do. Measured on play 1's six worst ids
+    # (392 live keyframes, 2026-09-15) against the shipped fit: raw-fit violations 3.8 % / 27.7 % ->
+    # 0 / 3.7 %, joint jitter p90 0.221 -> 0.187 after the clamp + Gaussian, and the limbs' SIDELINE
+    # reprojection better, p50 13.4 -> 9.4 px, p90 23.9 -> 18.8 -- a legal pose fits the keypoints
+    # better than an illegal one clamped afterwards. Default on; False = off.
+    hard_hinges: bool = True
     hinge_flex_min_deg: float = -5.0
     hinge_flex_max_deg: float = 150.0
     hinge_off_max_deg: float = 25.0

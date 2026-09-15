@@ -1732,6 +1732,23 @@ The pipeline's `switches` stage now loops 08t until a pass cuts nothing, over th
 (`tracking.relabel.backup_path`) -- the second apply had overwritten the first pass's `.pre08t`, the
 only copy before any cut, and a manual `.pre08t_full` snapshot saved it.
 
+**Hard hinge bounds INSIDE the fit beat the post-hoc clamp (2026-09-15, commit after 94b0be9).** The
+soft range prior had lost to the reprojection twice; a box bound on the optimiser's parameters
+(scipy trf `bounds`: knees/elbows flexion [-5, 150] deg, off-axis +-25) cannot. A/B on play 1's six
+worst ids (9, 4, 165, 17, 13, 162; 05p --one-view-only, same keypoints, 993 frames each), scored on the
+392 live keyframes -- violations on the RAW fits, jitter and reprojection after the shipped clamp +
+Gaussian (px, sideline p50/p90; the endzone column is the one-view fit's own placement, ~60 px for
+both, and only its direction counts):
+
+    A shipped fit         hyperext 3.8 %  off-axis 27.7 %   jit 0.033/0.221/0.77   spd p90 0.27   side 13.4/23.9   end 64.9/95.2
+    B hard hinges         hyperext 0.0 %  off-axis  3.7 %   jit 0.031/0.187/0.72   spd p90 0.24   side  9.4/18.8   end 53.5/94.1
+
+Better on every ruler, INCLUDING the sideline reprojection by 4-5 px: a legal pose fits the keypoints
+better than an illegal one clamped afterwards, because the other joints compensate while the fit
+runs. `Mono2DConfig.hard_hinges` defaults to True (05p --no-hard-hinges to disable); the render-side
+clamp stays as a belt for caches fitted before it. The whole play is being refitted with it
+(poses_refit.json.pre_hard is the cache before).
+
 **Local repair step 1, hold-through, measured and REJECTED as a default (2026-09-15).** Stretches
 where the raw fit's max joint speed exceeds 0.25 m/frame (merged within 3 frames, padded 2): 85 on
 the live play. Replacing a stretch's body_pose by the SLERP between its clean boundary poses, then the

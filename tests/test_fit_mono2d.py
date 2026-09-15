@@ -83,7 +83,8 @@ def test_hard_hinges_box_the_knees_and_elbows_and_the_fit_still_lands_on_the_key
     assert np.isclose(lo[s + 4 * 3 + 0], np.radians(-5)) and np.isclose(hi[s + 4 * 3 + 0], np.radians(150))   # R_knee about +x
     assert np.isclose(lo[s + 17 * 3 + 1], np.radians(-150)) and np.isclose(hi[s + 17 * 3 + 1], np.radians(5))  # L_elbow: flexion is -y
     assert np.isclose(hi[s + 18 * 3 + 0], np.radians(25)) and np.isclose(lo[s + 18 * 3 + 2], np.radians(-25))  # R_elbow off-axis
-    assert hinge_bounds(69, bp_slice, Mono2DConfig()) is None
+    assert hinge_bounds(69, bp_slice, Mono2DConfig(hard_hinges=False)) is None
+    assert Mono2DConfig().hard_hinges, "on by default: measured better on violations, jitter and reprojection"
 
     rest = _rest()
     forward = fk_forward(rest)
@@ -320,9 +321,12 @@ def test_side_agnostic_residual_rides_through_a_left_right_label_flip():
     rough = np.stack([bp + rng.normal(0, 0.3, 63)] * T)
     rough_go = np.stack([go] * T)
     out = {}
+    # hard_hinges off: with the hinges boxed the mirrored pose (the OTHER elbow bent the wrong way)
+    # is no longer realisable, so the labelled fit rides through the flip on its own and the negative
+    # control below would not fail -- a real property of the bound, but not what this test measures
     for sym in (False, True):
         params, valid, rep = fit_sequence_2d(uvs, np.stack([conf] * T), [cam] * T, np.stack([J[0, :2]] * T), rest, forward,
-                                             cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0), lr_symmetric=sym),
+                                             cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0), lr_symmetric=sym, hard_hinges=False),
                                              base_cfg=base, init_body_pose_seq=rough, init_orient_seq=rough_go)
         assert valid.all()
         out[sym] = (rep, np.array([forward(p)[21, 2] for p in params]))
