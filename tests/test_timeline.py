@@ -65,7 +65,9 @@ def test_build_timeline_gives_every_player_a_body_every_frame():
               Rotation.from_rotvec(tl.upright_from_yaw(0.0))).as_rotvec()
     poses = {1: {0: (np.zeros((21, 3)), tl.upright_from_yaw(0.0), np.zeros(10), "fused"),
                  30: (np.ones((21, 3)) * 0.2, tipped, np.zeros(10), "fused")}}
-    out = tl.build_timeline(frames, ground, poses, default_pose=np.ones((21, 3)) * 0.1, pose_smooth=0)
+    # both smoothers off: this checks the interpolation, and the Gaussian's held edge dips a
+    # ramp's last frame by a few percent, which is its job and not this test's question
+    out = tl.build_timeline(frames, ground, poses, default_pose=np.ones((21, 3)) * 0.1, pose_smooth=0, pose_sigma=0)
     assert all(len(out.states[f]) == 2 for f in frames), "both players every frame"
     s1 = {f: [s for s in out.states[f] if s.pid == 1][0] for f in frames}
     s2 = {f: [s for s in out.states[f] if s.pid == 2][0] for f in frames}
@@ -263,6 +265,25 @@ def test_smooth_axis_angles_damps_noise_and_keeps_a_ramp():
     assert d2(sm) < 0.3 * d2(noisy)                                    # the noise goes
     assert abs(sm[30, 0, 0] - ramp[30, 0, 0]) < 0.05                   # the ramp stays
     assert np.allclose(tl.smooth_axis_angles(ramp, window=1), ramp)   # off
+
+
+def test_gaussian_pose_smoother_kills_per_frame_noise_the_median_keeps_and_passes_a_swing():
+    """The fits are noisy on EVERY frame at the extremities (play 1, 2026-09-15): a median drops
+    isolated spikes and leaves that alone; a Gaussian averages it down. A real arm swing (1 Hz at
+    60 fps) has to pass through nearly whole."""
+    T = 120
+    t = np.arange(T)
+    swing = 0.6 * np.sin(2 * np.pi * t / 60.0)                         # 1 Hz, 0.6 rad amplitude
+    noise = 0.1 * np.where(t % 2 == 0, 1.0, -1.0)                      # +-0.1 rad every frame
+    seq = np.zeros((T, 21, 3))
+    seq[:, 5, 0] = swing + noise
+    g = tl.smooth_axis_angles_gaussian(seq, sigma=2.0)
+    m = tl.smooth_axis_angles(seq, window=7)
+    resid = lambda a: np.abs(a[:, 5, 0] - swing)[10:-10].max()         # away from the held edges
+    assert resid(g) < 0.03                                             # noise gone, swing kept (< 5 %)
+    assert resid(m) > 0.08                                             # the median keeps the toggling
+    assert g.shape == seq.shape and np.allclose(g[:, :5], 0.0)         # untouched joints stay zero
+    assert np.allclose(tl.smooth_axis_angles_gaussian(seq, sigma=0), seq)   # off
 
 
 def test_ground_positions_take_the_foot_above_the_box_margin():

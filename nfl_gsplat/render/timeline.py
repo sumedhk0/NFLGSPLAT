@@ -81,6 +81,17 @@ POSE_SMOOTH_FRAMES: int = 7          # a moving median (see smooth_axis_angles);
 # Measured on play 1 with the sole-on-turf fits (limbs' reprojection p50 / jitter p50):
 # runner median-7 17.1 px / 3.9 m/s, adaptive 14.7 / 4.4; lineman 2.3 px / 0.70 either way.
 POSE_SMOOTH_RANGE_RAD: float = 0.5
+# The body_pose smoother is a GAUSSIAN now, this many frames of sigma (0 = off), applied to the
+# interpolated axis-angles with no range gate; the median above still smooths the orientation.
+# Measured 2026-09-15 on play 1's live play (30 ids, the renderer's own forward pass): the raw
+# stride-2 fits carry the jitter themselves (wrists' second difference p90 0.12 m/frame^2 at the
+# keyframes, 0.12 drawn), and a median cannot remove noise that is on every frame -- median 7
+# gated (the previous smoother) read jitter p90 0.231 against raw 0.261, median 15 ungated 0.159.
+# Gaussian sigma 2: p50 0.035 -> 0.019, p90 0.261 -> 0.109, p99 1.38 -> 0.69 (max over joints,
+# pelvis-relative), for +0.4 px on the limbs' reprojection p50 in the sideline (8.6 -> 9.0, inside
+# the detector's noise) and +1.9 px on the endzone p90 (12.3 -> 14.2). Sigma 4 halves the jitter
+# again (p90 0.078) but costs +1.3 px p50 and +4.4 px endzone p90: that is smear. See HANDOFF.
+POSE_SMOOTH_SIGMA: float = 2.0
 UP = np.array([0.0, 0.0, 1.0])
 
 
@@ -232,6 +243,25 @@ def smooth_axis_angles(seq, *, window: int = POSE_SMOOTH_FRAMES):
     rng = maximum_filter1d(flat, k, axis=0, mode="nearest") - minimum_filter1d(flat, k, axis=0, mode="nearest")
     out = np.where(rng <= POSE_SMOOTH_RANGE_RAD, med, flat)
     return out.reshape(shape)
+
+
+def smooth_axis_angles_gaussian(seq, *, sigma: float = POSE_SMOOTH_SIGMA):
+    """Gaussian along axis 0 of ``seq [T, ...]`` (axis-angle vectors per joint), edges held;
+    ``sigma`` <= 0 returns the input.
+
+    Why not the median: the per-frame fits are noisy on EVERY frame at the extremities (a hand is
+    five pixels), and a median only drops isolated spikes -- on play 1 it left the limbs' jitter
+    where it found it (see POSE_SMOOTH_SIGMA). A Gaussian averages the noise down while a limb's
+    real swing, which is slow beside a 2-frame sigma, passes through: the runner's arm turns
+    ~0.1 rad/frame and loses under 3 % of its amplitude at sigma 2. Component-wise on the
+    axis-angle vectors, which is exact for small differences between neighbouring frames and
+    safe for joints that never approach a half turn; the median took the same view."""
+    a = np.asarray(seq, float)
+    if sigma is None or sigma <= 0 or len(a) < 3:
+        return a
+    from scipy.ndimage import gaussian_filter1d
+
+    return gaussian_filter1d(a, float(sigma), axis=0, mode="nearest")
 
 
 def fill_gaps(frames, xy, *, max_gap: int = MAX_GAP_FRAMES):
@@ -400,7 +430,7 @@ def _nearest_views(views_by_frame, pid, f, frames_with_record):
 def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
                    min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
-                   pose_smooth: int = POSE_SMOOTH_FRAMES) -> Timeline:
+                   pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -426,7 +456,9 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         if pf:
             bp = interp_axis_angle(pf, [posed[f][0] for f in pf], frames)
             go = interp_axis_angle(pf, [np.asarray(posed[f][1]).reshape(1, 3) for f in pf], frames)[:, 0]
-            bp = smooth_axis_angles(bp, window=pose_smooth)
+            # the limbs: a Gaussian, because their noise is on every frame (POSE_SMOOTH_SIGMA);
+            # the orientation keeps the median, which was never measured against this
+            bp = smooth_axis_angles_gaussian(bp, sigma=pose_sigma)
             go = smooth_axis_angles(go, window=pose_smooth)
             betas = np.mean([np.asarray(posed[f][2], float) for f in pf], axis=0)
             source = posed[pf[0]][3]
