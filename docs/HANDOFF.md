@@ -1627,12 +1627,26 @@ sideline p50/p90, endzone p50/p90):
 Verified on the real timeline by 07l (tag v41 vs v40): joints p50 0.037 -> 0.018, p90 0.229 -> 0.108,
 p99 1.35 -> 0.69; steps, root jitter and census identical. The reprojection ruler is biased toward the
 raw fit (the fit followed the detector's per-frame noise, so any smoother scores slightly worse against
-the same noisy keypoints) -- it still separates repair (sigma 2) from smear (sigma 4). A per-joint sigma
-(arms heavier than legs: the arms are the noisiest and the least visible) is being measured next.
+the same noisy keypoints) -- it still separates repair (sigma 2) from smear (sigma 4). The sigma sweep
+and the per-joint split (arms heavier than legs) were then measured on both rulers, jitter p90 /
+endzone reprojection p90 px: s1.5 0.138 / 13.4, s2 0.109 / 14.2, s2.5 0.098 / 14.7, s3 0.090 / 15.5,
+s2 with arms s3 0.099 / 14.7, s2 with arms s4 0.093 / 15.5. One trade curve: each 0.01 of jitter costs
+~0.3 px of endzone p90 wherever the sigma goes, so the split buys nothing and sigma 2 stays. CLOSED.
 
 **Renders.** v39 = cut 19 + 08u + smooth_xy fix (`diag/play_001_v39_hifi_720.mp4`). v40 = + 08t + 08v
 + the Gaussian limb smoother, rendering. Scores: `diag/play_001_v40_plausibility.json` (state before the
 smoother) and `_v41_` (with it) -- v40 the render carries the v41 numbers.
+
+**"Joints in weird positions" is measurable too (2026-09-15).** On the drawn live play (3676 body-frames,
+33 ids, after the Gaussian), the hinges do the impossible: R_knee hyperextended (< -15 deg) on 3.0 % of
+frames with a minimum of -104 deg, L_elbow on 5.9 % (min -136), and bent SIDEWAYS (> 35 deg off the hinge
+axis) L_knee 11.9 %, R_elbow 14.2 %, L_elbow 7.3 %. Collars turn 146-176 deg at the p99 (a clavicle does
+30); spine segments 116-126. It is concentrated on ids 4, 9, 165, 17, 11, 38 -- the same men whose limbs
+jitter most, i.e. stretches where the fit is garbage rather than noisy. Hinge axes used: knee flexion
+about +x, elbow about y (R +, L -) in SMPL-X's rest pose. A clamp before the Gaussian (flexion to
+[-5, 150], off-axis to 20-30 deg, collars to 35) is being measured on both rulers; if it moves the limbs
+off the keypoints by more than a few pixels the angle was compensating for an upstream error and the
+repair belongs in the fit (a joint-limit prior), not here.
 
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
