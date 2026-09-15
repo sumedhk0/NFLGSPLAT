@@ -92,6 +92,20 @@ POSE_SMOOTH_RANGE_RAD: float = 0.5
 # the detector's noise) and +1.9 px on the endzone p90 (12.3 -> 14.2). Sigma 4 halves the jitter
 # again (p90 0.078) but costs +1.3 px p50 and +4.4 px endzone p90: that is smear. See HANDOFF.
 POSE_SMOOTH_SIGMA: float = 2.0
+# Joint limits on the four hinges, applied to the interpolated axis-angles BEFORE the Gaussian so
+# the smoother rounds the kinks. body_pose rows (joint - 1), the hinge axis, and the sign that makes
+# flexion positive in SMPL-X's rest pose: knees flex about +x; elbows about y, right +, left -.
+# Measured on play 1's drawn live play (2026-09-15, 3676 body-frames): knees hyperextended past -15 deg
+# on 3 % of frames (min -104), elbows on 4-6 % (min -136); knees bent SIDEWAYS past 35 deg on 12 %,
+# elbows on 14 % -- on the ids whose limbs jitter most, i.e. where the fit is garbage. The clamp
+# (flexion to [-5, 150], off-axis to 25 deg) takes every one to zero for +0.2 px on the limbs'
+# sideline reprojection p90 and +1.7 px on the endzone's, p50 unchanged. Clamping the COLLARS too
+# (they turn 150-176 deg at the p99) was measured and REJECTED: +2.8 / +5.2 px at the p90 -- the
+# regressor places the whole arm through the clavicle, and the limit moves the arm off the keypoints.
+HINGES: dict = {"L_knee": (3, 0, +1.0), "R_knee": (4, 0, +1.0), "L_elbow": (17, 1, -1.0), "R_elbow": (18, 1, +1.0)}
+HINGE_FLEX_MIN_DEG: float = -5.0
+HINGE_FLEX_MAX_DEG: float = 150.0
+HINGE_OFF_AXIS_MAX_DEG: float = 25.0
 UP = np.array([0.0, 0.0, 1.0])
 
 
@@ -264,6 +278,27 @@ def smooth_axis_angles_gaussian(seq, *, sigma: float = POSE_SMOOTH_SIGMA):
     return gaussian_filter1d(a, float(sigma), axis=0, mode="nearest")
 
 
+def clamp_hinges(seq, *, hinges=None, flex_min_deg: float = HINGE_FLEX_MIN_DEG,
+                 flex_max_deg: float = HINGE_FLEX_MAX_DEG, off_max_deg: float = HINGE_OFF_AXIS_MAX_DEG):
+    """``seq [T, 21, 3]`` with each hinge's flexion clipped to [flex_min, flex_max] degrees about its
+    axis and its two off-axis components scaled down to at most ``off_max`` degrees together. The
+    components of an axis-angle vector are not Euler angles, but for a hinge that never nears a half
+    turn the split is close enough to name a backwards or sideways knee, which is all this does.
+    Every other joint is returned as it came (see HINGES for why the collars are not here)."""
+    out = np.array(seq, float)
+    if out.ndim != 3 or out.shape[1] < 19:
+        return out
+    off_max = np.radians(off_max_deg)
+    for j, ax, sign in (hinges or HINGES).values():
+        v = out[:, j]
+        v[:, ax] = sign * np.clip(sign * v[:, ax], np.radians(flex_min_deg), np.radians(flex_max_deg))
+        others = [a for a in range(3) if a != ax]
+        mag = np.linalg.norm(v[:, others], axis=1)
+        scale = np.where(mag > off_max, off_max / np.maximum(mag, 1e-9), 1.0)
+        v[:, others] *= scale[:, None]
+    return out
+
+
 def fill_gaps(frames, xy, *, max_gap: int = MAX_GAP_FRAMES):
     """Linear fill of NaN rows between known rows when the gap is short."""
     xy = np.asarray(xy, float).copy()
@@ -430,7 +465,8 @@ def _nearest_views(views_by_frame, pid, f, frames_with_record):
 def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
                    min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
-                   pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA) -> Timeline:
+                   pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
+                   clamp_joints: bool = True) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -456,8 +492,11 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         if pf:
             bp = interp_axis_angle(pf, [posed[f][0] for f in pf], frames)
             go = interp_axis_angle(pf, [np.asarray(posed[f][1]).reshape(1, 3) for f in pf], frames)[:, 0]
-            # the limbs: a Gaussian, because their noise is on every frame (POSE_SMOOTH_SIGMA);
-            # the orientation keeps the median, which was never measured against this
+            # the limbs: hinge limits first (a backwards knee is the fit, not the man), then a
+            # Gaussian, because their noise is on every frame (POSE_SMOOTH_SIGMA) and it rounds the
+            # clamp's kinks; the orientation keeps the median, which was never measured against this
+            if clamp_joints:
+                bp = clamp_hinges(bp)
             bp = smooth_axis_angles_gaussian(bp, sigma=pose_sigma)
             go = smooth_axis_angles(go, window=pose_smooth)
             betas = np.mean([np.asarray(posed[f][2], float) for f in pf], axis=0)

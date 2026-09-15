@@ -6,6 +6,7 @@ from nfl_gsplat.render.motion_rulers import (
     census_error,
     contiguous_steps,
     handover_steps,
+    hinge_violations,
     joint_motion,
     positions_by_id,
     second_differences,
@@ -80,7 +81,7 @@ def test_summarize_reports_the_live_window_separately():
     rep = summarize(pos, frames, {1: "KC"}, lo=50, hi=100)
     assert rep["steps"]["full_over_hard"] == 2 and rep["steps"]["live_over_step"] == 0
     assert rep["steps"]["worst"][0]["frame"] in (149, 150)
-    assert all(50 <= w["frame"] <= 100 for w in rep["steps"]["worst_live"]) and len(rep["steps"]["worst_live"]) == 12
+    assert all(50 <= w["frame"] <= 100 for w in rep["steps"]["worst_live"]) and len(rep["steps"]["worst_live"]) == 24
     assert rep["root_jitter"]["live"]["p90"] < 1e-9
     assert rep["census"]["live_teams"]["KC"] == 1.0 and "joints" not in rep
 
@@ -99,6 +100,16 @@ def test_a_handover_is_a_step_drawn_from_different_cameras():
     rep = summarize({1: byf}, frames, {1: "KC"}, lo=0, hi=39)
     assert rep["steps"]["live_handover"] == 1 and rep["steps"]["worst"][0]["handover"] is True
     assert rep["steps"]["worst"][0]["views"] == [["endzone"], ["sideline", "endzone"]]
+
+
+def test_hinge_violations_count_backwards_and_sideways_hinges():
+    bp = np.zeros((10, 21, 3))
+    bp[:5, 3, 0] = np.radians(-40)                    # L_knee backwards on 5 frames
+    bp[:, 18, 1] = np.radians(60)                     # R_elbow flexed 60: fine
+    bp[:2, 18, 0] = np.radians(50)                    # ... and sideways on 2 frames
+    v = hinge_violations(bp)
+    assert v["n"] == 10 and abs(v["hyperextended"] - 5 / 40) < 1e-9 and abs(v["off_axis"] - 2 / 40) < 1e-9
+    assert np.isnan(hinge_violations(np.zeros((0, 21, 3)))["hyperextended"])
 
 
 def test_positions_by_id_keys_by_int():

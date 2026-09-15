@@ -1643,10 +1643,22 @@ frames with a minimum of -104 deg, L_elbow on 5.9 % (min -136), and bent SIDEWAY
 axis) L_knee 11.9 %, R_elbow 14.2 %, L_elbow 7.3 %. Collars turn 146-176 deg at the p99 (a clavicle does
 30); spine segments 116-126. It is concentrated on ids 4, 9, 165, 17, 11, 38 -- the same men whose limbs
 jitter most, i.e. stretches where the fit is garbage rather than noisy. Hinge axes used: knee flexion
-about +x, elbow about y (R +, L -) in SMPL-X's rest pose. A clamp before the Gaussian (flexion to
-[-5, 150], off-axis to 20-30 deg, collars to 35) is being measured on both rulers; if it moves the limbs
-off the keypoints by more than a few pixels the angle was compensating for an upstream error and the
-repair belongs in the fit (a joint-limit prior), not here.
+about +x, elbow about y (R +, L -) in SMPL-X's rest pose.
+
+The clamp, measured before the Gaussian on both rulers (jitter p50/p90/p99; limb reprojection px
+sideline p50/p90, endzone p50/p90; violation shares after):
+
+    gauss s2 (no clamp)             0.019/0.114/0.73   9.0/20.9   6.4/14.2   2.8 % / 10.4 %
+    hinges + collars, off 20        0.018/0.098/0.66   9.7/23.7   7.1/19.4   0 / 0
+    hinges + collars, off 30        0.018/0.100/0.66   9.7/23.7   7.0/19.0   0 / 0
+    hinges only, off 20             0.019/0.107/0.74   9.3/21.1   6.5/15.9   0 / 0     <- adopted (off 25)
+
+The COLLAR clamp is the smear (+2.8 / +5.2 px at the p90): the regressor places the whole arm through
+the clavicle, so a limit there moves the arm off the keypoints. Hinges alone cost +0.2 / +1.7 px at
+the p90 with the p50 unchanged and take every backwards or sideways knee and elbow to zero -- a limb
+that could not exist is worth two pixels at the tail. `timeline.clamp_hinges` runs before the
+Gaussian (which rounds its kinks); `motion_rulers.hinge_violations` reports the shares in 07l. The
+collars and spine stay as the fit made them: their repair belongs in the fit (a pose prior), not here.
 
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the

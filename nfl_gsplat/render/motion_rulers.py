@@ -119,6 +119,25 @@ def joint_motion(joints_by_id) -> dict:
     return out
 
 
+HINGES = {"L_knee": (3, 0, +1.0), "R_knee": (4, 0, +1.0), "L_elbow": (17, 1, -1.0), "R_elbow": (18, 1, +1.0)}
+
+
+def hinge_violations(body_poses, *, hyper_deg: float = -15.0, off_deg: float = 35.0) -> dict:
+    """Shares of hinge-frames (four hinges per body-frame) bent the wrong way (flexion below
+    ``hyper_deg``) or sideways (more than ``off_deg`` about the two non-hinge axes), from drawn
+    ``body_poses [N, 21, 3]``. A knee does neither; play 1's fits did both on 3-14 % of frames."""
+    bp = np.asarray(body_poses, float)
+    if bp.ndim != 3 or not len(bp):
+        return {"hyperextended": float("nan"), "off_axis": float("nan"), "n": 0}
+    hyper = off = 0
+    for j, ax, sign in HINGES.values():
+        hyper += int((np.degrees(sign * bp[:, j, ax]) < hyper_deg).sum())
+        others = [a for a in range(3) if a != ax]
+        off += int((np.degrees(np.linalg.norm(bp[:, j][:, others], axis=1)) > off_deg).sum())
+    n = 4 * len(bp)
+    return {"hyperextended": hyper / n, "off_axis": off / n, "n": int(len(bp))}
+
+
 def _pct(a, q):
     return float(np.percentile(a, q)) if len(a) else float("nan")
 
@@ -153,8 +172,9 @@ def summarize(pos_by_id, states_by_frame, team_of, *, lo: int, hi: int, joints_b
             "worst": [{"m": round(d, 3), "pid": p, "frame": f, "handover": (p, f) in hand,
                        "views": [list(views_of.get(p, {}).get(f, ())), list(views_of.get(p, {}).get(f + 1, ()))]}
                       for d, p, f in steps[:12]],
-            "worst_live": [{"m": round(d, 3), "pid": p, "frame": f, "handover": (p, f) in hand}
-                           for d, p, f in live[:12]],
+            "worst_live": [{"m": round(d, 3), "pid": p, "frame": f, "handover": (p, f) in hand,
+                            "views": [list(views_of.get(p, {}).get(f, ())), list(views_of.get(p, {}).get(f + 1, ()))]}
+                           for d, p, f in live[:24]],
         },
         "root_jitter": {
             "full": {"p50": _pct(all_j, 50), "p90": _pct(all_j, 90), "p99": _pct(all_j, 99)},

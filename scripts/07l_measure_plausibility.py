@@ -76,6 +76,9 @@ def main():
     pos = mr.positions_by_id(tl.states)
     joints = joints_for(tl, model, args.lo, args.hi) if args.joints else None
     rep = mr.summarize(pos, tl.states, team_of(P), lo=args.lo, hi=args.hi, joints_by_id=joints)
+    live_bp = [np.asarray(s.body_pose, float).reshape(21, 3) for f in tl.frames if args.lo <= f <= args.hi
+               for s in tl.states.get(f, ())]
+    rep["joint_limits"] = mr.hinge_violations(np.stack(live_bp) if live_bp else np.zeros((0, 21, 3)))
     rep["tag"] = args.tag
     rep["play"] = P.name
 
@@ -92,6 +95,9 @@ def main():
           f"   live p50 {rj['live']['p50']:.4f} p90 {rj['live']['p90']:.4f} p99 {rj['live']['p99']:.4f}")
     print("       worst live: " + ", ".join(f"id {w['pid']} {w['p90']:.3f}" for w in rj["worst_live"][:6]))
     print(f"census |KC-11|+|BAL-11|  live {ce['live']:.2f} ({ce['live_teams']})   full {ce['full']:.2f}")
+    jl = rep["joint_limits"]
+    print(f"hinges (live, {jl['n']} body-frames): hyperextended {100 * jl['hyperextended']:.1f}%  "
+          f"off-axis {100 * jl['off_axis']:.1f}%   (share of hinge-frames; a knee does neither)")
     if "joints" in rep:
         jo = rep["joints"]
         print(f"joints ({jo['ids']} ids, live): jitter p50 {jo['jitter']['p50']:.4f} p90 {jo['jitter']['p90']:.4f} "

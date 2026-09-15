@@ -67,7 +67,8 @@ def test_build_timeline_gives_every_player_a_body_every_frame():
                  30: (np.ones((21, 3)) * 0.2, tipped, np.zeros(10), "fused")}}
     # both smoothers off: this checks the interpolation, and the Gaussian's held edge dips a
     # ramp's last frame by a few percent, which is its job and not this test's question
-    out = tl.build_timeline(frames, ground, poses, default_pose=np.ones((21, 3)) * 0.1, pose_smooth=0, pose_sigma=0)
+    out = tl.build_timeline(frames, ground, poses, default_pose=np.ones((21, 3)) * 0.1, pose_smooth=0, pose_sigma=0,
+                            clamp_joints=False)          # 0.2 rad on every axis is a -11 deg elbow: the clamp would move it
     assert all(len(out.states[f]) == 2 for f in frames), "both players every frame"
     s1 = {f: [s for s in out.states[f] if s.pid == 1][0] for f in frames}
     s2 = {f: [s for s in out.states[f] if s.pid == 2][0] for f in frames}
@@ -284,6 +285,26 @@ def test_gaussian_pose_smoother_kills_per_frame_noise_the_median_keeps_and_passe
     assert resid(m) > 0.08                                             # the median keeps the toggling
     assert g.shape == seq.shape and np.allclose(g[:, :5], 0.0)         # untouched joints stay zero
     assert np.allclose(tl.smooth_axis_angles_gaussian(seq, sigma=0), seq)   # off
+
+
+def test_hinge_clamp_fixes_a_backwards_knee_and_a_sideways_elbow_and_leaves_the_rest():
+    """Play 1's fits bend knees backwards (-104 deg) and elbows sideways (121 deg off the hinge axis)
+    on the ids whose limbs jitter most. The clamp names those and nothing else: a collar turning
+    150 deg is left alone on purpose (clamping it was measured to move the arm off the keypoints)."""
+    seq = np.zeros((5, 21, 3))
+    seq[:, 3, 0] = np.radians(-104)                   # L_knee bent backwards
+    seq[:, 4, 0] = np.radians(120)                    # R_knee: a sprint, fine
+    seq[:, 18, 1] = np.radians(40)                    # R_elbow flexed 40 (positive about y)
+    seq[:, 18, 0] = np.radians(60)                    # ... and turned 60 off its axis
+    seq[:, 17, 1] = np.radians(-30)                   # L_elbow flexed 30 (negative about y), fine
+    seq[:, 12, 2] = np.radians(150)                   # L_collar: absurd, untouched
+    out = tl.clamp_hinges(seq)
+    assert np.allclose(np.degrees(out[:, 3, 0]), -5)                          # clipped to the limit
+    assert np.allclose(out[:, 4], seq[:, 4]) and np.allclose(out[:, 17], seq[:, 17])
+    assert np.allclose(np.degrees(out[:, 18, 1]), 40)                          # flexion kept
+    assert np.allclose(np.degrees(out[:, 18, 0]), 25) and np.allclose(out[:, 18, 2], 0)   # off-axis scaled
+    assert np.allclose(out[:, 12], seq[:, 12])
+    assert np.allclose(tl.clamp_hinges(np.zeros((3, 21, 3))), 0.0)
 
 
 def test_ground_positions_take_the_foot_above_the_box_margin():
