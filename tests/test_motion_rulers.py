@@ -80,6 +80,7 @@ def test_summarize_reports_the_live_window_separately():
     rep = summarize(pos, frames, {1: "KC"}, lo=50, hi=100)
     assert rep["steps"]["full_over_hard"] == 2 and rep["steps"]["live_over_step"] == 0
     assert rep["steps"]["worst"][0]["frame"] in (149, 150)
+    assert all(50 <= w["frame"] <= 100 for w in rep["steps"]["worst_live"]) and len(rep["steps"]["worst_live"]) == 12
     assert rep["root_jitter"]["live"]["p90"] < 1e-9
     assert rep["census"]["live_teams"]["KC"] == 1.0 and "joints" not in rep
 

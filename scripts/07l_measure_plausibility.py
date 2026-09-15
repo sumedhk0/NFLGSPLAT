@@ -86,6 +86,8 @@ def main():
           f"> {mr.STEP_HARD_M}: full {st['full_over_hard']}  live {st['live_over_hard']}")
     print("       worst: " + ", ".join(f"id {w['pid']} {w['m']:.2f} m @{w['frame']}{' (handover)' if w['handover'] else ''}"
                                        for w in st["worst"][:6]))
+    print("       worst live: " + ", ".join(f"id {w['pid']} {w['m']:.2f} m @{w['frame']}{' (handover)' if w['handover'] else ''}"
+                                            for w in st["worst_live"][:6]))
     print(f"root jitter m/frame^2  full p50 {rj['full']['p50']:.4f} p90 {rj['full']['p90']:.4f} p99 {rj['full']['p99']:.4f}"
           f"   live p50 {rj['live']['p50']:.4f} p90 {rj['live']['p90']:.4f} p99 {rj['live']['p99']:.4f}")
     print("       worst live: " + ", ".join(f"id {w['pid']} {w['p90']:.3f}" for w in rj["worst_live"][:6]))

@@ -153,6 +153,8 @@ def summarize(pos_by_id, states_by_frame, team_of, *, lo: int, hi: int, joints_b
             "worst": [{"m": round(d, 3), "pid": p, "frame": f, "handover": (p, f) in hand,
                        "views": [list(views_of.get(p, {}).get(f, ())), list(views_of.get(p, {}).get(f + 1, ()))]}
                       for d, p, f in steps[:12]],
+            "worst_live": [{"m": round(d, 3), "pid": p, "frame": f, "handover": (p, f) in hand}
+                           for d, p, f in live[:12]],
         },
         "root_jitter": {
             "full": {"p50": _pct(all_j, 50), "p90": _pct(all_j, 90), "p99": _pct(all_j, 99)},
