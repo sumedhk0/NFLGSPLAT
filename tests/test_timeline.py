@@ -105,6 +105,23 @@ def test_endzone_only_ids_along_their_depth_axis_are_duplicates_and_sideline_det
     assert out.n_duplicates == len(frames)
 
 
+def test_smooth_xy_never_averages_across_a_gap():
+    """Two stationary segments of one track, metres apart, separated by a gap fill_gaps will not bridge.
+
+    The old smoother compacted every finite row into one array before convolving, so the last window // 2
+    frames of the first segment were averaged with the first frames of the second: play 1's id 21 stood
+    still at (-27.1, -4.0) and was drawn marching 0.88 m/frame toward where its track resumed 77 frames
+    later (2026-09-15). Smoothing must stay inside each contiguous run.
+    """
+    xy = np.full((60, 2), np.nan)
+    xy[0:20] = [-27.1, -4.0]                  # segment A, stationary
+    xy[40:60] = [-20.0, +3.0]                 # segment B, stationary, 8 m away, after a 20-frame gap
+    out = tl.smooth_xy(xy, window=9)
+    assert np.allclose(out[0:20], [-27.1, -4.0]), out[15:20]      # A's tail is not pulled toward B
+    assert np.allclose(out[40:60], [-20.0, +3.0]), out[40:45]     # B's head is not pulled toward A
+    assert np.isnan(out[20:40]).all()                              # the gap stays a gap
+
+
 def test_the_endzone_copy_strung_along_its_depth_axis_stays_a_duplicate():
     """The endzone's unreconciled copy of a player sits FAR along x (its blind depth axis) and near in y.
 

@@ -309,6 +309,30 @@ if ! done_ pair; then
   mark pair
 fi
 
+if ! done_ switches; then
+  # A global id that holds TWO men is what the viewer sees as a player teleporting (play 1 v38: a Baltimore
+  # man in the Chiefs' O-line who snaps back to linebacker). Two shapes, neither visible to mispaired_ids,
+  # which gates on a whole-track median: (08u) a pairing right for most of a track and wrong for a stretch
+  # -- id 17 carried four sideline frames of a man 6.2 m from its endzone track; (08t) one camera's own track
+  # switching men across a short gap -- id 82's sideline sat at x=-23.1 to frame 307 and resumed at 315 at
+  # x=-28.9, which fill_gaps drew as a body crossing the field. Each moves the offending rows to a FRESH id
+  # with a team from its own kit colour; nothing is deleted. Runs AFTER 08c (inside `pair`), which rebuilds
+  # identity_resolved.pkl and would erase the fragment identities if it came later. Measured on play 1
+  # (2026-09-15): contiguous steps over 0.6 m/frame 26 -> 3 together with the smooth_xy fix.
+  # 08t is scoped to the LIVE play (END_LIVE = the last live frame, 470 on play 1); after the whistle the
+  # crowd hops between milling bodies and cutting there fragments tracks for no visible gain.
+  log "unpair intervals where the cameras hold different men (08u); cut tracks that switch men (08t)"
+  "$PYN" scripts/08u_unpair_bad_runs.py --play-dir "$P" --apply 2>&1 \
+     | grep -v "Warning\|warn" | grep -E "intervals|rows moved|identit|Error|Traceback" || fail switches
+  if [ -n "${END_LIVE:-}" ]; then
+    "$PYN" scripts/08t_cut_track_switches.py --play-dir "$P" --max-frame "$END_LIVE" --apply 2>&1 \
+       | grep -v "Warning\|warn" | grep -E "cuts|rows moved|Error|Traceback" || fail switches
+  else
+    log "switches: END_LIVE (last live frame) not set -- 08t skipped. Play 1: END_LIVE=470"
+  fi
+  mark switches
+fi
+
 if ! done_ roles; then
   # The jersey OCR names about half the ids and the rest were 1.85 m with no weight, so a
   # defensive lineman and a cornerback came out the same body. The pre-snap formation gives the

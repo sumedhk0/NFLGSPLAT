@@ -170,21 +170,36 @@ def interp_axis_angle(frames_known, values_known, frames_out):
 
 
 def smooth_xy(xy, *, window: int = 9):
-    """Zero-phase moving average with edge handling; NaN rows stay NaN."""
+    """Zero-phase moving average with edge handling; NaN rows stay NaN.
+
+    Smoothed within each CONTIGUOUS run of finite rows, never across a gap. The
+    earlier version compacted every finite row into one array before convolving,
+    so a segment's last ``window // 2`` frames were averaged with the first
+    frames of the next segment -- 77 frames and metres away on play 1's id 21,
+    whose stationary body marched 0.88 m/frame for four frames toward where its
+    track resumed (2026-09-15). Every sparse track did this at every long gap.
+    """
     xy = np.asarray(xy, float)
     out = xy.copy()
     ok = np.isfinite(xy).all(1)
     if ok.sum() < 3:
         return out
     idx = np.flatnonzero(ok)
-    for d in range(2):
-        v = xy[idx, d]
-        k = min(window, len(v) if len(v) % 2 else len(v) - 1)
-        if k < 3:
+    # split the finite rows into runs of consecutive indices; gaps already filled by
+    # fill_gaps are contiguous here, anything longer than its max_gap is a break
+    breaks = np.flatnonzero(np.diff(idx) > 1)
+    runs = np.split(idx, breaks + 1)
+    for run in runs:
+        if len(run) < 3:
             continue
-        pad = k // 2
-        vp = np.concatenate([np.full(pad, v[0]), v, np.full(pad, v[-1])])
-        out[idx, d] = np.convolve(vp, np.ones(k) / k, mode="valid")
+        for d in range(2):
+            v = xy[run, d]
+            k = min(window, len(v) if len(v) % 2 else len(v) - 1)
+            if k < 3:
+                continue
+            pad = k // 2
+            vp = np.concatenate([np.full(pad, v[0]), v, np.full(pad, v[-1])])
+            out[run, d] = np.convolve(vp, np.ones(k) / k, mode="valid")
     return out
 
 
