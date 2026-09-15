@@ -1,7 +1,29 @@
 """render.depth_snap: a one-view body slides along its own ray onto the other camera's detection."""
 import numpy as np
 
-from nfl_gsplat.render.depth_snap import snap_ground, snap_one
+from nfl_gsplat.render.depth_snap import snap_ground, snap_one, veto_outlier_snaps
+
+
+def test_a_snap_that_disagrees_with_its_neighbours_is_undone():
+    """Play 1's id 1 slid 2.0 m along its ray on one frame while its neighbours slid nothing: the
+    wrong man on the ray. A run of consistent slides stays; the outlier in it, and the lone big one,
+    are put back where the sideline had them."""
+    tr = _Track(n=20)
+    side = {f: {1: np.array([0.0, -10.0]), 2: np.array([5.0, -10.0])} for f in range(20)}
+    other = {f: {1: np.array([0.0, -9.7])} for f in range(20)}            # id 1: 0.3 m further, every frame
+    other[10][1] = np.array([0.0, -8.0])                                  # ... except one frame: 2.0 m
+    other[15] = {1: np.array([0.0, -9.7]), 2: np.array([5.0, -8.0])}     # id 2: one lone 2 m snap
+    out, n = snap_ground(side, other, tr)
+    assert n == 19                                                        # 20 - the outlier - the loner
+    assert np.allclose(out[9][1], [0.0, -9.7]) and np.allclose(out[11][1], [0.0, -9.7])
+    assert np.allclose(out[10][1], [0.0, -10.0])                          # undone, not median-replaced
+    assert np.allclose(out[15][2], [5.0, -10.0])
+    # the veto itself, on the corrections: a lone slide under the limit is kept
+    assert veto_outlier_snaps({3: {4: 0.8}}) == set()
+    assert veto_outlier_snaps({3: {4: 1.5}}) == {(4, 3)}
+    # and turning the window off restores the per-frame answer
+    out, n = snap_ground(side, other, tr, veto_window=0)
+    assert n == 21 and np.allclose(out[10][1], [0.0, -8.0])
 
 
 class _Track:

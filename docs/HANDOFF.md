@@ -1686,8 +1686,16 @@ box) offset over its ankle frames within 15, with 3+ of them; 2462 box frames mo
 (exactly the box's known bias), p90 0.73. Better on every ruler, worse on none. The temporal-median
 snap replaced every per-frame correction with a windowed median and filled unsnapped frames: the
 piecewise medians step where the window's membership changes, and it moved bodies the per-frame
-gates had rightly left alone. A veto-only variant (keep per-frame snaps, drop the one that is an
-outlier against its neighbours) is being measured; mechanism 2 has no fix yet.
+gates had rightly left alone. The veto-only variant -- keep every per-frame snap, drop the one more
+than 1.0 m from the median of the same body's other snaps within +-6 frames (2+ of them), or alone
+in its window and over 1.0 m -- was then measured on top of the anchor:
+
+    anchor alone                   live 19   full 196 (1 over 0.6)   root p90 0.0286   census 1.94   endzone 8.9 / 15.1
+    anchor + snap veto (1)         live 15   full 186 (0 over 0.6)   root p90 0.0278   census 1.94   endzone 8.9 / 15.1   ADOPTED
+
+110 of 4635 snaps vetoed (2.4 %, the documented wrong-man share); the last step over 0.6 m in the
+whole clip (id 76 at 637) goes with them. `depth_snap.veto_outlier_snaps`, VETO_WINDOW 6 / VETO_M 1.0.
+Mechanism 2 (endzone-only depth drift) is being measured with x smoothed inside endzone-only runs.
 
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
