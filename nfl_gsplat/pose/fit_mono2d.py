@@ -82,8 +82,43 @@ class Mono2DConfig:
     # seen one is untouched. 1 = off. The temporal term is the only place SMPL-X's own notion of
     # a body can hold a limb: the pose prior is a plain L2 toward the mean pose.
     unseen_temporal_mult: float = 1.0
+    # HARD box bounds on the four hinges (knees, elbows) inside the optimiser: flexion within
+    # [hinge_flex_min, hinge_flex_max] degrees about the hinge axis, the two off-axis components
+    # within +-hinge_off_max. A soft range prior was measured twice (weights 1 and 10, both tables)
+    # and lost to the reprojection every time (HANDOFF 2026-09-10); the post-hoc clamp in
+    # render.timeline then zeroed the backwards and sideways hinges at +1.7 px on the endzone's limb
+    # reprojection p90. With the bound INSIDE the fit the other joints can compensate while the
+    # optimiser runs, which a clamp after the fact cannot do. False = off.
+    hard_hinges: bool = False
+    hinge_flex_min_deg: float = -5.0
+    hinge_flex_max_deg: float = 150.0
+    hinge_off_max_deg: float = 25.0
     max_iter: int = 40
     loss: str = "soft_l1"
+
+
+# body_pose rows (joint - 1), hinge axis, and the sign that makes flexion positive, SMPL-X rest pose
+HINGES = {"L_knee": (3, 0, +1.0), "R_knee": (4, 0, +1.0), "L_elbow": (17, 1, -1.0), "R_elbow": (18, 1, +1.0)}
+
+
+def hinge_bounds(n_params: int, bp_slice: slice, cfg: "Mono2DConfig"):
+    """``(lo, hi)`` over the parameter vector for least_squares: the hinges boxed per cfg, everything
+    else unbounded. Returns None when cfg.hard_hinges is off."""
+    if not cfg.hard_hinges:
+        return None
+    lo = np.full(n_params, -np.inf)
+    hi = np.full(n_params, np.inf)
+    start = bp_slice.start or 0
+    fmin, fmax, off = (np.radians(cfg.hinge_flex_min_deg), np.radians(cfg.hinge_flex_max_deg),
+                       np.radians(cfg.hinge_off_max_deg))
+    for j, ax, sign in HINGES.values():
+        k = start + j * 3
+        for a in range(3):
+            if a == ax:
+                lo[k + a], hi[k + a] = (fmin, fmax) if sign > 0 else (-fmax, -fmin)
+            else:
+                lo[k + a], hi[k + a] = -off, off
+    return lo, hi
 
 
 # SMPL-X body joints in left/right pairs: hips, knees, ankles, feet, collars, shoulders, elbows, wrists
@@ -253,8 +288,15 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
 
     # max_nfev counts iterations here (one residual call each, the Jacobian
     # numerical: 70 more); at x10 a noisy frame ran 400 iterations = 5 s
-    sol = least_squares(residuals, init_params, method="trf", loss=cfg.loss, max_nfev=cfg.max_iter,
-                        x_scale="jac")
+    bounds = hinge_bounds(len(init_params), bp_slice, cfg)
+    if bounds is None:
+        sol = least_squares(residuals, init_params, method="trf", loss=cfg.loss, max_nfev=cfg.max_iter,
+                            x_scale="jac")
+    else:
+        # trf needs a start strictly inside the box; a regressor's backwards knee is clipped in
+        x0 = np.clip(np.asarray(init_params, float), bounds[0] + 1e-6, bounds[1] - 1e-6)
+        sol = least_squares(residuals, x0, method="trf", loss=cfg.loss, max_nfev=cfg.max_iter,
+                            x_scale="jac", bounds=bounds)
     J = forward(sol.x)
     errs = []
     for (K, R, t), use, target, pr in zip(cams, uses, targets, partner):

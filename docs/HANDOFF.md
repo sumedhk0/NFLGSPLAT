@@ -1707,7 +1707,23 @@ velocity bound anchored at the sideline join could remove it, and it is two live
 none over 0.6 anywhere in the clip), root jitter p90 0.015, joint jitter p90 0.102 (from 0.229),
 hinges 0 / 0, census 1.94. The largest remaining term is joint jitter on the ids whose fits are
 garbage in stretches (162, 9, 4, 13, 17, 165 at 0.26-0.70) -- the case docs/PLAUSIBILITY.md reserves
-for the local repair, whose first step (hold through a short bad stretch) is being measured.
+for the local repair.
+
+**Local repair step 1, hold-through, measured and REJECTED as a default (2026-09-15).** Stretches
+where the raw fit's max joint speed exceeds 0.25 m/frame (merged within 3 frames, padded 2): 85 on
+the live play. Replacing a stretch's body_pose by the SLERP between its clean boundary poses, then the
+shipped clamp + Gaussian (jitter p50/p90/p99; reprojection sideline p50/p90, endzone p50/p90):
+
+    shipped              0.019/0.144/1.11   9.2/21.0   6.5/15.9   0 frames
+    hold <= 12 frames    0.018/0.132/1.11   9.3/21.1   6.5/16.8   418 frames, 31 stretches too long
+    hold <= 24           0.018/0.120/1.13   9.4/22.0   6.5/17.3   626, 18 skipped
+    hold <= 48           0.018/0.118/1.08   9.4/22.3   6.5/17.5   664, 17 skipped
+
+The same trade curve as the sigma sweep (0.01 of jitter for ~0.5 px), and the p99 does not move: the
+garbage is in the LONG stretches (17 of 85 run past 48 frames), where holding is a mannequin. A
+post-hoc repair cannot make a good pose from a bad one; the fix belongs in the fit -- a temporal term
+across neighbouring keyframes and joint limits inside the optimiser, so the pose that matches the
+keypoints is also one a body can hold. That is the next build, not another smoother.
 
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the

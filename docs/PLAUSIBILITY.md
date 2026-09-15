@@ -90,5 +90,10 @@ Two guards make this safe to ship:
   the same second ruler; a repair that lowers jitter while pulling the limbs off the keypoints is
   rejected, like every correction before it (`corrections-must-beat-what-they-correct`).
 
-Not built yet: the stretch finder (exceedance runs per id) and steps 1-2. Step 3 needs a prior and
-is deliberately last.
+Measured 2026-09-15 (HANDOFF has the table): the stretch finder is a scratch probe, and step 1
+(hold through) buys 8-16 % of jitter p90 for 1-1.4 px of endzone reprojection and leaves the p99
+where it was -- the garbage sits in long stretches (17 of 85 run past 48 frames), where holding is a
+mannequin. Not adopted. The conclusion is that no post-hoc step makes a good pose from a bad one at
+that length: the repair belongs in the FIT, as a temporal term across neighbouring keyframes and joint
+limits inside the optimiser, so the pose that matches the keypoints is also one a body can hold.
+Steps 2-3 stay on the list for what is left after that.

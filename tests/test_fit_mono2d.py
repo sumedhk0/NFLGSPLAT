@@ -68,6 +68,53 @@ def test_recovers_a_swinging_arm_from_one_view():
     assert abs(Jf[21, 2] - J[21, 2]) < 0.15, (Jf[21], J[21])
 
 
+def test_hard_hinges_box_the_knees_and_elbows_and_the_fit_still_lands_on_the_keypoints():
+    """The soft range prior lost to the reprojection twice; a box bound inside the optimiser cannot.
+    A start with the right elbow bent BACKWARDS is clipped into the box and the fit still reprojects
+    within noise, with the elbow on the legal side."""
+    from nfl_gsplat.pose.fit_mono2d import _param_slices, hinge_bounds
+
+    base = SMPLXFitConfig()
+    bp_slice, _go, _tr = _param_slices(base)
+    cfg = Mono2DConfig(hard_hinges=True)
+    lo, hi = hinge_bounds(69, bp_slice, cfg)
+    s = bp_slice.start or 0
+    assert np.isinf(lo).sum() == 69 - 12 and np.isinf(hi).sum() == 69 - 12          # four hinges x three
+    assert np.isclose(lo[s + 4 * 3 + 0], np.radians(-5)) and np.isclose(hi[s + 4 * 3 + 0], np.radians(150))   # R_knee about +x
+    assert np.isclose(lo[s + 17 * 3 + 1], np.radians(-150)) and np.isclose(hi[s + 17 * 3 + 1], np.radians(5))  # L_elbow: flexion is -y
+    assert np.isclose(hi[s + 18 * 3 + 0], np.radians(25)) and np.isclose(lo[s + 18 * 3 + 2], np.radians(-25))  # R_elbow off-axis
+    assert hinge_bounds(69, bp_slice, Mono2DConfig()) is None
+
+    rest = _rest()
+    forward = fk_forward(rest)
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 1.0]))
+    cam = (K, R, t)
+    bp = np.zeros(63)
+    bp[(17 - 1) * 3 + 1] = 1.2
+    bp[(19 - 1) * 3 + 1] = 0.6                                # right elbow flexed 34 deg, legal
+    from scipy.spatial.transform import Rotation
+    go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
+    p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
+    J = forward(p_true)
+    p_true[-1] -= sole_height(J)
+    J = forward(p_true)
+    uv, _ = project(K, R, t, J)
+    conf = np.ones(22)
+    conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
+    rough = bp.copy()
+    rough[(19 - 1) * 3 + 1] = -1.0                             # the regressor bent the elbow backwards
+    T = 3
+    params, valid, rep = fit_sequence_2d(np.stack([uv] * T), np.stack([conf] * T), [cam] * T,
+                                         np.stack([J[0, :2]] * T), rest, forward,
+                                         cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0), hard_hinges=True),
+                                         base_cfg=base, init_body_pose_seq=np.stack([rough] * T),
+                                         init_orient_seq=np.stack([go] * T))
+    assert valid.all() and rep[-1] < 3.0, rep
+    elbow = params[-1][s + 18 * 3 + 1]
+    assert elbow >= np.radians(-5) - 1e-9, np.degrees(elbow)
+
+
 def test_body_frame_speeds_ignore_orient_and_transl_and_merge_keeps_fused():
     from scipy.spatial.transform import Rotation
 
