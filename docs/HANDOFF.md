@@ -1695,7 +1695,19 @@ in its window and over 1.0 m -- was then measured on top of the anchor:
 
 110 of 4635 snaps vetoed (2.4 %, the documented wrong-man share); the last step over 0.6 m in the
 whole clip (id 76 at 637) goes with them. `depth_snap.veto_outlier_snaps`, VETO_WINDOW 6 / VETO_M 1.0.
-Mechanism 2 (endzone-only depth drift) is being measured with x smoothed inside endzone-only runs.
+One id pays: fragment 162 loses its lone snaps and its root jitter p90 goes 0.18 -> 0.44 (it was the
+id the no-snap A/B had shown depends on the snap); the aggregates all improve, so it shipped.
+
+Mechanism 2, REJECTED: a Gaussian on x inside each id's endzone-only runs (sigma 4 and 8, 5869
+frames touched) -- live 19 -> 19, full 196 -> 195, sigma 8 census 1.94 -> 1.97 and endzone p90 +0.3
+px. The drift is a monotone 2.6 m ramp over 12 frames, which a smoother preserves by design; only a
+velocity bound anchored at the sideline join could remove it, and it is two live steps on one id.
+
+**Where the live play stands after all of it (07l, tag v44):** steps > 0.25 m/frame 15 (from 21;
+none over 0.6 anywhere in the clip), root jitter p90 0.015, joint jitter p90 0.102 (from 0.229),
+hinges 0 / 0, census 1.94. The largest remaining term is joint jitter on the ids whose fits are
+garbage in stretches (162, 9, 4, 13, 17, 165 at 0.26-0.70) -- the case docs/PLAUSIBILITY.md reserves
+for the local repair, whose first step (hold through a short bad stretch) is being measured.
 
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
