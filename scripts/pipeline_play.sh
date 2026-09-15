@@ -40,6 +40,8 @@
 #             wears synthetic uniforms (render.uniform); fitted textures measured no better
 #   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
 #   teams     scripts/08f team per id from torso colour (bimodal only) -> <play-dir>/team_by_colour.json
+#   measure   scripts/07l plausibility rulers on the timeline 05k draws -> $DIAG/<play>_latest_plausibility.json
+#             (steps, root + joint jitter, census; CPU, ~3 min; re-run every time, never marked done)
 #   hifi      scripts/05k 1080p GPU render on the footage field        -> <play-dir>/render_hifi/
 #   render    scripts/05d world mode, fitted appearance -- OPT-IN, RENDER_ABS=1 (11 min of GPU
 #             per run for a render nobody looks at; the hi-fi render is the deliverable)
@@ -394,6 +396,16 @@ if ! done_ teams; then
   "$PYN" scripts/08f_team_by_colour.py --play-dir "$P" --red "$RED" --white "$WHITE" 2>&1 | grep -v "Warning\|warn" | grep -E "split|refusing|wrote|Error" || true
   mark teams
 fi
+
+# The plausibility score of the timeline the render is about to draw. Not a marked stage: it is cheap
+# (CPU, ~3 min with --joints) and its whole point is to be re-read after every data change, so it runs
+# on every invocation and the table lands in the log before the 45-minute render starts. The user's
+# three complaints about v38 (teleports, jitter, a man in the wrong line) were invisible to the census
+# and got dismissed once by a probe that printed 48 m/s and moved on -- this is the ruler that would
+# have caught them (docs/HANDOFF.md, 2026-09-15).
+log "plausibility rulers on the timeline 05k will draw (07l)"
+"$PYS" scripts/07l_measure_plausibility.py --play-dir "$P" --tag latest --joints ${LIVE_LO:+--lo "$LIVE_LO"} ${END_LIVE:+--hi "$END_LIVE"} 2>&1 \
+   | grep -v "Warning\|warn" | grep -E "^(steps|root|census|joints|report| +worst)|Error|Traceback" || log "07l failed; the render goes ahead unscored"
 
 if ! done_ hifi; then
   log "hi-fi render on the footage field (05k; resumable)"
