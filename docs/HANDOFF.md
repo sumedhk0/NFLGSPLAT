@@ -1582,6 +1582,35 @@ separates cleanly (BAL 0.09 / KC 0.88 positive share over 68 and 58 ids). Jersey
 ids a number and the roster path produced defenders drawn on offence. Every fragment created above takes its
 team from its own kit majority, never inherited.
 
+**THE JITTER IS IN THE LIMBS, NOT THE ROOT (2026-09-15).** Two hypotheses for the "super jittery" motion
+were A/B'd on the drawn timeline (scratch probe_jitter_ab: root-xy second difference, m/frame^2, all
+drawn body-frames, plus the census as the guard):
+
+    config              | p50    p90    p99   | census play / full
+    default             | 0.0028 0.0294 0.178 | 2.00 / 2.90
+    no depth snap       | 0.0028 0.0258 0.157 | 1.98 / 2.94   (id 162 worse: 0.16 -> 0.44)
+    no refit placement  | 0.0050 0.0540 0.249 | 2.14 / 2.97   (jitter DOUBLES: the refit pelvis is smoother than the box point)
+    neither             | 0.0048 0.0379 0.171 | 2.22 / 3.02
+
+Both rejected. The root's p50 is a real player's value (0.003); the p90 tail is five post-whistle ids
+(169, 170, 76, 79 from 483+) and fragment 162. So the root is not what the user sees shaking.
+
+The limbs are (scratch probe_pose_jitter: the renderer's own forward pass, pelvis-relative joints, live
+play 300-460, 31 ids): joint jitter p90 **median 0.15 m/frame^2 across ids**, ten times a visible
+twitch, with ids 162 / 165 / 9 / 4 at 0.7-0.9 and hands moving 0.4-0.6 m/frame (25-37 m/s) at the p90.
+Every one of them is fused-posed, keyframes at **stride 2**, so the timeline is nearly the raw
+per-frame fit; smooth_axis_angles (median 7, range-gated at 0.5 rad) keeps any component that turns
+more than 0.5 rad in 7 frames RAW -- which is exactly what fit noise on a 5-pixel hand does. The
+gate built to save a runner's arm swing also saves the noise. Next: per-joint breakdown (which limbs),
+raw keyframes vs drawn (fit or smoother), and a smoother A/B on TWO rulers -- joint jitter and limb
+reprojection onto the footage keypoints in both cameras (a frozen mannequin has zero jitter, so jitter
+alone would crown the heaviest smoother).
+
+The rulers are now code: `nfl_gsplat/render/motion_rulers.py` (contiguous step, root jitter, census,
+joint jitter/speed, handover steps -- pure functions, tested) and `scripts/07l_measure_plausibility.py`
+(builds the timeline as 05k renders it, prints one table, writes DIAG/<play>_<tag>_plausibility.json),
+so v38 / v39 / v40 are one diff.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
