@@ -1611,6 +1611,29 @@ joint jitter/speed, handover steps -- pure functions, tested) and `scripts/07l_m
 (builds the timeline as 05k renders it, prints one table, writes DIAG/<play>_<tag>_plausibility.json),
 so v38 / v39 / v40 are one diff.
 
+**The fix: a Gaussian on the limbs (2026-09-15, commit 5b46e9d).** Per joint the jitter sits at the
+extremities (wrists 0.12, feet 0.11, ankles 0.09, elbows 0.07 m/frame^2 at the p90), and the raw stride-2
+keyframes carry the same numbers as the drawn frames: the fit itself is noisy on every frame, and the
+7-frame median (gated or not) cannot remove noise that is on every frame. Smoother A/B on TWO rulers,
+live play, 30 ids -- joint jitter p50/p90/p99 and limb reprojection onto the footage keypoints (px,
+sideline p50/p90, endzone p50/p90):
+
+    raw               0.035/0.261/1.38   8.6/20.2   5.9/12.3
+    median 7 gated    0.040/0.231/1.38   8.9/20.2   6.1/12.9    (the old default: nothing)
+    median 15         0.035/0.159/0.89   9.7/21.0   7.2/15.5
+    gauss sigma 2     0.019/0.109/0.69   9.0/20.9   6.4/14.2    <- adopted (POSE_SMOOTH_SIGMA)
+    gauss sigma 4     0.013/0.078/0.53   9.9/21.7   7.3/16.7    smear: +1.3 px p50, +4.4 px endzone p90
+
+Verified on the real timeline by 07l (tag v41 vs v40): joints p50 0.037 -> 0.018, p90 0.229 -> 0.108,
+p99 1.35 -> 0.69; steps, root jitter and census identical. The reprojection ruler is biased toward the
+raw fit (the fit followed the detector's per-frame noise, so any smoother scores slightly worse against
+the same noisy keypoints) -- it still separates repair (sigma 2) from smear (sigma 4). A per-joint sigma
+(arms heavier than legs: the arms are the noisiest and the least visible) is being measured next.
+
+**Renders.** v39 = cut 19 + 08u + smooth_xy fix (`diag/play_001_v39_hifi_720.mp4`). v40 = + 08t + 08v
++ the Gaussian limb smoother, rendering. Scores: `diag/play_001_v40_plausibility.json` (state before the
+smoother) and `_v41_` (with it) -- v40 the render carries the v41 numbers.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze
