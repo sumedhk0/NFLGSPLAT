@@ -4,7 +4,24 @@ import numpy as np
 import pandas as pd
 
 from nfl_gsplat.calibration.cameras_io import CameraTrack
-from nfl_gsplat.render.play_timeline import ankle_ground, ground_positions
+from nfl_gsplat.render.play_timeline import anchor_boxes_to_ankles, ankle_ground, ground_positions
+
+
+def test_anchor_moves_the_box_by_the_ids_own_offset_and_only_near_its_ankle_frames():
+    """Play 1's id 161 hopped 1.2 m at frame 368 -> 369 when its ankles stopped being confident and the
+    box point took over. The anchored box carries the id's median (ankle - box) offset from the ankle
+    frames around it; a box with no ankle frame within the window is left to the raw fallback."""
+    box = {("sideline", f, 1): np.array([10.0, float(f)]) for f in range(0, 40)}
+    ank = {("sideline", f, 1): np.array([10.0, float(f)]) + [0.3, -0.1] for f in (0, 2, 4, 6, 8, 10)}   # steady offset
+    ank[("sideline", 4, 1)] = np.array([10.0, 4.0]) + [5.0, 5.0]                                      # one wild ankle
+    box[("sideline", 5, 2)] = np.array([0.0, 0.0])                                                    # another id, no ankles
+    out, n = anchor_boxes_to_ankles(box, ank, window=15, min_support=3)
+    assert n == 16                                            # 1,3,..,9 between the ankle frames, then 11-21
+    assert np.allclose(out[("sideline", 1, 1)], [10.3, 0.9])  # the median offset, the wild one outvoted
+    assert np.allclose(out[("sideline", 21, 1)], [10.3, 20.9])   # frames 6, 8, 10 still within 15
+    assert ("sideline", 22, 1) not in out and ("sideline", 39, 1) not in out   # fewer than 3 ankle frames near
+    assert ("sideline", 5, 2) not in out                      # an id without ankles is untouched
+    assert np.allclose(out[("sideline", 4, 1)], ank[("sideline", 4, 1)])     # ankle frames pass through as they are
 
 
 def look_at(centre, target):

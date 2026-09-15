@@ -1660,6 +1660,35 @@ that could not exist is worth two pixels at the tail. `timeline.clamp_hinges` ru
 Gaussian (which rounds its kinks); `motion_rulers.hinge_violations` reports the shares in 07l. The
 collars and spine stay as the fit made them: their repair belongs in the fit (a pose prior), not here.
 
+**The 21 live-play hops: three mechanisms, traced by stage (2026-09-15).** None is a camera handover.
+Stage trace on ids 1, 40, 161 (raw sideline, raw endzone, sideline after the depth snap, drawn):
+
+  1. **id 1 at 415-420**: the raw sideline point sits still at y +5.9; at 420 the DEPTH SNAP slides it
+     2.0 m along its ray to y +3.0 with no endzone row of its own -- a same-team body happened to lie
+     on the ray -- and the smoother spreads that into a 12-frame ramp at 0.2-0.35 m/frame. The snap is
+     decided per frame; the correction a body needs along its ray varies slowly.
+  2. **id 40 at 384-396**: endzone-only frames before its sideline span; the endzone's ground point
+     walks 2.6 m along x (its depth axis) in 12 frames, 13 m/s, then the sideline picks him up 0.7 m
+     away. The endzone's depth noise, drawn as motion.
+  3. **id 161 at 368-369**: the raw SIDELINE point hops 1.2 m when the ankle keypoints stop being
+     confident and the box bottom takes over; at 375 an outlier box adds 1.6 m more.
+
+Fixes measured on four rulers (live / whole-clip steps > 0.25 m/frame, root jitter, census, and the
+drawn lower joints reprojected into the ENDZONE against its keypoints -- the sideline's depth axis is
+that camera's lateral axis, so a slide along the ray shows there and nowhere else):
+
+    baseline                       live 21   full 214   root p90 0.0294   census 2.00   endzone 8.8 / 15.2 px
+    box anchored to ankles (3)     live 19   full 196   root p90 0.0286   census 1.94   endzone 8.8 / 15.2   ADOPTED
+    temporal snap, median +-6 (1)  live 28   full 217   root p90 0.0289   census 1.96   endzone 8.9 / 16.3   REJECTED
+
+The anchor (`play_timeline.anchor_boxes_to_ankles`): a box point takes the id's own median (ankle -
+box) offset over its ankle frames within 15, with 3+ of them; 2462 box frames moved by p50 0.31 m
+(exactly the box's known bias), p90 0.73. Better on every ruler, worse on none. The temporal-median
+snap replaced every per-frame correction with a windowed median and filled unsnapped frames: the
+piecewise medians step where the window's membership changes, and it moved bodies the per-frame
+gates had rightly left alone. A veto-only variant (keep per-frame snaps, drop the one that is an
+outlier against its neighbours) is being measured; mechanism 2 has no fix yet.
+
 **A false bug report avoided, worth recording.** I suspected this 2024 play had been resolved against the
 2025 roster, because `roster.py` reads names only from a `player_name` column (the 2025 schema) while the
 2024 file stores them under `full_name`, and yet identities carry names. The check disproved it: "Swayze

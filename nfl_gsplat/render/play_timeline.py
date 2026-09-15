@@ -34,6 +34,15 @@ BOX_MARGIN_FRAC: float = 0.078
 # its depth, its ankle ray 0.23 m.
 ANKLE_Z_M: float = 0.08
 ANKLE_MIN_CONF: float = 0.5
+# Where a view has no confident ankles the box point stands in, and the two disagree by that 0.31 m
+# (1.2 m on a crouched man), so every switch between them was a hop and every ankle-less frame carried
+# the bias. anchor_boxes_to_ankles moves a box point by the id's own median (ankle - box) offset over
+# the ankle frames within this window, needing this many of them. Measured on play 1 (2026-09-15):
+# 2462 box frames moved, offset p50 0.31 m / p90 0.73; live steps > 0.25 m/frame 21 -> 19, whole clip
+# 214 -> 196, census 2.00 -> 1.94, root jitter p90 0.0294 -> 0.0286, the endzone reprojection of the
+# lower joints unchanged (8.8 / 15.2 px) -- better on every ruler, worse on none.
+ANKLE_ANCHOR_WINDOW: int = 15
+ANKLE_ANCHOR_MIN_SUPPORT: int = 3
 
 
 def clip_offset(play_dir) -> int:
@@ -103,6 +112,70 @@ def ankle_ground(kdf, tracks, *, z: float = ANKLE_Z_M, min_conf: float = ANKLE_M
             pts = C[None, :2] + sc[:, None] * d[ok, :2]
             out[(cam, f, int(pid))] = pts.mean(axis=0)
     return out
+
+
+def box_ground(df, tracks, *, margin_frac: float = BOX_MARGIN_FRAC, frame_shift=None) -> dict:
+    """``{(cam, frame, pid): xy}``: every row's box-bottom point on the turf -- ground_positions'
+    fallback, keyed like ankle_ground so the two can be joined per (camera, frame, player)."""
+    from nfl_gsplat.pose.place_on_field import ground_point
+
+    out: dict = {}
+    for cam, sub in df.groupby("cam"):
+        tr = tracks[cam]
+        shift = (frame_shift or {}).get(str(cam), 0)
+        for f, rows in sub.groupby("frame"):
+            f = int(f)
+            fc = f + shift
+            if fc < 0 or fc >= len(tr.conf) or tr.conf[fc] <= 0:
+                continue
+            intr, pose = tr.at(fc)
+            K, R, t = intr.K(), pose.R, pose.t
+            for r in rows.itertuples():
+                try:
+                    foot_v = float(r.bbox_y2) - margin_frac * float(r.bbox_y2 - r.bbox_y1)
+                    g = ground_point((0.5 * (r.bbox_x1 + r.bbox_x2), foot_v), K, R, t)
+                except Exception:
+                    continue
+                if abs(g[0]) < 60 and abs(g[1]) < 30:
+                    out[(str(cam), f, int(r.global_player_id))] = np.asarray(g[:2], float)
+    return out
+
+
+def anchor_boxes_to_ankles(box_pts: dict, ankle_pts: dict, *, window: int = ANKLE_ANCHOR_WINDOW,
+                           min_support: int = ANKLE_ANCHOR_MIN_SUPPORT):
+    """``(points, n_anchored)``: ``ankle_pts`` plus, for every ``box_pts`` key without an ankle point,
+    the box point moved by that (camera, player)'s median ``ankle - box`` offset over its ankle frames
+    within ``window`` frames, when at least ``min_support`` of them exist. Keys with no ankle frame
+    near are left out, so ground_positions falls back to the raw box there as before.
+
+    WHY. The ankle ray is the better foot (0.06 m vs the box's 0.31 m against the triangulated
+    ankles), but the detector's ankles are confident on some frames and not others, and a body whose
+    ground point alternates between the two sources hops by their disagreement -- 1.2 m on play 1's
+    id 161 at frame 368 -> 369, one of the live-play steps that survived every teleport fix. The
+    offset is a property of the box (how far the detector's bottom edge sits from the ankles for this
+    man's stance), so it varies slowly and the id's own recent frames measure it."""
+    by_id: dict = {}
+    for key, b in box_pts.items():
+        cam, f, pid = key
+        a = ankle_pts.get(key)
+        by_id.setdefault((cam, int(pid)), {})[int(f)] = (np.asarray(b, float), None if a is None else np.asarray(a, float) - b)
+    out = dict(ankle_pts)
+    n_anchored = 0
+    for (cam, pid), byf in by_id.items():
+        anks = sorted((f, off) for f, (_b, off) in byf.items() if off is not None)
+        if not anks:
+            continue
+        fs = np.asarray([f for f, _ in anks])
+        offs = np.stack([off for _, off in anks])
+        for f, (b, off) in byf.items():
+            if off is not None:
+                continue
+            lo, hi = np.searchsorted(fs, f - window), np.searchsorted(fs, f + window, side="right")
+            if hi - lo < min_support:
+                continue
+            out[(cam, f, pid)] = b + np.median(offs[lo:hi], axis=0)
+            n_anchored += 1
+    return out, n_anchored
 
 
 def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float = BOX_MARGIN_FRAC, ankles=None,
@@ -298,7 +371,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             kdf = kdf.copy()
             kdf.loc[kdf["cam"] == "endzone", "frame"] = kdf.loc[kdf["cam"] == "endzone", "frame"].astype(int) - offset
         ankles = ankle_ground(kdf, tracks, frame_shift=shift)
-        print(f"ground from the ankle keypoints on {len(ankles)} (camera, frame, id); the box point elsewhere")
+        n_ankle = len(ankles)
+        # ... and the box points near them carry the id's own ankle-box offset, so a body does not
+        # hop when the detector's ankles come and go (ANKLE_ANCHOR_WINDOW)
+        ankles, n_anchored = anchor_boxes_to_ankles(box_ground(df, tracks, frame_shift=shift), ankles)
+        print(f"ground from the ankle keypoints on {n_ankle} (camera, frame, id); {n_anchored} box points "
+              f"anchored to them; the raw box point elsewhere")
     # A pair whose two tracks are not one player: the sideline alone draws it
     # (pair_rule; the pairing's median-distance gate catches it upstream now).
     if {"sideline", "endzone"} <= set(df["cam"].unique()):
