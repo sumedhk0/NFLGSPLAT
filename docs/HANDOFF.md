@@ -1543,10 +1543,28 @@ Three distinct mechanisms, each found by tracing raw per-camera positions throug
      from its own kit colour. A margin (intruder >= 1.5 m and >= 2x the other camera) is essential -- without
      it 50 intervals fire, most coin-flips at 0.6 m vs 0.6 m. With it, 13 intervals, 187 rows, every one
      unambiguous. APPLIED; timeline verification running.
-  3. **Interpolation ramps** (hypothesis, being traced). id 21 moves 0.88 m/frame at 240-242 with NO raw
-     detection in either camera from 244 to 320 and raw positions at 236/242 only 0.1 m apart. The jump is
-     manufactured after ground_positions -- most likely place_from_refit shifting detected frames while the
-     interpolated frames between them stay unshifted.
+  3. **`smooth_xy` averaged ACROSS GAPS -- fixed.** id 21 moved 0.88 m/frame at 240-242 with NO raw
+     detection in either camera from 244 to 320 and raw positions at 236/242 only 0.1 m apart. My first
+     hypothesis was place_from_refit; the stage trace showed its shift was 0.00 on every detected frame. The
+     jump appeared only between build_timeline's input and its states, and only in a segment's last FOUR
+     frames -- the smoother's pad width. smooth_xy compacted every finite row into one array before
+     convolving, so frame 243 sat beside frame 320 and the 9-frame mean blended one segment's tail with the
+     next segment's head, 77 frames and metres away. Now smoothed within each contiguous run only.
+
+  4. **Same-camera track switches** (scripts/08t_cut_track_switches.py). One camera's own track jumps to a
+     different man across a short gap: id 82's sideline sat at x = -23.1 to frame 307 and resumed at 315 at
+     x = -28.9 -- 5.9 m in 8 frames, which fill_gaps then drew as a body crossing the field. Both cameras
+     agree on the NEW man afterwards, so no cross-camera test (08u) can see it. Two things made the detector
+     usable: PERSISTENCE (the medians either side of the gap must stay apart -- the endzone's depth noise
+     blips ~1 m every frame and fired 90+ times without it) and scoping to the LIVE play by --max-frame,
+     because after the whistle tracks legitimately hop between milling bodies. Applied to play 1 with
+     END_LIVE=470: 16 cuts, 3524 rows, frames 41-465.
+
+**Progress on the timeline ruler** (contiguous steps over 0.6 m/frame, whole play): v38 **26** -> id 19 cut
+22 -> 08u 14 -> smooth_xy fix **3** (ids 76 post-whistle, 82 at its 307 switch) -> 08t applied, verified
+next at the tighter 0.25 m/frame bound, since the corrected smoother spreads a 4-frame ramp over 9 and hides
+it below 0.6. All of it is now a pipeline stage (`switches`, after `pair` so 08c cannot erase the fragment
+identities), with 08u and 08t carrying pure, tested planning functions.
 
 Failed calibrations, so nobody rebuilds them: a ratio-to-own-median teleport test flags the STILLEST ids
 (median 0.006 m/frame makes any motion a 40x outlier); a colour-flip test over the whole clip flags 21 ids
