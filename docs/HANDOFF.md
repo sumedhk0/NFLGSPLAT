@@ -1698,6 +1698,12 @@ whole clip (id 76 at 637) goes with them. `depth_snap.veto_outlier_snaps`, VETO_
 One id pays: fragment 162 loses its lone snaps and its root jitter p90 goes 0.18 -> 0.44 (it was the
 id the no-snap A/B had shown depends on the snap); the aggregates all improve, so it shipped.
 
+The anchor's two knobs swept on the same four rulers (id 161's hop at 370 survived on one ankle
+frame): w15 s2 = shipped; w15 s1 live 14 / full 188 / census 1.95; w30 s3 live 14 / full 182 / census
+1.95 / endzone p90 15.3; w30 s1 live 13 / full 172 / root p90 0.0269 / census 1.96 / endzone p90 15.3.
+Steps improve, both guards move the wrong way by a hair (+0.02 census, +0.2 px). Not adopted;
+w15 s3 stays. CLOSED.
+
 Mechanism 2, REJECTED: a Gaussian on x inside each id's endzone-only runs (sigma 4 and 8, 5869
 frames touched) -- live 19 -> 19, full 196 -> 195, sigma 8 census 1.94 -> 1.97 and endzone p90 +0.3
 px. The drift is a monotone 2.6 m ramp over 12 frames, which a smoother preserves by design; only a
@@ -1708,6 +1714,23 @@ none over 0.6 anywhere in the clip), root jitter p90 0.015, joint jitter p90 0.1
 hinges 0 / 0, census 1.94. The largest remaining term is joint jitter on the ids whose fits are
 garbage in stretches (162, 9, 4, 13, 17, 165 at 0.26-0.70) -- the case docs/PLAUSIBILITY.md reserves
 for the local repair.
+
+**08t to a fixpoint over the WHOLE clip (2026-09-15, 07l v44 -> v45).** Two things were wrong with
+the first 08t pass: it reports one cut per id (the earliest), so the fragments it creates carry
+switches of their own -- a dry run over the full clip found 25 more cuts, six of them INSIDE the live
+play on first-pass fragments (165 @131, 167 @420, 169 @229, 173 @334, 161 @51, 175 @273) -- and it
+was scoped to the live play on the argument that post-whistle hops are not worth fragmenting, while
+four of the post-whistle switches were CROSS-TEAM tails (a KC id turning into a BAL man at 609, 615,
+623, 566) drawn in the head's colour. Applied to a fixpoint (25 + 8 + 4 + 0 cuts, 3701 rows, 37 new
+ids; 08v carried 378 fused + 203 sideline posed frames):
+
+    v44 (live scope, one pass)   live 15   full 186   census live 1.94   root p90 0.0278
+    v45 (whole clip, fixpoint)   live  9   full 150   census live 1.66   root p90 0.0265   joints unchanged
+
+The pipeline's `switches` stage now loops 08t until a pass cuts nothing, over the whole clip
+(CUT_TO_FRAME narrows it); END_LIVE is only 07l's window now. 08t and 08v back up with a counter
+(`tracking.relabel.backup_path`) -- the second apply had overwritten the first pass's `.pre08t`, the
+only copy before any cut, and a manual `.pre08t_full` snapshot saved it.
 
 **Local repair step 1, hold-through, measured and REJECTED as a default (2026-09-15).** Stretches
 where the raw fit's max joint speed exceeds 0.25 m/frame (merged within 3 frames, padded 2): 85 on

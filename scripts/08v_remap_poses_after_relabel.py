@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from nfl_gsplat.errors import SetupError  # noqa: E402
 from nfl_gsplat.render.play_timeline import clip_offset  # noqa: E402
+from nfl_gsplat.tracking.relabel import backup_path  # noqa: E402
 
 CACHES = ("poses_refit.json", "poses_sideline.json")
 
@@ -94,9 +95,10 @@ def main() -> None:
         print(f"  {name} (cam {d.get('cam')}): {moved} posed frames "
               f"{'moved' if args.apply else 'would move'} across {len(by_new)} new ids")
         if args.apply and moved:
-            shutil.copy2(fp, fp.with_suffix(fp.suffix + ".pre08v"))
+            b = backup_path(fp, ".pre08v")             # never overwrites an earlier pass's backup
+            shutil.copy2(fp, b)
             pickle.dump(d, open(fp, "wb"))
-            print(f"    wrote {fp} (backup .pre08v)")
+            print(f"    wrote {fp} (backup {b.name})")
     if not args.apply:
         print("dry run. Re-run with --apply.")
 

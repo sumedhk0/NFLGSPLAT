@@ -4,7 +4,21 @@ import pandas as pd
 import pytest
 
 from nfl_gsplat.errors import SetupError
-from nfl_gsplat.tracking.relabel import id_map_by_boxes, relabel_keypoints, relabel_pose_cache
+from nfl_gsplat.tracking.relabel import backup_path, id_map_by_boxes, relabel_keypoints, relabel_pose_cache
+
+
+def test_backup_path_never_takes_a_name_that_exists(tmp_path):
+    """08t applied twice overwrote the first pass's .pre08t -- the only copy before any cut."""
+    f = tmp_path / "tracks.parquet"
+    f.write_bytes(b"x")
+    first = backup_path(f, ".pre08t")
+    assert first.name == "tracks.parquet.pre08t"
+    first.write_bytes(b"1")
+    second = backup_path(f, ".pre08t")
+    assert second.name == "tracks.parquet.pre08t.1" and not second.exists()
+    second.write_bytes(b"2")
+    assert backup_path(f, ".pre08t").name == "tracks.parquet.pre08t.2"
+    assert backup_path(tmp_path / "poses.json", ".pre08v").name == "poses.json.pre08v"
 
 
 def tracks(ids):

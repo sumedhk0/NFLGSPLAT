@@ -321,20 +321,26 @@ if ! done_ switches; then
   # with a team from its own kit colour; nothing is deleted. Runs AFTER 08c (inside `pair`), which rebuilds
   # identity_resolved.pkl and would erase the fragment identities if it came later. Measured on play 1
   # (2026-09-15): contiguous steps over 0.6 m/frame 26 -> 3 together with the smooth_xy fix.
-  # 08t is scoped to the LIVE play (END_LIVE = the last live frame, 470 on play 1); after the whistle the
-  # crowd hops between milling bodies and cutting there fragments tracks for no visible gain.
+  # 08t ran on the LIVE play only at first (END_LIVE), on the argument that post-whistle hops between
+  # milling bodies were not worth fragmenting. Measured 2026-09-15 (07l v44 -> v45, the whole clip to
+  # a fixpoint): live steps > 0.25 m/frame 15 -> 9, whole clip 186 -> 150, census on the play 1.94 ->
+  # 1.66 (four of the post-whistle switches were CROSS-TEAM tails drawn in the head's colour), root
+  # jitter p90 down, joints unchanged. The whole clip is the default; CUT_TO_FRAME narrows it.
   log "unpair intervals where the cameras hold different men (08u); cut tracks that switch men (08t)"
   # snapshot first: 08v carries posed frames across every relabel below by joining this table to the
   # result on (cam, frame, track_id), so the caches stop rendering fragments default-posed
   cp "$P/tracks.parquet" "$P/tracks.parquet.preswitches"
   "$PYN" scripts/08u_unpair_bad_runs.py --play-dir "$P" --apply 2>&1 \
      | grep -v "Warning\|warn" | grep -E "intervals|rows moved|identit|Error|Traceback" || fail switches
-  if [ -n "${END_LIVE:-}" ]; then
-    "$PYN" scripts/08t_cut_track_switches.py --play-dir "$P" --max-frame "$END_LIVE" --apply 2>&1 \
-       | grep -v "Warning\|warn" | grep -E "cuts|rows moved|Error|Traceback" || fail switches
-  else
-    log "switches: END_LIVE (last live frame) not set -- 08t skipped. Play 1: END_LIVE=470"
-  fi
+  # 08t reports ONE cut per id (the earliest), and the fragments it creates carry switches of their
+  # own: play 1 needed four passes to a fixpoint (25 + 8 + 4 + 0 cuts, six of them inside the live
+  # play on first-pass fragments). Loop until a pass cuts nothing.
+  for pass in 1 2 3 4 5 6 7 8; do
+    out="$("$PYN" scripts/08t_cut_track_switches.py --play-dir "$P" --max-frame "${CUT_TO_FRAME:-999999}" --apply 2>&1 \
+       | grep -v "Warning\|warn" | grep -E "cuts|rows moved|Error|Traceback")" || fail switches
+    log "08t pass $pass: $(echo "$out" | tr '\n' ' ')"
+    case "$out" in *Error*|*Traceback*) fail switches;; *" 0 cuts"*) break;; esac
+  done
   # the caches are numpy-1 pickles: only PYS may write them
   "$PYS" scripts/08v_remap_poses_after_relabel.py --play-dir "$P" --before tracks.parquet.preswitches --apply 2>&1 \
      | grep -v "Warning\|warn" | grep -E "relabels|posed frames|Error|Traceback" || fail switches

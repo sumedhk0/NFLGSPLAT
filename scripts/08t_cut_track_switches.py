@@ -39,6 +39,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from nfl_gsplat.calibration.cameras_io import load_camera_track  # noqa: E402
+from nfl_gsplat.tracking.relabel import backup_path  # noqa: E402
 from nfl_gsplat.errors import SetupError  # noqa: E402
 from nfl_gsplat.render.play_timeline import ankle_ground, clip_offset, ground_positions  # noqa: E402
 
@@ -196,15 +197,20 @@ def main() -> None:
     if not args.apply:
         print(f"dry run: {moved_total} track rows would move. Re-run with --apply.")
         return
-    for f in (tp, kp):
-        shutil.copy2(f, f.with_suffix(".parquet.pre08t"))
+    # A second apply (the fragments of the first pass carry switches of their own: play 1 needed
+    # four passes to a fixpoint) must not overwrite the first pass's backup -- the only copy of the
+    # tables before ANY cut. The backup name takes a counter when it is taken.
+    names = [backup_path(f, ".pre08t") for f in (tp, kp)]
+    for f, b in zip((tp, kp), names):
+        shutil.copy2(f, b)
     raw.to_parquet(tp, index=False)
     keys.to_parquet(kp, index=False)
     if ip.exists():
-        shutil.copy2(ip, ip.with_suffix(".pkl.pre08t"))
+        names.append(backup_path(ip, ".pre08t"))
+        shutil.copy2(ip, names[-1])
         blob["merged"] = merged
         pickle.dump(blob, open(ip, "wb"))
-    print(f"wrote {tp}, {kp}, {ip} (backups .pre08t); {moved_total} track rows moved")
+    print(f"wrote {tp}, {kp}, {ip} (backups {', '.join(b.name for b in names)}); {moved_total} track rows moved")
 
 
 if __name__ == "__main__":

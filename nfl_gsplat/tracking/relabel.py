@@ -22,6 +22,22 @@ from nfl_gsplat.errors import SetupError
 BOX_COLS = ("bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2")
 
 
+def backup_path(f, suffix: str):
+    """``f`` + suffix, or + suffix.N for the first N not taken. The relabelling stages (08t, 08v)
+    are applied more than once -- the fragments of one 08t pass carry switches of their own, play 1
+    needed four passes -- and a fixed backup name would overwrite the only copy of the tables before
+    ANY cut on the second apply (which it did, 2026-09-15; a manual snapshot saved it)."""
+    from pathlib import Path
+
+    f = Path(f)
+    b = f.with_name(f.name + suffix)
+    n = 1
+    while b.exists():
+        b = f.with_name(f"{f.name}{suffix}.{n}")
+        n += 1
+    return b
+
+
 def _keys(df: pd.DataFrame):
     b = df[list(BOX_COLS)].to_numpy(float).round(2)
     return list(zip(df["cam"].astype(str), df["frame"].astype(int), map(tuple, b)))
