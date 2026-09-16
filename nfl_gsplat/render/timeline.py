@@ -277,6 +277,32 @@ def smooth_axis_angles(seq, *, window: int = POSE_SMOOTH_FRAMES):
     return out.reshape(shape)
 
 
+def unwrap_axis_angles(seq):
+    """``seq [T, ...]`` axis-angle vectors with each row re-expressed so that neighbours are close in
+    the vector space: a rotation by ``a`` about ``u`` is also a rotation by ``2 pi - a`` about ``-u``,
+    and scipy's ``as_rotvec`` (the keyframe SLERP's output) always returns the one under pi. A body
+    turning THROUGH a half turn therefore flips sign between two frames, and any component-wise
+    smoother -- median or Gaussian -- then mixes antipodal vectors into a garbage rotation for a
+    window's worth of frames (play 1, id 0: legs splayed for 12 frames at the snap while the
+    cache's own legs sat 4 px on the keypoints). Per row the representation nearer the previous
+    unwrapped row is kept; the rotations themselves are unchanged."""
+    a = np.array(seq, float, copy=True)
+    if a.ndim < 2 or len(a) < 2:
+        return a
+    flat = a.reshape(len(a), -1, 3)
+    for j in range(flat.shape[1]):
+        prev = flat[0, j]
+        for i in range(1, len(flat)):
+            v = flat[i, j]
+            n = np.linalg.norm(v)
+            if n > 1e-9:
+                alt = v * (1.0 - 2.0 * np.pi / n)
+                if np.sum((alt - prev) ** 2) < np.sum((v - prev) ** 2):
+                    flat[i, j] = alt
+            prev = flat[i, j]
+    return flat.reshape(a.shape)
+
+
 def smooth_axis_angles_gaussian(seq, *, sigma: float = POSE_SMOOTH_SIGMA):
     """Gaussian along axis 0 of ``seq [T, ...]`` (axis-angle vectors per joint), edges held;
     ``sigma`` <= 0 returns the input.
@@ -519,7 +545,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
                    min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
-                   clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA) -> Timeline:
+                   clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
+                   unwrap: bool = True) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -550,6 +577,10 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             # clamp's kinks; the orientation keeps the median, which was never measured against this
             if clamp_joints:
                 bp = clamp_hinges(bp)
+            if unwrap:
+                # the SLERP returns canonical vectors (|v| <= pi): a body turning through a half
+                # turn flips sign between frames and the smoothers below would mix antipodes
+                bp, go = unwrap_axis_angles(bp), unwrap_axis_angles(go)
             bp = smooth_axis_angles_gaussian(bp, sigma=pose_sigma)
             go = (smooth_axis_angles_gaussian(go, sigma=orient_sigma) if orient_sigma and orient_sigma > 0
                   else smooth_axis_angles(go, window=pose_smooth))

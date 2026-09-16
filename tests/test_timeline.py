@@ -363,3 +363,47 @@ def test_a_short_fragment_riding_a_teammate_is_a_rider_and_a_long_or_lone_one_is
     assert tl.rider_ids(out, {**team, 2: "BAL"}) == set()      # a different team beside him is not a rider
     n = tl.drop_ids(out, {2})
     assert n == 20 and all(2 not in [s.pid for s in out.states[f]] for f in frames)
+
+
+def _sweep_through_half_turn(n=41, lo_deg=165.0, hi_deg=195.0, axis=(0.0, 0.66, 0.75)):
+    """Canonical axis-angle rows (as the keyframe SLERP returns them) of a body turning smoothly
+    THROUGH a half turn about one axis: the magnitude passes pi mid-way and the canonical vector
+    flips sign there."""
+    a = np.asarray(axis, float)
+    a /= np.linalg.norm(a)
+    angles = np.radians(np.linspace(lo_deg, hi_deg, n))
+    return Rotation.from_rotvec(angles[:, None] * a[None]).as_rotvec()
+
+
+def _angular_error_deg(a, b):
+    return np.degrees((Rotation.from_rotvec(a).inv() * Rotation.from_rotvec(b)).magnitude())
+
+
+def test_unwrap_makes_a_half_turn_sweep_continuous():
+    seq = _sweep_through_half_turn()
+    assert np.any(np.sum(seq[:-1] * seq[1:], axis=1) < 0), "the fixture must flip sign somewhere"
+    un = tl.unwrap_axis_angles(seq)
+    # every row is still the same rotation, and neighbours are now close in the vector space
+    assert np.all(_angular_error_deg(seq, un) < 1e-6)
+    steps = np.linalg.norm(np.diff(un, axis=0), axis=1)
+    assert steps.max() < np.radians(1.0)
+    # a joint-shaped [T, J, 3] input is unwrapped per joint
+    stacked = np.stack([seq, seq[::-1]], axis=1)
+    un2 = tl.unwrap_axis_angles(stacked)
+    assert un2.shape == stacked.shape and np.allclose(un2[:, 0], un)
+
+
+def test_orientation_gaussian_survives_a_half_turn():
+    """A body with its back to the camera has |global_orient| near pi; when it turns through pi the
+    canonical vectors flip sign and a component-wise Gaussian averages antipodal vectors into a
+    garbage orientation for ~2 sigma frames (play 1's id 0: legs splayed for 12 frames at the snap,
+    cache legs 4 px on the keypoints). Unwrapping first makes the Gaussian exact again."""
+    seq = _sweep_through_half_turn()
+    raw = tl.smooth_axis_angles_gaussian(seq, sigma=4.0)
+    fixed = tl.smooth_axis_angles_gaussian(tl.unwrap_axis_angles(seq), sigma=4.0)
+    err_raw = np.array([_angular_error_deg(s, r) for s, r in zip(seq, raw)])
+    err_fixed = np.array([_angular_error_deg(s, r) for s, r in zip(seq, fixed)])
+    assert err_raw.max() > 30.0, f"negative control: the plain Gaussian should break, got {err_raw.max():.1f} deg"
+    # the held edges bias a ramp by ~sigma * slope (1.2 deg here); the interior is exact
+    assert err_fixed.max() < 2.0, f"unwrapped Gaussian off by {err_fixed.max():.2f} deg"
+    assert err_fixed[8:-8].max() < 0.1
