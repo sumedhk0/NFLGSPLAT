@@ -97,6 +97,15 @@ class Mono2DConfig:
     hinge_flex_min_deg: float = -5.0
     hinge_flex_max_deg: float = 150.0
     hinge_off_max_deg: float = 25.0
+    # The same box for the TORSO: each spine segment (spine1/2/3) within +-spine_max_deg per axis and
+    # each collar within +-collar_max_deg per axis. Measured on play 1's drawn live play (2026-09-16):
+    # the spine bent past 90 deg in total on 37 % of body-frames and a collar past 40 deg on 36 % --
+    # the "funky angles" the user sees -- because nothing bounded them (the post-hoc collar clamp lost
+    # on reprojection: it moved the arm AFTER the fit had spent the other joints around it). A
+    # crouch belongs to the hips, which stay free. False = off.
+    hard_torso: bool = False
+    spine_max_deg: float = 30.0
+    collar_max_deg: float = 20.0
     max_iter: int = 40
     loss: str = "soft_l1"
 
@@ -106,22 +115,27 @@ HINGES = {"L_knee": (3, 0, +1.0), "R_knee": (4, 0, +1.0), "L_elbow": (17, 1, -1.
 
 
 def hinge_bounds(n_params: int, bp_slice: slice, cfg: "Mono2DConfig"):
-    """``(lo, hi)`` over the parameter vector for least_squares: the hinges boxed per cfg, everything
-    else unbounded. Returns None when cfg.hard_hinges is off."""
-    if not cfg.hard_hinges:
+    """``(lo, hi)`` over the parameter vector for least_squares: the hinges boxed per cfg (and the
+    spine and collars with hard_torso), everything else unbounded. Returns None when both are off."""
+    if not cfg.hard_hinges and not cfg.hard_torso:
         return None
     lo = np.full(n_params, -np.inf)
     hi = np.full(n_params, np.inf)
     start = bp_slice.start or 0
     fmin, fmax, off = (np.radians(cfg.hinge_flex_min_deg), np.radians(cfg.hinge_flex_max_deg),
                        np.radians(cfg.hinge_off_max_deg))
-    for j, ax, sign in HINGES.values():
+    for j, ax, sign in (HINGES.values() if cfg.hard_hinges else ()):
         k = start + j * 3
         for a in range(3):
             if a == ax:
                 lo[k + a], hi[k + a] = (fmin, fmax) if sign > 0 else (-fmax, -fmin)
             else:
                 lo[k + a], hi[k + a] = -off, off
+    if cfg.hard_torso:
+        for j, deg in ((2, cfg.spine_max_deg), (5, cfg.spine_max_deg), (8, cfg.spine_max_deg),
+                       (12, cfg.collar_max_deg), (13, cfg.collar_max_deg)):
+            k = start + j * 3
+            lo[k:k + 3], hi[k:k + 3] = -np.radians(deg), np.radians(deg)
     return lo, hi
 
 

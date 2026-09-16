@@ -392,3 +392,22 @@ def test_blend_params_can_keep_the_fitted_pose():
     assert abs(out[65] - 1.0) < 1e-6                      # so is the orient (about z)
     out1 = blend_params(p_fit, p_anc, 1.0, base_cfg=base, pose=False)
     assert np.allclose(out1[:63], 0.2) and np.allclose(out1[-3:], [3.0, 4.0, 0.0])
+
+
+def test_hard_torso_boxes_the_spine_and_collars_and_hinges_can_be_off():
+    """Play 1's drawn live play had the spine past 90 deg on 37 % of frames and a collar past 40 on 36 %:
+    nothing bounded them. hard_torso boxes spine1/2/3 (+-30 per axis) and both collars (+-20)."""
+    from nfl_gsplat.pose.fit_mono2d import _param_slices, hinge_bounds
+
+    bp_slice, _go, _tr = _param_slices(SMPLXFitConfig())
+    s = bp_slice.start or 0
+    lo, hi = hinge_bounds(69, bp_slice, Mono2DConfig(hard_torso=True))
+    for j in (2, 5, 8):
+        assert np.allclose(lo[s + j * 3: s + j * 3 + 3], np.radians(-30)) and np.allclose(hi[s + j * 3: s + j * 3 + 3], np.radians(30))
+    for j in (12, 13):
+        assert np.allclose(lo[s + j * 3: s + j * 3 + 3], np.radians(-20)) and np.allclose(hi[s + j * 3: s + j * 3 + 3], np.radians(20))
+    assert np.isinf(lo).sum() == 69 - 12 - 15                              # hinges + 5 torso joints x 3
+    lo2, hi2 = hinge_bounds(69, bp_slice, Mono2DConfig(hard_torso=True, hard_hinges=False))
+    assert np.isinf(lo2).sum() == 69 - 15 and np.isinf(lo2[s + 4 * 3])       # R_knee free when hinges are off
+    assert hinge_bounds(69, bp_slice, Mono2DConfig(hard_hinges=False, hard_torso=False)) is None
+    assert not Mono2DConfig().hard_torso                                     # off until measured on the whole play
