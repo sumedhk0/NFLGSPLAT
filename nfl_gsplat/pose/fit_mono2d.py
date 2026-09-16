@@ -49,7 +49,12 @@ class Mono2DConfig:
     place_weight: float = 10.0      # metres of pelvis xy from the box-bottom ground point
     prior_weight: float = 0.02      # L2 on body_pose
     init_weight: float = 0.05       # pull toward the regressor's body_pose
-    temporal_weight: float = 0.3    # toward the previous frame's body_pose and orient
+    # toward the previous frame's body_pose and orient. 0.3 until 2026-09-16; 3.0 measured at the
+    # timeline's placement on play 1's eight worst ids (two-view 0.3, hinge bounds): joint jitter p90
+    # 0.144 -> 0.079, adjacent-keyframe joint turns over 45 deg 0.25 % -> 0.03 % (the in-between-frame
+    # SLERP swing the footage showed on the runner's arms), for ~1.8 px at either camera's p90 with
+    # the p50s unchanged; on the whole play (07l v48 -> v49) joints p90 0.058 -> 0.035, p99 0.27 -> 0.11.
+    temporal_weight: float = 3.0
     # One view trades lean against depth: without this the fits leaned 34 deg
     # (p50) where the triangulated bodies lean 16, 5 % past 60. Measured with
     # 05p --validate on play 1 (365 two-view frames): weight 3 -> 21 deg, 10 ->
@@ -102,8 +107,11 @@ class Mono2DConfig:
     # the spine bent past 90 deg in total on 37 % of body-frames and a collar past 40 deg on 36 % --
     # the "funky angles" the user sees -- because nothing bounded them (the post-hoc collar clamp lost
     # on reprojection: it moved the arm AFTER the fit had spent the other joints around it). A
-    # crouch belongs to the hips, which stay free. False = off.
-    hard_torso: bool = False
+    # crouch belongs to the hips, which stay free. Measured with temporal 3.0 on the eight worst ids at
+    # the timeline's placement: joint jitter p90 0.079 -> 0.055, collars past 40 deg 12.4 -> 0.1 % of
+    # records, sideline limbs p90 -0.8 px, endzone p90 +1.1 px; whole play (v49): a collar past 40 deg
+    # on 0 frames (was 1302), flailing 5.5 -> 3.0 % of standing body-frames. Default on; False = off.
+    hard_torso: bool = True
     spine_max_deg: float = 30.0
     collar_max_deg: float = 20.0
     max_iter: int = 40

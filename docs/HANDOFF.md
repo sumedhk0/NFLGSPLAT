@@ -1968,7 +1968,10 @@ p90 4.9 / p99 14.4, over 45 deg 0.03 % -- the partial result holds across all 35
 The rider rule took ten short fragments across the clip (24, 29, 32, 59, 60, 72, 158, 162, 163, 194; 177
 body-frames) and the census improved at both windows with them gone: they were copies. Render v46 =
 this cache (chained behind v45). Cross-view scorer and the flail / torso rulers on the same cache are
-the last gate before Mono2DConfig's defaults move to temporal 3.0 + hard torso.
+the last gate before Mono2DConfig's defaults move to temporal 3.0 + hard torso. Flail / torso rulers on
+it: flailing 5.5 -> 3.0 % of standing body-frames, a collar past 40 deg 1302 -> 0 frames, the spine
+past 90 deg 1349 -> 1062 (the +-30 deg box lets a segment reach 52; a 20 deg box is being measured on
+the worst ids, with the bent linemen's strips as the check that real crouches survive).
 
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian

@@ -76,14 +76,14 @@ def test_hard_hinges_box_the_knees_and_elbows_and_the_fit_still_lands_on_the_key
 
     base = SMPLXFitConfig()
     bp_slice, _go, _tr = _param_slices(base)
-    cfg = Mono2DConfig(hard_hinges=True)
+    cfg = Mono2DConfig(hard_hinges=True, hard_torso=False)                        # hinges alone here
     lo, hi = hinge_bounds(69, bp_slice, cfg)
     s = bp_slice.start or 0
     assert np.isinf(lo).sum() == 69 - 12 and np.isinf(hi).sum() == 69 - 12          # four hinges x three
     assert np.isclose(lo[s + 4 * 3 + 0], np.radians(-5)) and np.isclose(hi[s + 4 * 3 + 0], np.radians(150))   # R_knee about +x
     assert np.isclose(lo[s + 17 * 3 + 1], np.radians(-150)) and np.isclose(hi[s + 17 * 3 + 1], np.radians(5))  # L_elbow: flexion is -y
     assert np.isclose(hi[s + 18 * 3 + 0], np.radians(25)) and np.isclose(lo[s + 18 * 3 + 2], np.radians(-25))  # R_elbow off-axis
-    assert hinge_bounds(69, bp_slice, Mono2DConfig(hard_hinges=False)) is None
+    assert hinge_bounds(69, bp_slice, Mono2DConfig(hard_hinges=False, hard_torso=False)) is None
     assert Mono2DConfig().hard_hinges, "on by default: measured better on violations, jitter and reprojection"
 
     rest = _rest()
@@ -410,4 +410,4 @@ def test_hard_torso_boxes_the_spine_and_collars_and_hinges_can_be_off():
     lo2, hi2 = hinge_bounds(69, bp_slice, Mono2DConfig(hard_torso=True, hard_hinges=False))
     assert np.isinf(lo2).sum() == 69 - 15 and np.isinf(lo2[s + 4 * 3])       # R_knee free when hinges are off
     assert hinge_bounds(69, bp_slice, Mono2DConfig(hard_hinges=False, hard_torso=False)) is None
-    assert not Mono2DConfig().hard_torso                                     # off until measured on the whole play
+    assert Mono2DConfig().hard_torso and Mono2DConfig().temporal_weight == 3.0   # the measured recipe (07l v49)

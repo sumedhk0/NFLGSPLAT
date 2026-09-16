@@ -355,7 +355,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
-                             "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "hard_torso": args.hard_torso,
+                             "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "hard_torso": args.hard_torso, "spine_max_deg": args.spine_max_deg,
                              "view_weights": (1.0, args.endzone_weight), "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px,
                              "unseen_temporal_mult": args.unseen_temporal_mult}})
     n_frames = sum(len(j["frames"]) for j in jobs)
@@ -516,6 +516,8 @@ def main() -> None:
                     help="pull toward the previous frame's body_pose and orient (sqrt(w) per radian); a sweep knob")
     ap.add_argument("--hard-torso", action="store_true",
                     help="box the spine segments (+-30 deg per axis) and collars (+-20) inside the optimiser too")
+    ap.add_argument("--spine-max-deg", type=float, default=Mono2DConfig.spine_max_deg,
+                    help="with --hard-torso: each spine segment's box per axis, degrees")
     ap.add_argument("--no-hard-hinges", dest="hard_hinges", action="store_false",
                     help="do NOT box the knees and elbows inside the optimiser (fit_mono2d.hinge_bounds; on by "
                          "default: measured better than the shipped fit on violations, jitter AND reprojection)")
@@ -749,7 +751,7 @@ def main() -> None:
                      "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
-                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "hard_torso": args.hard_torso,
+                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "hard_torso": args.hard_torso, "spine_max_deg": args.spine_max_deg,
                              "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px,
                              "unseen_temporal_mult": args.unseen_temporal_mult}})
     n_frames = sum(len(j["frames"]) for j in jobs)
