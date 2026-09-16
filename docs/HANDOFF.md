@@ -1917,16 +1917,17 @@ poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), ti
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
 for the eight worst ids in `scratch/`: refit_tw3.0.json (temporal 3.0), refit_unseen5.json (unseen-limb
 hold 5), refit_tw3u5.json (both).
-  1. Rerun `probe_cache_in_timeline.py refit_tw3.0.json refit_unseen5.json refit_tw3u5.json` (the run
-     was cut off before its candidate rows). Expected from the single-knob rows: temporal 3.0 jitter
-     p90 0.144 -> 0.079 at ~1.8 px on either p90; unseen 5 0.144 -> 0.114 at no cost. Pick the row with
-     the lowest jitter whose endzone lower p90 and sideline limbs p90 are within ~2 px of C's 28.0 / 22.2.
+  1. DONE before the shutdown (10:12): the combination scorer landed. At the timeline's placement,
+     eight worst ids: C 0.144 / endzone 19.8-28.0 / sideline 9.8-22.2; temporal 3.0 0.079, off-axis
+     0.5 % / 19.9-29.7 / 10.1-24.0; unseen 5 0.114 / 19.8-27.9 / 9.7-21.6; BOTH 0.079 / 19.9-29.7 /
+     10.1-24.0 -- identical to temporal 3.0 alone: at that weight the temporal pull already holds an
+     unseen limb, and the extra multiplier adds nothing. Winner: `--temporal-weight 3.0` alone.
   2. Whole-play refit with the winner: `PYS scripts/05p_refit_mono.py --play-dir P --two-view
-     --endzone-weight 0.3 --temporal-weight 3.0 [--unseen-temporal-mult 5] --workers 6` (~100 min; back
+     --endzone-weight 0.3 --temporal-weight 3.0 --workers 6` (~100 min; back
      up poses_refit.json first). Then `07l --tag v49 --joints` and the cross-view scorer with the new
      poses_refit.json as the extra argument; ship if joints improve with steps / root / census / endzone
      not worse than v48 (live 11, root live p90 0.0128, 1.65, endzone lower 19.8 / 28.0 on the worst ids).
-  3. If shipped: set Mono2DConfig.temporal_weight (and unseen_temporal_mult) defaults to the winner,
+  3. If shipped: set Mono2DConfig.temporal_weight default to 3.0 (unseen_temporal_mult stays 1.0),
      commit with the table, render v45 (`scratch/launch_v44.sh` with v45 substituted).
   4. Open product decision for the user: end the render at the tackle (~frame 500); post-whistle steps
      are the crowd and have no mechanism to fix.
