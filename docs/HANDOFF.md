@@ -2065,6 +2065,12 @@ global_orient vector; 11 of them are pure representation jumps (|dv| ~ 6.28 = 2 
 rotation's angle instead of p - prev) would remove the artefact; small population, needs a whole-play
 refit and the cross-view scorer -- queued behind the v47 review.
 
+**07l v50 = v49 + the unwrap (2026-09-16 18:15).** Only the joint rulers can move (the unwrap touches
+rotations, not placement): jitter p50/p90/p99 0.0106/0.0354/0.112 -> 0.0104/0.0326/0.069, speed p90/p99
+0.091/0.218 -> 0.085/0.141; steps (live 7, none over 0.6), root jitter, census 1.50 / 2.51, hinges 0/0
+all unchanged. The p99s are the number to watch: a third of the worst joint motion on the live play
+was the half-turn artefact.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
