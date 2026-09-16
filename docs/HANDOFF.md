@@ -2262,6 +2262,16 @@ the offset -- the ground points beside an unseen stretch are already off before 
 is what the endzone-depth hypothesis predicts (a two-view frame beside an endzone-only stretch
 takes its depth from the same endzone foot point). DENIED; the smoother stays.
 
+Lowest-ankle foot point A/B (19:25, scratch probe_lowest_ankle; the defect's own ruler = the drawn
+pelvis against the endzone keypoint hips over every live frame that has them, n 1889): shipped mean of
+both ankles |d| p50/p90 43.4/121.6 px; lowest ankle for the endzone 43.9/121.6; for both cameras
+43.4/121.6 -- NOTHING moves, and census / root jitter get a hair worse (1.50 -> 1.53/1.55, p90 0.0120
+-> 0.0126/0.0129). DENIED: the lifted stride foot is not the mechanism. The population number is the
+finding: the drawn bodies sit 43 px from their own endzone hips at the median and 122 at p90, against
+4.3 / 9.9 in the sideline -- a general endzone misplacement, not a few running men. Next: is it a
+BIAS (one direction: the endzone camera itself, or a systematic depth rule) or scatter (per body)?
+Vector statistics by views / team / depth band / id running.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
