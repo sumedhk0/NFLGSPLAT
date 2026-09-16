@@ -2157,6 +2157,21 @@ at all (its median slide against the cap) and a one-sided hold reaches 6 frames,
 (b) built as `timeline.orphan_ids` (a teamless id drawn on <= 40 frames is dropped; census unaffected
 by construction), unit-tested, wired after the rider rule; measured with (a)'s rerun.
 
+Rerun (18:50): with (b) in both arms, the per-run hold still LOSES -- live steps 5 -> 7, census
+1.50 -> 1.60 (KC 10.98 -> 11.09), endzone/sideline/jitter unchanged, 611 body-frames slid -- and id
+40's path on 385-395 moves by only 0.1-0.3 m: the endzone's own x drift there (-27.1 -> -25.2 in ten
+frames) agrees with the sideline sightings on both sides, so he is RUNNING at 6 m/s and the ghost on
+the strip is a lateral offset the hold cannot touch. (a) REJECTED, kept opt-in
+(`load_play_timeline(blind_axis=True)`) with its numbers in the module. (b) ADOPTED: live steps
+7 -> 5 (203's two gone), census unchanged. Commit 6cb2a1a.
+
+The absolute step ruler counts sprinters: four of the five live steps left are id 40's strides at
+0.26-0.33 m/frame (8-10 m/s, a defensive back in coverage) and none of the five is a step that
+disagrees with its neighbours. New ruler `motion_rulers.jerk_steps` (commit c299ddb): a contiguous
+step more than 0.15 m longer than the median of its neighbouring steps (3 each side) -- a hop, not a
+stride; 07l prints it beside the absolute count (which stays for teleports). 07l v51 (orphan rule in)
+follows; the hop count on the live play is the number to carry from here.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
