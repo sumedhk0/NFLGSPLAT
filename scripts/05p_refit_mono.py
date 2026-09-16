@@ -355,7 +355,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
-                             "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "hard_torso": args.hard_torso, "spine_max_deg": args.spine_max_deg,
+                             "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "temporal_geodesic": args.temporal_geodesic, "hard_torso": args.hard_torso, "spine_max_deg": args.spine_max_deg,
                              "view_weights": (1.0, args.endzone_weight), "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px,
                              "unseen_temporal_mult": args.unseen_temporal_mult}})
     n_frames = sum(len(j["frames"]) for j in jobs)
@@ -512,6 +512,8 @@ def main() -> None:
     ap.add_argument("--bounds-weight", type=float, default=Mono2DConfig.bounds_weight,
                     help="joint-range prior (pose.pose_bounds); 0 = off")
     ap.add_argument("--bounds-table", default=Mono2DConfig.bounds_table, choices=["data", "anatomical"])
+    ap.add_argument("--temporal-geodesic", action="store_true",
+                    help="orientation temporal term on the relative rotation (representation-free); default off until measured")
     ap.add_argument("--temporal-weight", type=float, default=Mono2DConfig.temporal_weight,
                     help="pull toward the previous frame's body_pose and orient (sqrt(w) per radian); a sweep knob")
     ap.add_argument("--hard-torso", action="store_true",
@@ -751,7 +753,7 @@ def main() -> None:
                      "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
-                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "hard_torso": args.hard_torso, "spine_max_deg": args.spine_max_deg,
+                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight, "temporal_geodesic": args.temporal_geodesic, "hard_torso": args.hard_torso, "spine_max_deg": args.spine_max_deg,
                              "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px,
                              "unseen_temporal_mult": args.unseen_temporal_mult}})
     n_frames = sum(len(j["frames"]) for j in jobs)

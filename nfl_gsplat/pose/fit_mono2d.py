@@ -55,6 +55,13 @@ class Mono2DConfig:
     # SLERP swing the footage showed on the runner's arms), for ~1.8 px at either camera's p90 with
     # the p50s unchanged; on the whole play (07l v48 -> v49) joints p90 0.058 -> 0.035, p99 0.27 -> 0.11.
     temporal_weight: float = 3.0
+    # The orientation half of the temporal term as the RELATIVE rotation's axis-angle (geodesic)
+    # instead of p - prev on the raw vectors: near a half turn the same rotation has two vectors
+    # (v and -v (2 pi - |v|) / |v|), and a chain that lands on the other one pays a 2 pi residual
+    # for nothing (play 1: 14 keyframe pairs jump > 3 rad in the raw vector at 0-4 deg of real
+    # rotation; the runner's 326-338 sit 13-18 px on the sideline around three of them). Off
+    # until measured at the timeline's placement.
+    temporal_geodesic: bool = False
     # One view trades lean against depth: without this the fits leaned 34 deg
     # (p50) where the triangulated bodies lean 16, 5 % past 60. Measured with
     # 05p --validate on play 1 (365 two-view frames): weight 3 -> 21 deg, 10 ->
@@ -218,6 +225,18 @@ def _views(uv, conf, cam):
     return [uv], [conf], [cam]
 
 
+def orient_temporal_residual(go, prev_go, *, geodesic: bool):
+    """The orientation part of the temporal pull, ``[3]``: the raw vector difference, or with
+    ``geodesic`` the axis-angle of the rotation from ``prev_go`` to ``go``, which is the same for
+    either representation of ``prev_go`` (a rotation by a about u is a rotation by 2 pi - a about -u)."""
+    go = np.asarray(go, float); prev_go = np.asarray(prev_go, float)
+    if not geodesic:
+        return go - prev_go
+    from scipy.spatial.transform import Rotation
+
+    return (Rotation.from_rotvec(prev_go).inv() * Rotation.from_rotvec(go)).as_rotvec()
+
+
 def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConfig, base_cfg: SMPLXFitConfig,
                  init_body_pose=None, prev_params=None):
     """``(params, reproj_rms_px, n_used)`` for one frame; ``uv [22, 2]``, ``conf [22]``,
@@ -309,7 +328,7 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
             parts.append(np.sqrt(cfg.init_weight) * (p[bp_slice] - bp_init))
         if prev_params is not None:
             parts.append(temporal_w * (p[bp_slice] - prev_params[bp_slice]))
-            parts.append(np.sqrt(cfg.temporal_weight) * (p[go_slice] - prev_params[go_slice]))
+            parts.append(np.sqrt(cfg.temporal_weight) * orient_temporal_residual(p[go_slice], prev_params[go_slice], geodesic=cfg.temporal_geodesic))
         return np.concatenate(parts)
 
     # max_nfev counts iterations here (one residual call each, the Jacobian

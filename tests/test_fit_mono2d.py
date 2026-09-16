@@ -411,3 +411,20 @@ def test_hard_torso_boxes_the_spine_and_collars_and_hinges_can_be_off():
     assert np.isinf(lo2).sum() == 69 - 15 and np.isinf(lo2[s + 4 * 3])       # R_knee free when hinges are off
     assert hinge_bounds(69, bp_slice, Mono2DConfig(hard_hinges=False, hard_torso=False)) is None
     assert Mono2DConfig().hard_torso and Mono2DConfig().temporal_weight == 3.0   # the measured recipe (07l v49)
+
+
+def test_geodesic_temporal_residual_ignores_the_representation_of_prev():
+    """Near a half turn the previous frame's orientation has two axis-angle vectors; the raw
+    difference charges 2 pi for the other one, the geodesic residual charges the real turn."""
+    from nfl_gsplat.pose.fit_mono2d import orient_temporal_residual
+
+    u = np.array([0.0, 0.66, 0.75]); u /= np.linalg.norm(u)
+    prev = 3.10 * u                                   # 177.6 deg about u
+    prev_alt = prev * (1.0 - 2.0 * np.pi / np.linalg.norm(prev))   # the same rotation, other vector
+    go = 3.16 * u                                     # 3.4 deg further
+    raw, raw_alt = orient_temporal_residual(go, prev, geodesic=False), orient_temporal_residual(go, prev_alt, geodesic=False)
+    assert np.linalg.norm(raw) < 0.1 and np.linalg.norm(raw_alt) > 6.0        # negative control: 2 pi for nothing
+    geo, geo_alt = orient_temporal_residual(go, prev, geodesic=True), orient_temporal_residual(go, prev_alt, geodesic=True)
+    assert np.allclose(geo, geo_alt, atol=1e-9) and abs(np.linalg.norm(geo) - 0.06) < 1e-6
+    assert Mono2DConfig().temporal_geodesic is False                          # off until measured
+
