@@ -1830,6 +1830,20 @@ With the endzone in the objective the bound stops laying legs along the sideline
 -40 %, root jitter -20 %, sideline limbs -7 px, endzone p90 -3.4 px, for +3.6 px on the endzone p50
 (inside the endzone keypoint noise on 60-px bodies). Ship it. hard_hinges stays default on.
 
+**v47 = the whole play refitted two-view (endzone 0.3) with hard hinges (2026-09-16 01:50; 96 min,
+2244 two-view frames on 29 players at sideline 2.5 / endzone 12.1 px, 2865 one-view records on 65).**
+Against v45 on the timeline: joints p90 0.102 -> 0.090, p99 0.69 -> 0.44, speed p90 0.152 -> 0.127;
+root jitter live p90 0.0137 -> 0.0128, p99 0.097 -> 0.081; census 1.66 -> 1.65; hinges 0 / 0; live
+steps 9 -> 11 and whole clip 150 -> 154, every new one on fragment 162 (root jitter p90 0.30 -- the
+26-frame tail of track 19 that sits 0.07-0.6 m from id 165/196/204 and the ankle-ray twin test cannot
+see). Ships if the cross-view scorer agrees (running); 162 is the next thing to remove, not a reason
+to hold the cache.
+
+A "short fragment riding another body" rule was measured for 162 and found nothing to drop: at
+<= 40 drawn frames, nearest same-team body under 0.6 m on >= 70 % of frames, no id qualifies (162: 53 %,
+median 0.57 m to id 11; 39, 153, 167: 0-38 %). Loosening it to catch 162 alone is a rule for one id.
+Not built. (scratch probe_short_fragments.py)
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).
