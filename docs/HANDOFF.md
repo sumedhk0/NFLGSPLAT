@@ -1879,6 +1879,15 @@ lives -- drops 38 % at sigma 4 for ~1 px on either camera's p90 with the p50s un
 timeline (v48): joints p50 0.019 -> 0.013, p90 0.090 -> 0.058, p99 0.44 -> 0.27; steps, root jitter,
 census and hinges identical. Render v43 (in flight) carries v47; the next render carries this.
 
+**The post-whistle steps have no single mechanism (2026-09-16 02:55).** 141 steps over 0.25 m/frame
+after frame 470; the top 30 traced by stage: gap fill / endzone-only 9, raw sideline hop 9 (the box
+point itself moving 0.4-1.1 m/frame in the crowd -- the detector's box sliding between milling men),
+placement / smoothing 7, handover 4, snap toggle 1 -- in five clusters (170 @515-521, 37 @569-577,
+185 @651-656, 79 @542-544, 212 @602). Nothing generic to fix; every one is the crowd after the play.
+The clean product decision is to END THE RENDER at the tackle (~frame 500 on play 1: the play is
+over, the crowd's artefacts are the worst in the clip) -- not taken unilaterally; the whole clip is
+still rendered. (scratch probe_postwhistle_steps.py)
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).
