@@ -2224,6 +2224,27 @@ frames' offset into the seen ones. Suspects, in order: the run smoother (timelin
 9, averaging seen with unseen points), the gap fill, the ankle anchor window (15). A/B running with
 the smoother replaced by the identity (bins, root jitter, hops, census).
 
+Placement alone (19:10, scratch probe_pelvis_offset: the drawn pelvis against the keypoints' hip
+centre, px, drawn minus keypoints): id 40 in the ENDZONE is 70-78 px ABOVE his own hips on every
+endzone-only frame 374-396 (further along that camera's depth) and still 34-38 px above, 55 px left,
+on the two-view frames 398-400 -- the depth snap inherits it. Id 37 (two-view, the hop at 376/377):
+endzone dx jumps 32 -> 67 px across the image between 376 and 377 while the sideline dy goes 20 -> 12
+-- the body moved ~0.7 m along the sideline's depth in one frame: the depth snap changing its answer.
+Id 74: endzone 45-50 px BELOW his hips (nearer the endzone camera) and 66 px right on 414-417, the
+sideline 12 px below on 421-424. Id 17 (in the line, both cameras): 2-6 px, fine.
+
+So the endzone-derived depth is off by ~1-2 m in both directions on running and piled men, and the
+depth snap carries it onto the sideline's ray. Mechanism hypothesis: the endzone ground point is
+the ANKLE keypoints' ray met with the ankle plane (ankle_ground, z = ANKLE_Z_M). That camera sits
+low behind the goal line (~6 deg elevation at 88 m), so a foot lifted 0.4 m in a stride puts its
+ground point ~3 m too deep, and a foot in a pile the other way; the sideline at ~24 deg is four
+times less sensitive. The HIPS sit at ~0.95 m running or standing -- a 0.1 m spread -- so an
+endzone ground point from the hip centre met with the hip plane would err ~1 m at worst instead of
+3. Test: endzone target points from the hips (z = HIP_Z_M) instead of the ankles, everything else
+unchanged; rulers = the endzone pelvis offset over every frame with endzone hips (p50/p90, the
+population ruler of this defect), the sideline pelvis offset (must not move), live hops, census,
+root jitter.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
