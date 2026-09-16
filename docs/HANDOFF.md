@@ -1903,6 +1903,15 @@ Session note (2026-09-16 09:30): the machine went quiet ~03:30 with the v44 rend
 whole-play temporal-weight-3.0 refit unfinished (poses_refit.json untouched = the v47 cache) and the knob
 scorer short of its three new rows. All three relaunched 09:30 (05k resumes from its frames on disk).
 
+**Three fit knobs at the timeline's placement, same recipe (two-view 0.3, bounds, temporal 0.3), eight
+worst ids (2026-09-16 09:45).** C baseline: jitter p90 0.144 / endzone lower 19.8-28.0 / sideline limbs
+9.8-22.2. `--unseen-temporal-mult 5` (a limb no camera sees holds its pose): 0.114 / 19.8-27.9 / 9.7-21.6
+-- 21 % less jitter at no cost on either camera, ADOPT. `--lr-symmetric`: 0.148, off-axis 2.0 -> 5.6 %,
+sideline 15.9-35.4, endzone p90 33.3 -- with the hinges boxed the mirrored assignment is not realisable
+and the residual picks a bad mix; REJECTED. `--joint-reject-px 15`: 0.140 / 22.7-35.7 / 10.0-22.8 --
+drops keypoints the endzone needed; REJECTED. Next: temporal 3.0 + unseen 5 together on the worst ids,
+then the whole play with the winner.
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).
