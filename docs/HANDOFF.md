@@ -1937,6 +1937,14 @@ Baltimore is id 82 (kit vote 0.44, 1 m inside the KC line pre-snap): 08w re-team
 formation. Two new rulers from this pass: limb speed on slow bodies (flailing: 5.5 % of standing
 body-frames) and spine/collar angle shares (37 % / 36 %), scratch probe_flail.py.
 
+**Torso bounds on top of temporal 3.0, at the timeline's placement, eight worst ids (2026-09-16 17:05):**
+tw3 alone jitter p90 0.079 / endzone 19.9-29.7 / sideline 9.9-24.0; tw3 + hard torso 0.055 / 19.8-30.8 /
+10.0-23.2, root unchanged, collars past 40 deg 12.4 % -> 0.1 % on the raw records. FINAL RECIPE:
+`--two-view --endzone-weight 0.3 --temporal-weight 3.0 --hard-torso`; the whole play is being refitted
+with it (poses_refit.json.pre_final = the v47 cache before). Render v45 (in flight) = the v47 cache +
+id 82 re-teamed + the rider rule (162 gone) + the orientation Gaussian; v46 will carry the refit.
+Review both with strips before any claim.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
