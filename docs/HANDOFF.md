@@ -1800,6 +1800,33 @@ Session note: the previous session died with three jobs running (v42 at frame 61
 hard-hinge refit, the suite); v42 resumed, the refit restarted from scratch (its
 `PermissionError: [WinError 5]` was the pool losing its parent, not a bug), the suite is queued.
 
+**NLF, scored the same way: REJECTED as a pose source (2026-09-15 21:05).** On the GPU it is fast
+(188 boxes in 69 s after warm-up) and good on the visible men in its own camera (id 4 6.0 px, 9 9.0, 13
+8.8 at the p50 against the YOLO keypoints), garbage exactly where ours is (id 17 in the pile: 57 px,
+its own uncertainty 1.5 m), and 4.3 % hyperextended knees. At the timeline's placement its legs are
+WORSE in the endzone than the shipped fit (lower joints 29.6 / 69.5 px vs 14.5 / 34.0) and no better
+in the sideline (17.9 vs 16.3). Same lesson as the hard-hinge cache: a monocular pose at 140 px lays
+the legs along the camera ray, and only the other camera can say where they are. Kept as a possible
+INIT for the fit (not measured); not a replacement for it.
+
+**Pairing by formation position (the user's question, 2026-09-15 21:15).** It is what 08r does. At the
+snap (frames 296-304, median ground points, same team) 13 of 22 are already paired at 0.43 m p50 and
+every one of them is CLEAR by position alone (best <= 1 m, runner-up >= 2x further); position finds ONE
+more, BAL sideline 4 <- endzone 198 (0.42 m, clear both ways), which 08r rejects as a re-pairing
+(endzone 4 already holds a track on 29 of those frames -- --allow-repairing --give-up-incumbent would
+apply it). Everything else is the KC interior (9, 19, 37, 38, 74, 86, 97, 164, 166, 204 at x -22..-23,
+y -5..5): ratios 1.0-1.3 at 0.5-1.5 m -- the line stacked along the sideline's depth axis, where each
+camera's blind-axis error (0.3-0.5 m sideline, ~1 m endzone) exceeds the spacing. No label changes
+that. Scratch probe_snap_pairing.py.
+
+**PENDING AT SHUTDOWN (2026-09-15 21:15, machine off):** the timeline-placed scorer of refit C (two-view,
+endzone 0.3, hard hinges; `scratch/refit_C.json`, 315 two-view + 608 one-view records on the eight
+worst ids) was running -- rerun `probe_cache_in_timeline.py` (shipped / hard1 / C rows). If C beats
+shipped on the endzone lower joints without losing the sideline, refit the whole play two-view
+(05p --two-view --endzone-weight 0.3), score as v47, render v43; if not, set hard_hinges back to
+opt-in. Shipped state on disk = v45 cache (poses_refit.json = .pre_hard), v42 rendered and encoded.
+Renders delivered: diag/play_001_v39..v42_hifi_720.mp4.
+
 **Local repair step 1, hold-through, measured and REJECTED as a default (2026-09-15).** Stretches
 where the raw fit's max joint speed exceeds 0.25 m/frame (merged within 3 frames, padded 2): 85 on
 the live play. Replacing a stretch's body_pose by the SLERP between its clean boundary poses, then the
