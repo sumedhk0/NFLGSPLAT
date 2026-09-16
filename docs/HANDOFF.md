@@ -2085,6 +2085,16 @@ foot past 0.10 m/frame 80 -> 48 of 2680 (3.0 -> 1.8 %); id 38 19 -> 7, id 0 28 -
 gone; spine > 90 deg 1062 unchanged (the linemen), collars 0. What is left: 0 (10), 13 (8), 38 (7),
 166 / 3 / 204 (4 each) -- next strips.
 
+Strips under the unwrap (05q, sideline, scratch review_v50; the same frames as the v49 strips): id 0
+at 300-314 -- the drawn skeleton sits on the keypoints in all eight frames, legs straight, the splay
+gone; id 0 at 370-377 (frame by frame) -- the skeleton follows a real quick step with a teammate
+crossing behind him, the drawn left leg a few px off the green at 372-376 and nothing like the
+45 deg kick of v49. The two v49 flail windows of id 0 are AFFIRMED fixed on the footage. What the
+flail ruler still counts on him (373-378 ankle 0.11-0.24 m/frame; 388-391 wrist 0.10-0.13) is that
+step and a hand; on 38 and 13 the remaining wrist flags are 0.10-0.14 m/frame (3-4 m/s) hand-fighting
+at the line, which the 410-424 strip of 38 already showed following the keypoints. The 0.10 m/frame
+threshold now sits at the level of real hands; the flail ruler has done its job on this play.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
