@@ -1953,7 +1953,22 @@ shipped cache p50 1.3 deg / p90 8.8 / p99 27.4, over 45 deg 0.25 % (id 9 carries
 shoulders); the final-recipe partial cache (tw 3.0 + hard torso, eight worst ids) p50 0.4 / p90 2.5 /
 p99 10.5, over 45 deg 0.03 %, over 90 none. A real joint turns at most ~20 deg in two frames, so the
 shipped tail was fits disagreeing frame to frame, not motion; the recipe removes the cause of the
-SLERP swing rather than guarding the interpolation.
+SLERP swing rather than guarding the interpolation. Whole play with the recipe (16:47, 2244
+two-view frames at sideline 2.9 / endzone 12.4 px, joint speed p90 3.05 -> 2.04 m/s): p50 0.7 /
+p90 4.9 / p99 14.4, over 45 deg 0.03 % -- the partial result holds across all 35 ids.
+
+**v49 = the final recipe on the whole play + 08w + the rider rule (2026-09-16 17:00).** Against v48:
+
+    live steps > 0.25    11 -> 7      whole clip 154 -> 141, none over 0.6
+    root jitter live     p90 0.0128 -> 0.0119, p99 0.081 -> 0.062
+    joints (live)        p50 0.013 -> 0.011, p90 0.058 -> 0.035, p99 0.27 -> 0.11; speed p90 0.121 -> 0.091
+    hinges               0 / 0
+    census               live 1.65 -> 1.50, whole clip 2.88 -> 2.51
+
+The rider rule took ten short fragments across the clip (24, 29, 32, 59, 60, 72, 158, 162, 163, 194; 177
+body-frames) and the census improved at both windows with them gone: they were copies. Render v46 =
+this cache (chained behind v45). Cross-view scorer and the flail / torso rulers on the same cache are
+the last gate before Mono2DConfig's defaults move to temporal 3.0 + hard torso.
 
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
