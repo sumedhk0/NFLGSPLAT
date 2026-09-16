@@ -1908,7 +1908,8 @@ Candidate default 3.0, to be confirmed on the whole play before it ships.
      (ONE_VIEW=0, EZW=0.3 in pipeline_play.sh) and commit; if not, keep v45 and record why.
   4. Optional addition from the formation probe: sideline 4 <- endzone 198 via 08s --allow-repairing
      --give-up-incumbent, then re-run 05p for the pair to reach the fit.
-Renders delivered: diag/play_001_v39..v42_hifi_720.mp4 (v42 = whole-clip switch cuts, report v45).
+Renders delivered: diag/play_001_v39..v43_hifi_720.mp4 (v42 = whole-clip switch cuts, report v45; v43 =
+two-view hard-hinge refit, report v47; v44 = + the orientation Gaussian, report v48, rendering 03:12).
 
 **Local repair step 1, hold-through, measured and REJECTED as a default (2026-09-15).** Stretches
 where the raw fit's max joint speed exceeds 0.25 m/frame (merged within 3 frames, padded 2): 85 on
