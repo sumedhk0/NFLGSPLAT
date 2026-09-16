@@ -1981,6 +1981,24 @@ both track their keypoints. So the tighter spine box costs nothing visible; its 
 p90 95 -> 87 deg, max 142 -> 101, past 90 on 11.0 -> 8.2 % of records, +0.2 px on the fit's own
 reprojection. Cross-view scorer pending; if it holds, spine_max_deg 20 becomes the default.
 
+**Spine box 20 DENIED by the cross-view scorer (2026-09-16 17:30).** Same six worst ids, scored at the
+timeline's placement in both cameras (off-axis hinge share; joint jitter p90; endzone lower joints
+p50/p90; sideline limbs p50/p90):
+
+    temporal 3.0 + torso 30 (shipped)   0.9 %   0.0554   19.8 / 30.8   10.0 / 23.2
+    + spine box 20                      3.3 %   0.0652   19.9 / 36.8   10.9 / 26.9
+
+Worse on every column: with the spine boxed at 20 the fit fakes the crouch with the hinges (off-axis
+0.9 -> 3.3 %) and the legs lie 6 px worse in the endzone. The strips were right that the crouch
+survives; the scorer says the rest of the body pays for it. The fit's own +0.2 px understated the cost
+by 30x -- the third time the fit's own reprojection has hidden what the other camera sees (memory
+corrections-must-beat-what-they-correct, case 10). Mono2DConfig.spine_max_deg stays 30. The spine past
+90 deg on 8-11 % of records is left as real crouching until a strip shows one that is not.
+
+**v45 delivered (2026-09-16 17:25):** the pre-snap line crop from the rendered frame 74 (scratch
+review_v45/line_30.png) shows every red shirt on the Kansas City side and no white one inside their
+line -- id 82 (08w) is red on the footage, affirmed. 720p clip in diag as play_001_v45_hifi_720.mp4.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
