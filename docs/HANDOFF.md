@@ -1865,6 +1865,20 @@ men, a lineman behind another in the sideline's merged box. So the census's open
 while ~10-11 on the plate") is not duplication the box test can find; the drawn count is right within
 the box merging. CLOSED. (scratch probe_bodies_per_box.py)
 
+**The orientation gets its Gaussian too (2026-09-16 02:50, 07l v47 -> v48).** global_orient had kept
+the 7-frame median after body_pose got sigma 2 -- never measured. A/B on the drawn live play, all ids
+(joint jitter max over joints; yaw second difference; limbs reprojected in both cameras):
+
+    median 7 (shipped)     joint jit 0.019 / 0.090 / 0.44   yaw jit p90 2.73 deg   side limbs 6.8 / 15.0   endzone lower 11.3 / 18.8
+    gauss sigma 2          0.013 / 0.062 / 0.41   1.32   6.8 / 15.6   11.3 / 19.6
+    gauss sigma 4          0.013 / 0.058 / 0.27   0.53   7.1 / 16.0   11.4 / 19.9     <- ORIENT_SMOOTH_SIGMA
+    median 7 + gauss 2     0.013 / 0.063 / 0.41   1.15   6.8 / 15.7   11.3 / 19.4
+
+Same trade curve as the limbs (~0.3 px of p90 per 0.01 of jitter), and the p99 -- where the twitching
+lives -- drops 38 % at sigma 4 for ~1 px on either camera's p90 with the p50s untouched. Whole
+timeline (v48): joints p50 0.019 -> 0.013, p90 0.090 -> 0.058, p99 0.44 -> 0.27; steps, root jitter,
+census and hinges identical. Render v43 (in flight) carries v47; the next render carries this.
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).

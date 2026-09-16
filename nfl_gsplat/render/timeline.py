@@ -92,6 +92,13 @@ POSE_SMOOTH_RANGE_RAD: float = 0.5
 # the detector's noise) and +1.9 px on the endzone p90 (12.3 -> 14.2). Sigma 4 halves the jitter
 # again (p90 0.078) but costs +1.3 px p50 and +4.4 px endzone p90: that is smear. See HANDOFF.
 POSE_SMOOTH_SIGMA: float = 2.0
+# The orientation kept the 7-frame median after the limbs got their Gaussian, unmeasured. Measured
+# 2026-09-16 on play 1's live play (all drawn ids, joint jitter max over joints, yaw second difference,
+# limbs reprojected in both cameras): median 7 -> gauss sigma 4 takes joint jitter p90 0.090 -> 0.058
+# and p99 0.44 -> 0.27, yaw jitter p90 2.7 -> 0.5 deg/frame^2, for +1.0 px on the sideline limbs' p90
+# and +1.1 px on the endzone's (p50s unchanged, steps and census unchanged); sigma 2 buys 0.062 / 0.41
+# at +0.6 / +0.8 px. The tail is where the twitching lives, so sigma 4. 0 = the median as before.
+ORIENT_SMOOTH_SIGMA: float = 4.0
 # Joint limits on the four hinges, applied to the interpolated axis-angles BEFORE the Gaussian so
 # the smoother rounds the kinks. body_pose rows (joint - 1), the hinge axis, and the sign that makes
 # flexion positive in SMPL-X's rest pose: knees flex about +x; elbows about y, right +, left -.
@@ -466,7 +473,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
                    min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
-                   clamp_joints: bool = True) -> Timeline:
+                   clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -498,7 +505,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             if clamp_joints:
                 bp = clamp_hinges(bp)
             bp = smooth_axis_angles_gaussian(bp, sigma=pose_sigma)
-            go = smooth_axis_angles(go, window=pose_smooth)
+            go = (smooth_axis_angles_gaussian(go, sigma=orient_sigma) if orient_sigma and orient_sigma > 0
+                  else smooth_axis_angles(go, window=pose_smooth))
             betas = np.mean([np.asarray(posed[f][2], float) for f in pf], axis=0)
             source = posed[pf[0]][3]
         else:

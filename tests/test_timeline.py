@@ -68,7 +68,7 @@ def test_build_timeline_gives_every_player_a_body_every_frame():
     # both smoothers off: this checks the interpolation, and the Gaussian's held edge dips a
     # ramp's last frame by a few percent, which is its job and not this test's question
     out = tl.build_timeline(frames, ground, poses, default_pose=np.ones((21, 3)) * 0.1, pose_smooth=0, pose_sigma=0,
-                            clamp_joints=False)          # 0.2 rad on every axis is a -11 deg elbow: the clamp would move it
+                            clamp_joints=False, orient_sigma=0)          # 0.2 rad on every axis is a -11 deg elbow: the clamp would move it
     assert all(len(out.states[f]) == 2 for f in frames), "both players every frame"
     s1 = {f: [s for s in out.states[f] if s.pid == 1][0] for f in frames}
     s2 = {f: [s for s in out.states[f] if s.pid == 2][0] for f in frames}
@@ -325,3 +325,20 @@ def test_ground_positions_take_the_foot_above_the_box_margin():
     assert BOX_MARGIN_FRAC > 0
     # the box bottom is 140 px tall; its ground point lies toward the camera (smaller y) of the true foot's
     assert g1[1] > g0[1] and 0.05 < g1[1] - g0[1] < 0.6
+
+
+def test_orientation_gets_the_gaussian_by_default_and_a_yaw_toggle_is_damped():
+    """global_orient kept the 7-frame median after body_pose got its Gaussian (2026-09-16: yaw jitter
+    p90 2.7 -> 0.5 deg/frame^2 at sigma 4 for ~1 px of reprojection). The median leaves a per-frame
+    toggle at +-0.1 rad; the Gaussian removes it."""
+    frames = list(range(0, 40))
+    ground = {f: {1: np.array([f * 0.05, 1.0])} for f in frames}
+    yaws = [0.3 + 0.1 * (1 if f % 2 == 0 else -1) for f in frames]           # facing +-0.1 rad about 0.3
+    poses = {1: {f: (np.zeros((21, 3)), tl.upright_from_yaw(y), np.zeros(10), "fused") for f, y in zip(frames, yaws)}}
+    out = tl.build_timeline(frames, ground, poses)
+    got = np.array([tl.yaw_of([s for s in out.states[f] if s.pid == 1][0].global_orient) for f in frames[8:-8]])
+    assert np.abs(got - 0.3).max() < 0.02, got                              # the toggle is gone
+    out_med = tl.build_timeline(frames, ground, poses, orient_sigma=0)
+    got_med = np.array([tl.yaw_of([s for s in out_med.states[f] if s.pid == 1][0].global_orient) for f in frames[8:-8]])
+    assert np.abs(got_med - 0.3).max() > 0.05                                # the median kept it
+    assert tl.ORIENT_SMOOTH_SIGMA == 4.0
