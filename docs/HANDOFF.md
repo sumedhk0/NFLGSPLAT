@@ -2292,6 +2292,20 @@ Gap bridge A/B (19:35, scratch probe_gap_bridge): bridge 30 (shipped) drawn 3607
 10 wins on every ruler measured; the ruler it lacks is POPS (a body vanishing and reappearing),
 which no ruler counts yet -- counting them for 30 vs 10 before adopting.
 
+**Hip triangulation vs the timeline (19:45, scratch probe_tri_hips).** 1717 live two-view frames
+have a confident hip pair in both cameras; the hip centre triangulated from the two rays lands at
+0.77 m (p10 0.60, p90 0.92 -- crouching to standing), the rays pass within 0.13 m of each other at
+the median, and the point reprojects onto the hips at 5.3 px (sideline) / 8.4 px (endzone). 1541
+(90 %) pass a ray gap < 0.5 m and hip height 0.5-1.4 m. The timeline's point against them, field
+metres: dx +0.04 (|dx| p50 0.07, p90 0.18), dy -0.10 (|dy| p50 0.20, p90 0.58); by side of the
+line, Baltimore's side dy -0.33 to -0.38 (x < -26), Kansas City's +0.01; worst ids 74 +0.62, 0 -0.49,
+7 -0.48, 2 -0.34. So the geometry is fine and the sideline foot point + depth snap is what stands
+0.2-0.6 m off along the sideline's depth, one way on the defence's side. Built: render/tri_hips
+(triangulated_hips with the two gates, place_on_triangulated_hips), wired into load_play_timeline
+behind `tri_hips=` (off until measured), tests. A/B next: endzone pelvis offset (the defect's ruler,
+expect 42 -> ~10 px on paired frames), sideline pelvis offset (control), endzone lower joints,
+hops, steps, census, root jitter.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches

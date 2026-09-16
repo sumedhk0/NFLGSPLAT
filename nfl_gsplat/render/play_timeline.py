@@ -15,6 +15,7 @@ from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
 from nfl_gsplat.render.blind_axis import hold_blind_axis
+from nfl_gsplat.render.tri_hips import place_on_triangulated_hips, triangulated_hips
 from nfl_gsplat.render.depth_snap import snap_ground
 from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
 from nfl_gsplat.render.pair_rule import mispaired_ids
@@ -338,7 +339,7 @@ def poses_from_caches(refit, side_blob, tracks, model):
 
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
-                       no_depth_snap: bool = False, blind_axis: bool = False):
+                       no_depth_snap: bool = False, blind_axis: bool = False, tri_hips: bool = False):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -437,6 +438,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             if moved:
                 print(f"endzone-only frames held on the sideline's x: {len(moved)} body-frames "
                       f"(median slide {np.median(moved):.2f} m, max {max(moved):.2f})")
+        # A body with a hip pair in both cameras stands on its triangulated hip centre
+        # (render.tri_hips): the two rays meet at 5 / 8 px, the foot-point-plus-snap sits 0.2 m
+        # (p90 0.6) from that on play 1. Gated by ray gap and hip height, so a mispair stays out.
+        if tri_hips and "endzone" in tracks and kdf is not None:
+            tri = triangulated_hips(kdf, tracks, frame_shift=shift)
+            ground, moved = place_on_triangulated_hips(ground, tri)
+            if moved:
+                print(f"paired frames placed on triangulated hips: {len(moved)} body-frames "
+                      f"(median move {np.median(moved):.2f} m, p90 {np.percentile(moved, 90):.2f})")
     if place_from_refit_transl and refit:
         ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
         if len(shifts):
