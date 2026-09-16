@@ -2333,6 +2333,16 @@ blends the halves. Same shape as the ankle-vs-box switching of 09-15, same remed
 a windowed MEDIAN offset (triangulated minus placed) per id, applied to every frame
 (`tri_hips.anchor_ground_to_tri`, window 15, support 3), after the refit placement. Measuring.
 
+Third A/B (20:25, the anchor): 5872 body-frames shifted by a MEDIAN OF 0.04 m (p90 0.09) -- and the
+endzone pelvis offset is still 44.3 px, sideline 4.3 -> 4.9, hops 4 -> 6, steps 5 -> 9, census 1.32
+-> 1.40, jitter 0.0116 -> 0.0122. REJECTED (three forms of tri_hips lost; the flag stays off). The
+number that matters is the 0.04 m: at the point where the anchor acts (after the depth snap and the
+refit placement), the placed ground points already agree with the triangulated hips to 4 cm at the
+median -- yet the drawn bodies end 0.2-0.6 m from those hips. So the divergence is made AFTER that
+point, inside build_timeline (gap fill, the run smoother, the dedupe) or in how the state's xy is
+turned into a drawn pelvis. Capturing the ground handed to build_timeline and comparing it per frame
+with the final xy and the triangulated hips for ids 7, 2, 0, 74 (running).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
