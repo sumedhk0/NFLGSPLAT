@@ -1999,6 +1999,40 @@ corrections-must-beat-what-they-correct, case 10). Mono2DConfig.spine_max_deg st
 review_v45/line_30.png) shows every red shirt on the Kansas City side and no white one inside their
 line -- id 82 (08w) is red on the footage, affirmed. 720p clip in diag as play_001_v45_hifi_720.mp4.
 
+**FOUND ON THE FOOTAGE: the smoothers break at a half turn (2026-09-16 17:50).** The loop's first
+footage-first pass on the two flailers the ruler still names (ids 0 and 38, 18-19 % of their standing
+frames with a hand or foot past 0.10 m/frame) went: flail frames listed per id (scratch
+probe_flail_frames) -> 05q strips at those frames -> the drawn legs leave confident keypoints. Id 0
+(BAL 21, standing still at the snap, sideline keypoints at confidence 1.0 on every leg joint, no endzone
+view): drawn legs splayed 45 deg on frames 302-312 and again 366-374 while the CACHE's own legs
+reproject 3-5 px onto the same keypoints (scratch probe_id_legs: lower joints p50/p90/max 3.8/4.5/4.7
+px over 280-340; 3.1/6.4/8.2 over 356-390). Id 38 (KC 55, a lineman): drawn legs collapse on 446-458,
+cache 4.4-6.5 px. So the damage is made AFTER the fit, in the timeline, and it is smooth.
+
+Mechanism: a body with its back to the sideline camera has |global_orient| near pi (id 0: 2.99 ->
+3.19 rad over 286-322, crossing pi at 302-308). The keyframe SLERP (interp_axis_angle) returns
+scipy's canonical vectors (|v| <= pi), so the vector FLIPS SIGN at the crossing, and the component-wise
+orientation Gaussian (sigma 4, shipped v48) averages antipodal vectors: the timeline's |go| collapses
+3.1 -> 0.64 and the yaw swings 87 -> -53 -> 178 -> 125 -> 90 deg over 300-314 (scratch
+probe_orient_flip), sideline lower joints 30 px / upper 45 px against 3-5 px either side. The
+body_pose Gaussian is exposed the same way in principle (joints never near pi in practice). The jitter
+ruler cannot see it (a smooth 14-frame sweep), the hinge ruler cannot (the pose is fine, the frame is
+wrong), the census cannot; only the footage and the sideline reprojection at the timeline's placement
+did. Exposure on the whole clip (scratch count on the cache, keyframes canonicalised as the SLERP
+does): 12.4 % of keyframes within 0.3 rad of pi, 46 sign flips; the three ids with the most flips are
+9 (the runner, 11), 0 (10) and 38 (7) -- exactly the runner's flailing arms of v44 and the two flailers
+left in v49. Each flip corrupts ~2 sigma frames either side.
+
+Fix (commit 6d4c898): timeline.unwrap_axis_angles re-expresses each row as the representation
+nearer the previous row (a rotation by a about u is a rotation by 2 pi - a about -u; the rotations are
+unchanged) and build_timeline applies it to global_orient AND body_pose before the smoothers
+(unwrap=True; False = v49). Tests: a sweep through a half turn is continuous after unwrapping; the
+plain Gaussian on it is off by > 30 deg (negative control), the unwrapped one < 2 deg. A/B at the
+timeline's placement on ids 0 / 38 and the play-wide rulers: below. Also seen in the cache: the fit's
+own free vectors reach |go| = 1289 rad (205 turns, harmless to the rotation) and 14 keyframe pairs jump
+> 3 rad in the raw vector (the two-view seed's representation vs the chain's; the temporal term at 3.0
+fights those) -- a fit-side hypothesis for later, small population.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
