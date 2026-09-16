@@ -428,3 +428,17 @@ def test_orphan_ids_drops_only_short_teamless_fragments():
     n = tl.drop_ids(tl_, tl.orphan_ids(tl_, team_of))
     assert n == 8 and all(203 not in {s.pid for s in tl_.states[f]} for f in frames)
 
+
+def test_fill_gap_bridge_is_ten_frames_by_default():
+    """A body glides across a gap of at most FILL_GAP_FRAMES; a longer one is left empty (measured
+    2026-09-16: the 30-frame bridge let two bodies glide 2-3 m across the pile unseen)."""
+    assert tl.FILL_GAP_FRAMES == 10 and tl.MAX_GAP_FRAMES == 30
+    frames = list(range(40))
+    xy = np.full((40, 2), np.nan)
+    xy[0] = [0.0, 0.0]
+    xy[9] = [9.0, 0.0]          # an 8-frame gap: bridged
+    xy[39] = [39.0, 0.0]        # a 29-frame gap: not bridged by default, bridged at 30
+    filled = tl.fill_gaps(frames, xy)
+    assert np.allclose(filled[5], [5.0, 0.0]) and np.isnan(filled[20]).all()
+    assert np.allclose(tl.fill_gaps(frames, xy, max_gap=tl.MAX_GAP_FRAMES)[20], [20.0, 0.0])
+

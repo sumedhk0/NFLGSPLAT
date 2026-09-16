@@ -63,6 +63,13 @@ ONE_VIEW_DEPTH_M: float = 4.0
 # the separation to the KILLER on both plays before proposing a fourth. See HANDOFF, 2026-09-13.
 ONE_VIEW_ACROSS_M: float = 1.5
 MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridged
+# How long a detection gap the drawn body glides across. 30 until 2026-09-16: two bodies in play 1's
+# pile glided 3.15 m (id 153, 435-454) and 2.13 m (id 4, 444-457) with nobody seeing them. Measured
+# on the live play: bridge 10 draws 46 fewer body-frames, 40 fewer of them unseen by either camera
+# (93 -> 53), census 1.50 -> 1.32, root jitter p90 0.0120 -> 0.0116, live hops 4 -> 4, steps 5 -> 5,
+# pops (a body vanishing and reappearing) 34 -> 32; bridge 4 costs hops 6 and steps 12. The span
+# and anchoring rules keep MAX_GAP_FRAMES.
+FILL_GAP_FRAMES: int = 10
 # A body interpolated through a detection gap is anchored (its player was
 # seen within MAX_GAP_FRAMES) -- unless it stands on top of a body the
 # sideline detects in that frame: then it is the same player under a second
@@ -343,7 +350,7 @@ def clamp_hinges(seq, *, hinges=None, flex_min_deg: float = HINGE_FLEX_MIN_DEG,
     return out
 
 
-def fill_gaps(frames, xy, *, max_gap: int = MAX_GAP_FRAMES):
+def fill_gaps(frames, xy, *, max_gap: int = FILL_GAP_FRAMES):
     """Linear fill of NaN rows between known rows when the gap is short."""
     xy = np.asarray(xy, float).copy()
     ok = np.isfinite(xy).all(1)
