@@ -14,6 +14,7 @@ import numpy as np
 from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
+from nfl_gsplat.render.blind_axis import hold_blind_axis
 from nfl_gsplat.render.depth_snap import snap_ground
 from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
 from nfl_gsplat.render.pair_rule import mispaired_ids
@@ -337,7 +338,7 @@ def poses_from_caches(refit, side_blob, tracks, model):
 
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
-                       no_depth_snap: bool = False):
+                       no_depth_snap: bool = False, blind_axis: bool = False):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -427,6 +428,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                                                 side_ground=side_ground)
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
+        # A body the endzone alone sees stands on the endzone's foot point, blind along the field
+        # (render.blind_axis): its x from the id's nearest sideline sightings, sliding the point
+        # along the endzone's own ray. Measured on play 1 and NOT adopted (live steps 5 -> 7, census
+        # 1.50 -> 1.60; the numbers are in the module); opt-in.
+        if blind_axis and "endzone" in tracks:
+            ground, moved = hold_blind_axis(ground, views, tracks["endzone"], frame_shift=offset or 0)
+            if moved:
+                print(f"endzone-only frames held on the sideline's x: {len(moved)} body-frames "
+                      f"(median slide {np.median(moved):.2f} m, max {max(moved):.2f})")
     if place_from_refit_transl and refit:
         ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
         if len(shifts):
@@ -513,10 +523,16 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                             exclude=clipped if not stitch_ids else None)
     tl.members = members
     # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)
-    riders = tlm.rider_ids(tl, _teams(P))
+    teams_now = _teams(P)
+    riders = tlm.rider_ids(tl, teams_now)
     if riders:
         n = tlm.drop_ids(tl, riders)
         print(f"short fragments riding another body left out: {sorted(riders)} ({n} body-frames)")
+    # a short fragment with no team is a few detections of a man another id draws (timeline.orphan_ids)
+    orphans = tlm.orphan_ids(tl, teams_now)
+    if orphans:
+        n = tlm.drop_ids(tl, orphans)
+        print(f"short teamless fragments left out: {sorted(orphans)} ({n} body-frames)")
     return tl, tracks, df, frames_all, poses
 
 

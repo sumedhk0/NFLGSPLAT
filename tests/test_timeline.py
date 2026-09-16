@@ -407,3 +407,24 @@ def test_orientation_gaussian_survives_a_half_turn():
     # the held edges bias a ramp by ~sigma * slope (1.2 deg here); the interior is exact
     assert err_fixed.max() < 2.0, f"unwrapped Gaussian off by {err_fixed.max():.2f} deg"
     assert err_fixed[8:-8].max() < 0.1
+
+
+def test_orphan_ids_drops_only_short_teamless_fragments():
+    """Play 1's id 203: eight frames, no team, drawn in the default kit on the pile. A teamless id drawn
+    for longer is a real unidentified man and stays; a short TEAMED fragment is the rider rule's."""
+    frames = list(range(100, 200))
+    ground = {f: {1: np.array([0.0, 0.0]), 2: np.array([5.0, 0.0])} for f in frames}
+    for f in frames[:8]:
+        ground[f][203] = np.array([2.0, 0.0])         # teamless, 8 frames (clear of the dedupe box)
+    for f in frames[:8]:
+        ground[f][77] = np.array([7.0, 0.0])          # teamed, 8 frames: not this rule's
+    for f in frames:
+        ground[f][99] = np.array([10.0, 0.0])         # teamless, 100 frames: a real unidentified man
+    tl_ = tl.build_timeline(frames, ground, {}, default_pose=np.zeros((21, 3)), default_betas=np.zeros(10),
+                            min_frames=1, pose_smooth=0, pose_sigma=0, clamp_joints=False, orient_sigma=0)
+    team_of = {1: "KC", 2: "BAL", 77: "KC"}
+    assert tl.orphan_ids(tl_, team_of) == {203}
+    assert tl.orphan_ids(tl_, team_of, max_frames=4) == set()
+    n = tl.drop_ids(tl_, tl.orphan_ids(tl_, team_of))
+    assert n == 8 and all(203 not in {s.pid for s in tl_.states[f]} for f in frames)
+

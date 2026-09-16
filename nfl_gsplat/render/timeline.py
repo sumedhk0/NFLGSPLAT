@@ -435,6 +435,19 @@ def rider_ids(tl: "Timeline", team_of: dict, *, max_frames: int = RIDER_MAX_FRAM
     return out
 
 
+def orphan_ids(tl: "Timeline", team_of: dict, *, max_frames: int = RIDER_MAX_FRAMES) -> set:
+    """Ids with no team drawn on at most ``max_frames`` frames. A fragment nobody could team is a
+    few detections of a man some other id already draws (play 1's 203: eight frames on the Kansas
+    City line, rendered in the default kit, one of the seven live-play hops); the rider rule cannot
+    reach it because it matches by team. A teamless id drawn for longer is a real unidentified
+    player and stays (his kit is the renderer's problem, not the timeline's)."""
+    frames: dict = {}
+    for f, states in tl.states.items():
+        for s in states:
+            frames[int(s.pid)] = frames.get(int(s.pid), 0) + 1
+    return {pid for pid, n in frames.items() if n <= max_frames and not team_of.get(pid)}
+
+
 def drop_ids(tl: "Timeline", ids: set) -> int:
     """Remove every state of ``ids``; returns the number of body-frames removed."""
     n = 0
