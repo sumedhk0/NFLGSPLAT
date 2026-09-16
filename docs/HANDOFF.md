@@ -13,6 +13,16 @@ an **avatar twin** render: real bodies (roster height/weight) at the real
 positions with colours read off the footage, drawn as Gaussians from any
 viewpoint. Everything runs on the local machine.
 
+## The loop (standing process from 2026-09-16)
+
+hypotheses -> tests for them -> code -> run -> a new footage version -> REVIEW THE FOOTAGE -> affirm or
+deny -> loop. The rendered clip is the output; the rulers are instruments, not the verdict. Reviewing
+the footage means frame SEQUENCES, not one still: `05q_overlay_footage.py --player N --start F --count 8
+--step 2` (the drawn body over the real player, both cameras) for every id a ruler flags, plus tiled
+consecutive rendered frames (ffmpeg select+tile) of the phases that matter. A ruler that says "fixed"
+while the strips show flailing is a ruler to be replaced (v44: joint jitter p90 0.058 and the user
+still sees flailing -- the jitter ruler cannot see a smooth, wrong sweep).
+
 ## Hard rules (do not violate)
 
 - **Never commit real NFL video/frames.** `data/` and `kp_eval/` are
