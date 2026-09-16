@@ -1922,6 +1922,21 @@ and the residual picks a bad mix; REJECTED. `--joint-reject-px 15`: 0.140 / 22.7
 drops keypoints the endzone needed; REJECTED. Next: temporal 3.0 + unseen 5 together on the worst ids,
 then the whole play with the winner.
 
+**Footage review of v44 (2026-09-16 16:10-16:50, the loop's first pass).** Strips (05q, drawn body over
+the real player with the detector's keypoints): id 9 (the runner, 340-354) shows the arms held out and
+straight; frame by frame the drawn arms sit within 2-15 px of the detector's keypoints at every
+KEYFRAME -- the arms are out in the footage -- and the excursions are the in-between frames (337:
+30-55 px, a SLERP swing between two keyframes whose arm rotations differ wildly) and the keyframes
+whose arm keypoints the temporal outlier filter removed (354: 29-51 px, nothing held the arm). Both are
+what temporal weight 3.0 tightens. id 162's strip: its detections flip between a Chiefs lineman and
+the Baltimore man beside him -- a duplicate under 08t's floor; `timeline.rider_ids` drops it (a short
+fragment within 0.6 m of a teammate on half its frames; one instance on play 1, thresholds to be
+re-measured on play 2). id 13 and id 4 (bent linemen) track their keypoints well; their spine past
+90 deg is a real crouch, so the torso bound leaves 90 deg total. The Chiefs lineman drawn as
+Baltimore is id 82 (kit vote 0.44, 1 m inside the KC line pre-snap): 08w re-teams him by the
+formation. Two new rulers from this pass: limb speed on slow bodies (flailing: 5.5 % of standing
+body-frames) and spine/collar angle shares (37 % / 36 %), scratch probe_flail.py.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches

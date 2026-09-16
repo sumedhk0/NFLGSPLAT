@@ -71,6 +71,17 @@ MAX_GAP_FRAMES: int = 30         # half a second of missing detections is bridge
 # anchoring with this radius 46 / 123 at 0.4 m, 55 / 121 at 0.5.
 INTERP_DUP_M: float = 0.4
 MIN_FRAMES: int = 6              # shorter fragments are noise
+# A SHORT fragment that spends most of its life within arm's reach of another body of its own team
+# is that body's second copy: play 1's id 162 (2026-09-16), 19 drawn frames of track 19's tail
+# after the 08t cut, whose own detections flip between a Chiefs lineman and the Baltimore man beside
+# him (the footage strip shows the keypoints on each in turn) -- a hop under 08t's 1.5 m floor, and
+# too few ankle frames for the twin test. Measured on play 1's live play: with these thresholds only
+# 162 qualifies (53 % of its frames within 0.6 m of id 11 / 165; the next fragments 0-38 %), and
+# dropping it costs the census nothing. A rule with one instance so far; the thresholds are here to
+# be re-measured on the next play, not tuned to this one.
+RIDER_MAX_FRAMES: int = 40
+RIDER_M: float = 0.6
+RIDER_SHARE: float = 0.5
 VEL_WINDOW: int = 12             # frames over which yaw follows the travel direction
 # Poses as rendered still shake: hands and feet move 27 cm between rendered
 # frames at the p90 in second differences (play 1 v23, fused and one-view
@@ -371,6 +382,41 @@ def relabel(ground_by_frame, views_by_frame, poses_by_pid, player_of):
                 dst[f] = (rec[0], rec[1], rec[2], rec[3], int(pid))
     poses = {pid: {f: rec[:4] for f, rec in byf.items()} for pid, byf in poses.items()}
     return ground, (views if views_by_frame else None), poses, {k: sorted(v) for k, v in members.items()}
+
+
+def rider_ids(tl: "Timeline", team_of: dict, *, max_frames: int = RIDER_MAX_FRAMES, ride_m: float = RIDER_M,
+              share: float = RIDER_SHARE) -> set:
+    """Ids drawn on at most ``max_frames`` frames that stand within ``ride_m`` of another body of the
+    same team on at least ``share`` of them (see RIDER_MAX_FRAMES)."""
+    by_id: dict = {}
+    for f, states in tl.states.items():
+        for s in states:
+            by_id.setdefault(int(s.pid), []).append((int(f), np.asarray(s.xy, float)))
+    out = set()
+    for pid, rows in by_id.items():
+        if len(rows) > max_frames or len(rows) < 2:
+            continue
+        team = team_of.get(pid)
+        if team is None:
+            continue
+        near = 0
+        for f, xy in rows:
+            d = [float(np.linalg.norm(np.asarray(o.xy, float) - xy)) for o in tl.states.get(f, ())
+                 if int(o.pid) != pid and team_of.get(int(o.pid)) == team]
+            near += bool(d) and min(d) < ride_m
+        if near / len(rows) >= share:
+            out.add(pid)
+    return out
+
+
+def drop_ids(tl: "Timeline", ids: set) -> int:
+    """Remove every state of ``ids``; returns the number of body-frames removed."""
+    n = 0
+    for f in list(tl.states):
+        keep = [s for s in tl.states[f] if int(s.pid) not in ids]
+        n += len(tl.states[f]) - len(keep)
+        tl.states[f] = keep
+    return n
 
 
 # ---- the timeline -------------------------------------------------------------

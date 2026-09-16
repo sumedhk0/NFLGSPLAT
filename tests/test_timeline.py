@@ -342,3 +342,24 @@ def test_orientation_gets_the_gaussian_by_default_and_a_yaw_toggle_is_damped():
     got_med = np.array([tl.yaw_of([s for s in out_med.states[f] if s.pid == 1][0].global_orient) for f in frames[8:-8]])
     assert np.abs(got_med - 0.3).max() > 0.05                                # the median kept it
     assert tl.ORIENT_SMOOTH_SIGMA == 4.0
+
+
+def test_a_short_fragment_riding_a_teammate_is_a_rider_and_a_long_or_lone_one_is_not():
+    """Play 1's id 162: 19 frames, within 0.6 m of a Chiefs body on 53 % of them, its own detections
+    flipping between two adjacent men. A long track beside a teammate (a lineman) and a short
+    fragment on its own are kept."""
+    frames = list(range(0, 100))
+    ground = {f: {1: np.array([10.0, 0.0]), 2: np.array([10.4, 0.2]), 3: np.array([30.0, 5.0])} for f in frames}
+    for f in range(20, 100):                       # id 2 exists for 20 frames only, on id 1's shoulder
+        del ground[f][2]
+    for f in range(0, 100):                        # id 4: short, alone
+        if f < 15:
+            ground[f][4] = np.array([50.0, 50.0])
+    # sideline views: the dedupe never touches a sideline detection, which is exactly why 162 survived it
+    views = {f: {p: ("sideline",) for p in g} for f, g in ground.items()}
+    out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
+    team = {1: "KC", 2: "KC", 3: "BAL", 4: "BAL"}
+    assert tl.rider_ids(out, team) == {2}
+    assert tl.rider_ids(out, {**team, 2: "BAL"}) == set()      # a different team beside him is not a rider
+    n = tl.drop_ids(out, {2})
+    assert n == 20 and all(2 not in [s.pid for s in out.states[f]] for f in frames)

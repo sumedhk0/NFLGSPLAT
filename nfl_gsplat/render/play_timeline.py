@@ -512,6 +512,11 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                             default_betas=default_betas, views_by_frame=views,
                             exclude=clipped if not stitch_ids else None)
     tl.members = members
+    # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)
+    riders = tlm.rider_ids(tl, _teams(P))
+    if riders:
+        n = tlm.drop_ids(tl, riders)
+        print(f"short fragments riding another body left out: {sorted(riders)} ({n} body-frames)")
     return tl, tracks, df, frames_all, poses
 
 
