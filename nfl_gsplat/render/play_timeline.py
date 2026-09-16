@@ -15,7 +15,7 @@ from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
 from nfl_gsplat.render.blind_axis import hold_blind_axis
-from nfl_gsplat.render.tri_hips import place_on_triangulated_hips, triangulated_hips
+from nfl_gsplat.render.tri_hips import anchor_ground_to_tri, triangulated_hips
 from nfl_gsplat.render.depth_snap import snap_ground
 from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
 from nfl_gsplat.render.pair_rule import mispaired_ids
@@ -445,20 +445,20 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         # A body with a hip pair in both cameras stands on its triangulated hip centre
         # (render.tri_hips): the two rays meet at 5 / 8 px, the foot-point-plus-snap sits 0.2 m
         # (p90 0.6) from that on play 1. Gated by ray gap and hip height, so a mispair stays out.
-        tri_keep = set()
-        if tri_hips and "endzone" in tracks and kdf is not None:
-            tri = triangulated_hips(kdf, tracks, frame_shift=shift)
-            ground, moved = place_on_triangulated_hips(ground, tri)
-            tri_keep = {k for k in tri if k[0] in ground and k[1] in ground[k[0]]}
-            if moved:
-                print(f"paired frames placed on triangulated hips: {len(moved)} body-frames "
-                      f"(median move {np.median(moved):.2f} m, p90 {np.percentile(moved, 90):.2f})")
+        tri = triangulated_hips(kdf, tracks, frame_shift=shift) if (tri_hips and "endzone" in tracks and kdf is not None) else {}
     if place_from_refit_transl and refit:
-        ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model),
-                                          keep=tri_keep if "sideline" in tracks else None)
+        ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
         if len(shifts):
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")
+    # Every placed body moved by the windowed median of (triangulated hip - placed) over the id's
+    # paired frames (render.tri_hips.anchor_ground_to_tri): a slowly varying correction, no source
+    # switching. tri is empty unless tri_hips.
+    if tri:
+        ground, shifts = anchor_ground_to_tri(ground, tri)
+        if shifts:
+            print(f"placement anchored to triangulated hips on {len(shifts)} body-frames "
+                  f"(median shift {np.median(shifts):.2f} m, p90 {np.percentile(shifts, 90):.2f})")
     frames_all = sorted(ground)
     clipped = edge_clipped_ids(df, tracks, views)
     if clipped:

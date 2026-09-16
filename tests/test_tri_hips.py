@@ -75,3 +75,19 @@ def test_refit_placement_leaves_kept_frames_alone():
     assert np.allclose(out[14][1], [0.5, 0.0])                                             # interpolated between 10 and 15... via accepted records only
     assert len(shifts) == 2
 
+
+def test_anchor_ground_to_tri_applies_a_windowed_median_offset_to_every_frame():
+    """Triangulated hips on every other frame, the placed points a constant (0.3, -0.2) off: after
+    anchoring every frame -- triangulated or not -- sits on the triangulated line, and one wild
+    triangulation does not pull its neighbours (median)."""
+    ground = {f: {1: np.array([0.1 * f + 0.3, -0.2])} for f in range(0, 40)}
+    tri = {(f, 1): (np.array([0.1 * f, 0.0]), 0.8, 0.05) for f in range(0, 40, 2)}
+    tri[(20, 1)] = (np.array([9.0, 9.0]), 0.8, 0.05)                                   # one wild pair
+    out, shifts = th.anchor_ground_to_tri(ground, tri, window=6, min_support=3)
+    for f in range(0, 40):
+        assert np.allclose(out[f][1], [0.1 * f, 0.0], atol=1e-9), f
+    assert len(shifts) == 40 and all(abs(s - np.hypot(0.3, 0.2)) < 1e-9 for s in shifts)
+    # too little support inside the window: untouched
+    out2, shifts2 = th.anchor_ground_to_tri(ground, {(0, 1): tri[(0, 1)]}, window=6, min_support=3)
+    assert shifts2 == [] and np.allclose(out2[0][1], ground[0][1])
+

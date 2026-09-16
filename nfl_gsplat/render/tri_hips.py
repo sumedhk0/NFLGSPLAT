@@ -102,3 +102,38 @@ def place_on_triangulated_hips(ground: dict, tri: dict) -> tuple[dict, list]:
             moves.append(float(np.linalg.norm(np.asarray(out[f][pid], float) - xy)))
             out[f][pid] = np.asarray(xy, float)
     return out, moves
+
+
+ANCHOR_WINDOW: int = 15
+ANCHOR_MIN_SUPPORT: int = 3
+
+
+def anchor_ground_to_tri(ground: dict, tri: dict, *, window: int = ANCHOR_WINDOW,
+                         min_support: int = ANCHOR_MIN_SUPPORT) -> tuple[dict, list]:
+    """``(ground, shifts)``: every drawn (frame, pid) moved by the median of (triangulated - drawn)
+    over the id's triangulated frames within ``window`` frames, needing ``min_support`` of them.
+
+    Why an offset and not the points: swapping the triangulated hip in on the frames that have one
+    and leaving the refit's transl elsewhere put two placement sources 0.2-0.6 m apart next to each
+    other frame by frame (play 1, 2026-09-16: root jitter p90 0.0116 -> 0.0217, live hops 4 -> 7,
+    the endzone offset unmoved at 44 px). The correction a body needs varies slowly, so it is
+    estimated as a windowed median and applied to every frame, seen or not -- the ankle anchor
+    (play_timeline.anchor_boxes_to_ankles) does the same for box points."""
+    by_pid: dict[int, dict] = {}
+    for (f, pid), (xy, _z, _gap) in tri.items():
+        if f in ground and pid in ground[f]:
+            by_pid.setdefault(int(pid), {})[int(f)] = np.asarray(xy, float) - np.asarray(ground[f][pid], float)
+    out = {f: dict(d) for f, d in ground.items()}
+    shifts = []
+    for f, d in ground.items():
+        for pid, xy in d.items():
+            offs = by_pid.get(int(pid))
+            if not offs:
+                continue
+            near = [v for g, v in offs.items() if abs(g - f) <= window]
+            if len(near) < min_support:
+                continue
+            delta = np.median(np.stack(near), axis=0)
+            out[f][pid] = np.asarray(xy, float) + delta
+            shifts.append(float(np.linalg.norm(delta)))
+    return out, shifts
