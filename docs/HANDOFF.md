@@ -2143,6 +2143,20 @@ blind axis comes from the camera that sees it) -- rulers: live steps, endzone lo
 move), census (must not move), metres moved; (b) a teamless fragment shorter than the rider length is
 not drawn; (c) the gap bridge 30 -> 10 frames for the two gliders (measure the census cost).
 
+(a) built as `render/blind_axis.hold_blind_axis` (slide along the endzone's own ground ray to the
+sideline-interpolated x; the endzone image of the body is unchanged by construction), wired into
+load_play_timeline (`blind_axis=`), unit-tested. First A/B (18:35, per-frame cap 4 m, one-sided hold
+within the 30-frame window): 635 body-frames slid on the clip (median 0.60 m, max 3.27); live steps
+7 -> 9 -- WORSE; census 1.50 -> 1.50 with both teams nearer eleven (KC 10.98 -> 11.08, BAL 11.42 ->
+11.32); endzone lower p50 51.8 -> 51.3, sideline and jitter unchanged. What happened: id 40's
+387-395 ghost is GONE -- slid onto the man he is, the dedupe box then takes him as the copy he was
+(a twelfth Baltimore body), which is the census gain; but a per-frame cap let an eight-frame
+endzone-only fragment (198, 453-456) flicker on and off the slide at 0.4 m/frame, and a one-sided
+hold pinned it to a sighting a second old. Rebuilt: a run of endzone-only frames slides whole or not
+at all (its median slide against the cap) and a one-sided hold reaches 6 frames, not 30; re-measuring.
+(b) built as `timeline.orphan_ids` (a teamless id drawn on <= 40 frames is dropped; census unaffected
+by construction), unit-tested, wired after the rider rule; measured with (a)'s rerun.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
