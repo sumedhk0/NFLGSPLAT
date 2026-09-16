@@ -116,3 +116,24 @@ def test_positions_by_id_keys_by_int():
     frames = {np.int64(3): [S(np.int64(7), (1, 2))]}
     pos = positions_by_id(frames)
     assert list(pos) == [7] and list(pos[7]) == [3] and pos[7][3].tolist() == [1.0, 2.0]
+
+
+def test_jerk_steps_flag_a_hop_but_not_a_sprinter():
+    """A man running at 0.30 m/frame (9 m/s) takes long, EQUAL steps: the absolute step ruler counts
+    every one, the jerk ruler none. One step of 0.45 m among 0.30 m strides is a hop; so is a 0.25 m
+    step among a standing man's 0.02 m shuffles, which the absolute ruler never sees."""
+    from nfl_gsplat.render import motion_rulers as mr
+
+    sprint = {f: np.array([0.30 * f, 0.0]) for f in range(100, 130)}
+    hop = {f: np.array([0.30 * f + (0.20 if f > 115 else 0.0), 0.0]) for f in range(100, 130)}
+    shuffle = {f: np.array([0.02 * f + (0.25 if f > 120 else 0.0), 1.0]) for f in range(100, 130)}
+    assert mr.jerk_steps({1: sprint}) == []
+    assert sum(1 for s in mr.contiguous_steps({1: sprint}) if s[0] > 0.25) == 29
+    j = mr.jerk_steps({2: hop, 3: shuffle})
+    assert {(p, f) for _e, _s, p, f in j} == {(2, 115), (3, 120)}
+    ex = {(p, f): e for e, _s, p, f in j}
+    assert abs(ex[(2, 115)] - 0.20) < 1e-9 and abs(ex[(3, 120)] - 0.25) < 1e-9
+    # a step across a gap is not a step, and an id with fewer than two neighbouring steps is not judged
+    gappy = {100: np.array([0.0, 0.0]), 101: np.array([0.0, 0.0]), 105: np.array([9.0, 0.0])}
+    assert mr.jerk_steps({4: gappy}) == []
+

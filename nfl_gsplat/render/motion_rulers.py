@@ -72,6 +72,34 @@ def contiguous_steps(pos_by_id) -> list:
     return out
 
 
+JERK_WINDOW: int = 3        # neighbours on each side a step is judged against
+JERK_EXCESS_M: float = 0.15  # a step this much longer than its neighbours' median is a hop, not a stride
+
+
+def jerk_steps(pos_by_id, *, window: int = JERK_WINDOW, excess_m: float = JERK_EXCESS_M) -> list:
+    """``[(excess_m, step_m, pid, frame)]``, largest excess first: contiguous steps that exceed the
+    median of the id's neighbouring steps (``window`` on each side, contiguous ones only) by more
+    than ``excess_m``. A sprinter's steps are all long (0.30 m/frame is 9 m/s) and the absolute step
+    ruler counts every one of them (play 1, 2026-09-16: id 40 running at 6 m/s was four of the five
+    live steps over 0.25); a hop is a step that does not match its neighbours."""
+    out = []
+    for pid, byf in pos_by_id.items():
+        fs = sorted(byf)
+        steps = {}
+        for a, b in zip(fs[:-1], fs[1:]):
+            if b - a == 1:
+                steps[a] = float(np.linalg.norm(byf[b] - byf[a]))
+        for f, s in steps.items():
+            neigh = [steps[g] for g in range(f - window, f + window + 1) if g != f and g in steps]
+            if len(neigh) < 2:
+                continue
+            ex = s - float(np.median(neigh))
+            if ex > excess_m:
+                out.append((ex, s, int(pid), int(f)))
+    out.sort(reverse=True)
+    return out
+
+
 def second_differences(pos_by_id, *, min_count: int = 10) -> dict:
     """``{pid: array}`` of ||x[f+2] - 2 x[f+1] + x[f]|| over contiguous triples, ids with at least
     ``min_count`` of them. Works for any vector-valued series: root xy, or a joint."""
@@ -147,6 +175,8 @@ def summarize(pos_by_id, states_by_frame, team_of, *, lo: int, hi: int, joints_b
     """One JSON-able report: the rulers above on the whole timeline and on the live window lo..hi.
     Worst lists are short on purpose -- they name the ids to look at, the arrays stay with the caller."""
     steps = contiguous_steps(pos_by_id)
+    jerks = jerk_steps(pos_by_id)
+    jerks_live = [j for j in jerks if lo <= j[3] <= hi]
     live = [s for s in steps if lo <= s[2] <= hi]
     views_of = views_by_id(states_by_frame)
     hand = {(p, f) for _d, p, f in handover_steps([s for s in steps if s[0] > step_m], views_of)}
@@ -162,6 +192,11 @@ def summarize(pos_by_id, states_by_frame, team_of, *, lo: int, hi: int, joints_b
         "window": [lo, hi],
         "ids_drawn": len(pos_by_id),
         "body_frames": int(sum(len(b) for b in pos_by_id.values())),
+        "hops": {
+            "full": len(jerks), "live": len(jerks_live),
+            "worst_live": [{"pid": p, "frame": f, "step_m": round(s, 3), "excess_m": round(e, 3)}
+                           for e, s, p, f in jerks_live[:6]],
+        },
         "steps": {
             "full_over_step": sum(1 for s in steps if s[0] > step_m),
             "full_over_hard": sum(1 for s in steps if s[0] > hard_m),

@@ -91,6 +91,11 @@ def main():
                                        for w in st["worst"][:6]))
     print("       worst live: " + ", ".join(f"id {w['pid']} {w['m']:.2f} m @{w['frame']}{' (handover)' if w['handover'] else ''}"
                                             for w in st["worst_live"][:6]))
+    hp = rep["hops"]
+    print(f"hops   (a step > {mr.JERK_EXCESS_M} m beyond its neighbours' median): full {hp['full']}  live {hp['live']}")
+    if hp["worst_live"]:
+        print("       worst live: " + ", ".join(f"id {w['pid']} {w['step_m']:.2f} m (+{w['excess_m']:.2f}) @{w['frame']}"
+                                                for w in hp["worst_live"][:6]))
     print(f"root jitter m/frame^2  full p50 {rj['full']['p50']:.4f} p90 {rj['full']['p90']:.4f} p99 {rj['full']['p99']:.4f}"
           f"   live p50 {rj['live']['p50']:.4f} p90 {rj['live']['p90']:.4f} p99 {rj['live']['p99']:.4f}")
     print("       worst live: " + ", ".join(f"id {w['pid']} {w['p90']:.3f}" for w in rj["worst_live"][:6]))
