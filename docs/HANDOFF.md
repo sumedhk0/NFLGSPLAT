@@ -1888,6 +1888,17 @@ The clean product decision is to END THE RENDER at the tackle (~frame 500 on pla
 over, the crowd's artefacts are the worst in the clip) -- not taken unilaterally; the whole clip is
 still rendered. (scratch probe_postwhistle_steps.py)
 
+**Fit sweeps at the timeline's placement, eight worst ids, live window (2026-09-16 03:00).** Endzone
+weight (timeline with the median orientation): 0.3 jitter p90 0.204 / endzone 20.0-28.7 / sideline
+9.5-20.7; 0.5 0.260 / 16.2-25.9 / 10.3-22.0; 1.0 0.246 / 13.5-23.9 / 11.4-25.6. More endzone buys
+endzone reprojection by selling the sideline and adding jitter (its keypoints are noisier); the render
+camera sits on the sideline's side, so the sideline is the better proxy for what is seen. 0.3 stays.
+CLOSED. Temporal weight (timeline with the orientation Gaussian): 0.3 jitter p90 0.144 / endzone
+19.8-28.0 / sideline 9.8-22.2; 1.0 0.095 / 19.9-30.4 / 10.0-22.8; 3.0 0.079, off-axis 2.0 -> 0.5 % /
+19.9-29.7 / 10.1-24.0. Minus 45 % of jitter for ~1.8 px at either p90 with the p50s unchanged: the
+pull toward the previous frame is the term that holds a limb where the keypoints are noisy.
+Candidate default 3.0, to be confirmed on the whole play before it ships.
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).
