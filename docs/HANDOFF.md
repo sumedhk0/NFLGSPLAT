@@ -2188,6 +2188,26 @@ drawn body: the refit placement (place_from_refit, 1 m reach), the run smoother 
 that mixes endzone-only and sideline frames), or the foot point itself (a running man's lifted foot).
 Measuring per frame at the timeline (both cameras' lower joints, default vs no refit placement).
 
+Result (19:00, scratch probe_id_timeline_reproj): id 40's lower joints reproject 86-112 px off the
+ENDZONE keypoints on every frame 374-400, endzone-only and two-view frames alike, and turning the
+refit placement off changes nothing (identical to the pixel) -- the offset is in the ground point
+itself or the run smoother, not the refit. Isolating placement from the legs' pose next: the drawn
+pelvis against the keypoints' hip centre, per camera (scratch probe_pelvis_offset, ids 40 / 37 / 74 / 17).
+
+The four live hops on the footage (05q strips, 19:00): 37 at 372-379 -- a lineman in the pile, the
+sideline keypoints steady on him while the drawn body sits 30-40 px off and drifts, the hop at 376
+is the drawing moving, not the man (a two-camera id: 41 both / 44 sideline / 36 endzone frames).
+74 at 415-422 -- drawn ~60 px left of the pile with no sideline keypoints until 421, then still
+60 px off them: an endzone-only stretch handed to the sideline with its offset. 166 at 297-304 -- the
+snap, a lineman firing off with the sideline keypoints gone; the body shifts a little. 17 at 410-417
+-- keypoints on him to 413, then none; the crop jump at 415 is 05q switching from the box to the
+projection for its crop centre, the body moves 0.18 m. All four are placement offsets of 0.2-0.3 m
+at camera-source transitions in the line or the pile: the hop population is now four frames of 3600
+on the live play, none over 0.3 m. The thread worth pulling is the OFFSET: bodies drawn 30-60 px
+off their own sideline keypoints on frames that have them, next to unseen stretches (37, 74). A
+population probe is running: sideline-seen body-frames' lower-joint px at the timeline placement,
+binned by distance to the id's nearest unseen frame.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
