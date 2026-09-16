@@ -2343,6 +2343,25 @@ point, inside build_timeline (gap fill, the run smoother, the dedupe) or in how 
 turned into a drawn pelvis. Capturing the ground handed to build_timeline and comparing it per frame
 with the final xy and the triangulated hips for ids 7, 2, 0, 74 (running).
 
+**RETRACTION (20:35): the endzone side of every scratch ruler written tonight was half a second off.**
+The probe found ground -> final xy 0.01 m (build_timeline moves nothing) and ground -> triangulated
+hip +0.29 m for id 7, i.e. the placed point was already "0.3 m off" -- and the anchor had said 0.04 m.
+Reading the frame arithmetic: the trusted tools (05t, 05q, the cross-view scorer probe_cache_in_timeline)
+take endzone clip frame = timeline frame + offset (offset = -15); the probes written tonight from
+probe_orient_flip2 onward used timeline frame - offset, thirty frames (0.5 s at 59.94 fps) the other
+way. A man moving 2 m/s is a metre from where those keypoints say, a standing lineman is not -- which
+is exactly the "structure" I read as a defence-side depth bias. INVALID: the endzone columns of the
+unwrap A/B and the blind-axis A/Bs (their sideline / jitter / hops / census columns and the render
+strips stand), the pelvis-offset table (id 40 "70 px deep"), the bias-vs-scatter analysis, the hip
+triangulation and all three tri_hips A/Bs (they compared a body with keypoints from another instant;
+the "0.2-0.6 m" was the man's own motion), the lowest-ankle A/B's endzone column, the
+id_timeline_reproj endzone column. VALID: the unwrap (sideline, jitter, strips, render), the orphan
+rule, the fill bridge, the blind-axis rejection (steps and census), the geodesic and spine-20
+decisions (the cross-view scorer indexes correctly), the seen-frame offset bins (sideline only).
+Re-measuring with frame + offset: the pelvis offsets, the bias table, the triangulation. The lowest
+ankle is re-measured too (its ruler was the broken one). tri_hips stays off and its docstring is
+corrected once the numbers are real.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
