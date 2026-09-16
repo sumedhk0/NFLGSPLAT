@@ -2178,6 +2178,16 @@ p99 0.069). With the hop ruler: hops full 38, LIVE 4 -- id 37 0.27 m (+0.21 over
 166 0.25 (+0.18) @300 (the snap), 74 0.23 (+0.17) @419, 17 0.18 (+0.15) @414; id 40's strides are
 not among them. Those four frames are the next strips.
 
+Id 40 on the footage, three windows (19:00). Sideline 377-384 (no sideline detection either): the
+drawn body stands ~1 m along the field from the real man in every frame. Sideline 395-400: at 395-396
+still off him; from 398 the sideline sees him and the body sits on him. ENDZONE 386-393 (where he IS
+detected): the green keypoints are on the man and the drawn body is offset ~40 px up-left of them --
+further along the endzone's depth and a little across -- so the endzone-only placement does not even
+land on the endzone's own keypoints. The ~1 m is made somewhere between the endzone foot point and the
+drawn body: the refit placement (place_from_refit, 1 m reach), the run smoother (smooth_xy over a run
+that mixes endzone-only and sideline frames), or the foot point itself (a running man's lifted foot).
+Measuring per frame at the timeline (both cameras' lower joints, default vs no refit placement).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
