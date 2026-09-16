@@ -2095,6 +2095,15 @@ step and a hand; on 38 and 13 the remaining wrist flags are 0.10-0.14 m/frame (3
 at the line, which the 410-424 strip of 38 already showed following the keypoints. The 0.10 m/frame
 threshold now sits at the level of real hands; the flail ruler has done its job on this play.
 
+Review tools promoted from the scratchpad (2026-09-16 18:15): `scripts/05v_render_strips.py` cuts
+per-id strips from the RENDERED frames through the render's own follow camera (`--spec PID:START:COUNT:STEP`,
+pass the 05k eye offset / fov) and contact sheets (`--sheet FRAMES`); `scripts/07m_measure_fit_reprojection.py`
+prints a pose cache's own per-frame reprojection of one id (lower joints / upper limbs px, knee angles) --
+read it beside the 05q strip of the same frames: if the cache is on the keypoints and the drawing is not,
+the timeline made the damage. Tests in tests/test_review_tools.py. The loop per flagged id is now: flail /
+07l names the id and frames -> 07m (is the fit right?) -> 05q strip (footage) -> 05v strip (render) ->
+affirm/deny.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
