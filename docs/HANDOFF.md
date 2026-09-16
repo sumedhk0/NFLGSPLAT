@@ -1633,9 +1633,11 @@ endzone reprojection p90 px: s1.5 0.138 / 13.4, s2 0.109 / 14.2, s2.5 0.098 / 14
 s2 with arms s3 0.099 / 14.7, s2 with arms s4 0.093 / 15.5. One trade curve: each 0.01 of jitter costs
 ~0.3 px of endzone p90 wherever the sigma goes, so the split buys nothing and sigma 2 stays. CLOSED.
 
-**Renders.** v39 = cut 19 + 08u + smooth_xy fix (`diag/play_001_v39_hifi_720.mp4`). v40 = + 08t + 08v
-+ the Gaussian limb smoother, rendering. Scores: `diag/play_001_v40_plausibility.json` (state before the
-smoother) and `_v41_` (with it) -- v40 the render carries the v41 numbers.
+**Renders (`diag/play_001_vNN_hifi_720.mp4`) and the 07l report each carries.** v39 = cut 19 + 08u +
+smooth_xy fix. v40 = + 08t (live scope) + 08v + the Gaussian limb smoother = report v41. v41 = + hinge
+clamp + ankle anchor + snap veto = report v44. v42 = + 08t to a fixpoint over the whole clip = report
+v45. v43 (after the whole-play refit with hard hinges) = report v46, if v46 wins. The report numbers
+are the truth about each render; the mp4 is what the user watches.
 
 **"Joints in weird positions" is measurable too (2026-09-15).** On the drawn live play (3676 body-frames,
 33 ids, after the Gaussian), the hinges do the impossible: R_knee hyperextended (< -15 deg) on 3.0 % of
@@ -1748,6 +1750,28 @@ better than an illegal one clamped afterwards, because the other joints compensa
 runs. `Mono2DConfig.hard_hinges` defaults to True (05p --no-hard-hinges to disable); the render-side
 clamp stays as a belt for caches fitted before it. The whole play is being refitted with it
 (poses_refit.json.pre_hard is the cache before).
+
+**Hypothesis under test: a stronger per-camera pose model (NLF, NeurIPS'24) instead of the regressor
+we refit from (2026-09-15, evening).** Of the multi-camera toolkits the user listed (Pose2Sim, Anipose,
+MVPose, VoxelPose, EasyMocap, OpenCap, MeTRAbs...), only two touch what is still wrong on play 1: a
+learned pose prior in the fit (EasyMocap's VPoser route; the weights are licence-gated and not on
+disk) and a better per-camera 3D initialiser (MeTRAbs/NLF). The rest re-do triangulation and
+association, whose ceilings are measured (geometry 0.15 m with identity given, the endzone's 4-6 deg
+lens, a 1 m pairing ambiguity in a formation), or are trained on people 2-5 m from the camera.
+
+NLF-L (`data/models/nlf/nlf_l_multi_0.3.2.patch4.torchscript`, 521 MB, noncommercial research
+licence, loads under smplx312's torch 2.11 after `import torchvision`) takes OUR boxes and OUR camera
+(`estimate_smpl_batched(images, [boxes xywh], intrinsic_matrix, extrinsic_matrix in mm,
+world_up_vector, model_name="smplx")`) and returns SMPL-X pose (165), betas, trans, joints3d in world
+millimetres, joints2d and per-joint uncertainties. First frame ran: 15 s per box on CPU. One box per
+call -- a batch with one degenerate crop went non-finite inside its fitter. Probe
+(scratch probe_nlf.py) scores hinge violations, limb reprojection onto the YOLO keypoints and
+stride-4 joint jitter on the worst ids against the shipped refit (3.8 % / 27.7 % violations,
+13.4 / 23.9 px) and the hard-hinge refit (0 / 3.7 %, 9.4 / 18.8 px). Runs on the GPU after v42.
+
+Session note: the previous session died with three jobs running (v42 at frame 61, the whole-play
+hard-hinge refit, the suite); v42 resumed, the refit restarted from scratch (its
+`PermissionError: [WinError 5]` was the pool losing its parent, not a bug), the suite is queued.
 
 **Local repair step 1, hold-through, measured and REJECTED as a default (2026-09-15).** Stretches
 where the raw fit's max joint speed exceeds 0.25 m/frame (merged within 3 frames, padded 2): 85 on
