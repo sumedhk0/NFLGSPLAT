@@ -1973,6 +1973,14 @@ it: flailing 5.5 -> 3.0 % of standing body-frames, a collar past 40 deg 1302 -> 
 past 90 deg 1349 -> 1062 (the +-30 deg box lets a segment reach 52; a 20 deg box is being measured on
 the worst ids, with the bent linemen's strips as the check that real crouches survive).
 
+**Strips under the recipe (2026-09-16 17:25; cache = temporal 3.0 + torso, spine box 20 on the worst ids).**
+Runner id 9 (340-354): the drawn arms follow the pumping keypoints in all eight frames, legs on theirs --
+the v44 held-out arms are gone ON THE FOOTAGE, not only on the rulers. Bent linemen 13 (400-414) and 4
+(360-374): the crouch survives the 20 deg spine box exactly as under 30 (the fold is at the hips) and
+both track their keypoints. So the tighter spine box costs nothing visible; its numbers: spine total
+p90 95 -> 87 deg, max 142 -> 101, past 90 on 11.0 -> 8.2 % of records, +0.2 px on the fit's own
+reprojection. Cross-view scorer pending; if it holds, spine_max_deg 20 becomes the default.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
