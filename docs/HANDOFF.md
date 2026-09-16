@@ -1751,6 +1751,33 @@ runs. `Mono2DConfig.hard_hinges` defaults to True (05p --no-hard-hinges to disab
 clamp stays as a belt for caches fitted before it. The whole play is being refitted with it
 (poses_refit.json.pre_hard is the cache before).
 
+**The whole-play hard-hinge refit: limbs win, root loses (07l v45 -> v46, 2026-09-15 20:43).** 5182
+frames on 69 players in 26 min, reprojection median 16.4 -> 2.7 px. On the timeline: joint jitter p90
+0.102 -> 0.090, p99 0.69 -> 0.55, speed p90 0.152 -> 0.135, hinges 0 / 0, census 1.66 -> 1.65 -- and
+live steps > 0.25 m/frame 9 -> 19, root jitter live p50 0.0021 -> 0.0038, p90 0.0137 -> 0.0210 (id 11
+walks 1.6 m over 403-407). Mechanism: place_from_refit moves each body to the refit's per-frame
+pelvis, and the bounded fit's pelvis is noisier from frame to frame -- transl is solved per frame with
+no memory, while a root moves smoothly. Not shipped as is: the pose gain must not ride on a root loss.
+Being measured: per-id Gaussian on the refit's transl along its keyframe runs (s2, s4), an outlier
+veto (> 0.5 m from the +-6-frame median), and placement off, on the four placement rulers.
+
+**Scored where the render places it, the one-view hard-hinge cache LOSES (2026-09-15 21:05).** The
+refit A/B had placed bodies at the fit's own transl (~60 px off in the endzone) and could not see this.
+Same eight worst ids, live window, bodies at the TIMELINE's xy, both cameras (scratch
+probe_cache_in_timeline):
+
+    shipped (pre_hard)   hinges 6.4 % / 23.0 %   joint jit p90 0.34   root p90 0.022   endzone lower 16.4 / 32.1 px   sideline limbs 16.7 / 33.2
+    hard1 one-view       hinges 0.0 % /  3.7 %   joint jit p90 0.27   root p90 0.033   endzone lower 52.5 / 70.1 px   sideline limbs 10.2 / 18.9
+
+A bounded knee cannot fake the foreshortening a leg pointed at the sideline camera produces, so the
+fit lays the leg along the ray instead -- invisible to the sideline, three times worse in the endzone.
+The pelvis itself moved only 0.06 m (p50) between caches; it is the legs. "Place off" leaves the
+endzone at 22 / 53 px, so no placement smoothing fixes it. poses_refit.json is back to the v45 cache
+(the hard-hinge one kept as poses_refit.json.hard1). The bound stays on by default in the FIT because
+the same experiment with the endzone in the objective (05p --two-view --endzone-weight 0.3, refit C)
+is the one that can resolve the along-ray ambiguity; it is being scored the same way. If C loses too,
+hard_hinges goes back to opt-in.
+
 **Hypothesis under test: a stronger per-camera pose model (NLF, NeurIPS'24) instead of the regressor
 we refit from (2026-09-15, evening).** Of the multi-camera toolkits the user listed (Pose2Sim, Anipose,
 MVPose, VoxelPose, EasyMocap, OpenCap, MeTRAbs...), only two touch what is still wrong on play 1: a
