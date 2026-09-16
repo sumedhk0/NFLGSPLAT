@@ -2380,6 +2380,12 @@ timeline) -> 12.4 / 20.8 (unwrap), sideline limbs 7.2 / 16.2 -> 7.1 / 15.0, join
 the earlier "endzone unchanged at 51.8 / 129" was the broken index (its level alone should have
 said so: 129 px at p90 is a body length).
 
+**07l v52 = v51 + the 10-frame fill bridge (21:00; the v48 render's timeline).** Live steps 5, hops
+4 (37 @376, 166 @300, 74 @419, 17 @414), root jitter live p90 0.0119 -> 0.0115, census live 1.50 ->
+1.32 (KC 10.78, BAL 11.34), whole clip 2.51 -> 2.42, hinges 0/0, joints p50/p90/p99 0.0106 / 0.0327 /
+0.0689 unchanged, 13958 body-frames drawn (v51 14127). Render v48 = this timeline on the same cache,
+strips auto-cut to scratch review_v48.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
