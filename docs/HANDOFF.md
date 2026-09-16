@@ -2245,6 +2245,13 @@ unchanged; rulers = the endzone pelvis offset over every frame with endzone hips
 population ruler of this defect), the sideline pelvis offset (must not move), live hops, census,
 root jitter.
 
+Smoother A/B (19:15, scratch probe_seen_offset_ab): with timeline.smooth_xy replaced by the identity
+the bins barely move (0-2 frames: p50 10.1 -> 9.3, p90 22.7 -> 21.3; never-unseen 4.6 -> 4.7) while
+root jitter live p90 goes 0.012 -> 0.043 and live hops 4 -> 67. The smoother is NOT what carries
+the offset -- the ground points beside an unseen stretch are already off before smoothing, which
+is what the endzone-depth hypothesis predicts (a two-view frame beside an endzone-only stretch
+takes its depth from the same endzone foot point). DENIED; the smoother stays.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
