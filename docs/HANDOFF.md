@@ -1819,13 +1819,27 @@ y -5..5): ratios 1.0-1.3 at 0.5-1.5 m -- the line stacked along the sideline's d
 camera's blind-axis error (0.3-0.5 m sideline, ~1 m endzone) exceeds the spacing. No label changes
 that. Scratch probe_snap_pairing.py.
 
-**PENDING AT SHUTDOWN (2026-09-15 21:15, machine off):** the timeline-placed scorer of refit C (two-view,
-endzone 0.3, hard hinges; `scratch/refit_C.json`, 315 two-view + 608 one-view records on the eight
-worst ids) was running -- rerun `probe_cache_in_timeline.py` (shipped / hard1 / C rows). If C beats
-shipped on the endzone lower joints without losing the sideline, refit the whole play two-view
-(05p --two-view --endzone-weight 0.3), score as v47, render v43; if not, set hard_hinges back to
-opt-in. Shipped state on disk = v45 cache (poses_refit.json = .pre_hard), v42 rendered and encoded.
-Renders delivered: diag/play_001_v39..v42_hifi_720.mp4.
+**Refit C, two-view + hard hinges, WINS at the timeline's placement (2026-09-15 21:18, last result
+before shutdown).** Eight worst ids, live window, bodies at the timeline's xy, both cameras:
+
+    shipped (pre_hard)   hinges 6.4 % / 23.0 %   joint jit p90 0.341   root p90 0.0219   endzone lower 16.4 / 32.1   sideline limbs 16.7 / 33.2
+    hard1 one-view       hinges 0.0 % /  3.7 %   joint jit p90 0.271   root p90 0.0334   endzone lower 52.5 / 70.1   sideline limbs 10.2 / 18.9
+    C two-view ez0.3     hinges 0.0 % /  2.0 %   joint jit p90 0.204   root p90 0.0174   endzone lower 20.0 / 28.7   sideline limbs  9.5 / 20.7
+
+With the endzone in the objective the bound stops laying legs along the sideline ray: joint jitter
+-40 %, root jitter -20 %, sideline limbs -7 px, endzone p90 -3.4 px, for +3.6 px on the endzone p50
+(inside the endzone keypoint noise on 60-px bodies). Ship it. hard_hinges stays default on.
+
+**RESUME PLAN (machine off 21:20; nothing running):**
+  1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
+     --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).
+  2. `PYS scripts/07l_measure_plausibility.py --play-dir P --tag v47 --joints`; expect joints p90 well
+     under v45's 0.102 with steps/root/census not worse than v45 (live 9, root live p90 0.0137, 1.66).
+  3. If v47 holds: render v43 (`scratch/launch_v43.sh`), then set the pipeline's default to two-view
+     (ONE_VIEW=0, EZW=0.3 in pipeline_play.sh) and commit; if not, keep v45 and record why.
+  4. Optional addition from the formation probe: sideline 4 <- endzone 198 via 08s --allow-repairing
+     --give-up-incumbent, then re-run 05p for the pair to reach the fit.
+Renders delivered: diag/play_001_v39..v42_hifi_720.mp4 (v42 = whole-clip switch cuts, report v45).
 
 **Local repair step 1, hold-through, measured and REJECTED as a default (2026-09-15).** Stretches
 where the raw fit's max joint speed exceeds 0.25 m/frame (merged within 3 frames, padded 2): 85 on
