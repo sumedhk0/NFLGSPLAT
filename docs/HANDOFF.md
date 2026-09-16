@@ -2104,6 +2104,21 @@ the timeline made the damage. Tests in tests/test_review_tools.py. The loop per 
 07l names the id and frames -> 07m (is the fit right?) -> 05q strip (footage) -> 05v strip (render) ->
 affirm/deny.
 
+**Geodesic temporal residual: measured, NO EFFECT, closed (18:20).** Ids 9 / 0 / 38 / 28 refitted with
+`--temporal-geodesic` (505 records) against the shipped cache, cross-view scorer at the timeline's
+placement: joint jitter p90 0.0448 vs 0.0449, endzone lower p50/p90 13.8/20.4 vs 13.7/20.3, sideline
+limbs 7.6/15.2 vs 7.7/15.4; the runner's own sideline error on 316-344 identical frame by frame (07m).
+The 2 pi residual was harmless because the data term wins it every time. `Mono2DConfig.temporal_geodesic`
+stays False; the raw jumps stay in the cache as a curiosity.
+
+The runner at the handoff (05q strips 322-336, both cameras): sideline -- the drawn body follows the
+keypoints with a whole-body offset of ~15 px on 324-334 (a motion-blurred 100-px body between the
+linemen); endzone -- id 9 has endzone rows on 322-324 only, and there the green keypoints sit on a
+BLURRED figure passing between two linemen (the runner at speed, half-hidden), then nothing until 336
+where his placement projects behind the quarterback. Hypothesis: the endzone term (weight 0.3) on those
+two blurred endzone frames, carried by the temporal chain, is the 13-19 px; test = refit id 9 one-view
+only and read 07m on 316-344 (running).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
