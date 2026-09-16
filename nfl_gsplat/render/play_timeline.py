@@ -246,23 +246,27 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
 MAX_REFIT_SHIFT_M = 1.0
 
 
-def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None):
+def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None,
+                     keep=None):
     """``ground`` with every (frame, id) that has a refit record moved to the
     record's pelvis. ``pelvis_xy(rec) -> xy`` gives the record's pelvis on the
     field; without it the translation alone is used (the model's origin, which
     sits 0.35 m from the pelvis along the rest skeleton's down axis -- see
     placed_vertices). A shift beyond ``max_shift_m`` is a wrong record and is
-    not applied. Returns ``(ground, shifts)``, ``shifts`` the metres moved."""
+    not applied. ``keep``: ``{(frame, pid)}`` whose ground point stands as it is (a triangulated
+    hip centre, render.tri_hips) -- neither replaced nor interpolated over. Returns ``(ground,
+    shifts)``, ``shifts`` the metres moved."""
     out = {f: dict(d) for f, d in ground.items()}
     shifts = []
     accepted: set = set()
+    keep = set(keep or ())
     for f, recs in refit.items():
         f = int(f)
         if f not in out:
             continue
         for pid, r in recs.items():
             pid = int(pid)
-            if pid not in out[f]:
+            if pid not in out[f] or (f, pid) in keep:
                 continue
             xy = np.asarray(r["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(r), float)[:2]
             d = float(np.hypot(*(xy - np.asarray(out[f][pid], float))))
@@ -284,7 +288,7 @@ def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, m
                 xa = np.asarray(ra["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(ra), float)[:2]
                 xb = np.asarray(rb["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(rb), float)[:2]
                 for f in range(a + 1, b):
-                    if f in out and pid in out[f]:
+                    if f in out and pid in out[f] and (f, pid) not in keep:
                         w = (f - a) / float(b - a)
                         out[f][pid] = (1 - w) * xa + w * xb
     return out, np.asarray(shifts)
@@ -441,14 +445,17 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         # A body with a hip pair in both cameras stands on its triangulated hip centre
         # (render.tri_hips): the two rays meet at 5 / 8 px, the foot-point-plus-snap sits 0.2 m
         # (p90 0.6) from that on play 1. Gated by ray gap and hip height, so a mispair stays out.
+        tri_keep = set()
         if tri_hips and "endzone" in tracks and kdf is not None:
             tri = triangulated_hips(kdf, tracks, frame_shift=shift)
             ground, moved = place_on_triangulated_hips(ground, tri)
+            tri_keep = {k for k in tri if k[0] in ground and k[1] in ground[k[0]]}
             if moved:
                 print(f"paired frames placed on triangulated hips: {len(moved)} body-frames "
                       f"(median move {np.median(moved):.2f} m, p90 {np.percentile(moved, 90):.2f})")
     if place_from_refit_transl and refit:
-        ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
+        ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model),
+                                          keep=tri_keep if "sideline" in tracks else None)
         if len(shifts):
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")

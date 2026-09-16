@@ -62,3 +62,16 @@ def test_place_on_triangulated_hips_moves_only_drawn_frames():
     assert 9 not in out[100] and 150 not in out and np.allclose(out[101][1], [-23.5, 3.4])
     assert len(moves) == 1 and abs(moves[0] - np.hypot(0.5, 0.4)) < 1e-9
     assert np.allclose(ground[100][1], [-23.5, 3.4])                  # input untouched
+
+
+def test_refit_placement_leaves_kept_frames_alone():
+    from nfl_gsplat.render.play_timeline import place_from_refit
+
+    ground = {f: {1: np.array([0.0, 0.0])} for f in range(10, 16)}
+    refit = {f: {1: {"transl": np.array([0.5, 0.0, 0.9])}} for f in (10, 12, 15)}
+    out, shifts = place_from_refit(ground, refit, keep={(12, 1), (13, 1)})
+    assert np.allclose(out[10][1], [0.5, 0.0]) and np.allclose(out[15][1], [0.5, 0.0])
+    assert np.allclose(out[12][1], [0.0, 0.0]) and np.allclose(out[13][1], [0.0, 0.0])   # kept, not interpolated
+    assert np.allclose(out[14][1], [0.5, 0.0])                                             # interpolated between 10 and 15... via accepted records only
+    assert len(shifts) == 2
+
