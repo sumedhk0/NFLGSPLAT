@@ -2272,6 +2272,26 @@ finding: the drawn bodies sit 43 px from their own endzone hips at the median an
 BIAS (one direction: the endzone camera itself, or a systematic depth rule) or scatter (per body)?
 Vector statistics by views / team / depth band / id running.
 
+Bias vs scatter (19:35, scratch probe_endzone_bias, 1889 live body-frames with endzone hips): the
+overall median vector is small (dx -15, dy +6 px) but only 29 % of frames are within 20 px and 47 %
+within 40 -- scatter, not one bias. It is structured: by team Baltimore dx -34 / Kansas City -1; by
+field position the Baltimore side of the line (x < -26) dx -45 to -50 while the Kansas City side
+(-26..-22) is +1 -- a horizontal shift in the endzone image is a y error in the field (the sideline's
+DEPTH axis), so bodies on the defence's side stand ~1 m off along the sideline's depth while their
+sideline hips match at 4-6 px. Two-view frames (n 1616) carry it (dx -17.5, |d| p50 42.5), so the
+depth snap is not curing it there. Per id: 9 is 528 px off in the endzone (its endzone rows are
+another man -- a mispair), 74 / 40 / 0 / 7 / 2 at 54-88 px with sideline 3-6 px; 3 / 11 / 5 / 13 / 15
+at 8-17 px are fine. Next ruler: triangulate the hip centre on two-view frames (both cameras' hip
+keypoints) and compare with the timeline's xy in field metres, by team and band -- if the y
+disagreement is the ~1 m, the sideline's depth (foot point + snap) is the mechanism and the
+triangulated hips are the fix for paired frames.
+
+Gap bridge A/B (19:35, scratch probe_gap_bridge): bridge 30 (shipped) drawn 3607 live body-frames,
+93 unseen by either camera; bridge 10: 3561 / 53, live hops 4 -> 4, steps 5 -> 5, census 1.50 ->
+1.32, root jitter p90 0.0120 -> 0.0116; bridge 4: hops 6, steps 12, census 1.36 -- too short. Bridge
+10 wins on every ruler measured; the ruler it lacks is POPS (a body vanishing and reappearing),
+which no ruler counts yet -- counting them for 30 vs 10 before adopting.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
