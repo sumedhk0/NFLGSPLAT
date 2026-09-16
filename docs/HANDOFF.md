@@ -2172,6 +2172,12 @@ step more than 0.15 m longer than the median of its neighbouring steps (3 each s
 stride; 07l prints it beside the absolute count (which stays for teleports). 07l v51 (orphan rule in)
 follows; the hop count on the live play is the number to carry from here.
 
+**07l v51 = v50 + the orphan rule (18:55).** Live steps > 0.25: 7 -> 5 (203's two gone), every other
+ruler identical to v50 (root jitter live p90 0.0119, census 1.50 / 2.51, hinges 0/0, joints p90 0.0326,
+p99 0.069). With the hop ruler: hops full 38, LIVE 4 -- id 37 0.27 m (+0.21 over its neighbours) @376,
+166 0.25 (+0.18) @300 (the snap), 74 0.23 (+0.17) @419, 17 0.18 (+0.15) @414; id 40's strides are
+not among them. Those four frames are the next strips.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
