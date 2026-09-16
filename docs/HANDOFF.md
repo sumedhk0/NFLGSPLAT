@@ -2051,10 +2051,19 @@ scorer's). Better on every ruler the change can reach, neutral on the other came
 default (commit 6d4c898). 07l v50 and render v47 (chained behind v46; v46 is the v49 timeline and is
 the before-footage) follow; the strips of ids 0, 38 and 9 from v47 are the affirm/deny.
 
-Caveat on an older number: the keyframe-turn ruler (scratch probe_keyframe_swings, "turns > 45 deg
-0.25 -> 0.03 %") differences raw axis-angle vectors between keyframes and so counts a representation
-flip near pi as a 360 deg turn; part of the temporal-weight result was that artefact. Re-measure with
-the unwrap (or on relative rotations) before quoting it again.
+Retracted (18:00, twenty minutes after writing it): I wrote here that the keyframe-turn ruler
+(scratch probe_keyframe_swings, "turns > 45 deg 0.25 -> 0.03 %") differenced raw vectors and so
+counted representation flips as 360 deg turns. Reading the probe: it measures body_pose joints as the
+RELATIVE rotation's magnitude (ra.inv() * rb), representation-free, and never touches global_orient.
+The temporal-weight number stands as measured. The lesson stays for any ruler that does difference
+raw vectors; none of the shipped ones do.
+
+Spine past 90 deg -- who and where (cache, live play, 18:20): every id with more than 11 such
+keyframes stands within 2.3 m of the line of scrimmage (11, 12, 3, 17, 19, 166 on the Kansas City
+side at 1.1-2.3 m; 13, 4, 1 on the Baltimore side at 0.6-1.0 m; 84) -- the two lines, crouching for
+real, as the 13 / 4 strips showed. Off the line: the runner 9 (11 keyframes at 100-114 deg around the
+handoff and the tackle) and 5 (two frames). The "29 % of frames past 90 deg" is the linemen; the
+non-lineman spine hypothesis is DENIED by the population and closed.
 
 Fit-side exposure (scratch probe_raw_jumps): 14 keyframe pairs on the clip jump > 3 rad in the raw
 global_orient vector; 11 of them are pure representation jumps (|dv| ~ 6.28 = 2 pi, relative rotation
