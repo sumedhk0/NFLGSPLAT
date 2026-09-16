@@ -355,7 +355,7 @@ def two_view_pass(args, P, tracks, df, ground, blob):
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
                              "place_weight": args.two_view_place_weight, "bounds_weight": args.bounds_weight,
-                             "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges,
+                             "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight,
                              "view_weights": (1.0, args.endzone_weight), "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px,
                              "unseen_temporal_mult": args.unseen_temporal_mult}})
     n_frames = sum(len(j["frames"]) for j in jobs)
@@ -512,6 +512,8 @@ def main() -> None:
     ap.add_argument("--bounds-weight", type=float, default=Mono2DConfig.bounds_weight,
                     help="joint-range prior (pose.pose_bounds); 0 = off")
     ap.add_argument("--bounds-table", default=Mono2DConfig.bounds_table, choices=["data", "anatomical"])
+    ap.add_argument("--temporal-weight", type=float, default=Mono2DConfig.temporal_weight,
+                    help="pull toward the previous frame's body_pose and orient (sqrt(w) per radian); a sweep knob")
     ap.add_argument("--no-hard-hinges", dest="hard_hinges", action="store_false",
                     help="do NOT box the knees and elbows inside the optimiser (fit_mono2d.hinge_bounds; on by "
                          "default: measured better than the shipped fit on violations, jitter AND reprojection)")
@@ -745,7 +747,7 @@ def main() -> None:
                      "truth": truth if args.validate else None,
                      "cfg": {"min_conf": args.min_conf, "min_joints": args.min_joints, "max_iter": args.max_iter,
                              "tilt_weight": args.tilt_weight, "tilt_free_deg": args.tilt_free_deg,
-                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges,
+                             "bounds_weight": args.bounds_weight, "bounds_table": args.bounds_table, "hard_hinges": args.hard_hinges, "temporal_weight": args.temporal_weight,
                              "lr_symmetric": args.lr_symmetric, "joint_reject_px": args.joint_reject_px,
                              "unseen_temporal_mult": args.unseen_temporal_mult}})
     n_frames = sum(len(j["frames"]) for j in jobs)
