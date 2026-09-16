@@ -1844,6 +1844,11 @@ A "short fragment riding another body" rule was measured for 162 and found nothi
 median 0.57 m to id 11; 39, 153, 167: 0-38 %). Loosening it to catch 162 alone is a rule for one id.
 Not built. (scratch probe_short_fragments.py)
 
+**v47 SHIPS (2026-09-16 02:25).** The full two-view cache reproduces C's cross-view numbers on the
+worst ids exactly (hinges 0 / 2.0 %, joint jit p90 0.204, root 0.0174, endzone lower 20.0 / 28.7,
+sideline limbs 9.5 / 20.7). poses_refit.json = the two-view hard-hinge cache (v45's kept as
+.pre_twoview); the pipeline's ENDZONE_WEIGHT default is 0.3; render v43 = report v47.
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).

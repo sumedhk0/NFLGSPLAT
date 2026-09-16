@@ -53,11 +53,16 @@ set -u
 # may be named (08c vetoes them on scrimmage downs; play 1 named the kicker twice).
 KICK_FLAG=""; [ "${KICKING:-0}" = "1" ] && KICK_FLAG="--kicking-play"
 # The two-camera players are fitted to BOTH cameras' keypoints at ENDZONE_WEIGHT
-# (default 1.0) now that the endzone camera is on its paint (08l) and the clip
-# offset measured (05o): v26/v27 on play 1, sideline 6.5 px / endzone 4.6 px on
-# 1812 two-view frames. ONE_VIEW=1 fits every body to the sideline alone (the
-# v25 mode, the right one while the endzone camera was 40-85 px off its paint).
-EZW="${ENDZONE_WEIGHT:-1.0}"
+# now that the endzone camera is on its paint (08l) and the clip offset measured
+# (05o). Default 0.3 (was 1.0): measured 2026-09-16 with the hard hinge bounds on
+# play 1's eight worst ids, at the TIMELINE's placement in both cameras -- one-view
+# + bounds laid the legs along the sideline ray (endzone lower joints 52 px);
+# two-view at 0.3 gave joint jitter p90 0.34 -> 0.20, sideline limbs 16.7 -> 9.5 px,
+# endzone 16.4/32.1 -> 20.0/28.7 (07l v45 -> v47 on the whole play: joints p90
+# 0.102 -> 0.090, p99 0.69 -> 0.44, root and census not worse). ONE_VIEW=1 fits
+# every body to the sideline alone (the v25 mode, right while the endzone camera
+# was 40-85 px off its paint; wrong now).
+EZW="${ENDZONE_WEIGHT:-0.3}"
 if [ "${ONE_VIEW:-0}" = "1" ] || [ "$EZW" = "0" ]; then ONE_VIEW_FLAG="--one-view-only"; else ONE_VIEW_FLAG="--two-view --endzone-weight $EZW"; fi
 # A stage is a python run piped through grep for the log; without pipefail
 # the grep decided the stage's fate and a traceback that contained the
