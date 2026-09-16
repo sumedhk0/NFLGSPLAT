@@ -1943,7 +1943,9 @@ tw3 alone jitter p90 0.079 / endzone 19.9-29.7 / sideline 9.9-24.0; tw3 + hard t
 `--two-view --endzone-weight 0.3 --temporal-weight 3.0 --hard-torso`; the whole play is being refitted
 with it (poses_refit.json.pre_final = the v47 cache before). Render v45 (in flight) = the v47 cache +
 id 82 re-teamed + the rider rule (162 gone) + the orientation Gaussian; v46 will carry the refit.
-Review both with strips before any claim.
+Review both with strips before any claim. Strip of id 82 after 08w (frames 220-276): drawn red over
+the Chiefs lineman he is, keypoints matching where the detector sees him, the stance held through the
+pile -- affirmed on the footage.
 
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
