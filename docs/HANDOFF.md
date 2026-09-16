@@ -1849,6 +1849,22 @@ worst ids exactly (hinges 0 / 2.0 %, joint jit p90 0.204, root 0.0174, endzone l
 sideline limbs 9.5 / 20.7). poses_refit.json = the two-view hard-hinge cache (v45's kept as
 .pre_twoview); the pipeline's ENDZONE_WEIGHT default is 0.3; render v43 = report v47.
 
+**Handover level-match REJECTED (2026-09-16 02:30).** Shifting each endzone-only run by the
+(sideline - endzone) offset at its join (62 runs, 415 frames; blended when both ends touch): whole-clip
+steps 154 -> 154 (handovers 11 -> 7), live 11 -> 12, root p90 0.0257 -> 0.0267, census 1.65, and the
+shifted bodies' endzone lower-joint reprojection p90 60 -> 92 px -- the run leaves the endzone's own
+view of the man to meet the sideline. The handover jump is the two cameras' honest disagreement; a
+constant shift trades a step for a wrong placement. (scratch probe_handover_level.py)
+
+**Bodies per sideline box -- the pile counted without a radius (2026-09-16 02:32).** Every drawn
+body's pelvis projected into the sideline image and assigned to the smallest detection box holding it:
+same-team bodies per box {1: 2890, 2: 251, 3: 40, 4: 9} over the live play, 148 of 161 frames with a
+doubled box, 390 surplus body-frames, the surplus ids the KC interior (166, 19, 37, 38, 11, 204).
+Removing the surplus takes KC 11.06 -> 8.89 (census 1.65 -> 2.47): the doubled boxes hold two REAL
+men, a lineman behind another in the sideline's merged box. So the census's open lead ("KC 13 at f425
+while ~10-11 on the plate") is not duplication the box test can find; the drawn count is right within
+the box merging. CLOSED. (scratch probe_bodies_per_box.py)
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).
