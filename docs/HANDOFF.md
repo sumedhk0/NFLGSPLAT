@@ -2312,6 +2312,17 @@ behind `tri_hips=` (off until measured), tests. A/B next: endzone pelvis offset 
 expect 42 -> ~10 px on paired frames), sideline pelvis offset (control), endzone lower joints,
 hops, steps, census, root jitter.
 
+First A/B (20:00, scratch probe_tri_ab): 4483 body-frames placed on triangulated hips (median move
+0.15 m, p90 0.34) -- and the endzone pelvis offset does NOT move (43.4 -> 43.6 px p50, 121.6 p90),
+sideline 4.3 -> 4.3, while live hops go 4 -> 2 and root jitter p90 0.0120 -> 0.0117, census equal.
+The ground point is not what is drawn: place_from_refit then replaces it with the refit record's
+own transl on every fitted frame within 1 m (5038 body-frames on the clip), and the two-view fit's
+transl is what stands 43 px off the endzone hips -- its endzone weight is 0.3 and its place term
+pulls toward the OLD ground point it was fitted with. So the triangulated hips only reach the render
+where the refit is absent. Next: keep the triangulated point on its frames (skip the refit
+placement there) and measure again; the memory says the refit placement halves root jitter, so
+that ruler decides with the endzone offset.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
