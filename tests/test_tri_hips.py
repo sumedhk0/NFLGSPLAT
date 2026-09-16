@@ -33,22 +33,24 @@ def test_two_hip_rays_meet_at_the_hip_and_the_gates_refuse_a_mispair():
     tracks = {"sideline": side, "endzone": end}
     X = np.array([-24.0, 3.0, 0.8])                       # a hip centre on the field
     Y = np.array([-30.0, -2.0, 0.9])                      # another man
-    rows = _rows("sideline", 100, 1, _project(side, 0, X)) + _rows("endzone", 100, 1, _project(end, 0, X))
-    rows += _rows("sideline", 100, 2, _project(side, 0, Y)) + _rows("endzone", 100, 2, _project(end, 0, X))  # id 2 mispaired
-    rows += _rows("sideline", 101, 1, _project(side, 0, X), conf=0.1)                                       # low confidence
+    rows = _rows("sideline", 3, 1, _project(side, 0, X)) + _rows("endzone", 3, 1, _project(end, 0, X))
+    rows += _rows("sideline", 3, 2, _project(side, 0, Y)) + _rows("endzone", 3, 2, _project(end, 0, X))  # id 2 mispaired
+    rows += _rows("sideline", 4, 1, _project(side, 0, X), conf=0.1)                                       # low confidence
     kdf = pd.DataFrame(rows)
     tri = th.triangulated_hips(kdf, tracks)
-    assert set(tri) == {(100, 1)}
-    xy, z, gap = tri[(100, 1)]
+    assert set(tri) == {(3, 1)}
+    xy, z, gap = tri[(3, 1)]
     assert np.allclose(xy, X[:2], atol=1e-3) and abs(z - 0.8) < 1e-3 and gap < 1e-6
     # the mispaired id's rays miss each other by metres, or land at a wrong height: refused
     c1, d1 = th.pixel_ray(side.K[0], side.R[0], side.t[0], _project(side, 0, Y))
     c2, d2 = th.pixel_ray(end.K[0], end.R[0], end.t[0], _project(end, 0, X))
     P, g = th.closest_point(c1, d1, c2, d2)
     assert g > 0.5 or not (0.5 <= P[2] <= 1.4)
-    # a frame shift on the endzone rows is honoured: rows at endzone frame 100 with shift -1 use pose 99
+    # a frame shift on the endzone rows is honoured (the poses are identical here, so the point is the same)
     tri2 = th.triangulated_hips(kdf, tracks, frame_shift={"endzone": -1})
-    assert (100, 1) in tri2
+    assert (3, 1) in tri2 and np.allclose(tri2[(3, 1)][0], X[:2], atol=1e-3)
+    # a frame beyond a camera's poses is skipped, not an error
+    assert th.triangulated_hips(kdf.assign(frame=kdf.frame + 100), tracks) == {}
 
 
 def test_place_on_triangulated_hips_moves_only_drawn_frames():
