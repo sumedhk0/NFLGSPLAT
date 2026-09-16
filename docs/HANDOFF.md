@@ -2208,6 +2208,22 @@ off their own sideline keypoints on frames that have them, next to unseen stretc
 population probe is running: sideline-seen body-frames' lower-joint px at the timeline placement,
 binned by distance to the id's nearest unseen frame.
 
+Result (19:05, scratch probe_seen_offset; 3185 sideline-seen body-frames on the live play, lower
+joints px at the timeline's placement):
+
+    distance to the id's nearest unseen frame    n     p50    p90
+    0-2 frames                                  216    10.1   22.7
+    3-6                                         231     8.7   14.8
+    7-15                                        285     7.9   12.8
+    16+                                        1342     6.3   14.1
+    the id is never unseen on the play         1111     4.6    8.5
+
+The two frames beside an unseen stretch are twice as far off their own keypoints as a frame of a
+body every camera always saw, and the error decays with distance: something carries the unseen
+frames' offset into the seen ones. Suspects, in order: the run smoother (timeline.smooth_xy, window
+9, averaging seen with unseen points), the gap fill, the ankle anchor window (15). A/B running with
+the smoother replaced by the identity (bins, root jitter, hops, census).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
