@@ -1,18 +1,19 @@
-"""Ground points from the two cameras' hip keypoints, triangulated.
+"""Hip centres triangulated from both cameras' hip keypoints -- a placement RULER.
 
-WHY. A body both cameras see stands, in the timeline, on the sideline's foot point slid along the
-sideline ray to the endzone's foot point (render.depth_snap). Measured on play 1 (2026-09-16, 1541
-two-view live frames whose id has hip keypoints in both cameras, 90 % of such frames): the hip centre
-triangulated from the two hip rays reprojects onto the hips at 5.3 px (sideline) / 8.4 px (endzone)
-and sits at 0.77 m (p10 0.60, p90 0.92 -- crouching to standing), while the timeline's point is 0.20 m
-from it at the median and 0.58 at p90, 0.33-0.38 m one way along the sideline's depth on the
-defence's side of the line. On the render that is a man drawn a stride from where he is.
+The timeline places a paired body on the sideline's foot point slid along the sideline ray to the
+endzone's foot point (render.depth_snap). This module triangulates the hip centre from the two hip
+rays instead, gated by ray gap and hip height, so the placement can be scored against a point that
+owes nothing to foot points: on play 1's live play (2026-09-16, 1883 two-view frames with a hip
+pair in both cameras, all passing the gates) the rays meet within 0.06 m at the median, the point
+sits at 0.84 m (p10 0.64, p90 0.96) and reprojects at 2.6 / 4.1 px, and the timeline's placement
+is 0.04 m (x) / 0.02 m (y) from it at the median, 0.08 / 0.05 at p90. The paired placement is right;
+nothing here needs to move a body.
 
-WHAT. For every (frame, id) with a confident hip pair in both cameras, the closest point between the
-two hip-centre rays. Kept only when the rays pass within ``max_gap_m`` of each other and the point
-sits at a hip's height (``z_min``..``z_max``): a mispaired id (play 1's 9: its endzone rows are another
-man) fails both. The point's ground xy replaces the timeline's ground point on those frames; the
-foot-point machinery stands everywhere else.
+History, so nobody rebuilds it: the same evening a placement built on these points was measured
+three ways (swap in, keep through the refit placement, windowed-median anchor) against a ruler that
+indexed the endzone keypoints half a second off (timeline frame - offset instead of + offset), which
+made moving men look 0.2-0.6 m misplaced; all three lost on jitter and hops, and the "defect" was
+the instrument. See HANDOFF 2026-09-16 20:35 and the population-and-units memory.
 """
 from __future__ import annotations
 
@@ -89,51 +90,3 @@ def triangulated_hips(kdf, tracks, *, frame_shift=None, min_conf: float = HIP_CO
             continue
         out[(int(f), int(pid))] = (X[:2].copy(), float(X[2]), gap)
     return out
-
-
-def place_on_triangulated_hips(ground: dict, tri: dict) -> tuple[dict, list]:
-    """``(ground, moves)``: ``ground`` (frame -> {pid: xy}) with every (frame, pid) present in ``tri``
-    set to the triangulated ground xy; ``moves`` lists the metres each moved. Frames the timeline does
-    not draw are not added."""
-    out = {f: dict(d) for f, d in ground.items()}
-    moves = []
-    for (f, pid), (xy, _z, _gap) in tri.items():
-        if f in out and pid in out[f]:
-            moves.append(float(np.linalg.norm(np.asarray(out[f][pid], float) - xy)))
-            out[f][pid] = np.asarray(xy, float)
-    return out, moves
-
-
-ANCHOR_WINDOW: int = 15
-ANCHOR_MIN_SUPPORT: int = 3
-
-
-def anchor_ground_to_tri(ground: dict, tri: dict, *, window: int = ANCHOR_WINDOW,
-                         min_support: int = ANCHOR_MIN_SUPPORT) -> tuple[dict, list]:
-    """``(ground, shifts)``: every drawn (frame, pid) moved by the median of (triangulated - drawn)
-    over the id's triangulated frames within ``window`` frames, needing ``min_support`` of them.
-
-    Why an offset and not the points: swapping the triangulated hip in on the frames that have one
-    and leaving the refit's transl elsewhere put two placement sources 0.2-0.6 m apart next to each
-    other frame by frame (play 1, 2026-09-16: root jitter p90 0.0116 -> 0.0217, live hops 4 -> 7,
-    the endzone offset unmoved at 44 px). The correction a body needs varies slowly, so it is
-    estimated as a windowed median and applied to every frame, seen or not -- the ankle anchor
-    (play_timeline.anchor_boxes_to_ankles) does the same for box points."""
-    by_pid: dict[int, dict] = {}
-    for (f, pid), (xy, _z, _gap) in tri.items():
-        if f in ground and pid in ground[f]:
-            by_pid.setdefault(int(pid), {})[int(f)] = np.asarray(xy, float) - np.asarray(ground[f][pid], float)
-    out = {f: dict(d) for f, d in ground.items()}
-    shifts = []
-    for f, d in ground.items():
-        for pid, xy in d.items():
-            offs = by_pid.get(int(pid))
-            if not offs:
-                continue
-            near = [v for g, v in offs.items() if abs(g - f) <= window]
-            if len(near) < min_support:
-                continue
-            delta = np.median(np.stack(near), axis=0)
-            out[f][pid] = np.asarray(xy, float) + delta
-            shifts.append(float(np.linalg.norm(delta)))
-    return out, shifts

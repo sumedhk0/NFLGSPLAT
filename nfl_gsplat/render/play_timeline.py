@@ -15,7 +15,6 @@ from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
 from nfl_gsplat.render.blind_axis import hold_blind_axis
-from nfl_gsplat.render.tri_hips import anchor_ground_to_tri, triangulated_hips
 from nfl_gsplat.render.depth_snap import snap_ground
 from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
 from nfl_gsplat.render.pair_rule import mispaired_ids
@@ -246,27 +245,23 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
 MAX_REFIT_SHIFT_M = 1.0
 
 
-def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None,
-                     keep=None):
+def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None):
     """``ground`` with every (frame, id) that has a refit record moved to the
     record's pelvis. ``pelvis_xy(rec) -> xy`` gives the record's pelvis on the
     field; without it the translation alone is used (the model's origin, which
     sits 0.35 m from the pelvis along the rest skeleton's down axis -- see
     placed_vertices). A shift beyond ``max_shift_m`` is a wrong record and is
-    not applied. ``keep``: ``{(frame, pid)}`` whose ground point stands as it is (a triangulated
-    hip centre, render.tri_hips) -- neither replaced nor interpolated over. Returns ``(ground,
-    shifts)``, ``shifts`` the metres moved."""
+    not applied. Returns ``(ground, shifts)``, ``shifts`` the metres moved."""
     out = {f: dict(d) for f, d in ground.items()}
     shifts = []
     accepted: set = set()
-    keep = set(keep or ())
     for f, recs in refit.items():
         f = int(f)
         if f not in out:
             continue
         for pid, r in recs.items():
             pid = int(pid)
-            if pid not in out[f] or (f, pid) in keep:
+            if pid not in out[f]:
                 continue
             xy = np.asarray(r["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(r), float)[:2]
             d = float(np.hypot(*(xy - np.asarray(out[f][pid], float))))
@@ -288,7 +283,7 @@ def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, m
                 xa = np.asarray(ra["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(ra), float)[:2]
                 xb = np.asarray(rb["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(rb), float)[:2]
                 for f in range(a + 1, b):
-                    if f in out and pid in out[f] and (f, pid) not in keep:
+                    if f in out and pid in out[f]:
                         w = (f - a) / float(b - a)
                         out[f][pid] = (1 - w) * xa + w * xb
     return out, np.asarray(shifts)
@@ -343,7 +338,7 @@ def poses_from_caches(refit, side_blob, tracks, model):
 
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
-                       no_depth_snap: bool = False, blind_axis: bool = False, tri_hips: bool = False):
+                       no_depth_snap: bool = False, blind_axis: bool = False):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -442,23 +437,11 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             if moved:
                 print(f"endzone-only frames held on the sideline's x: {len(moved)} body-frames "
                       f"(median slide {np.median(moved):.2f} m, max {max(moved):.2f})")
-        # A body with a hip pair in both cameras stands on its triangulated hip centre
-        # (render.tri_hips): the two rays meet at 5 / 8 px, the foot-point-plus-snap sits 0.2 m
-        # (p90 0.6) from that on play 1. Gated by ray gap and hip height, so a mispair stays out.
-        tri = triangulated_hips(kdf, tracks, frame_shift=shift) if (tri_hips and "endzone" in tracks and kdf is not None) else {}
     if place_from_refit_transl and refit:
         ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
         if len(shifts):
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")
-    # Every placed body moved by the windowed median of (triangulated hip - placed) over the id's
-    # paired frames (render.tri_hips.anchor_ground_to_tri): a slowly varying correction, no source
-    # switching. tri is empty unless tri_hips.
-    if tri:
-        ground, shifts = anchor_ground_to_tri(ground, tri)
-        if shifts:
-            print(f"placement anchored to triangulated hips on {len(shifts)} body-frames "
-                  f"(median shift {np.median(shifts):.2f} m, p90 {np.percentile(shifts, 90):.2f})")
     frames_all = sorted(ground)
     clipped = edge_clipped_ids(df, tracks, views)
     if clipped:

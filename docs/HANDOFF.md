@@ -2362,6 +2362,18 @@ Re-measuring with frame + offset: the pelvis offsets, the bias table, the triang
 ankle is re-measured too (its ruler was the broken one). tri_hips stays off and its docstring is
 corrected once the numbers are real.
 
+**Corrected numbers (20:50, frame + offset).** Endzone pelvis offset over 2062 live body-frames with
+endzone hips: |d| p50 9.8 px, p90 19.0, 92 % within 20 px, 97 % within 40; two-view frames 9.5 / 18.2,
+endzone-only frames 15.8 / 60.3 (n 133); no team or field-side structure (dx 0.4, dy 7.4 overall).
+Hip triangulation on 1883 two-view frames (all pass the gates): rays meet within 0.06 m, hip height
+0.84 m, reprojection 2.6 / 4.1 px, and the timeline's placement is 0.04 m (x) / 0.02 m (y) from it
+at the median, 0.08 / 0.05 at p90, no id above 0.10. THE PAIRED PLACEMENT IS RIGHT. The endzone-depth
+thread is closed; what remains of it is the endzone-only stretches (133 body-frames, p90 60 px, id
+198's eight frames at 67 px), a population too small to chase before play 2. render/tri_hips is kept
+as a ruler (the triangulation and its gates, docstring rewritten with these numbers); its placement,
+keep-set and anchor code are deleted (commit below). The lowest-ankle A/B is re-run on the corrected
+ruler for completeness.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
