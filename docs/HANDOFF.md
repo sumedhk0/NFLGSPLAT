@@ -2292,6 +2292,12 @@ Gap bridge A/B (19:35, scratch probe_gap_bridge): bridge 30 (shipped) drawn 3607
 10 wins on every ruler measured; the ruler it lacks is POPS (a body vanishing and reappearing),
 which no ruler counts yet -- counting them for 30 vs 10 before adopting.
 
+Pops (19:50, scratch probe_pops; an id drawn, absent 1-30 frames, drawn again, live play): bridge 30
+= 34, bridge 10 = 32. Not worse on the one ruler it lacked, better on census, jitter and unseen
+body-frames, equal on hops and steps: bridge 10 ADOPTED as `timeline.FILL_GAP_FRAMES` (commit
+a11555b; the span and anchoring rules keep MAX_GAP_FRAMES 30). Goes into 07l v52 with whatever the
+hip A/B decides.
+
 **Hip triangulation vs the timeline (19:45, scratch probe_tri_hips).** 1717 live two-view frames
 have a confident hip pair in both cameras; the hip centre triangulated from the two rays lands at
 0.77 m (p10 0.60, p90 0.92 -- crouching to standing), the rays pass within 0.13 m of each other at
