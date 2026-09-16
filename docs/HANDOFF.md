@@ -1899,6 +1899,10 @@ CLOSED. Temporal weight (timeline with the orientation Gaussian): 0.3 jitter p90
 pull toward the previous frame is the term that holds a limb where the keypoints are noisy.
 Candidate default 3.0, to be confirmed on the whole play before it ships.
 
+Session note (2026-09-16 09:30): the machine went quiet ~03:30 with the v44 render at frame 101, the
+whole-play temporal-weight-3.0 refit unfinished (poses_refit.json untouched = the v47 cache) and the knob
+scorer short of its three new rows. All three relaunched 09:30 (05k resumes from its frames on disk).
+
 **RESUME PLAN (machine off 21:20; nothing running):**
   1. Whole-play refit two-view: `PYS scripts/05p_refit_mono.py --play-dir P --two-view --endzone-weight 0.3
      --workers 6` (poses_refit.json is the v45 cache now; back it up as .pre_twoview first; ~30-40 min).
