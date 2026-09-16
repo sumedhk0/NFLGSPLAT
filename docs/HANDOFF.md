@@ -2080,6 +2080,11 @@ rotations, not placement): jitter p50/p90/p99 0.0106/0.0354/0.112 -> 0.0104/0.03
 all unchanged. The p99s are the number to watch: a third of the worst joint motion on the live play
 was the half-turn artefact.
 
+Flail ruler under the unwrap (scratch probe_flail, v49 -> v50): standing body-frames with a hand or
+foot past 0.10 m/frame 80 -> 48 of 2680 (3.0 -> 1.8 %); id 38 19 -> 7, id 0 28 -> 10, the runner's 2
+gone; spine > 90 deg 1062 unchanged (the linemen), collars 0. What is left: 0 (10), 13 (8), 38 (7),
+166 / 3 / 204 (4 each) -- next strips.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
