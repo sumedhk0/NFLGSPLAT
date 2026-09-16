@@ -2111,6 +2111,16 @@ limbs 7.6/15.2 vs 7.7/15.4; the runner's own sideline error on 316-344 identical
 The 2 pi residual was harmless because the data term wins it every time. `Mono2DConfig.temporal_geodesic`
 stays False; the raw jumps stay in the cache as a curiosity.
 
+**v47 delivered and AFFIRMED on the render (19:15).** v46 = the v49 recipe (07l v50's cache, the
+v49 timeline), v47 = the same cache with the half-turn unwrap; 720p clips in diag. Per-id strips cut
+from both renders through the follow camera (scripts/05v, scratch review_v46 / review_v47/strips):
+id 0 (Baltimore 21) at 300-314 -- v46 spins him through a full garbage turn over twelve frames
+(side-on, bent double, crouched, back again), v47 shows a man standing with his back to the camera
+in all eight frames. Id 38 (Kansas City 55) at 444-458 -- v46 has him collapse to the turf and lie
+with his legs up, v47 has him upright in a blocking stance stepping sideways. These are the two
+bodies the user's "funky angles, flailing" would have named on this stretch, and the fix is on the
+footage, not only on the rulers.
+
 The runner at the handoff (05q strips 322-336, both cameras): sideline -- the drawn body follows the
 keypoints with a whole-body offset of ~15 px on 324-334 (a motion-blurred 100-px body between the
 linemen); endzone -- id 9 has endzone rows on 322-324 only, and there the green keypoints sit on a
