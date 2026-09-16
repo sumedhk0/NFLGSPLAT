@@ -1947,6 +1947,14 @@ Review both with strips before any claim. Strip of id 82 after 08w (frames 220-2
 the Chiefs lineman he is, keypoints matching where the detector sees him, the stance held through the
 pile -- affirmed on the footage.
 
+**Keyframe turns -- the ruler for the in-between-frame swing (2026-09-16 17:20).** Per joint, the
+rotation between ADJACENT keyframes (stride 2) on the live play (scratch probe_keyframe_swings.py):
+shipped cache p50 1.3 deg / p90 8.8 / p99 27.4, over 45 deg 0.25 % (id 9 carries 37 of them: elbows,
+shoulders); the final-recipe partial cache (tw 3.0 + hard torso, eight worst ids) p50 0.4 / p90 2.5 /
+p99 10.5, over 45 deg 0.03 %, over 90 none. A real joint turns at most ~20 deg in two frames, so the
+shipped tail was fits disagreeing frame to frame, not motion; the recipe removes the cause of the
+SLERP swing rather than guarding the interpolation.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
