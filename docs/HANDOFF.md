@@ -2119,6 +2119,30 @@ where his placement projects behind the quarterback. Hypothesis: the endzone ter
 two blurred endzone frames, carried by the temporal chain, is the 13-19 px; test = refit id 9 one-view
 only and read 07m on 316-344 (running).
 
+Result (18:30): one-view only, the runner's own sideline error on 324-336 drops 13-19 -> 3.5-9 px (lower)
+and 4-17 -> 1.5-4.5 (upper) -- but his knees go 62-115 deg -> 3-27 deg: a sprinter drawn with straight
+legs laid along the sideline ray, the one-view failure the cross-view scorer closed on 09-15. The endzone
+has two blurred frames here and nothing to score the legs against. Neither cache oscillates the knees
+stride by stride, so both are the 2D ambiguity; the two-view stays (its legs bend, its 15 px is the
+price). NOT adopted; the runner at the handoff is left as it is.
+
+**Live hops on the footage (05q strips at 07l v50's two worst live steps, 18:25).** Id 40 (BAL) at
+387-394: the drawn body stands on EMPTY TURF between two Baltimore men with no green keypoints -- the
+sideline has no detection of him on those frames (scratch probe_unseen_frames: seen by the endzone
+only), so his ground point is the endzone's own foot point, which is blind along the field's long
+axis (x) at 88 m; the hop (0.30 m/frame at 390-394) is that point wandering. Id 203 at 366-373: an
+eight-frame fragment on the Kansas City line with NO TEAM (drawn in the default kit -- yellow in 05q),
+sideline-only, its skeleton offset from the pile. Population on the live play: 3615 body-frames, 153
+endzone-only (ids 40: 33, 37: 36, 38: 30, 17: 18, 74: 16, 198: 8, 15: 5), 8 teamless (203 only), 93
+drawn with no detection in either camera (gap fill; the long ones are 153 gliding 3.15 m over 435-454
+and 4 gliding 2.13 m over 444-457 in the pile, both under the 30-frame bridge). None of the six worst
+live steps is on an unseen frame: they are endzone-only (40) and sideline-only fragment (203) frames.
+Hypotheses: (a) on endzone-only frames slide the endzone point along the ENDZONE's own ray to the x
+interpolated from the id's sideline-seen frames (its projection into the endzone is unchanged, the
+blind axis comes from the camera that sees it) -- rulers: live steps, endzone lower joints (must not
+move), census (must not move), metres moved; (b) a teamless fragment shorter than the rider length is
+not drawn; (c) the gap bridge 30 -> 10 frames for the two gliders (measure the census cost).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
