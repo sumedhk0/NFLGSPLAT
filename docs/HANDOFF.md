@@ -2033,6 +2033,38 @@ own free vectors reach |go| = 1289 rad (205 turns, harmless to the rotation) and
 > 3 rad in the raw vector (the two-view seed's representation vs the chain's; the temporal term at 3.0
 fights those) -- a fit-side hypothesis for later, small population.
 
+**Unwrap A/B at the timeline's placement (2026-09-16 18:05; scratch probe_orient_flip2) -- ADOPTED.**
+Sideline reprojection of the drawn body (lower joints / upper limbs, px) and its yaw, v49 timeline
+(no_unwrap) vs the fix (unwrap), on the frames the strips showed:
+
+    id 0, 300-314   no_unwrap lower 5 -> 31 -> 6, upper 6 -> 45 -> 4, yaw 76 -> -53 -> 178 -> 90
+                    unwrap    lower 3.0-4.8, upper 1.7-2.8, yaw 83-88 throughout
+    id 0, 364-380   no_unwrap lower 8 -> 37 -> 8, yaw 89 -> -180 -> -53 -> 67
+                    unwrap    lower 4.6-9.8, yaw 82 -> 71 (a real slow turn)
+    id 38, 446-460  no_unwrap lower 12 -> 44 -> 36, upper 6 -> 48 -> 20, yaw 131 -> 171 -> -118 -> 44
+                    unwrap    lower 4.9-9.6, upper 2.8-8.7, yaw 117 -> 96
+
+Play-wide, every drawn body on 300-460 (n 3176): joint jitter p90 0.0352 -> 0.0326, sideline limbs
+p50/p90 7.3/16.3 -> 7.1/15.0, endzone lower joints p50/p90 51.8/128.7 -> 51.8/129.5 (unchanged; that
+ruler counts every body against whatever the endzone has under its id, so its level is not the six-id
+scorer's). Better on every ruler the change can reach, neutral on the other camera: shipped as the
+default (commit 6d4c898). 07l v50 and render v47 (chained behind v46; v46 is the v49 timeline and is
+the before-footage) follow; the strips of ids 0, 38 and 9 from v47 are the affirm/deny.
+
+Caveat on an older number: the keyframe-turn ruler (scratch probe_keyframe_swings, "turns > 45 deg
+0.25 -> 0.03 %") differences raw axis-angle vectors between keyframes and so counts a representation
+flip near pi as a 360 deg turn; part of the temporal-weight result was that artefact. Re-measure with
+the unwrap (or on relative rotations) before quoting it again.
+
+Fit-side exposure (scratch probe_raw_jumps): 14 keyframe pairs on the clip jump > 3 rad in the raw
+global_orient vector; 11 of them are pure representation jumps (|dv| ~ 6.28 = 2 pi, relative rotation
+0-4 deg, the fit's own sideline error 3-8 px either side: the data term won and the temporal term's
+2 pi residual cost nothing visible). The exceptions: the runner 9 at 326-338 (three jumps, sideline
+13-18 px around them against 3 px outside), 28 at 472-474 (9 -> 27 px, post-whistle), 78 at 642-660
+(a broken post-whistle track, hundreds of px, |go| 14 rad). A geodesic temporal residual (the relative
+rotation's angle instead of p - prev) would remove the artefact; small population, needs a whole-play
+refit and the cross-view scorer -- queued behind the v47 review.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
