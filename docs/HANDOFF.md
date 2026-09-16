@@ -2323,6 +2323,16 @@ where the refit is absent. Next: keep the triangulated point on its frames (skip
 placement there) and measure again; the memory says the refit placement halves root jitter, so
 that ruler decides with the endzone offset.
 
+Second A/B (20:10, the triangulated point kept through the refit placement; both arms on the new
+10-frame bridge): endzone pelvis |d| 43.4 -> 44.2 px (p90 121.6 -> 123.5), sideline 4.3 -> 4.9,
+live hops 4 -> 7, steps 5 -> 9, census 1.32 -> 1.43, root jitter p90 0.0116 -> 0.0217. REJECTED
+hard: 4483 frames on the triangulated hips beside 2853 on the refit's transl, the two sources 0.2-0.6
+m apart, so the run alternates between them wherever a hip pair's confidence dips -- jitter doubles,
+and the endzone number cannot fall while half the frames are still the old point and the smoother
+blends the halves. Same shape as the ankle-vs-box switching of 09-15, same remedy: not the points but
+a windowed MEDIAN offset (triangulated minus placed) per id, applied to every frame
+(`tri_hips.anchor_ground_to_tri`, window 15, support 3), after the refit placement. Measuring.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
