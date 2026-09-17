@@ -103,3 +103,37 @@ def test_beyond_the_span_is_kept_when_the_sideline_has_nobody_there():
     side_far = {300: {2: np.array([9.0, 40.0])}}                # nobody near: the sideline lost him
     out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side_far)
     assert dropped == 0 and 1 in out[300]
+
+
+def test_beyond_sideline_span_hold_drops_the_endzone_lead_in_that_stands_far_from_the_join():
+    """Two ids the sideline first sees at frame 40 and the endzone from 0: within the 30-frame gap
+    both are drawn from the endzone alone. Id 1's endzone point stands 2.4 m from where the sideline
+    then has him (a ghost that would glide 2.4 m into the man); id 2's stands 0.3 m off (held)."""
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    rows = [{"cam": "sideline", "track_id": p, "global_player_id": p, "frame": f} for p in (1, 2) for f in range(40, 61)]
+    rows += [{"cam": "endzone", "track_id": p, "global_player_id": p, "frame": f} for p in (1, 2) for f in range(0, 61)]
+    df = pd.DataFrame(rows)
+    ground = {f: {1: np.array([2.4, 0.0]) if f < 40 else np.array([0.0, 0.0]),
+                  2: np.array([10.3, 0.0]) if f < 40 else np.array([10.0, 0.0])} for f in range(10, 61)}
+    side_ground = {f: {1: np.array([0.0, 0.0]), 2: np.array([10.0, 0.0])} for f in range(40, 61)}
+    rep = {}
+    out, dropped = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, report=rep)
+    assert all(1 not in out[f] for f in range(10, 40)) and all(1 in out[f] for f in range(40, 61))
+    assert all(2 in out[f] for f in range(10, 61))
+    assert dropped == 30
+    assert rep[1] == (30, 2.4, 30) and rep[2][0] == 30 and abs(rep[2][1] - 0.3) < 1e-9 and rep[2][2] == 0
+    # a man who runs 3 m during his lead-in but joins the sideline's point within 0.2 m is held whole
+    ground3 = {f: {3: np.array([20.0 + 0.1 * (f - 10), 0.0])} for f in range(10, 61)}
+    side3 = {f: {3: np.array([23.1, 0.0])} for f in range(40, 61)}
+    df3 = pd.DataFrame([{"cam": "sideline", "track_id": 3, "global_player_id": 3, "frame": f} for f in range(40, 61)]
+                       + [{"cam": "endzone", "track_id": 3, "global_player_id": 3, "frame": f} for f in range(0, 61)])
+    rep3 = {}
+    out3, d3 = beyond_sideline_span(ground3, df3, None, gap=30, side_ground=side3, hold_m=0.8, report=rep3)
+    assert d3 == 0 and all(3 in out3[f] for f in range(10, 61)) and abs(rep3[3][1] - 0.2) < 1e-9
+    # hold off: the old behaviour, every lead-in frame drawn
+    out2, d2 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=None)
+    assert d2 == 0 and all(1 in out2[f] for f in range(10, 61))

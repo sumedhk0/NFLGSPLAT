@@ -47,6 +47,17 @@ def play_end_frame(play_dir):
     return int(d["end"]) + int(d.get("tail", 0))
 
 
+def play_start_frame(play_dir):
+    """The first frame to draw from ``<play-dir>/play_end.json`` (``"start"``, 3 s before the snap), or None."""
+    import json
+
+    f = Path(play_dir) / "play_end.json"
+    if not f.exists():
+        return None
+    d = json.loads(f.read_text())
+    return int(d["start"]) if d.get("start") is not None else None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -68,6 +79,8 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--gait", action="store_true",
                     help="synthesise a running gait for the legs of moving bodies (render.gait); the fit keeps the torso")
+    ap.add_argument("--start-frame", type=int, default=None,
+                    help="first timeline frame to draw (default: play_end.json's start, else the first)")
     ap.add_argument("--end-frame", type=int, default=None,
                     help="last timeline frame to draw; default: <play-dir>/play_end.json (08x) end + tail, else all")
     ap.add_argument("--eye-offset", type=float, nargs=3, default=(2.0, -34.0, 13.0),
@@ -164,6 +177,11 @@ def main() -> None:
         n0 = len(frames)
         frames = [f for f in frames if f <= end]
         print(f"clip ends when the play is dead: frame {end} ({n0 - len(frames)} of {n0} rendered frames after it left out)")
+    start = args.start_frame if args.start_frame is not None else play_start_frame(P)
+    if start is not None:
+        n0 = len(frames)
+        frames = [f for f in frames if f >= start]
+        print(f"clip starts at frame {start} ({n0 - len(frames)} of {n0} rendered frames before it left out)")
     if args.limit:
         frames = frames[: args.limit]
     # An id without a fit (a short fragment) wears its team's mean fitted

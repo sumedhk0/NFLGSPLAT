@@ -4204,3 +4204,69 @@ Side by side for the video verdict: diag/play_001_v50_vs_v53_run.mp4 (the run, r
 directive of 2026-09-05 (play 1 only, no compute on other plays) stands until the user lifts it;
 the next play was considered at 17:00 and not started.
 
+
+## 2026-09-17 (evening): the snap was never at 300 -- RETRACTION of the live window and the clip end
+
+**The footage, not a ruler, found it (17:20).** Full-frame overlays of both cameras (05q --frames 305
+320 340 360 380 400 --cam both, diag/census_v53/) show play 1's formation still SET at sideline
+frames 360 and 380 -- linemen crouched, the QB under centre -- and the line firing at 400. The snap is
+~393-396, not the 300 that identity.roles.snap_frame wrote into identity_resolved.pkl and that
+LIVE_LO, 08x, 07l and every "live window 300-460/483" number in this file inherited. Bodies moving
+faster than 0.03 m/frame (1.8 m/s) per frame from the v53 timeline: at most 6 of 22 before 388 (the
+man in motion, id 9, from 284; a shifting defence; two gliding fragments), 9-11 at 392-404, 18 of 24
+at 416. The snap detector's 0.5 m/s "static" cut sits below the placement's own jitter, so "fewer
+than 40 % static for 12 frames" fired 95 frames early.
+
+**What that retracts.** (1) Every "live" ruler since 2026-09-13 ran on a window that was two-thirds
+pre-snap: the census 1.19 "live", hops "live 4-5", the KC-at-the-snap deficit (300-344 = KC 9 drawn,
+ids 37/38 arrive at 340/345 -- that IS pre-snap, the formation standing 50 frames before the ball
+moves; two linemen missing from a set line for 0.8 s). The fixes judged on that window were also
+judged on the footage strips, so they stand; their aggregate numbers do not mean what they said.
+(2) The play is a PASS: the QB is in the pocket at 480 (endzone 465), the ball is downfield at 520,
+the tackle is at ~640 by the 15-yard line, the source clip ends at 647. 08x's "ball carrier =
+furthest traveller from his frame-300 position" picked the motion man (19 m, mostly pre-snap) and
+"last seen" ended the play at 483 when he ran out of the sideline frame: **v51, v52 and v53 stop at
+513, two seconds after the real snap, in the middle of the play.** The 16:49 "v53 delivered (clip to
+513)" is withdrawn as a clip; the gait/unwrap/twin content of those renders is unaffected.
+
+**The crowd is the ruler now (scripts/08x_play_end.py, rewritten).** snap = the frame from which at
+least 0.4 of the drawn bodies (12+ drawn) move faster than 0.03 m/frame for 6 frames, less 4 (the
+line fires a few frames after the ball moves); dead = that share under 0.4 for 30 frames from snap+60,
+else the clip's end (NFL Pro cuts the All-22 at the whistle: the share never falls below 0.57 to the
+last frame here). Play 1: snap 393, dead 660 (clip end), clip from 213 (START_BEFORE 180 = 3 s of
+formation and motion). --carrier ID keeps the old stop rule for a named id; --end/--snap override.
+07l's --lo/--hi now default to play_end.json's snap/end; 05k honours a "start". tests/test_play_end.py
+(5). identity.roles.snap_frame is left as is (08n's pre-snap window [snap-130, snap-30] lands on
+the same set formation either way on play 1) -- but it is wrong and must not be trusted on another
+play; the 08x detector is the one to reuse. Memory: snap-frame-check-on-footage.md.
+
+**Ghosts from the endzone lead-in, confirmed on the footage (17:05-17:40).** The census surplus on
+Baltimore (11.53 on 300-483) is not kit-vs-label (only 37 of 5689 confident live detections
+disagree with their id's team, all on endzone-only ids 91/42 that are never drawn). It is (a) the
+30-frame reach before/after an id's sideline span, drawn from the endzone alone: id 198 at 453-482
+stands on EMPTY TURF beside the tackle 2.4 m from its man (diag/census_v53/player_198_f453.jpg), id
+40 at 368-396 a phantom defender 1-2.7 m beside the real one; the smoother turns the 2.4-2.7 m jump
+at the join into a glide, so the hop ruler (3-frame excess) never saw it; and (b) fragments on men
+already drawn under another id in the pile (194/40 at 0.20-0.25 m, 168/15, 84/13; 37/166 41 frames,
+19/166, 19/37 in the KC line) -- real men, doubled, below the twin rule's 0.2 m / 8 frames; no radius
+separates them from engaged linemen (thread open, the 09-13 finding stands). Held real men: 37 and
+38 drawn 30 frames before their sideline spans join within 0.27-0.55 m and stand on their men.
+
+**Rule (render/endzone_only_rule.py `hold_m`, HOLD_M).** For each side of a two-view id's sideline
+span, the jump between the endzone's point at the frame adjacent to the span and the sideline's
+own first (last) point for the man; over ``hold_m`` the whole side is dropped. First cut compared
+every beyond frame to the join point and read a man's own running over a long lead-in as drift
+(74: median 1.29 m over 314 frames, mostly his 125-390 pre-snap stretch) -- replaced by the join jump
+before shipping. A/B on 300-483 with the per-frame cut, hold off -> 0.8 m: KC 10.82 -> 10.79, BAL
+11.53 -> 11.21, frames at exactly 11/11 50 -> 69, frames with BAL >= 12 75 -> 33, pile pairs 9 -> 9,
+live hops 5 -> 6 (74 at 418, 0.225 m: its lead-in now ends where the sideline starts). Join-jump A/B
+below.
+
+**Join-jump A/B (18:05), hold off -> 0.8 m on 300-483:** KC 10.82 -> 10.73, BAL 11.53 -> 11.36, exactly
+11/11 50 -> 56 frames, BAL >= 12 75 -> 62, live hops 5 -> 4 (74's 0.228 m at 419 gone), pile pairs
+9 -> 9. Dropped whole-play: 198 (jump 1.55 m, 43 frames, the ghost on the turf), 40 (1.55, 27: the
+phantom defender's lead-in), 74 (1.14, 270: its pre-snap endzone stretch -- in the live window only
+the 16 frames 366-369/409-420 that flickered between two old-rule drops, so KC -0.09 and one pop
+fewer), 164 (1.22, 80), 170 (4.34, 58), 186/212/206. Held: 37 (0.31), 38 (0.50), 17 (0.41), 27, 30,
+171. The per-frame cut dropped more (BAL 11.21, exact 69) by also dropping men for their own running;
+the join jump is the honest version and ships: **HOLD_M = 0.8** (render/endzone_only_rule.py).

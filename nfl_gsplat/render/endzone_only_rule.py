@@ -43,8 +43,13 @@ def _inside_sideline(xy, track, f, *, margin: float = MARGIN_PX) -> bool:
 SAME_BODY_M: float = 1.2         # a sideline body this close is the same man under another id
 
 
+HOLD_M: float | None = 0.8       # a beyond-span stretch whose join jumps farther than this from where the sideline first (or
+                                 # last) has the man is the endzone's depth error, not the man: dropped
+
+
 def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sideline",
-                         margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M):
+                         margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M,
+                         hold_m: float | None = HOLD_M, report: dict | None = None):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -58,7 +63,17 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     endzone's copy stands metres from the sideline's along x). One avatar
     per sideline track means the sideline span is the avatar's life; the
     endzone refines position inside it. Beyond the span the id is kept only
-    where the sideline camera could not have seen it (outside its image)."""
+    where the sideline camera could not have seen it (outside its image).
+
+    ``hold_m``: the frames on one side of the span are also dropped, all of them, when the endzone's
+    point for the man at the frame adjacent to the span stands farther than this from the sideline's
+    own first (or last) point for him: the endzone's ground point is poor along the field, so the
+    man it draws before the sideline has him can stand metres from where the sideline then finds
+    him, and the smoother turns the jump into a glide. Play 1 v53 (footage 2026-09-17): id 198
+    drawn 30 frames on empty turf beside the tackle, 2.4 m from its man; id 40 a phantom defender
+    pre-snap 2.7 m off; the held linemen 37 and 38 join within 0.3-0.6 m and stay. The jump is
+    measured at the join, not per frame, because over a long lead-in a real man moves on his own.
+    ``report`` (optional dict) gets ``{pid: (beyond_frames, jump_m_at_join, dropped)}``."""
     sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
     # Keyed by the PLAYER, because `ground` is: ground_positions keys by global_player_id, and the two
     # ids are equal only until a track is relabelled onto another player (08s). Grouping by track_id
@@ -71,32 +86,79 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     side_at = None
     if side_ground is not None:
         side_at = {int(f): {int(p): np.asarray(v, float) for p, v in d.items()} for f, d in side_ground.items()}
+
+    def side_point(pid, edge, step):
+        """The sideline's own point for ``pid`` at ``edge`` or within 5 frames into the span."""
+        for g in range(edge, edge + 6 * step, step):
+            q = side_at.get(g, {}).get(pid)
+            if q is not None:
+                return q
+        return None
+
+    def jump_at(pid, edge, step):
+        """Metres between the endzone's point for ``pid`` just outside the span (within 3 frames of
+        ``edge``, stepping away from the span) and the sideline's own point at the edge; NaN when
+        either is missing."""
+        sp = side_point(pid, edge, -step)
+        if sp is None:
+            return float("nan")
+        for g in range(edge + step, edge + 4 * step, step):
+            q = ground.get(g, {}).get(pid)
+            if q is not None:
+                return float(np.linalg.norm(np.asarray(q, float) - sp))
+        return float("nan")
+
+    jumps = {}
+    if side_at is not None:
+        for pid in lo:
+            a, b = lo[pid] + gap, hi[pid] - gap                 # the span itself
+            jumps[pid] = (jump_at(pid, a, -1), jump_at(pid, b, +1))   # (lead-in, tail)
+
     out = {}
     dropped = 0
     kept_gap = 0
+    stats: dict = {}
     for f, d in ground.items():
         f = int(f)
         keep = {}
         for pid, xy in d.items():
             pid = int(pid)
-            if pid in lo and not (lo[pid] <= f <= hi[pid]) and sideline is not None \
-                    and f < len(sideline.conf) and _inside_sideline(xy, sideline, f, margin=margin):
-                # Beyond its sideline span this id is drawn from the endzone alone. That is a second
-                # copy of a man the sideline tracks under another id ONLY if the sideline has a body
-                # there; where it has none, the sideline simply lost him and this is the only body he
-                # has. Play 1: four Kansas City players are seen by the endzone through a sideline gap,
-                # and dropping them left nine of eleven on the field.
-                if side_at is None:
-                    dropped += 1                      # without the sideline's bodies, the old rule stands
-                    continue
-                near = min((float(np.linalg.norm(np.asarray(xy, float) - q))
-                            for j, q in side_at.get(f, {}).items() if j != pid), default=np.inf)
-                if near <= same_body_m:
+            if pid in lo and not (lo[pid] + gap <= f <= hi[pid] - gap):
+                # outside the sideline span: within ``gap`` frames of it the endzone alone draws the
+                # man (the sideline's tracker is late or early by that much); beyond the gap only
+                # where the sideline could not have seen the spot
+                if not (lo[pid] <= f <= hi[pid]) and sideline is not None                         and f < len(sideline.conf) and _inside_sideline(xy, sideline, f, margin=margin):
+                    # Beyond its sideline span this id is drawn from the endzone alone. That is a second
+                    # copy of a man the sideline tracks under another id ONLY if the sideline has a body
+                    # there; where it has none, the sideline simply lost him and this is the only body he
+                    # has. Play 1: four Kansas City players are seen by the endzone through a sideline gap,
+                    # and dropping them left nine of eleven on the field.
+                    if side_at is None:
+                        dropped += 1                      # without the sideline's bodies, the old rule stands
+                        continue
+                    near = min((float(np.linalg.norm(np.asarray(xy, float) - q))
+                                for j, q in side_at.get(f, {}).items() if j != pid), default=np.inf)
+                    if near <= same_body_m:
+                        dropped += 1
+                        continue
+                    kept_gap += 1
+                # the hold test: the jump at the join between the endzone's stretch and the sideline's
+                # span (see ``hold_m`` above); the whole side of the span goes with its join
+                jl, jt = jumps.get(pid, (float("nan"), float("nan")))
+                jump = jl if f < lo[pid] + gap else jt
+                st = stats.setdefault(pid, [0, jump, 0])
+                st[0] += 1
+                if np.isfinite(jump) and (not np.isfinite(st[1]) or jump > st[1]):
+                    st[1] = jump
+                if hold_m is not None and np.isfinite(jump) and jump > hold_m:
+                    st[2] += 1
                     dropped += 1
                     continue
-                kept_gap += 1
             keep[pid] = xy
         out[f] = keep
+    if report is not None:
+        for pid, (n, jump, nfar) in stats.items():
+            report[pid] = (n, float(jump), nfar)
     return out, dropped
 
 

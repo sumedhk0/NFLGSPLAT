@@ -60,13 +60,23 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--play-dir", required=True)
     ap.add_argument("--tag", required=True, help="version label for the report file, e.g. v40")
-    ap.add_argument("--lo", type=int, default=300, help="live window start (timeline frame)")
-    ap.add_argument("--hi", type=int, default=460, help="live window end")
+    ap.add_argument("--lo", type=int, default=None, help="live window start (default: play_end.json's snap, else 300)")
+    ap.add_argument("--hi", type=int, default=None, help="live window end (default: play_end.json's end, else 460)")
     ap.add_argument("--joints", action="store_true", help="also score the limbs (one forward pass per body-frame)")
     ap.add_argument("--gait", action="store_true", help="score the timeline with the running gait applied (as 05k --gait draws it)")
     ap.add_argument("--body-models", default=BODY)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    if args.lo is None or args.hi is None:
+        import json
+
+        pe = args.play_dir / "play_end.json"
+        d = json.loads(pe.read_text()) if pe.exists() else {}
+        if args.lo is None:
+            args.lo = int(d["snap"]) if d.get("snap") is not None else 300
+        if args.hi is None:
+            args.hi = int(d["end"]) if d.get("end") is not None else 460
+        print(f"live window {args.lo}-{args.hi}" + (" from play_end.json" if d else " (defaults; no play_end.json)"))
 
     import smplx
 

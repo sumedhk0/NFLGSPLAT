@@ -338,11 +338,16 @@ def poses_from_caches(refit, side_blob, tracks, model):
 
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
-                       no_depth_snap: bool = False, blind_axis: bool = False):
+                       no_depth_snap: bool = False, blind_axis: bool = False, span_gap: int | None = None,
+                       span_hold_m: float | None = None):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
-    player id; the timeline's ``members`` maps it back to the fragments."""
+    player id; the timeline's ``members`` maps it back to the fragments. ``span_gap`` is how many
+    frames beyond its sideline span a two-view id is still drawn from the endzone alone
+    (default timeline.MAX_GAP_FRAMES; a probe knob, see endzone_only_rule.beyond_sideline_span);
+    ``span_hold_m`` drops those frames when they stand farther than this from the sideline's own
+    point for the man (default endzone_only_rule.HOLD_M)."""
     import pandas as pd
 
     P = Path(play_dir)
@@ -424,10 +429,19 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         # sideline body with |dy| ~1.19 m -- across the field, where linemen separate, not along the
         # endzone's blind depth axis -- and the footage shows the merged box (one ground point over two
         # to three players). See ONE_VIEW_ACROSS_M in render.timeline for the other half.
-        ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"], gap=tlm.MAX_GAP_FRAMES,
-                                                side_ground=side_ground)
+        from nfl_gsplat.render import endzone_only_rule as ezr
+
+        span_report: dict = {}
+        ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"],
+                                                gap=tlm.MAX_GAP_FRAMES if span_gap is None else int(span_gap),
+                                                side_ground=side_ground,
+                                                hold_m=ezr.HOLD_M if span_hold_m is None else float(span_hold_m),
+                                                report=span_report)
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
+        if span_report:
+            print("beyond-span stretches drawn from the endzone (id: frames, median m from the sideline's join point, dropped as far): "
+                  + ", ".join(f"{p}: {n}, {m:.2f}, {k}" for p, (n, m, k) in sorted(span_report.items())))
         # A body the endzone alone sees stands on the endzone's foot point, blind along the field
         # (render.blind_axis): its x from the id's nearest sideline sightings, sliding the point
         # along the endzone's own ray. Measured on play 1 and NOT adopted (live steps 5 -> 7, census
