@@ -336,10 +336,22 @@ def poses_from_caches(refit, side_blob, tracks, model):
     return out
 
 
+def play_snap(play_dir) -> int | None:
+    """The snap frame from ``<play-dir>/play_end.json`` (08x), or None: before it nobody moves, which
+    the span rule uses to tell an endzone-placed ghost from a set man."""
+    import json
+
+    f = Path(play_dir) / "play_end.json"
+    if not f.exists():
+        return None
+    d = json.loads(f.read_text())
+    return int(d["snap"]) if d.get("snap") is not None else None
+
+
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
                        no_depth_snap: bool = False, blind_axis: bool = False, span_gap: int | None = None,
-                       span_hold_m: float | None = None):
+                       span_hold_m: float | None = None, span_presnap: str | None = None):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -432,16 +444,18 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         from nfl_gsplat.render import endzone_only_rule as ezr
 
         span_report: dict = {}
+        snap = play_snap(P)
         ground, n_beyond = beyond_sideline_span(ground, df, tracks["sideline"],
                                                 gap=tlm.MAX_GAP_FRAMES if span_gap is None else int(span_gap),
                                                 side_ground=side_ground,
                                                 hold_m=ezr.HOLD_M if span_hold_m is None else float(span_hold_m),
-                                                report=span_report)
+                                                report=span_report, snap=snap,
+                                                presnap=ezr.PRESNAP if span_presnap is None else span_presnap)
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
         if span_report:
-            print("beyond-span stretches drawn from the endzone (id: frames, median m from the sideline's join point, dropped as far): "
-                  + ", ".join(f"{p}: {n}, {m:.2f}, {k}" for p, (n, m, k) in sorted(span_report.items())))
+            print("beyond-span stretches drawn from the endzone (id: frames, worst m from the sideline's join point, dropped as far): "
+                  + ", ".join(f"{p}: {r[0]}, {r[1]:.2f}, {r[2]}" for p, r in sorted(span_report.items())))
         # A body the endzone alone sees stands on the endzone's foot point, blind along the field
         # (render.blind_axis): its x from the id's nearest sideline sightings, sliding the point
         # along the endzone's own ray. Measured on play 1 and NOT adopted (live steps 5 -> 7, census
@@ -532,9 +546,13 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     all_betas = [v[2] for d in poses.values() for v in d.values() if v[3] == "fused"]
     default_pose = tlm.median_pose(all_bp) if all_bp else np.zeros((21, 3))
     default_betas = np.median(np.stack(all_betas), axis=0) if all_betas else np.zeros(10)
+    lying = tlm.lying_frames(df)
+    if lying:
+        print(f"on the ground (sideline box wider than {tlm.LYING_ASPECT:.1f} of its height): {len(lying)} body-frames, "
+              f"ids {sorted({p for _f, p in lying})[:12]}")
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
                             default_betas=default_betas, views_by_frame=views,
-                            exclude=clipped if not stitch_ids else None)
+                            exclude=clipped if not stitch_ids else None, lying=lying)
     tl.members = members
     # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)
     teams_now = _teams(P)

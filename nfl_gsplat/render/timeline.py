@@ -38,6 +38,12 @@ MAX_TILT_DEG: float = 35.0       # single-view poses: a lineman's stance; nobody
 # past 60 -- bent linemen and lunges, not bodies falling over. The 35 deg
 # clamp built for monocular garbage trimmed 13 % of them.
 MAX_TILT_TWO_VIEW_DEG: float = 60.0
+# A man on the ground is not clamped upright: the sideline box wider than this share of its
+# height says he lies (play 1's tackle at 640: ids 184 and 55 under boxes 0.46-0.58 as tall as
+# wide, fitted standing at 24 deg and clamped there until 2026-09-17). 0.9 also caught crouched
+# linemen pre-snap (ids 4 and 17 on 110 frames each, boxes 0.80); linemen's p5 is 0.87 and none
+# go under 0.7, the tackled men all do.
+LYING_ASPECT: float = 0.7
 DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one player
 # An id the endzone alone sees this frame is its unreconciled detection,
 # poor along its depth axis (x). Within these distances of a kept state it
@@ -644,16 +650,27 @@ def _nearest_views(views_by_frame, pid, f, frames_with_record):
     return best or ("sideline", "endzone")
 
 
+def lying_frames(df, *, cam: str = "sideline", aspect: float = LYING_ASPECT) -> set:
+    """``{(frame, pid)}`` whose ``cam`` box is wider than ``aspect`` times its height: on the ground."""
+    sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
+    h = (sub["bbox_y2"] - sub["bbox_y1"]).to_numpy(float)
+    w = np.maximum(1.0, (sub["bbox_x2"] - sub["bbox_x1"]).to_numpy(float))
+    on = h / w < aspect
+    return {(int(f), int(p)) for f, p in zip(sub["frame"].to_numpy()[on], sub["global_player_id"].to_numpy()[on])}
+
+
 def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    default_betas=None, max_tilt_deg: float = MAX_TILT_DEG,
                    min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
                    clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
-                   unwrap: bool = True, hole_reach: int = HOLE_REACH) -> Timeline:
+                   unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
-    subset). Returns a Timeline with a state per player per frame."""
+    subset). ``lying``: ``{(frame, pid)}`` on the ground (lying_frames), where
+    the tilt is not clamped. Returns a Timeline with a state per player per frame."""
+    lying = lying or set()
     frames = [int(f) for f in frames]
     f_index = {f: i for i, f in enumerate(frames)}
     exclude = set(int(p) for p in (exclude or ()))
@@ -700,7 +717,10 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
             if not np.isfinite(xy[i]).all():
                 continue
             limit = max(max_tilt_deg, MAX_TILT_TWO_VIEW_DEG) if source == "fused" else max_tilt_deg
-            orient, clamped = clamp_tilt(go[i], limit)
+            if (f, pid) in lying:
+                orient, clamped = np.asarray(go[i], float), False        # on the ground: the lean is the pose
+            else:
+                orient, clamped = clamp_tilt(go[i], limit)
             tl.n_clamped += int(clamped)
             # A frame without a views record for this id (interpolated, filled)
             # inherits the nearest recorded one: defaulting it to two views let

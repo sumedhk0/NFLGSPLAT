@@ -43,13 +43,16 @@ def _inside_sideline(xy, track, f, *, margin: float = MARGIN_PX) -> bool:
 SAME_BODY_M: float = 1.2         # a sideline body this close is the same man under another id
 
 
+PRESNAP: str = "drop"            # a pre-snap beyond frame farther than HOLD_M from the join point: "drop" it, or "hold" the
+                                 # man AT the join point (a set man has not moved; the join is where the sideline first has him)
 HOLD_M: float | None = 0.8       # a beyond-span stretch whose join jumps farther than this from where the sideline first (or
                                  # last) has the man is the endzone's depth error, not the man: dropped
 
 
 def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sideline",
                          margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M,
-                         hold_m: float | None = HOLD_M, report: dict | None = None):
+                         hold_m: float | None = HOLD_M, report: dict | None = None, snap: int | None = None,
+                         presnap: str = PRESNAP):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -72,8 +75,12 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     him, and the smoother turns the jump into a glide. Play 1 v53 (footage 2026-09-17): id 198
     drawn 30 frames on empty turf beside the tackle, 2.4 m from its man; id 40 a phantom defender
     pre-snap 2.7 m off; the held linemen 37 and 38 join within 0.3-0.6 m and stay. The jump is
-    measured at the join, not per frame, because over a long lead-in a real man moves on his own.
-    ``report`` (optional dict) gets ``{pid: (beyond_frames, jump_m_at_join, dropped)}``."""
+    measured at the join, not per frame, because over a long lead-in a real man moves on his own --
+    except BEFORE THE SNAP (``snap``), when a set man does not move: there every frame is measured
+    against the join point itself, which catches the ghost that slides onto its man (play 1 id 40:
+    2.7 m off at 368, 0.67 m at the join 397, joined "cleanly" and drew a phantom defender for 30
+    frames). Without ``snap`` the join test alone applies.
+    ``report`` (optional dict) gets ``{pid: (beyond_frames, jump_m_at_join, dropped, jump_lead_in, jump_tail)}``."""
     sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
     # Keyed by the PLAYER, because `ground` is: ground_positions keys by global_player_id, and the two
     # ids are equal only until a track is relabelled onto another player (08s). Grouping by track_id
@@ -145,20 +152,32 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                 # the hold test: the jump at the join between the endzone's stretch and the sideline's
                 # span (see ``hold_m`` above); the whole side of the span goes with its join
                 jl, jt = jumps.get(pid, (float("nan"), float("nan")))
-                jump = jl if f < lo[pid] + gap else jt
+                lead_in = f < lo[pid] + gap
+                jump = jl if lead_in else jt
+                held = None
+                if snap is not None and f < snap and side_at is not None:
+                    # before the snap the man stands still: this frame's own distance from the join
+                    sp = side_point(pid, lo[pid] + gap if lead_in else hi[pid] - gap, -1 if lead_in else 1)
+                    if sp is not None:
+                        jump = float(np.linalg.norm(np.asarray(xy, float) - sp))
+                        held = sp
                 st = stats.setdefault(pid, [0, jump, 0])
                 st[0] += 1
                 if np.isfinite(jump) and (not np.isfinite(st[1]) or jump > st[1]):
                     st[1] = jump
                 if hold_m is not None and np.isfinite(jump) and jump > hold_m:
                     st[2] += 1
+                    if held is not None and presnap == "hold":
+                        keep[pid] = np.asarray(held, float)        # the set man, where the sideline first has him
+                        continue
                     dropped += 1
                     continue
             keep[pid] = xy
         out[f] = keep
     if report is not None:
         for pid, (n, jump, nfar) in stats.items():
-            report[pid] = (n, float(jump), nfar)
+            jl, jt = jumps.get(pid, (float("nan"), float("nan")))
+            report[pid] = (n, float(jump), nfar, float(jl), float(jt))
     return out, dropped
 
 

@@ -69,6 +69,17 @@ class Mono2DConfig:
     # reprojection 3.2 -> 3.4 px.
     tilt_weight: float = 10.0       # on the lean past tilt_free_deg, radians
     tilt_free_deg: float = 20.0
+    # A man on the ground. The 2-D keypoints of a lying body are also those of a standing body
+    # seen foreshortened, so with the upright prior every tackled man on play 1 was fitted
+    # standing (refit tilts p99 26 deg; id 184 at 640-660 lay under a box 0.46 as tall as wide).
+    # The detector's box settles it: wider than tall means on the ground (05p --lying-aspect),
+    # and on those frames the prior turns round -- the lean must be at least lying_min_deg.
+    # MEASURED AND NOT ADOPTED (2026-09-17, play 1's tackle, ids 184/28): the lean went to 115-142
+    # deg (past horizontal, the pelvis inverted), the upper-body reprojection 16.7 -> 21.2 px, and
+    # the strips looked like the shipped fit's folded body. The shipped fit already draws a prone
+    # tackler from a folded spine at 24 deg of pelvis lean. Opt-in.
+    lying: bool = False
+    lying_min_deg: float = 60.0
     up_axis: tuple = (0.0, 1.0, 0.0)  # the rest skeleton's up (SMPL-X is y-up)
     bounds_weight: float = 0.0      # joint-range prior (pose_bounds): sqrt(w) per radian outside the range
     bounds_table: str = "data"      # "data" (the two-camera fits' range) or "anatomical" (pose_bounds.ANATOMICAL)
@@ -211,6 +222,15 @@ def tilt_rad(global_orient, up_axis=(0.0, 1.0, 0.0)):
     return float(np.arccos(np.clip(up[2], -1.0, 1.0)))
 
 
+def tilt_penalty(global_orient, cfg) -> float:
+    """The lean residual: past ``tilt_free_deg`` for a body on its feet; under ``lying_min_deg``
+    for one the detector's box says is on the ground (``cfg.lying``)."""
+    tilt = tilt_rad(global_orient, cfg.up_axis)
+    if cfg.lying:
+        return float(cfg.tilt_weight * max(0.0, np.radians(cfg.lying_min_deg) - tilt))
+    return float(cfg.tilt_weight * max(0.0, tilt - np.radians(cfg.tilt_free_deg)))
+
+
 def project(K, R, t, X):
     p = (K @ (R @ np.asarray(X, float).T + np.asarray(t, float)[:, None])).T
     z = p[:, 2:3]
@@ -315,8 +335,7 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
         prior = np.sqrt(cfg.prior_weight) * p[bp_slice]
         parts = [rep, behind, ground, place, prior]
         if cfg.tilt_weight > 0:
-            parts.append(np.array([cfg.tilt_weight * max(0.0, tilt_rad(p[go_slice], cfg.up_axis)
-                                                         - np.radians(cfg.tilt_free_deg))]))
+            parts.append(np.array([tilt_penalty(p[go_slice], cfg)]))
         if cfg.bounds_weight > 0:
             from nfl_gsplat.pose.pose_bounds import ANAT_HI, ANAT_LO, excess
 

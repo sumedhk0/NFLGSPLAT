@@ -125,7 +125,8 @@ def test_beyond_sideline_span_hold_drops_the_endzone_lead_in_that_stands_far_fro
     assert all(1 not in out[f] for f in range(10, 40)) and all(1 in out[f] for f in range(40, 61))
     assert all(2 in out[f] for f in range(10, 61))
     assert dropped == 30
-    assert rep[1] == (30, 2.4, 30) and rep[2][0] == 30 and abs(rep[2][1] - 0.3) < 1e-9 and rep[2][2] == 0
+    assert rep[1][:3] == (30, 2.4, 30) and rep[2][0] == 30 and abs(rep[2][1] - 0.3) < 1e-9 and rep[2][2] == 0
+    assert abs(rep[1][3] - 2.4) < 1e-9 and np.isnan(rep[1][4])                       # a lead-in only: no tail jump
     # a man who runs 3 m during his lead-in but joins the sideline's point within 0.2 m is held whole
     ground3 = {f: {3: np.array([20.0 + 0.1 * (f - 10), 0.0])} for f in range(10, 61)}
     side3 = {f: {3: np.array([23.1, 0.0])} for f in range(40, 61)}
@@ -137,3 +138,30 @@ def test_beyond_sideline_span_hold_drops_the_endzone_lead_in_that_stands_far_fro
     # hold off: the old behaviour, every lead-in frame drawn
     out2, d2 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=None)
     assert d2 == 0 and all(1 in out2[f] for f in range(10, 61))
+
+
+def test_beyond_sideline_span_before_the_snap_every_frame_is_held_to_the_join_point():
+    """A ghost that slides onto its man: 2.4 m off at the start of the lead-in, 0.3 m at the join.
+    The join test alone keeps it; with the snap given, the frames before the snap are measured one
+    by one and the far ones go, the near ones stay."""
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    df = pd.DataFrame([{"cam": "sideline", "track_id": 1, "global_player_id": 1, "frame": f} for f in range(40, 61)]
+                      + [{"cam": "endzone", "track_id": 1, "global_player_id": 1, "frame": f} for f in range(0, 61)])
+    ground = {f: {1: np.array([2.4 - 2.1 * (f - 10) / 29.0, 0.0]) if f < 40 else np.array([0.0, 0.0])} for f in range(10, 61)}
+    side_ground = {f: {1: np.array([0.0, 0.0])} for f in range(40, 61)}
+    out, d = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8)
+    assert d == 0                                                       # join jump 0.3: kept whole
+    out2, d2 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=100)
+    far = [f for f in range(10, 40) if 2.4 - 2.1 * (f - 10) / 29.0 > 0.8]
+    assert d2 == len(far) and all(1 not in out2[f] for f in far) and all(1 in out2[f] for f in range(10, 61) if f not in far)
+    # with the snap inside the lead-in, only the frames before it are held per frame
+    out3, d3 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=20)
+    assert d3 == len([f for f in far if f < 20])
+    # "hold": the far pre-snap frames stay, moved to where the sideline first has the man
+    out4, d4 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=100, presnap="hold")
+    assert d4 == 0 and all(1 in out4[f] for f in range(10, 61)) and all(np.allclose(out4[f][1], [0.0, 0.0]) for f in far)
+    assert all(np.allclose(out4[f][1], ground[f][1]) for f in range(10, 40) if f not in far)

@@ -262,6 +262,11 @@ def roster_betas(args, P, pid, betas):
 
 
 def two_view_pass(args, P, tracks, df, ground, blob):
+    lying = set()
+    if getattr(args, "lying_aspect", 0) > 0:
+        from nfl_gsplat.render.timeline import lying_frames
+
+        lying = lying_frames(df, cam="sideline", aspect=args.lying_aspect)
     """Refit the two-camera players to both cameras' keypoints; the records replace 05f's in ``blob``."""
     from scipy.spatial.transform import Rotation
 
@@ -345,8 +350,10 @@ def two_view_pass(args, P, tracks, df, ground, blob):
         if len(frames) < 8:
             continue
         has_init = all(b is not None for b in init_bp)
+        fused_overrides = [({"lying": True} if (int(f), int(pid)) in lying else None) for f in frames]
         jobs.append({"pid": pid, "frames": np.asarray(frames), "uv": uv, "conf": conf, "cams": cams,
                      "ground": np.stack(gnd), "betas": betas,
+                     "cfg_overrides": fused_overrides if any(fused_overrides) else None,
                      "init_bp": np.stack(init_bp) if has_init else None,
                      "init_go": np.stack(init_go) if has_init else None,
                      "body_models": args.body_models, "max_gap": args.max_gap,
@@ -525,7 +532,21 @@ def main() -> None:
                          "default: measured better than the shipped fit on violations, jitter AND reprojection)")
     ap.add_argument("--tilt-weight", type=float, default=Mono2DConfig.tilt_weight)
     ap.add_argument("--tilt-free-deg", type=float, default=Mono2DConfig.tilt_free_deg)
+    ap.add_argument("--lying-aspect", type=float, default=0.0,
+                    help="a frame whose sideline box is wider than this share of its height is fitted lying "
+                         "(Mono2DConfig.lying: the lean must be at least lying_min_deg); 0 = off. Measured on "
+                         "play 1's tackle (2026-09-17, ids 184/28/55 at 0.7): the lean went 24 -> 115-142 deg "
+                         "past horizontal, the upper-body reprojection 16.7 -> 21.2 px, and the footage strips "
+                         "looked the same as the shipped fit's folded body -- not adopted")
     args = ap.parse_args()
+    lying = set()
+    if args.lying_aspect > 0:
+        from nfl_gsplat.render.timeline import lying_frames
+
+        lying = lying_frames(pd.read_parquet(args.play_dir / "tracks.parquet"), cam="sideline", aspect=args.lying_aspect)
+        if lying:
+            print(f"on the ground (sideline box wider than {args.lying_aspect:.1f} of its height): {len(lying)} frame-ids, "
+                  f"ids {sorted({p for _f, p in lying})[:12]}")
     P = args.play_dir
     t0 = time.time()
 
@@ -741,6 +762,9 @@ def main() -> None:
                     blend_seq[i] = (fr[near], 1.0 - d / float(args.max_gap + 1))
             gnd = list(gnd_arr)
         has_init = all(b is not None for b in init_bp)
+        for i, f in enumerate(frames):
+            if (int(f), int(pid)) in lying:
+                overrides[i] = {**(overrides[i] or {}), "lying": True}
         jobs.append({"pid": pid, "frames": np.asarray(frames), "uv": np.stack(uv), "conf": np.stack(conf),
                      "cams": cams, "ground": np.stack(gnd), "betas": betas,
                      "init_bp": np.stack(init_bp) if has_init else None,

@@ -4270,3 +4270,57 @@ the 16 frames 366-369/409-420 that flickered between two old-rule drops, so KC -
 fewer), 164 (1.22, 80), 170 (4.34, 58), 186/212/206. Held: 37 (0.31), 38 (0.50), 17 (0.41), 27, 30,
 171. The per-frame cut dropped more (BAL 11.21, exact 69) by also dropping men for their own running;
 the join jump is the honest version and ships: **HOLD_M = 0.8** (render/endzone_only_rule.py).
+
+**v54 delivered (19:20): diag/play_001_v54_hifi_720.mp4 = v53 + the join-jump hold + the real snap
+and the whole play (timeline 213-660 at stride 2, 224 frames, 7.5 s at 29.97).** The run sheet
+(scratchpad/review_v54/run_sheet.png, 380-640) shows the line firing at 400, the pocket at 440-520,
+the routes at 540-600 and a white body down on the turf at 640. Strips: 198 ABSENT at 452-480 (the
+ghost on the turf is gone); the tackler 184 renders prone with arms forward at 640-652 and then
+stands up at 654-658 while the footage still has him down; 55 dives plausibly at 604-638.
+
+**The join-jump hold misses a GLIDING ghost (19:50).** Id 40's lead-in 368-397 is still drawn: its
+lead-in joins the sideline within 0.67 m (kept), the 1.55 m jump the report showed was its TAIL
+(527-553, dropped 27). The footage strip has 40 standing 1-1.5 m beside the real defender at
+368-383 and on him at 398: the endzone's placement slides 2.7 m onto the man over the 30 frames,
+and the join test only sees the last step. The per-frame test caught it and misread running men;
+the join test passes it. What separates them is not metres at all: a real man is always under
+SOME sideline detection box (even a merged one, as 37/38 were), empty turf never is -- the test
+belongs in the sideline image (project the endzone point, ask whether a sideline box covers it).
+Measured next.
+
+**Bodies on the ground -- measured and NOT adopted (20:10).** Hypothesis: the tackled men are drawn
+standing because the fit's tilt prior (weight 10 past 20 deg) forbids lying, so gate it by the box
+(sideline h/w under 0.7: linemen's p5 is 0.87, the tackled men 0.46-0.58; 0.9 also caught crouched
+linemen 4 and 17 pre-snap on 110 frames each). Built: Mono2DConfig.lying (the lean must be at least
+60 deg), 05p --lying-aspect, timeline.lying_frames + build_timeline(lying=) skipping the tilt clamp,
+tests/test_lying.py. Probe on ids 184/28/55 (55 has no fit at all: no keypoints pass the filter).
+Same-recipe control vs lying prior, world tilt through the timeline, id 184 at 642-660: control
+20-36 deg, lying 142/140/115/80/52/46/56 -- past horizontal, the pelvis inverted; the fit's own
+upper-body reprojection 16.7 -> 21.2 px, lower unchanged; the footage strips (diag/lying_v54/) look
+the same for both: a folded body along the man at 642-651, standing up at 654-657 while he is still
+down. The shipped fit ALREADY renders the tackler prone (v54 strip 184 at 640-652) from a folded spine
+at 24 deg of pelvis lean: the 24 deg I first read as "standing" was the pelvis, not the body. What
+remains wrong is 654-660 (he rises early) in both. The prior ships opt-in (05p default 0); the
+timeline's no-clamp on lying frames stays (it never fires on the shipped fits; a gate, not a change).
+Also: a first per-frame tilt reading taken on the raw records (24 vs 102 deg) was in the cache's
+frame, not the world's -- measure through the timeline's states.
+
+**Box containment is not the ghost test either (20:00).** Endzone-placed lead-in frames projected
+into the sideline image, "inside any sideline box dilated a quarter body sideways": 198 0.72 (it
+stood beside KC 65 on empty turf: the neighbour's box covers it), 40 0.18, real men 37/38/17 1.00,
+74 0.96, 164 0.94, 170 0.47. Nearest box bottom in body heights: ghosts 0.57-0.60, real 0.26-0.48
+-- the same 1 m ambiguity as the metres. What does separate 40 is TIME: before the snap a set man
+does not move, so a lead-in that stands 2.7 m from where the sideline finds him and slides in is
+the endzone's error. Rule: before play_end.json's snap every beyond frame is measured against the
+join point (per frame); from the snap on, the join jump. Test added; A/B below.
+
+**Snap-aware hold A/B (20:45), 300-483, hold 0.8 m.** Join-jump only (v54): KC 10.73 / BAL 11.36,
+exactly 11/11 on 56 frames, BAL >= 12 on 62, id 40 drawn on 30 of 360-397. Per frame before the
+snap + join jump after: KC 10.73 / BAL 11.21 (pre-snap 10.32 / 11.00, live 11.14 / 11.42), exactly
+11/11 on 69, BAL >= 12 on 33, id 40 on 1 of 360-397, live hops 4, pile pairs 9. KC pre-snap loses
+half a man (74 and 164, real linemen whose endzone depth sat 1.1-1.3 m off their sideline join).
+Tried "hold": keep those pre-snap frames AT the sideline's join point instead of dropping them (a
+set man has not moved). Rejected: KC pre-snap 10.32 -> 10.39 only, BAL 11.00 -> 11.19, exactly
+11/11 69 -> 54, and a new pile pair 1-40 (22 frames): 40's held lead-in lands on the man already
+drawn as id 1 -- the lead-in was a second copy, and dropping it was right. PRESNAP = "drop" ships
+(endzone_only_rule.PRESNAP; "hold" kept as the measured alternative). v55 launched 20:50 with it.
