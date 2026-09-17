@@ -2546,6 +2546,19 @@ measure: the sideline lower joints (the locked foot leaves its noisy keypoint by
 0.1-0.3 m = 8-24 px), joint jitter; gain: the planted share (1 % -> ~40 %) and the render strip of
 the runner. Building it opt-in.
 
+Built (`render/foot_lock.py`, commit fba3c97: stance = the drawn ankle under half the pelvis speed for
+2-8 frames, the foot pinned to the segment's median xy, hip and knee re-solved by a numpy-FK
+least-squares; tests pass) and measured post-hoc on the live play (scratch probe_footlock_ab): 22
+stance segments over all ids, 90 frames, the pinned feet moved 1-6 cm at the median (10 cm at most),
+planted share 1 % -> 2 %, ratio p50 0.94 -> 0.94, sideline lower joints 9.9/16.2 -> 9.9/16.2, joint
+jitter p90 0.062 -> 0.068. NO EFFECT: the criterion reads stances off dips the drawn legs do not
+have -- they hardly cycle -- so it finds a few shallow ones and moves a foot a few centimetres. The
+lock is left opt-in as a tool (it does what it says when a stance exists); the defect needs a stance
+the data does not contain. That is a gait model: cadence from the body's speed (about 2 Hz at 8 m/s),
+alternating stance phases, and leg motion synthesised to plant each foot -- motion synthesis over the
+fit, which is a product decision (fitted legs that skate vs animated legs that plant) and a day of
+work. Recorded as the next hypothesis class; the skating share goes into 07l as a standing ruler.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
