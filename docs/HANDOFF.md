@@ -2510,6 +2510,9 @@ Reach A/B with the twin rule in (22:00): reach 6 pops 11 / census 1.20 / jitter 
 pops 7 / 1.19 / 0.0124; reach 10 pops 5 / 1.21 / 0.0126; hops 4 and steps 5 throughout. Eight wins
 on pops and census: HOLE_REACH 6 -> 8. 07l v55 and render v50 (with a strip of id 11 at 420) follow.
 
+**07l v55 = v54 + reach 8 (22:10; the v50 render's timeline).** Live steps 5, hops 4, root jitter live
+p90 0.0120 (p99 0.069), census live 1.19 (KC 10.86, BAL 11.32), whole clip 2.47, joints p99 0.069.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
