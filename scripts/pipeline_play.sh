@@ -40,6 +40,7 @@
 #             wears synthetic uniforms (render.uniform); fitted textures measured no better
 #   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
 #   teams     scripts/08f team per id from torso colour (bimodal only) -> <play-dir>/team_by_colour.json
+#   play_end  scripts/08x when the play is dead (the carrier stops)   -> <play-dir>/play_end.json
 #   measure   scripts/07l plausibility rulers on the timeline 05k draws -> $DIAG/<play>_latest_plausibility.json
 #             (steps, root + joint jitter, census; CPU, ~3 min; re-run every time, never marked done)
 #   hifi      scripts/05k 1080p GPU render on the footage field        -> <play-dir>/render_hifi/
@@ -414,6 +415,15 @@ fi
 # three complaints about v38 (teleports, jitter, a man in the wrong line) were invisible to the census
 # and got dismissed once by a probe that printed 48 m/s and moved on -- this is the ruler that would
 # have caught them (docs/HANDOFF.md, 2026-09-15).
+# When the play is dead (08x): the ball carrier -- the id that travels furthest from its snap
+# position -- stops or his track ends; 05k stops the clip there plus a half-second tail. Marked, and
+# re-run after any change to the tracks (delete .done_play_end).
+if ! done_ play_end; then
+  log "when the play is dead (08x)"
+  "$PYS" scripts/08x_play_end.py --play-dir "$P" ${LIVE_LO:+--snap "$LIVE_LO"} ${END_LIVE:+--live-hi "$END_LIVE"} 2>&1      | grep -v "Warning\|warn" | grep -E "play dead|wrote|Error|Traceback" || fail play_end
+  mark play_end
+fi
+
 log "plausibility rulers on the timeline 05k will draw (07l)"
 "$PYS" scripts/07l_measure_plausibility.py --play-dir "$P" --tag latest --joints ${LIVE_LO:+--lo "$LIVE_LO"} ${END_LIVE:+--hi "$END_LIVE"} 2>&1 \
    | grep -v "Warning\|warn" | grep -E "^(steps|root|census|joints|report| +worst)|Error|Traceback" || log "07l failed; the render goes ahead unscored"

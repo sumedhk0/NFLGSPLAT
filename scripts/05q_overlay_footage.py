@@ -107,12 +107,17 @@ def main() -> None:
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
     ap.add_argument("--no-keypoints", action="store_true")
     ap.add_argument("--refit", type=Path, default=None, help="a pose cache other than <play-dir>/poses_refit.json")
+    ap.add_argument("--gait", action="store_true", help="draw the synthesised running gait (render.gait) instead of the fitted legs")
     args = ap.parse_args()
     P = args.play_dir
     args.out.mkdir(parents=True, exist_ok=True)
     model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral", num_betas=10, use_pca=False,
                          batch_size=1)
     tl, tracks, df, frames_all, poses = load_play_timeline(P, model, poses_refit=args.refit)
+    if args.gait:
+        from nfl_gsplat.render.gait import gait_timeline
+
+        gait_timeline(tl)
     import pickle
 
     ident = pickle.load(open(P / "identity_resolved.pkl", "rb")).get("merged", {}) if (P / "identity_resolved.pkl").exists() else {}

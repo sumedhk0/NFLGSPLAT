@@ -66,6 +66,8 @@ def main() -> None:
                     help="05l field_texture.npz (the footage's field); default procedural")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--gait", action="store_true",
+                    help="synthesise a running gait for the legs of moving bodies (render.gait); the fit keeps the torso")
     ap.add_argument("--end-frame", type=int, default=None,
                     help="last timeline frame to draw; default: <play-dir>/play_end.json (08x) end + tail, else all")
     ap.add_argument("--eye-offset", type=float, nargs=3, default=(2.0, -34.0, 13.0),
@@ -150,6 +152,12 @@ def main() -> None:
     tl, tracks, df, frames_all, poses = load_play_timeline(
         P, model, poses_refit=args.poses_refit, poses_sideline=args.poses_sideline,
         stitch_ids=args.stitch)
+    if args.gait:
+        from nfl_gsplat.render.gait import gait_timeline
+
+        reps = gait_timeline(tl)
+        n_on = sum(r["on"] for r in reps.values())
+        print(f"gait: legs synthesised on {n_on} body-frames of {sum(1 for r in reps.values() if r['on'])} ids")
     frames = frames_all[:: max(1, args.stride)]
     end = args.end_frame if args.end_frame is not None else play_end_frame(P)
     if end is not None:
