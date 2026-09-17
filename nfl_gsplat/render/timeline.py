@@ -474,6 +474,9 @@ _SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
 # that man blinking, not a fragment riding him: it keeps its filled frame whatever stands near it.
 # Play 1 (2026-09-16): 18 of the 32 live-play pops (a body gone for 1-5 frames and back 0.17 m away)
 # were linemen whose detection dropped for a frame while a neighbour stood inside INTERP_DUP_M.
+# Measured on the live play, reach 0 -> 6: pops 32 -> 10, drawn body-frames +40, census 1.32 -> 1.32,
+# live hops 4 -> 4, steps 5 -> 5, root jitter p90 0.0116 -> 0.0129 (the readmitted frames are filled
+# positions); reach 12: pops 4 but census 1.45. Six is the reach.
 HOLE_REACH: int = 6
 
 

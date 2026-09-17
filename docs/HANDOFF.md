@@ -2417,6 +2417,15 @@ few frames on BOTH sides is a hole, not a tail, and stays anchored. Remedy for (
 question (08o folds twins on the tracks; a stretch-consistent dedupe in the timeline would be the
 render-side answer). Building (A) first; rulers = pops, census, hops, steps.
 
+(A) built as `timeline._holes_by_frame` + `dedupe_frames(holes=)` (HOLE_REACH, commit c59c01b): an
+interpolated state whose id the sideline detected within 6 frames on both sides is kept outright.
+A/B on the live play (21:30, scratch probe_hole_ab): pops 32 -> 10, drawn body-frames 3561 -> 3601,
+live hops 4 -> 4, steps 5 -> 5, census 1.32 -> 1.32 (KC 10.78 -> 10.96, BAL 11.34 -> 11.41), root
+jitter p90 0.0116 -> 0.0129, p99 0.0606 -> 0.0692, duplicates dropped 1251 -> 1042; reach 12 takes
+pops to 4 but the census to 1.45. ADOPTED at 6: twenty-two fewer vanish-and-reappear events per
+live play for 1.3 mm/frame^2 of root jitter at p90. 07l v53 and render v49 (chained behind v48)
+carry it. The 10 pops left are class (B), the twins.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
