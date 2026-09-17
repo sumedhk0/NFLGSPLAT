@@ -2513,6 +2513,14 @@ on pops and census: HOLE_REACH 6 -> 8. 07l v55 and render v50 (with a strip of i
 **07l v55 = v54 + reach 8 (22:10; the v50 render's timeline).** Live steps 5, hops 4, root jitter live
 p90 0.0120 (p99 0.069), census live 1.19 (KC 10.86, BAL 11.32), whole clip 2.47, joints p99 0.069.
 
+**Facing vs motion, a new ruler (22:15, scratch probe_facing):** on the 260 live body-frames with
+root speed > 0.1 m/frame, the angle between the body's forward and its velocity is 43 deg at the
+median, past 90 on 17.7 %, past 135 on 3.5 %. Who runs "backwards": 6 (a Baltimore back, 12 frames
+at 135 -- a backpedal), 166 / 19 / 5 (Kansas City linemen at 93-116 -- pass sets, retreating
+squared up), 13 at 72; the runner 9 faces his motion at 13 deg over 132 frames, 3 / 11 / 204 / 74 /
+40 under 60. Every past-90 case is a man who really moves backwards or sideways. No defect; the
+ruler stays as a check for other plays.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
