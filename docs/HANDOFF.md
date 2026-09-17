@@ -4151,3 +4151,9 @@ wrapped. Id 40 (a Baltimore back) at 378-392 -- alternating legs with a high kne
 the legs read as running, not gliding; the video is the user's to judge. v52 (legs along the motion,
 clip to 513) is rendering; 07l gains --gait so the report scores what 05k --gait draws.
 
+**07l v57 = v56's timeline with the gait applied (the v52 render's legs).** Skating p50 0.94 -> 0.75,
+planted 1 -> 21 % of 244 moving frames; joints jitter p50/p90/p99 0.0106/0.0329/0.069 ->
+0.0112/0.0501/0.263 and speed p90 0.085 -> 0.110 (legs that swing and reverse; from here the joint
+rulers compare gait renders with gait renders); steps 5, hops 4, root jitter, census 1.19 unchanged
+(the gait moves no pelvis).
+
