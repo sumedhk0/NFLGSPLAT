@@ -4109,3 +4109,13 @@ ground share falls with speed (0.6 walking to 0.22 sprinting). Fixed before any 
 live play (skating ruler, sideline reprojection, jitter) running; render v51 = v50 + gait + the clip
 end follows if it reads well.
 
+Gait A/B, corrected stride (04:40, scratch probe_gait_ab; post-hoc on the live play): 18 ids get the
+gait (the runner 148 frames / 3.8 cycles = 3 steps a second; 3, 6, 40, 74 ... for 15-30 frames each).
+Skating ruler: slower ankle / pelvis p50 0.94 -> 0.88, planted 1 % -> 11 %. Sideline lower joints
+9.9/16.2 -> 17.8/25.4 px (the legs no longer chase the noisy ankle keypoints; expected). Joint jitter
+p90 0.062 -> 0.153 (a leg that really swings reverses hard at each end; the ruler was calibrated on
+legs that did not). 11 % planted is short of a runner's ~50 %: diagnosing on the runner whether the
+plant fails where the body moves across its fitted facing (43 deg median off the velocity on this
+play) -- then the legs should swing along the velocity. v51 (gait as is + the clip ending at 523)
+is rendering for the footage verdict regardless: a leg cycle that looks like running beats a ruler.
+
