@@ -137,3 +137,28 @@ def test_jerk_steps_flag_a_hop_but_not_a_sprinter():
     gappy = {100: np.array([0.0, 0.0]), 101: np.array([0.0, 0.0]), 105: np.array([9.0, 0.0])}
     assert mr.jerk_steps({4: gappy}) == []
 
+
+def test_skating_ruler_tells_a_planted_foot_from_a_gliding_one():
+    """A body moving 0.12 m/frame: with the left ankle held in the world for 7 of every 10 frames
+    (pelvis-relative it drifts back at the body's speed) the slower ankle plants on the triples whose
+    both ends fall in the hold, about half; with both ankles fixed relative to the pelvis nothing
+    plants and the ratio is 1."""
+    from nfl_gsplat.render import motion_rulers as mr
+
+    T = 60
+    pos = {f: np.array([0.12 * f, 0.0]) for f in range(T)}     # clear of the 0.1 moving threshold
+    glide = {f: np.zeros((22, 3)) for f in range(T)}
+    for f in range(T):
+        glide[f][7] = [0.1, 0.0, 0.0]; glide[f][8] = [-0.1, 0.0, 0.0]
+    sk = mr.skating({1: pos}, {1: glide})
+    assert abs(sk["ratio_p50"] - 1.0) < 1e-9 and sk["planted"] == 0.0 and sk["n"] == T - 2
+    plant = {f: np.zeros((22, 3)) for f in range(T)}
+    for f in range(T):
+        k = f % 10
+        world_l = np.array([0.12 * (f - k) + 0.3, 0.0]) if k < 7 else np.array([0.12 * f + 0.3, 0.0])   # held 7 frames, then swung
+        plant[f][7, :2] = world_l - pos[f]
+        plant[f][8] = [-0.1, 0.0, 0.0]
+    sk2 = mr.skating({1: pos}, {1: plant})
+    assert 0.4 < sk2["planted"] < 0.6 and sk2["ratio_p50"] < 0.9
+    assert sk2["worst"][0][0] == 1
+

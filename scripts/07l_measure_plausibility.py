@@ -96,6 +96,10 @@ def main():
     if hp["worst_live"]:
         print("       worst live: " + ", ".join(f"id {w['pid']} {w['step_m']:.2f} m (+{w['excess_m']:.2f}) @{w['frame']}"
                                                 for w in hp["worst_live"][:6]))
+    if "skating" in rep:
+        sk = rep["skating"]
+        print(f"skating (moving bodies, slower ankle / pelvis speed): p50 {sk['ratio_p50']:.2f}, planted (< {mr.SKATE_PLANTED}) "
+              f"{100 * sk['planted']:.0f} % of {sk['n']} frames   (a runner plants ~50 %)")
     print(f"root jitter m/frame^2  full p50 {rj['full']['p50']:.4f} p90 {rj['full']['p90']:.4f} p99 {rj['full']['p99']:.4f}"
           f"   live p50 {rj['live']['p50']:.4f} p90 {rj['live']['p90']:.4f} p99 {rj['live']['p99']:.4f}")
     print("       worst live: " + ", ".join(f"id {w['pid']} {w['p90']:.3f}" for w in rj["worst_live"][:6]))

@@ -128,6 +128,45 @@ def census_error(states_by_frame, team_of, lo: int, hi: int, *, teams=TEAMS, per
     return err, {t: float(a.mean()) for t, a in arrays.items()}
 
 
+SKATE_MOVING_M: float = 0.1     # a pelvis faster than this per frame is running
+SKATE_PLANTED: float = 0.3      # a slower ankle under this share of the pelvis speed is on the ground
+
+
+def skating(pos_by_id, joints_by_id, *, moving_m: float = SKATE_MOVING_M, planted: float = SKATE_PLANTED) -> dict:
+    """The moonwalk ruler: over contiguous triples where the pelvis moves faster than ``moving_m``
+    per frame, the slower ankle's WORLD speed (pelvis xy plus the pelvis-relative ankle) over the
+    pelvis speed. A runner plants a foot -- ratio near zero -- about half the time; a fitted body
+    whose legs cycle too little glides with both feet moving (play 1, 2026-09-16: p50 0.94, planted
+    1 %). ``{"n", "ratio_p50", "planted", "worst": [(pid, n, ratio_p50, planted)]}``."""
+    ratios_all, per = [], {}
+    for pid, byf in joints_by_id.items():
+        pos = pos_by_id.get(pid, {})
+        fs = sorted(f for f in byf if f in pos)
+        r = []
+        for a, b, c in zip(fs[:-2], fs[1:-1], fs[2:]):
+            if c - a != 2:
+                continue
+            pa, pc = np.asarray(pos[a], float), np.asarray(pos[c], float)
+            vr = float(np.linalg.norm(pc - pa)) / 2.0
+            if vr < moving_m:
+                continue
+            la = pa + byf[a][7, :2]; lc = pc + byf[c][7, :2]
+            ra = pa + byf[a][8, :2]; rc = pc + byf[c][8, :2]
+            slow = min(float(np.linalg.norm(lc - la)), float(np.linalg.norm(rc - ra))) / 2.0
+            r.append(slow / vr)
+        if len(r) >= 5:
+            per[int(pid)] = np.asarray(r)
+            ratios_all.extend(r)
+    R = np.asarray(ratios_all)
+    return {
+        "n": int(len(R)),
+        "ratio_p50": float(np.median(R)) if len(R) else float("nan"),
+        "planted": float((R < planted).mean()) if len(R) else float("nan"),
+        "worst": [(p, int(len(v)), float(np.median(v)), float((v < planted).mean()))
+                  for p, v in sorted(per.items(), key=lambda kv: -float(np.median(kv[1])))[:6]],
+    }
+
+
 def joint_motion(joints_by_id) -> dict:
     """``{pid: (jitter, speed)}`` from ``{pid: {frame: joints[J, 3]}}`` (pelvis-relative): per contiguous
     triple the max over joints of the second difference, and of the first difference of its leading pair.
@@ -223,6 +262,9 @@ def summarize(pos_by_id, states_by_frame, team_of, *, lo: int, hi: int, joints_b
         jm = joint_motion(joints_by_id)
         allj = np.concatenate([v[0] for v in jm.values()]) if jm else np.zeros(0)
         alls = np.concatenate([v[1] for v in jm.values()]) if jm else np.zeros(0)
+        sk = skating(pos_by_id, joints_by_id)
+        rep["skating"] = {"n": sk["n"], "ratio_p50": round(sk["ratio_p50"], 3), "planted": round(sk["planted"], 3),
+                          "worst": [{"pid": p, "n": n, "ratio_p50": round(r, 2), "planted": round(s, 2)} for p, n, r, s in sk["worst"]]}
         rep["joints"] = {
             "ids": len(jm),
             "jitter": {"p50": _pct(allj, 50), "p90": _pct(allj, 90), "p99": _pct(allj, 99)},
