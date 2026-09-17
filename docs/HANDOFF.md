@@ -2453,6 +2453,20 @@ ADOPTED at 0.2 / 8 (`timeline.TWIN_M`, `TWIN_MIN_RUN`, wired after the orphan ru
 on one man for fifteen frames is worse than that copy vanishing. 07l v54 = v53 + twins; the v49 render
 starts after v48 and picks this up, so v49 = v54's timeline.
 
+**07l v54 = v53 + twins (clock 20:40).** Live steps 5, hops 4 (unchanged four), census live 1.32 ->
+1.20 (KC 10.84, BAL 11.32), whole clip 2.46 -> 2.44, joints unchanged (p99 0.069); 111 twin body-frames
+out (40 399-413, 166 417-431 on the live play).
+
+**Ids starting mid-play, characterised (scratch probe_late_starts; team count over the five frames
+before and after the start, nearest same-team body at the start).** Hole-fillers: 37 @340 (KC 9 -> 10)
+and 38 @345 (KC 10 -> 11), both admitted by the endzone after the sideline lost them in the line --
+right. Twins at birth: 171 @331 (0.13 m from a teammate), 84 @437 (0.12 m), 80 @377 (0.23 m), 197 @435
+(0.30 m) -- they start on top of a drawn teammate and drift apart, too briefly for the 0.2 m / 8-frame
+twin rule. Twelfth men: 40 @368 (BAL 11 -> 12, 1.7 m from anyone), 74 @366 (KC 11 -> 11.8), 39 @384
+(25 frames), 167 @411 (10 frames, KC -> 13), 198 @453 (BAL 11 -> 12, endzone-only) -- real detected
+players under a label the count already has, the run-surplus thread the census memory closed on
+09-13 (no removal route that does not delete a real man). Recorded as the population; not pursued.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
