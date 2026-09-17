@@ -2500,6 +2500,12 @@ Wider twin radii, post-hoc on the v54 timeline (21:50): 0.3 / 8 drops 51 more bo
 is not a within-0.3-m-for-8-frames case: they touch and part. TWIN_M stays 0.2 / 8; that double is
 recorded as the residue.
 
+Id 11 on the v49 strip (420-434) still vanishes on 422 and 428. Trace (scratch probe_id11_hole): the
+sideline sees him 410-420 and again from 429 -- an eight-frame hole, one past HOLE_REACH 6, so the
+bridge fills 421-428 but the dedupe deletes 422 and 427 as unanchored interpolated bodies near a
+detected one, and 428 (endzone-only) falls to the one-view box (13 stands 1.49 m across). Measuring
+reach 8 and 10 against 6 (reach 12 cost census 1.32 -> 1.45 earlier).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
