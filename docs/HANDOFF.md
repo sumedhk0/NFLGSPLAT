@@ -2386,6 +2386,17 @@ said so: 129 px at p90 is a body length).
 0.0689 unchanged, 13958 body-frames drawn (v51 14127). Render v48 = this timeline on the same cache,
 strips auto-cut to scratch review_v48.
 
+**Pops, classified (21:05, scratch probe_pop_classes).** The 32 pops on the live play are all GAP pops
+within one id -- absent for 2 frames at the median, back 0.17 m away -- and not one is a fragment
+handover (no id end is followed within 6 frames and 1 m by another id's start). They sit on ids in
+the line and the pile (166: 5, 40: 4, 11 / 13 / 204: 3 each). Separately, 12 ids START mid-play with
+no predecessor (37 @340, 38 @345, 74 @366, 40 @368, 80 @377, 39 @384, 167 @411, 197 @435, 84 @437,
+198 @453 ...) and 7 END with no successor -- bodies appearing from nowhere and vanishing for good,
+the rules admitting an id late (span, endzone-only, edge) or a fragment ending. A two-frame
+absence with the body 0.17 m away is not a detection gap (the bridge is 10 frames): a timeline rule
+removes the body on those frames -- the dedupe box when two bodies pass within DUPLICATE_M is the
+suspect. Probing which rule and how close the nearest other body stood.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
