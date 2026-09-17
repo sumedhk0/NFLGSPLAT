@@ -351,7 +351,8 @@ def play_snap(play_dir) -> int | None:
 def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sideline=None,
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
                        no_depth_snap: bool = False, blind_axis: bool = False, span_gap: int | None = None,
-                       span_hold_m: float | None = None, span_presnap: str | None = None):
+                       span_hold_m: float | None = None, span_presnap: str | None = None,
+                       hole_hold_m: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -363,6 +364,10 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     import pandas as pd
 
     P = Path(play_dir)
+    if hole_hold_m is not None and hole_hold_m < 0:
+        from nfl_gsplat.render import endzone_only_rule as _ezr
+
+        hole_hold_m = _ezr.HOLE_HOLD_M
     tracks = load_camera_track(P / "cameras.npz")
     df = pd.read_parquet(P / "tracks.parquet")
     df = df[df["track_id"] >= 0]
@@ -423,6 +428,14 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         for f, d in side_ground.items():
             for pid, xy in d.items():
                 ground.setdefault(f, {})[pid] = xy
+        # a short hole in a sideline track filled from the endzone follows the sideline's own line
+        # through it when the endzone's point is a stride off (endzone_only_rule.hold_holes)
+        from nfl_gsplat.render.endzone_only_rule import hold_holes
+
+        ground, hole_moves = hold_holes(ground, side_ground, hold_m=hole_hold_m)
+        if hole_moves:
+            print(f"endzone-filled hole frames held to the sideline's line: {len(hole_moves)} "
+                  f"(median {np.median(hole_moves):.2f} m off it, max {max(hole_moves):.2f})")
     # A paired id lives on its sideline span: beyond it the endzone track
     # alone draws a second copy of a player (endzone_only_rule).
     if "sideline" in tracks:

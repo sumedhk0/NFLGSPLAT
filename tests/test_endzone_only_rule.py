@@ -165,3 +165,30 @@ def test_beyond_sideline_span_before_the_snap_every_frame_is_held_to_the_join_po
     out4, d4 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=100, presnap="hold")
     assert d4 == 0 and all(1 in out4[f] for f in range(10, 61)) and all(np.allclose(out4[f][1], [0.0, 0.0]) for f in far)
     assert all(np.allclose(out4[f][1], ground[f][1]) for f in range(10, 40) if f not in far)
+
+
+def test_hold_holes_moves_an_endzone_filled_hole_onto_the_sideline_line_only_when_far():
+    import numpy as np
+
+    from nfl_gsplat.render.endzone_only_rule import hold_holes
+
+    # sideline sees id 1 at 0..10 and 16..30 walking +x at 0.1 m/frame; the endzone fills 11..15,
+    # two metres off the line at 12-13 and 0.3 m off at 14
+    side = {f: {1: np.array([0.1 * f, 0.0])} for f in list(range(0, 11)) + list(range(16, 31))}
+    ground = {f: dict(d) for f, d in side.items()}
+    for f in range(11, 16):
+        ground[f] = {1: np.array([0.1 * f, 2.0 if f in (12, 13) else 0.3])}
+    out, moved = hold_holes(ground, side, hold_m=0.8)
+    assert len(moved) == 2 and all(abs(m - 2.0) < 1e-9 for m in moved)
+    assert np.allclose(out[12][1], [1.2, 0.0]) and np.allclose(out[13][1], [1.3, 0.0])
+    assert np.allclose(out[14][1], [1.4, 0.3]) and np.allclose(out[11][1], ground[11][1])
+    # a long hole: the middle is left alone, the frames within reach of an end follow that end at
+    # the sideline's own velocity (0.1 m/frame here), and the off switch holds nothing
+    side2 = {f: {1: np.array([0.1 * f, 0.0])} for f in list(range(0, 11)) + list(range(40, 51))}
+    ground2 = {f: dict(d) for f, d in side2.items()}
+    for f in (12, 20, 45 - 5 - 3):          # 12 near the start, 20 in the middle, 37 near the end
+        ground2[f] = {1: np.array([0.1 * f, 3.0])}
+    out2, moved2 = hold_holes(ground2, side2, hold_m=0.8)
+    assert len(moved2) == 2 and np.allclose(out2[12][1], [1.2, 0.0]) and np.allclose(out2[37][1], [3.7, 0.0])
+    assert np.allclose(out2[20][1], [2.0, 3.0])
+    assert hold_holes(ground, side, hold_m=None)[1] == []

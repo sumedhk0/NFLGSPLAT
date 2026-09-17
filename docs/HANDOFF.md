@@ -4346,3 +4346,16 @@ census live 2.55 (KC 11.04, BAL 11.49); joints (57 ids) jitter p50 0.026, p90 0.
 Every "floor" claimed on 300-460/483 was two-thirds pre-snap; the play itself has 25 hops and a
 p99 joint jitter of 0.58 m/frame^2. This is the number to beat from here. 07l's window now comes
 from play_end.json (a str/Path slip fixed 21:25).
+
+**Hole hold (22:05): endzone-filled holes inside a sideline span follow the sideline's own line.**
+The span rule holds a span's edges; inside a span the hole rule (HOLE_REACH 8) draws endzone-placed
+frames, and the endzone's ground point is poor along the field: id 37 at 569-576 stepped 0.42-0.44 m
+a frame for five frames -- the footage strip (diag/live_v55/player_37_f558.jpg) has him drawn on the
+lineman two metres LEFT of the man the sideline resumes on at 573, who stood there throughout.
+Rule (endzone_only_rule.hold_holes, HOLE_HOLD_M 0.8): a hole frame farther than 0.8 m from the
+sideline's line between the hole's ends (holes up to 17 frames) or from the nearer end's point
+carried at the sideline's own velocity over 4 frames (longer holes, the frames within reach 8 of an
+end) takes that line. Live window 393-660: 110 frames held (median 1.31 m off, max 3.69); hops 25
+-> 23, steps > 0.25 m/frame 114 -> 97, handovers 7 -> 4, KC 11.04 -> 11.10, BAL 11.49 -> 11.38; 37's
+run of 0.4 m steps -> 0.03 (one 0.47/0.48 pair remains where the two ends' extrapolations meet
+mid-hole). Shipped; v56 carries it.

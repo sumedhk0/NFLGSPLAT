@@ -212,3 +212,67 @@ def endzone_only_ids(df, views, *, cam: str = "endzone", ground=None, sideline=N
         if n and inside / n >= min_inside:
             out.add(pid)
     return out
+
+
+HOLE_HOLD_M: float | None = 0.8     # an endzone-filled hole frame farther than this from the sideline's own line
+                                    # through the hole takes the line (play 1 id 37 at 569-576: five 0.4 m steps)
+HOLE_MAX: int = 17                  # holes up to this long (2 * HOLE_REACH + 1) take the line between their ends;
+HOLE_REACH: int = 8                 # longer ones extrapolate from the nearer end (the sideline's own velocity over
+HOLE_VEL_FRAMES: int = 4            # HOLE_VEL_FRAMES) for the frames within HOLE_REACH of it, the ones the hole rule draws
+
+
+def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_hole: int = HOLE_MAX,
+               reach: int = HOLE_REACH, vel_frames: int = HOLE_VEL_FRAMES):
+    """``ground`` (frame -> {pid: xy}) with every endzone-filled HOLE frame -- inside a sideline span,
+    the sideline has no point that frame, the merged ground has the endzone's -- moved onto the
+    sideline's own straight line between its points either side of the hole when it stands farther
+    than ``hold_m`` from that line. Returns ``(ground, moved [metres])``.
+
+    WHY. The span rule (beyond_sideline_span) holds a span's EDGES; inside a span the hole rule draws
+    an endzone-placed frame within HOLE_REACH of a sideline sighting, and the endzone's ground point
+    is poor along the field: play 1 id 37 at 569-576 stepped 0.42-0.44 m a frame for five frames on
+    an endzone-only hole in its sideline track, two metres out and back (07l on the live window). A
+    man does not leave a straight line by a metre in eight frames; the sideline's interpolation
+    across a short hole is the better guess, and the endzone still gives depth where both see him."""
+    side_frames: dict = {}
+    for f, d in side_ground.items():
+        for pid in d:
+            side_frames.setdefault(int(pid), []).append(int(f))
+    for pid in side_frames:
+        side_frames[pid].sort()
+    out = {f: dict(d) for f, d in ground.items()}
+    moved = []
+    if hold_m is None:
+        return out, moved
+    for pid, fs in side_frames.items():
+        arr = np.asarray(fs)
+        for f in range(fs[0], fs[-1] + 1):
+            if pid in side_ground.get(f, {}) or pid not in out.get(f, {}):
+                continue
+            i = int(np.searchsorted(arr, f))
+            fa, fb = int(arr[i - 1]), int(arr[i])
+            a = np.asarray(side_ground[fa][pid], float); b = np.asarray(side_ground[fb][pid], float)
+            if fb - fa <= max_hole:
+                line = a + (b - a) * (f - fa) / float(fb - fa)
+            else:
+                # a long hole: the hole rule draws only the frames within ``reach`` of a sideline
+                # sighting; those follow that sighting at the sideline's own velocity there
+                near_a = f - fa <= reach
+                if not near_a and not (fb - f <= reach):
+                    continue
+                edge, step = (fa, -1) if near_a else (fb, +1)
+                back = edge + step * vel_frames
+                prev = None
+                for g in range(edge + step, back + step, step):
+                    if pid in side_ground.get(g, {}):
+                        prev = (g, np.asarray(side_ground[g][pid], float))
+                if prev is None:
+                    v = np.zeros(2)
+                else:
+                    v = (np.asarray(side_ground[edge][pid], float) - prev[1]) / float(edge - prev[0])
+                line = np.asarray(side_ground[edge][pid], float) + v * (f - edge)
+            d = float(np.linalg.norm(np.asarray(out[f][pid], float) - line))
+            if d > hold_m:
+                out[f][pid] = line
+                moved.append(d)
+    return out, moved
