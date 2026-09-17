@@ -525,8 +525,10 @@ _SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
 # were linemen whose detection dropped for a frame while a neighbour stood inside INTERP_DUP_M.
 # Measured on the live play, reach 0 -> 6: pops 32 -> 10, drawn body-frames +40, census 1.32 -> 1.32,
 # live hops 4 -> 4, steps 5 -> 5, root jitter p90 0.0116 -> 0.0129 (the readmitted frames are filled
-# positions); reach 12: pops 4 but census 1.45. Six is the reach.
-HOLE_REACH: int = 6
+# positions); reach 12: pops 4 but census 1.45. Then, with the twin rule in: reach 6 -> 8 pops 11 -> 7,
+# census 1.20 -> 1.19, jitter p90 0.0122 -> 0.0124; reach 10 pops 5 but census 1.21. Eight is the reach
+# (id 11's eight-frame hole at 421-428 was one past six).
+HOLE_REACH: int = 8
 
 
 def _holes_by_frame(frames, views_by_frame, anchor_cam: str, reach: int) -> dict:
