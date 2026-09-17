@@ -2559,6 +2559,18 @@ alternating stance phases, and leg motion synthesised to plant each foot -- moti
 fit, which is a product decision (fitted legs that skate vs animated legs that plant) and a day of
 work. Recorded as the next hypothesis class; the skating share goes into 07l as a standing ruler.
 
+07l v56 (same timeline as v55, the skating ruler added to the report, commit 16261e5): skating p50 0.94,
+planted 1 % of 244 moving frames; everything else as v55.
+
+**Two decisions for the user (both product, both recorded, neither taken):**
+1. Post-whistle: the render runs to frame 647; after ~500 the bodies are the crowd and the pile
+   with no mechanism left to fix (the steps over 0.4 m are all after 500). Ending the clip at the
+   tackle (05k `--limit` or a frame cap) is one flag.
+2. Skating: fitted legs glide (planted 1 % vs ~50 % real). The only fix is a gait model over the
+   fit -- cadence from speed, alternating stances, legs synthesised to plant, blended below the
+   hips -- i.e. animated legs on fitted bodies. A day's work, and a different kind of footage
+   (the legs would no longer follow the detector). Not started without a yes.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
