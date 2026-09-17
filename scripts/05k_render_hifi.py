@@ -36,6 +36,17 @@ TEAM_RGB = {"KC": (0.89, 0.09, 0.22), "BAL": (0.95, 0.95, 0.95), "ARI": (0.62, 0
             "SEA": (0.11, 0.22, 0.34)}
 
 
+def play_end_frame(play_dir):
+    """The last frame to draw from ``<play-dir>/play_end.json`` (08x: ``{"end": f, "tail": n}``), or None."""
+    import json
+
+    f = Path(play_dir) / "play_end.json"
+    if not f.exists():
+        return None
+    d = json.loads(f.read_text())
+    return int(d["end"]) + int(d.get("tail", 0))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -55,6 +66,8 @@ def main() -> None:
                     help="05l field_texture.npz (the footage's field); default procedural")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--end-frame", type=int, default=None,
+                    help="last timeline frame to draw; default: <play-dir>/play_end.json (08x) end + tail, else all")
     ap.add_argument("--eye-offset", type=float, nargs=3, default=(2.0, -34.0, 13.0),
                     metavar=("DX", "DY", "DZ"),
                     help="virtual camera eye relative to its target, metres "
@@ -138,6 +151,11 @@ def main() -> None:
         P, model, poses_refit=args.poses_refit, poses_sideline=args.poses_sideline,
         stitch_ids=args.stitch)
     frames = frames_all[:: max(1, args.stride)]
+    end = args.end_frame if args.end_frame is not None else play_end_frame(P)
+    if end is not None:
+        n0 = len(frames)
+        frames = [f for f in frames if f <= end]
+        print(f"clip ends when the play is dead: frame {end} ({n0 - len(frames)} of {n0} rendered frames after it left out)")
     if args.limit:
         frames = frames[: args.limit]
     # An id without a fit (a short fragment) wears its team's mean fitted

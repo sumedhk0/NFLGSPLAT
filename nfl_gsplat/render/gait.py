@@ -1,0 +1,168 @@
+"""A running gait for the legs of a moving body, phase-locked to the distance it covers.
+
+WHY. Fitted legs skate: on play 1 (2026-09-16) the slower ankle of a moving body travels at 0.94 of
+the pelvis speed and is planted on 1 % of moving frames, where a runner plants one foot about half
+the time. The ankle keypoints carry no stance either (0.2-15 px jumps on a 100-px sprinter), so no
+fit to them can plant a foot. This module synthesises the legs of a body that is running from the
+one thing the footage does give well -- where the pelvis goes -- and leaves the fit everything
+above the hips.
+
+WHAT. For each id the pelvis path gives a speed per frame. Where the body moves faster than
+``run_m`` per frame the gait is on: a phase advances by 2 pi per stride length ``L(v)`` of distance
+travelled along the body's forward axis (a backpedal runs the cycle in reverse), the left leg at
+phase ``phi`` and the right at ``phi + pi``. Per leg the cycle is: foot strike at phase 0 with the
+hip flexed forward by the stance half-sweep ``A``; stance for a duty share ``d`` of the cycle, the
+hip extending linearly to ``-A`` (the foot then stays where it struck, by construction, because
+the foot's forward reach ``l sin(hip)`` runs linearly from ``+l sin A`` to ``-l sin A`` over ``d L``
+metres of travel at leg length ``l``, so ``sin A = d L / (2 l)`` plants it exactly in the sagittal
+plane); then swing, the hip returning to ``+A`` on a cosine while the knee flexes up to
+``knee_swing`` at mid-swing; the knee holds ``knee_stance`` through stance. The hip and knee rows
+of the fitted body_pose are replaced by the gait's, blended in and out over ``blend`` frames where
+the gait switches on or off, so a man slowing to a stop hands his legs back to the fit.
+
+Conventions (SMPL-X, verified on the real model 2026-09-16 with the hinge bounds): a knee flexes
+about +x; a hip flexes forward about -x (the leg swings toward the body's +z, its forward).
+"""
+from __future__ import annotations
+
+import numpy as np
+
+RUN_M: float = 0.08            # pelvis speed (m per timeline frame) above which the legs run; 0.08 = 4.8 m/s at 60 fps
+BLEND: int = 6                 # frames to cross-fade the gait in or out
+DUTY: float = 0.38             # share of the cycle the foot is on the ground (running)
+LEG_M: float = 0.88            # hip-to-ankle, metres, for the stance sweep (a mean SMPL-X leg)
+KNEE_STANCE: float = 0.30      # rad, the knee's flexion through stance
+KNEE_SWING: float = 1.30       # rad, the knee's peak flexion in swing
+HIP_ROW, KNEE_ROW = {"L": 0, "R": 1}, {"L": 3, "R": 4}
+
+
+def stride_length(v: float) -> float:
+    """Metres per full cycle of one leg (two steps) at ``v`` m per frame (60 fps): a walk of 0.02
+    strides 1.0 m, a sprint of 0.15 (9 m/s) 2.4 m; linear between, clamped."""
+    return float(np.clip(1.0 + (v - 0.02) * (1.4 / 0.13), 0.8, 2.6))
+
+
+def leg_angles(phase: float, amp: float, *, duty: float = DUTY, knee_stance: float = KNEE_STANCE,
+               knee_swing: float = KNEE_SWING) -> tuple[float, float]:
+    """``(hip_flex, knee_flex)`` in radians at ``phase`` (0 = foot strike, 2 pi = the next); hip
+    positive = forward."""
+    p = float(phase) % (2 * np.pi)
+    stance_end = 2 * np.pi * duty
+    if p < stance_end:                                        # stance: the foot stays put, so the hip's
+        reach = np.sin(amp)                                   # forward reach (leg lengths) runs linearly
+        hip = float(np.arcsin(reach - 2 * reach * (p / stance_end)))   # from +reach to -reach
+        knee = knee_stance
+    else:                                                     # swing: back to the front on a cosine
+        s = (p - stance_end) / (2 * np.pi - stance_end)       # 0..1
+        hip = -amp + 2 * amp * (0.5 - 0.5 * np.cos(np.pi * s))
+        knee = knee_stance + (knee_swing - knee_stance) * np.sin(np.pi * s)
+    return float(hip), float(knee)
+
+
+def phases(forward_advance, speed, *, run_m: float = RUN_M):
+    """``(phi [T], on [T])``: the gait phase per frame, advancing by 2 pi per stride of forward
+    travel while the body runs (``speed > run_m``); held where it does not."""
+    adv = np.asarray(forward_advance, float)
+    spd = np.asarray(speed, float)
+    on = spd > run_m
+    phi = np.zeros(len(adv))
+    for t in range(1, len(adv)):
+        phi[t] = phi[t - 1] + (2 * np.pi * adv[t] / stride_length(spd[t]) if on[t] else 0.0)
+    return phi, on
+
+
+def blend_weights(on, *, blend: int = BLEND):
+    """``w [T]`` in 0..1: 1 where the gait is on, ramping linearly over ``blend`` frames at each edge."""
+    on = np.asarray(on, bool)
+    w = on.astype(float)
+    if blend <= 1 or len(on) < 2:
+        return w
+    for t in range(1, len(on)):
+        if on[t] and not on[t - 1]:                           # switching on: ramp up from t
+            for k in range(blend):
+                if t + k < len(on) and on[t + k]:
+                    w[t + k] = min(w[t + k], (k + 1) / blend)
+        if on[t - 1] and not on[t]:                           # switching off: ramp down before t
+            for k in range(blend):
+                if t - 1 - k >= 0 and on[t - 1 - k]:
+                    w[t - 1 - k] = min(w[t - 1 - k], (k + 1) / blend)
+    return w
+
+
+def forward_on_ground(global_orient):
+    """The body's forward (+z of the pelvis) projected onto the ground, unit length (or None)."""
+    from scipy.spatial.transform import Rotation
+
+    f = Rotation.from_rotvec(np.asarray(global_orient, float)).apply([0.0, 0.0, 1.0])[:2]
+    n = float(np.linalg.norm(f))
+    return f / n if n > 1e-6 else None
+
+
+def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty: float = DUTY, leg_m: float = LEG_M,
+                  knee_stance: float = KNEE_STANCE, knee_swing: float = KNEE_SWING):
+    """``(body_poses [T, 21, 3], report)`` for one id's consecutive ``(xy, body_pose, global_orient)``
+    frames: the hip and knee rows replaced by the gait where the body runs, blended at the edges.
+    ``report``: frames on, the phase advanced, the stride length range."""
+    T = len(seq)
+    xy = np.array([np.asarray(s[0], float) for s in seq])
+    out = np.array([np.asarray(s[1], float).reshape(21, 3).copy() for s in seq])
+    if T < 3:
+        return out, {"on": 0, "cycles": 0.0}
+    vel = np.zeros((T, 2))
+    vel[1:-1] = (xy[2:] - xy[:-2]) / 2.0
+    vel[0], vel[-1] = xy[1] - xy[0], xy[-1] - xy[-2]
+    speed = np.linalg.norm(vel, axis=1)
+    adv = np.zeros(T)
+    for t in range(T):
+        f = forward_on_ground(seq[t][2])
+        adv[t] = float(vel[t] @ f) if f is not None else speed[t]
+    phi, on = phases(adv, speed, run_m=run_m)
+    w = blend_weights(on, blend=blend)
+    for t in range(T):
+        if w[t] <= 0:
+            continue
+        L = stride_length(speed[t])
+        amp = float(np.arcsin(np.clip(duty * L / (2.0 * leg_m), 0.0, 0.95)))
+        for side, off in (("L", 0.0), ("R", np.pi)):
+            hip, knee = leg_angles(phi[t] + off, amp, duty=duty, knee_stance=knee_stance, knee_swing=knee_swing)
+            g_hip = np.array([-hip, 0.0, 0.0])                # forward flexion is about -x
+            g_knee = np.array([knee, 0.0, 0.0])
+            out[t, HIP_ROW[side]] = (1 - w[t]) * out[t, HIP_ROW[side]] + w[t] * g_hip
+            out[t, KNEE_ROW[side]] = (1 - w[t]) * out[t, KNEE_ROW[side]] + w[t] * g_knee
+    return out, {"on": int(on.sum()), "cycles": float(abs(phi[-1] - phi[0]) / (2 * np.pi)),
+                 "stride_m": (float(stride_length(speed[on].min())) if on.any() else 0.0,
+                              float(stride_length(speed[on].max())) if on.any() else 0.0)}
+
+
+def gait_timeline(tl, *, lo=None, hi=None, **kw):
+    """Apply :func:`gait_sequence` to every id of a Timeline in place (frames lo..hi, all when None),
+    one consecutive run of drawn frames at a time; returns ``{pid: report}``."""
+    by: dict = {}
+    for f, states in tl.states.items():
+        if (lo is not None and f < lo) or (hi is not None and f > hi):
+            continue
+        for s in states:
+            by.setdefault(int(s.pid), {})[int(f)] = s
+    reports = {}
+    for pid, byf in by.items():
+        fs = sorted(byf)
+        runs, run = [], [fs[0]]
+        for f in fs[1:]:
+            if f == run[-1] + 1:
+                run.append(f)
+            else:
+                runs.append(run)
+                run = [f]
+        runs.append(run)
+        rep = {"on": 0, "cycles": 0.0}
+        for run in runs:
+            if len(run) < 3:
+                continue
+            seq = [(byf[f].xy, byf[f].body_pose, byf[f].global_orient) for f in run]
+            bps, r = gait_sequence(seq, **kw)
+            for f, bp in zip(run, bps):
+                byf[f].body_pose = bp
+            rep["on"] += r["on"]
+            rep["cycles"] += r["cycles"]
+        reports[pid] = rep
+    return reports

@@ -1,0 +1,69 @@
+"""The running gait (render.gait): the cycle plants the foot by construction, the phase follows the
+distance, the blend hands the legs back to the fit, and a standing body is untouched."""
+import numpy as np
+import pytest
+
+from nfl_gsplat.render import gait
+
+
+def test_leg_angles_cycle_between_strike_and_swing():
+    amp = 0.4
+    hip0, knee0 = gait.leg_angles(0.0, amp)                     # foot strike: hip forward, knee near straight
+    assert abs(hip0 - amp) < 1e-9 and abs(knee0 - gait.KNEE_STANCE) < 1e-9
+    hip_end, _ = gait.leg_angles(2 * np.pi * gait.DUTY - 1e-6, amp)   # end of stance: hip back
+    assert abs(hip_end + amp) < 1e-3
+    mid = 2 * np.pi * gait.DUTY + 0.5 * (2 * np.pi - 2 * np.pi * gait.DUTY)
+    _hip_mid, knee_mid = gait.leg_angles(mid, amp)              # mid-swing: the knee at its peak
+    assert abs(knee_mid - gait.KNEE_SWING) < 1e-6
+    hip_back, _ = gait.leg_angles(2 * np.pi - 1e-6, amp)         # back to strike
+    assert abs(hip_back - amp) < 1e-3
+
+
+def test_stance_sweep_plants_the_foot_to_first_order():
+    """Over a stance the hip sweeps 2 A radians while the body travels d L metres: with A = d L / (2 l)
+    the foot's forward position (l sin(hip) + travel) stays put to first order."""
+    L, d, l = 2.0, gait.DUTY, gait.LEG_M
+    amp = np.arcsin(d * L / (2 * l))
+    n = 20
+    drift = []
+    for k in range(n + 1):
+        phase = 2 * np.pi * d * k / n
+        travel = d * L * k / n
+        hip, _ = gait.leg_angles(phase, amp)
+        drift.append(l * np.sin(hip) + travel)
+    assert np.ptp(drift) < 1e-9                                  # planted exactly in the sagittal plane
+
+
+def test_phase_follows_forward_travel_and_holds_when_slow():
+    speed = np.array([0.0, 0.1, 0.1, 0.1, 0.0, 0.0])
+    adv = np.array([0.0, 0.1, 0.1, -0.1, 0.0, 0.0])            # forward, forward, then a step backwards
+    phi, on = gait.phases(adv, speed)
+    assert on.tolist() == [False, True, True, True, False, False]
+    L = gait.stride_length(0.1)
+    assert abs(phi[2] - 2 * np.pi * 0.2 / L) < 1e-9 and abs(phi[3] - 2 * np.pi * 0.1 / L) < 1e-9
+    assert phi[4] == phi[3] and phi[5] == phi[3]
+
+
+def test_blend_weights_ramp_at_the_edges():
+    on = np.array([False] * 3 + [True] * 12 + [False] * 3)
+    w = gait.blend_weights(on, blend=4)
+    assert w[:3].tolist() == [0, 0, 0] and w[-3:].tolist() == [0, 0, 0]
+    assert np.allclose(w[3:7], [0.25, 0.5, 0.75, 1.0]) and np.allclose(w[11:15], [1.0, 0.75, 0.5, 0.25])
+    assert np.all(w[7:11] == 1.0)
+
+
+def test_gait_sequence_runs_the_legs_of_a_runner_and_leaves_a_standing_man():
+    go = np.array([np.pi / 2, 0.0, 0.0])                        # stood up, facing world -y
+    T = 40
+    run = [(np.array([0.0, -0.12 * t]), np.zeros((21, 3)), go) for t in range(T)]     # 7 m/s along its facing
+    out, rep = gait.gait_sequence(run)
+    assert rep["on"] == T and rep["cycles"] > 1.5
+    hips = out[:, 0, 0]
+    assert hips.min() < -0.2 and hips.max() > 0.2                # the left hip swings both ways
+    assert np.all(out[:, 3, 0] >= gait.KNEE_STANCE - 1e-9) and out[:, 3, 0].max() > 1.0   # the knee bends in swing
+    assert np.allclose(out[:, 5:], 0.0) and np.allclose(out[:, 2], 0.0)   # spine and arms untouched
+    # the two legs are half a cycle apart: somewhere in the run they differ by most of the swing
+    assert np.abs(out[:, 0, 0] - out[:, 1, 0]).max() > 0.4
+    still = [(np.array([0.0, 0.0]), np.full((21, 3), 0.1), go) for _ in range(T)]
+    out2, rep2 = gait.gait_sequence(still)
+    assert rep2["on"] == 0 and np.allclose(out2, 0.1)
