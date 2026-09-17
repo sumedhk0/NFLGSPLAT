@@ -4199,3 +4199,8 @@ frames, clip to 513).** The runner at 326-340: the stride with the stance boot f
 6 (a Baltimore back at 340-354, under 4.8 m/s so the fit's legs): a coverage shuffle, bent knees,
 natural. v53 is the current best; v50 is the last fitted-legs render for a side-by-side.
 
+Side by side for the video verdict: diag/play_001_v50_vs_v53_run.mp4 (the run, rendered frames
+150-250 = timeline 300-500, v50's fitted legs left, v53's gait right, 960x540 each). The standing
+directive of 2026-09-05 (play 1 only, no compute on other plays) stands until the user lifts it;
+the next play was considered at 17:00 and not started.
+
