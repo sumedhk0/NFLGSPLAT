@@ -4359,3 +4359,32 @@ end) takes that line. Live window 393-660: 110 frames held (median 1.31 m off, m
 -> 23, steps > 0.25 m/frame 114 -> 97, handovers 7 -> 4, KC 11.04 -> 11.10, BAL 11.49 -> 11.38; 37's
 run of 0.4 m steps -> 0.03 (one 0.47/0.48 pair remains where the two ends' extrapolations meet
 mid-hole). Shipped; v56 carries it.
+
+**v55 delivered (22:35): diag/play_001_v55_hifi_720.mp4 = v54 + the snap-aware hold (id 40's pre-snap
+phantom gone; 74's off-line pre-snap stretch gone).** Sheets over the live play at 6-frame steps
+(scratchpad/review_v55/sheet_a.png 393-525, sheet_b.png 531-660): the line fires, the pocket holds
+to ~520, routes to 600, the tackle at 639-657 with the tackler prone. Nothing standing alone on the
+turf. A small black-clad figure deep at the top of 615-633 (an official or a teamless body) to check.
+
+**Gait threshold re-tested on the real window, DENIED again (22:30, scratch probe_gait_runm).** RUN_M
+0.08 (shipped): gait on 2135 body-frames, planted 14.2 %, ratio p50 0.79; 0.06: 3205, 18.5 %, 0.76;
+0.05: 3860, 18.2 %, 0.78. Four points of planting for a thousand body-frames of synthetic legs on
+bodies whose keypoints carry a jog (the 16:05 reprojection cost, 13 px, is unchanged by the window).
+RUN_M stays 0.08.
+
+**Next: the sideline's own double tracks.** Same-team id pairs whose SIDELINE boxes coincide (IoU
+>= 0.6) on 8+ live frames -- one man, two tracker ids; the memory's "never by boxes" was about
+engaged linemen at IoU ~0.4, these are 0.85-0.97 at the p90: 40-198 (27 frames 483-522: the
+ghost's sideline track sits on 40's man), 61-64 (BAL, 27, p90 0.95), 197-186 (KC, 14, 0.96), 194-40
+(13, 0.93), 12-170 (9, 0.87), 46-56 (9, 0.97), 194-198 (8, 0.85), 211-205 (14, 0.69). Footage strips
+of 61/64 and 197/186 next, then a box-twin rule A/B on the live census.
+
+**Box twins, measured and left opt-in (23:00).** timeline.box_twin_frames (same-team drawn ids whose
+sideline boxes overlap IoU >= 0.6 on 8+ consecutive frames; the id with fewer sideline boxes loses
+them), load_play_timeline(box_twin_iou=). Of the strong pairs, 61/64 and 46/56 are bench people at
+the boundary (never drawn: diag/boxtwins/player_61_f578.jpg), so the rule reached 74 body-frames
+whole play: 27 at 129-150, 195 at 181-205, 170 at 598-605, 198 at 489-509 (the ghost's sideline
+track on 40's man). Live window 393-660: KC 11.10 -> 11.07, BAL 11.38 -> 11.31, exactly 11/11 34 ->
+35, BAL >= 12 115 -> 109, pile pairs 18 -> 16 (289 -> 261 frames), hops 23 -> 25, steps > 0.25
+97 -> 94. Real duplicates, a handful of frames, and two hops bought by the gaps it leaves.
+BOX_TWIN_IOU = None (off); test in tests/test_timeline.py.

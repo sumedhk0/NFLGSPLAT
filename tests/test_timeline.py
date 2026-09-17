@@ -494,3 +494,27 @@ def test_twin_frames_drops_the_shorter_id_on_a_long_close_stretch_only():
     assert all(2 in {s.pid for s in tl_.states[f]} for f in range(40, 45))
     assert all({3, 4, 5, 6} <= {s.pid for s in tl_.states[f]} for f in frames)
 
+
+
+def test_box_twin_frames_drops_the_shorter_id_where_two_sideline_boxes_coincide():
+    """Ids 1 and 2 (same team) share one man's box on frames 10-19 (IoU 0.9); id 3 (same team) stands
+    beside them with a box overlapping id 1 at 0.4 like an engaged lineman; a run of 5 is too short."""
+    import pandas as pd
+    from nfl_gsplat.render.timeline import PlayerState, Timeline, box_twin_frames
+
+    frames = list(range(0, 30))
+    tl = Timeline(frames=frames)
+    rows = []
+    for f in frames:
+        for pid in (1, 2, 3):
+            tl.states.setdefault(f, []).append(PlayerState(pid=pid, xy=np.array([float(pid), 0.0]), body_pose=np.zeros((21, 3)),
+                                                          global_orient=np.zeros(3), betas=np.zeros(10), source="sideline",
+                                                          clamped=False, views=("sideline",)))
+        rows.append({"cam": "sideline", "track_id": 1, "global_player_id": 1, "frame": f, "bbox_x1": 100, "bbox_y1": 100, "bbox_x2": 140, "bbox_y2": 200})
+        if 10 <= f <= 19 or 25 <= f <= 29:                                               # a run of 10, then one of 5
+            rows.append({"cam": "sideline", "track_id": 2, "global_player_id": 2, "frame": f, "bbox_x1": 102, "bbox_y1": 100, "bbox_x2": 142, "bbox_y2": 200})
+        rows.append({"cam": "sideline", "track_id": 3, "global_player_id": 3, "frame": f, "bbox_x1": 124, "bbox_y1": 100, "bbox_x2": 164, "bbox_y2": 200})
+    df = pd.DataFrame(rows)
+    drop = box_twin_frames(tl, df, {1: "KC", 2: "KC", 3: "KC"}, iou_min=0.6, min_run=8)
+    assert drop == {(f, 2) for f in range(10, 20)}                                          # id 2 has fewer boxes: it loses
+    assert box_twin_frames(tl, df, {1: "KC", 2: "BAL", 3: "KC"}, iou_min=0.6, min_run=8) == set()   # different teams: never

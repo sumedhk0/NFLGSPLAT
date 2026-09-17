@@ -352,7 +352,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
                        no_depth_snap: bool = False, blind_axis: bool = False, span_gap: int | None = None,
                        span_hold_m: float | None = None, span_presnap: str | None = None,
-                       hole_hold_m: float | None = -1.0):
+                       hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -587,6 +587,18 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         for f, pid in twins:
             by.setdefault(pid, []).append(f)
         print(f"twin stretches left out: {n} body-frames -- " + ", ".join(f"{p} {min(v)}-{max(v)}" for p, v in sorted(by.items())))
+    # the sideline's own second id on one man (timeline.box_twin_frames): same-team ids whose sideline
+    # boxes coincide; measured 2026-09-17 on the live window before shipping
+    if box_twin_iou is not None and box_twin_iou < 0:
+        box_twin_iou = tlm.BOX_TWIN_IOU
+    if box_twin_iou is not None:
+        btw = tlm.box_twin_frames(tl, df, teams_now, iou_min=float(box_twin_iou))
+        if btw:
+            n = tlm.drop_frames(tl, btw)
+            by = {}
+            for f, pid in btw:
+                by.setdefault(pid, []).append(f)
+            print(f"box twins left out: {n} body-frames -- " + ", ".join(f"{pid} {min(fs)}-{max(fs)}" for pid, fs in sorted(by.items())))
     return tl, tracks, df, frames_all, poses
 
 

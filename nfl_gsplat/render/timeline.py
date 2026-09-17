@@ -500,6 +500,51 @@ def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_ru
     return drop
 
 
+BOX_TWIN_IOU: float | None = None   # sideline boxes of two same-team ids overlapping by this much are one man (off until measured)
+BOX_TWIN_MIN_RUN: int = 8
+
+
+def box_twin_frames(tl: "Timeline", df, team_of: dict, *, iou_min: float = 0.6, min_run: int = BOX_TWIN_MIN_RUN,
+                    cam: str = "sideline") -> set:
+    """``{(frame, pid)}`` to drop: two same-team drawn ids whose ``cam`` boxes overlap by IoU >= ``iou_min``
+    on at least ``min_run`` consecutive frames are one man under two tracker ids; the id with fewer
+    ``cam`` boxes overall loses those frames. Engaged linemen overlap at ~0.4 in the side-on view;
+    a tracker's second id on the same man sits at 0.85-0.97 (play 1, 2026-09-17)."""
+    sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
+    box = {(int(r.frame), int(r.global_player_id)): (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
+           for r in sub.itertuples()}
+    n_boxes = sub.groupby("global_player_id").size().to_dict()
+
+    def iou(a, b):
+        x1, y1 = max(a[0], b[0]), max(a[1], b[1]); x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+        inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+        return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter + 1e-9)
+
+    hits: dict = {}
+    for f, states in tl.states.items():
+        pids = [int(s.pid) for s in states if (int(f), int(s.pid)) in box]
+        for i, pa in enumerate(pids):
+            for pb in pids[i + 1:]:
+                ta, tb = team_of.get(pa), team_of.get(pb)
+                if not ta or ta != tb:
+                    continue
+                if iou(box[(int(f), pa)], box[(int(f), pb)]) >= iou_min:
+                    hits.setdefault((min(pa, pb), max(pa, pb)), []).append(int(f))
+    drop: set = set()
+    for (pa, pb), fs in hits.items():
+        fs = sorted(set(fs))
+        loser = pa if n_boxes.get(pa, 0) < n_boxes.get(pb, 0) else pb
+        run = [fs[0]]
+        for f in fs[1:] + [None]:
+            if f is not None and f == run[-1] + 1:
+                run.append(f)
+                continue
+            if len(run) >= min_run:
+                drop.update((g, loser) for g in run)
+            run = [f] if f is not None else []
+    return drop
+
+
 def drop_frames(tl: "Timeline", pairs: set) -> int:
     """Remove the states named by ``pairs`` ``{(frame, pid)}``; returns the number removed."""
     n = 0
