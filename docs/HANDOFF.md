@@ -4142,3 +4142,12 @@ his fitted facing sat 45-90 deg off his velocity goes 0 -> 26 %. A sprinter's du
 criterion near 40 %. v51 = the facing-plane gait (clip to 523), v52 = this one (clip to 513),
 chained; the strips of the runner (326, 400, 470), 40, 0, 2, 6 and 38 decide.
 
+**v51 delivered (15:36; the machine was off from ~05:30 to ~15:00 and the chain resumed): diag/
+play_001_v51_hifi_720.mp4 = v50 + the facing-plane gait + the clip ending at 523 (255 rendered
+frames, 69 after the play left out); legs synthesised on 2236 body-frames of 65 ids.** Strips: the
+runner at 326-340 -- a stride cycle, one leg forward while the other drives back, the knee lifting in
+swing, feet flat; at 400-414 the same with a forward lean; at 470-484 running into the tackle, then
+wrapped. Id 40 (a Baltimore back) at 378-392 -- alternating legs with a high knee. At strip scale
+the legs read as running, not gliding; the video is the user's to judge. v52 (legs along the motion,
+clip to 513) is rendering; 07l gains --gait so the report scores what 05k --gait draws.
+

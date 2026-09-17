@@ -63,6 +63,7 @@ def main():
     ap.add_argument("--lo", type=int, default=300, help="live window start (timeline frame)")
     ap.add_argument("--hi", type=int, default=460, help="live window end")
     ap.add_argument("--joints", action="store_true", help="also score the limbs (one forward pass per body-frame)")
+    ap.add_argument("--gait", action="store_true", help="score the timeline with the running gait applied (as 05k --gait draws it)")
     ap.add_argument("--body-models", default=BODY)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
@@ -73,6 +74,11 @@ def main():
     model = smplx.create(args.body_models, model_type="smplx", gender="neutral", num_betas=10,
                          use_pca=False, batch_size=1)
     tl, *_ = pt.load_play_timeline(P, model)
+    if args.gait:
+        from nfl_gsplat.render.gait import gait_timeline
+
+        reps = gait_timeline(tl)
+        print(f"gait applied: legs synthesised on {sum(r['on'] for r in reps.values())} body-frames")
     pos = mr.positions_by_id(tl.states)
     joints = joints_for(tl, model, args.lo, args.hi) if args.joints else None
     rep = mr.summarize(pos, tl.states, team_of(P), lo=args.lo, hi=args.hi, joints_by_id=joints)
