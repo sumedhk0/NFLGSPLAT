@@ -2467,6 +2467,13 @@ twin rule. Twelfth men: 40 @368 (BAL 11 -> 12, 1.7 m from anyone), 74 @366 (KC 1
 players under a label the count already has, the run-surplus thread the census memory closed on
 09-13 (no removal route that does not delete a real man). Recorded as the population; not pursued.
 
+**v48 delivered (20:42): diag/play_001_v48_hifi_720.mp4 = v47 + the orphan rule + the 10-frame
+bridge (07l v52's timeline).** Run sheet 344-454 (scratch review_v48/run_sheet.png): eleven white
+and eleven red bodies through the run, the pile forming at 404-424 and breaking up by 444, nothing
+floating, nothing lying down. v49 (+ hole rule + twins, 07l v54) started 20:44; its six strips and
+a second review batch (ids 2, 7, 12, 3, 15, 30, 74, 37, 17, 40, 4, 11 and a 5-frame-stride sheet of
+the whole live play) cut automatically when it lands.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
