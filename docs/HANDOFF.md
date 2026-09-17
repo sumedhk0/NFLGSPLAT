@@ -2474,6 +2474,16 @@ floating, nothing lying down. v49 (+ hole rule + twins, 07l v54) started 20:44; 
 a second review batch (ids 2, 7, 12, 3, 15, 30, 74, 37, 17, 40, 4, 11 and a 5-frame-stride sheet of
 the whole live play) cut automatically when it lands.
 
+**v49 delivered (21:33): diag/play_001_v49_hifi_720.mp4 = v48 + the hole rule + the twin stretch
+rule (07l v54's timeline); the render log shows both firing (203's nine frames, 111 twin frames).**
+Phase sheets (scratch review_v49/phases): pre-snap 100-300 -- the formation holds through the
+cadence, a deep safety top-left, the Kansas City line in stances, the two split receivers, no white
+body in the red line, the line filling in at 260-300 as the men set; post-whistle 460-640 -- the
+crowd bunching bottom-right, lone bodies walking, a white body down at 640; nothing floating or
+lying down on the play itself. Id 166 (a KC lineman) at 330-344: in a block, the line seen from the
+side so the linemen overlap in the image (the camera's angle, not a defect). Whole-play sheet at
+5-frame stride and twelve more per-id strips are cutting (review_v49/more).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
