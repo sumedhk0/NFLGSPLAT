@@ -518,3 +518,18 @@ def test_box_twin_frames_drops_the_shorter_id_where_two_sideline_boxes_coincide(
     drop = box_twin_frames(tl, df, {1: "KC", 2: "KC", 3: "KC"}, iou_min=0.6, min_run=8)
     assert drop == {(f, 2) for f in range(10, 20)}                                          # id 2 has fewer boxes: it loses
     assert box_twin_frames(tl, df, {1: "KC", 2: "BAL", 3: "KC"}, iou_min=0.6, min_run=8) == set()   # different teams: never
+
+
+def test_despike_xy_removes_a_single_frame_spike_and_keeps_a_cut():
+    from nfl_gsplat.render.timeline import despike_xy
+
+    xy = np.stack([0.1 * np.arange(20), np.zeros(20)], axis=1)      # walking +x
+    xy[8] += [0.0, 0.5]                                              # a half-metre spike sideways for one frame
+    out = despike_xy(xy, excess_m=0.15)
+    assert abs(out[8, 1]) < 1e-9 and abs(out[8, 0] - 0.8) < 1e-9 and np.allclose(out[:8], xy[:8]) and np.allclose(out[9:], xy[9:])
+    cut = np.stack([0.1 * np.arange(20), np.where(np.arange(20) >= 10, 0.3 * (np.arange(20) - 9), 0.0)], axis=1)   # turns hard at 10
+    assert np.allclose(despike_xy(cut, excess_m=0.15), cut)         # every frame follows the new trend: nothing to remove
+    assert np.allclose(despike_xy(xy, excess_m=None), xy)
+    holes = xy.copy(); holes[7] = np.nan
+    out2 = despike_xy(holes, excess_m=0.15)
+    assert np.isnan(out2[7]).all() and abs(out2[8, 1] - 0.5) < 1e-9      # a hole in the window: the frame is left alone

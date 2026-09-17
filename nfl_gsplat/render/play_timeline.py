@@ -352,7 +352,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        stitch_ids: bool = False, place_from_refit_transl: bool = True,
                        no_depth_snap: bool = False, blind_axis: bool = False, span_gap: int | None = None,
                        span_hold_m: float | None = None, span_presnap: str | None = None,
-                       hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0):
+                       hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0,
+                       despike_m: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -565,7 +566,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
               f"ids {sorted({p for _f, p in lying})[:12]}")
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
                             default_betas=default_betas, views_by_frame=views,
-                            exclude=clipped if not stitch_ids else None, lying=lying)
+                            exclude=clipped if not stitch_ids else None, lying=lying,
+                            despike_m=tlm.DESPIKE_M if (despike_m is not None and despike_m < 0) else despike_m)
     tl.members = members
     # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)
     teams_now = _teams(P)

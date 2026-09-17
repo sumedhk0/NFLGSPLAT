@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import numpy as np
 
-SIDELINE_M: float = 23.5       # the sideline is 24.38 m from midfield; the box bottom is 1 m noisy
+SIDELINE_M: float = 23.0       # the sideline is 24.38 m from midfield; the box bottom is 1 m noisy. 23.5 let play
+                               # 1's id 70 through (an official on the line at the LOS, |y| 23.5-24.4 on 611-638,
+                               # drawn as a Baltimore player 20 yards behind the play); at 23.0 no other drawn id
+                               # on play 1 has half its frames out there (2026-09-17)
 DWELL_FRAC: float = 0.8
 STRIPE_RATIO: float = 2.5      # horizontal / vertical mean gradient in the torso window
 STRIPE_DARK: float = 0.25      # share of torso pixels under gray 70

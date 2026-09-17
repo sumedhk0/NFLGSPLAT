@@ -356,6 +356,34 @@ def clamp_hinges(seq, *, hinges=None, flex_min_deg: float = HINGE_FLEX_MIN_DEG,
     return out
 
 
+DESPIKE_M: float | None = 0.15   # a frame's xy farther than this from the median of its neighbours (+-2) is a
+                                 # measurement spike and takes that median (2026-09-17: live hops 23 -> 2, reprojection unchanged)
+
+
+def despike_xy(xy, *, excess_m: float | None = DESPIKE_M, half: int = 2):
+    """Single-frame position spikes removed BEFORE the smoother: a row farther than ``excess_m``
+    from the median of its ``half`` neighbours either side takes that median. The Gaussian
+    spreads a spike into a hop over its window; a median sees a spike as the odd one out and a
+    real cut (every later frame moves the same way) as the trend. NaN rows are left alone."""
+    xy = np.asarray(xy, float).copy()
+    if excess_m is None or len(xy) < 2 * half + 1:
+        return xy
+    ok = np.isfinite(xy).all(1)
+    out = xy.copy()
+    for i in range(len(xy)):
+        if not ok[i]:
+            continue
+        lo, hi = max(0, i - half), min(len(xy), i + half + 1)
+        before = [j for j in range(lo, i) if ok[j]]
+        after = [j for j in range(i + 1, hi) if ok[j]]
+        if len(before) < half or len(after) < half:
+            continue                        # an uneven window carries the trend, not a verdict on this frame
+        med = np.median(xy[before + after], axis=0)
+        if np.linalg.norm(xy[i] - med) > excess_m:
+            out[i] = med
+    return out
+
+
 def fill_gaps(frames, xy, *, max_gap: int = FILL_GAP_FRAMES):
     """Linear fill of NaN rows between known rows when the gap is short."""
     xy = np.asarray(xy, float).copy()
@@ -709,7 +737,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
                    clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
-                   unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None) -> Timeline:
+                   unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None,
+                   despike_m: float | None = DESPIKE_M) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -731,7 +760,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         seen = np.flatnonzero(np.isfinite(xy).all(1))
         if len(seen) < min_frames:
             continue
-        xy = smooth_xy(fill_gaps(frames, xy))
+        xy = smooth_xy(despike_xy(fill_gaps(frames, xy), excess_m=despike_m))
         posed = poses_by_pid.get(pid, {})
         pf = sorted(f for f in posed if f in f_index)
         if pf:

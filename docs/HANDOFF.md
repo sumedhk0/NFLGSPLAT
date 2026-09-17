@@ -4388,3 +4388,23 @@ track on 40's man). Live window 393-660: KC 11.10 -> 11.07, BAL 11.38 -> 11.31, 
 35, BAL >= 12 115 -> 109, pile pairs 18 -> 16 (289 -> 261 frames), hops 23 -> 25, steps > 0.25
 97 -> 94. Real duplicates, a handful of frames, and two hops bought by the gaps it leaves.
 BOX_TWIN_IOU = None (off); test in tests/test_timeline.py.
+
+**An official drawn as a Baltimore player (23:20).** The small black figure at the top of v55's
+615-633 is id 70: on the boundary line at the LOS for its whole 28-frame life (|y| 23.5-24.4,
+x -25..-24, 611-638, kit margin -0.31, no jersey, no role), drawn 20 yards behind the play in its
+fitted black-and-white appearance. The dweller rule's line was 23.5 m and 70 straddles it.
+SIDELINE_M -> 23.0 (offfield_rule): among every id the v53 timeline draws, 70 is the only one with
+half its frames beyond 23.0 (every roster-named player stays under 6 m median, none past 23.5).
+
+**Despike (23:30): a median of the +-2 neighbours BEFORE the position Gaussian.** The hops the
+rulers count on the live window are single-frame spikes the Gaussian spreads into a hop; a
+median sees a spike as the odd one out and a real cut (every later frame moves the same way) as the
+trend. timeline.despike_xy (excess DESPIKE_M, symmetric window only, holes left alone), applied in
+build_timeline before smooth_xy; knob despike_m on load_play_timeline. Live window 393-660: hops 23
+-> 2 (0.15) / 2 (0.25), steps > 0.25 m/frame 97 -> 63 / 65, handovers 4 -> 0, root jitter p90
+0.050 -> 0.032 / 0.035; the two left: 79 at 544 (0.36 m) and 194 at 503. Second ruler (the bodies'
+hips against their own sideline keypoints, off vs 0.15) below.
+Second ruler (23:40): 3024 drawn body-frames with hip keypoints on 393-660, hips vs own keypoints:
+off p50 7.3 / p90 16.0 / p99 40.0 px, 70 over 30 px; despike 0.15: 7.3 / 16.2 / 40.3, 68 over 30.
+The spikes go and the bodies stay on their keypoints. **DESPIKE_M = 0.15 ships**; v57 carries it
+with the dweller line.
