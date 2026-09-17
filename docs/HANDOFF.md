@@ -4194,3 +4194,8 @@ keypoints, and replacing them with an animation would trade footage for a guess,
 jog band lost. Recorded; a lighter temporal weight on the arms of sprinting ids is the fit-side
 hypothesis if the video wants more pump.
 
+**v53 delivered (16:49): diag/play_001_v53_hifi_720.mp4 = v52 + the stance foot levelled (250
+frames, clip to 513).** The runner at 326-340: the stride with the stance boot flat on the turf; id
+6 (a Baltimore back at 340-354, under 4.8 m/s so the fit's legs): a coverage shuffle, bent knees,
+natural. v53 is the current best; v50 is the last fitted-legs render for a side-by-side.
+
