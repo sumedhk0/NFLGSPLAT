@@ -4186,3 +4186,11 @@ the slower band (0.05-0.08: fitted legs plant 9 %, the gait costs 13 px), 0.08 i
 keypoints stop carrying a stance and the gait starts paying for itself. RUN_M stays 0.08; the
 threshold is measured on both sides now.
 
+Arm swing on running bodies (16:50, scratch probe_arm_swing; frames where the gait is on): the
+fitted wrists travel 0.4-0.6 m fore-aft per leg cycle (runner 9: 0.41 / 0.57 m, upper-arm flexion
+range 16 deg; 6: 0.41 / 0.50; 19: 0.33 / 0.57 at 52 deg) against a sprinter's 0.8-1.0 m and 70-90
+deg -- the arms pump at about half amplitude. Not the moonwalk: the fitted arms are on their
+keypoints, and replacing them with an animation would trade footage for a guess, the same trade the
+jog band lost. Recorded; a lighter temporal weight on the arms of sprinting ids is the fit-side
+hypothesis if the video wants more pump.
+
