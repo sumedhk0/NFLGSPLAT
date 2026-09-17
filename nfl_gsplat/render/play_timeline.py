@@ -533,6 +533,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     if orphans:
         n = tlm.drop_ids(tl, orphans)
         print(f"short teamless fragments left out: {sorted(orphans)} ({n} body-frames)")
+    # two same-team ids within TWIN_M for TWIN_MIN_RUN frames are one man: the shorter-lived loses the
+    # stretch (timeline.twin_frames; play 1: census live 1.32 -> 1.20, hops and steps unchanged)
+    twins = tlm.twin_frames(tl, teams_now)
+    if twins:
+        n = tlm.drop_frames(tl, twins)
+        by = {}
+        for f, pid in twins:
+            by.setdefault(pid, []).append(f)
+        print(f"twin stretches left out: {n} body-frames -- " + ", ".join(f"{p} {min(v)}-{max(v)}" for p, v in sorted(by.items())))
     return tl, tracks, df, frames_all, poses
 
 

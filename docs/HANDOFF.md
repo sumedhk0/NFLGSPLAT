@@ -2442,6 +2442,17 @@ above it. Render-side rule to measure: a same-team pair within 0.2 m on >= 8 con
 is one man, and the id with fewer drawn frames loses the stretch (the rider rule for long ids);
 rulers = pops, census (a twin was a ghost in the count), hops, drawn body-frames.
 
+A/B post-hoc on the v53 timeline (scratch probe_twins_ab; clock 20:25 -- the timestamps written into
+this file since "18:05" ran ahead of the real clock by 60-80 minutes, I estimated instead of reading
+`date`; the order of events is right): twin 0.2 m / 8 frames drops 111 body-frames on the clip (live:
+40 at 399-413, 166 at 417-431 -- the two verified twins -- plus 21, 82 pre-snap and 60 / 75 / 197 /
+205 after the whistle): census live 1.32 -> 1.20 (KC 10.96 -> 10.84, BAL 11.41 -> 11.32), live hops
+4 -> 4, steps 5 -> 5, pops 10 -> 11 (the loser vanishes for its stretch and returns), drawn 3601 ->
+3567. 0.25 m also takes 196 pre-snap (152 frames, census 1.19); 0.2 / 5 adds 168, 171 (139 frames).
+ADOPTED at 0.2 / 8 (`timeline.TWIN_M`, `TWIN_MIN_RUN`, wired after the orphan rule): a body drawn twice
+on one man for fifteen frames is worse than that copy vanishing. 07l v54 = v53 + twins; the v49 render
+starts after v48 and picks this up, so v49 = v54's timeline.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
