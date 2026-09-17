@@ -4165,3 +4165,10 @@ endzone-only placement of 385-394), so the legs look right and the placement wro
 pipeline default from here (pipeline_play.sh: GAIT=0 draws the fitted legs; both 05k and 07l take
 it), reversible with one variable.
 
+Gait on the jogging band, measured and DENIED (16:05, scratch probe_gait_jog; RUN_M 0.08 -> 0.05 so
+bodies at 3-5 m/s get the gait too): on those 545 live body-frames the fitted legs already plant 9 %
+(the detector's legs are usable at a jog) and sit 8.5/14.6 px on the sideline keypoints; the gait
+takes planted to 29 % but the legs to 21.4/37.3 px -- a synthesised walk over legs the footage
+shows is a loss. RUN_M stays 0.08: the gait replaces legs only where the keypoints cannot carry
+them (a sprint). Ankle rows level the stance foot from commit 2b9058b (v53 chained behind v52).
+
