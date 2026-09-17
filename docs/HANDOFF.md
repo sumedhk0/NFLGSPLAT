@@ -4133,3 +4133,12 @@ velocity at the median on this play). Fix: the legs' plane turns onto the direct
 (`gait.leg_yaw`: a yaw about the pelvis's up axis composed with the hip flexion; a backpedal keeps the
 plane and cycles backwards). Re-measuring.
 
+Re-measured with the legs in the plane of the motion (05:20, commit 9f374ab): all moving bodies --
+slower ankle / pelvis p50 0.94 -> 0.74, planted 1 % -> 21 %; sideline lower joints 9.9/16.2 ->
+15.3/21.6 px (the facing-plane version cost 17.8/25.4: legs that swing where the man goes also sit
+nearer his keypoints); joint jitter p90 0.062 -> 0.208 (the ruler now counts real swing reversals;
+compare gait renders among themselves on it). The runner: planted 13 -> 27 %, and the stretch where
+his fitted facing sat 45-90 deg off his velocity goes 0 -> 26 %. A sprinter's duty caps the
+criterion near 40 %. v51 = the facing-plane gait (clip to 523), v52 = this one (clip to 513),
+chained; the strips of the runner (326, 400, 470), 40, 0, 2, 6 and 38 decide.
+
