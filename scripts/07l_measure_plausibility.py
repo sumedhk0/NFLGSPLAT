@@ -70,7 +70,7 @@ def main():
     if args.lo is None or args.hi is None:
         import json
 
-        pe = args.play_dir / "play_end.json"
+        pe = Path(args.play_dir) / "play_end.json"
         d = json.loads(pe.read_text()) if pe.exists() else {}
         if args.lo is None:
             args.lo = int(d["snap"]) if d.get("snap") is not None else 300

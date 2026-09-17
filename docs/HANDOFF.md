@@ -4324,3 +4324,25 @@ set man has not moved). Rejected: KC pre-snap 10.32 -> 10.39 only, BAL 11.00 -> 
 11/11 69 -> 54, and a new pile pair 1-40 (22 frames): 40's held lead-in lands on the man already
 drawn as id 1 -- the lead-in was a second copy, and dropping it was right. PRESNAP = "drop" ships
 (endzone_only_rule.PRESNAP; "hold" kept as the measured alternative). v55 launched 20:50 with it.
+
+**The double body on KC 76 (37 + 166, 41 frames within 0.6 m) is a DEPTH error, not two boxes
+(21:15).** Every pile id draws within 3-18 px of its OWN sideline hip keypoints (166 13 px, 37 3 px,
+19 18, 204 9, 17 11, 1 7): both bodies sit on their detections in the sideline image, and those
+detections are 88 px apart -- adjacent linemen stacked along the sideline's depth axis (field y).
+The zoomed two-camera crop at 380 (diag/census_v53/line_zoom_380_400.jpg) shows it: in the
+sideline 11, 166, 37 are three men in a row; in the endzone 37 is on 76 with keypoints and 166's
+skeleton stands a metre beside 76 on turf with nobody under it. 166 is sideline-only there (its
+endzone pairing is 472-562), so its y is the sideline's own foot-point depth, off by ~0.5 m in the
+line cluster, which puts it inside 37's 0.6 m. Sideline box IoU (0.36) and keypoint distance (88 px)
+cannot call it a duplicate because it is not one: it is a man drawn half a metre into his
+neighbour. The fix is depth for one-view bodies in the line (an unpaired endzone id for the same
+man is among the 68 endzone-only ids left out), i.e. the pairing thread of 09-08/09-10, not a
+twin rule. Left open.
+
+**The real baseline (21:30): 07l on the live window 393-660 (play_001_v55_plausibility.json,
+the v54/v55 timeline).** steps > 0.25 m/frame live 114 (handovers 7), > 0.6 none; hops live 25 (the
+old window said 4-5); skating: planted 13 % of 1207 moving body-frames (a runner plants ~50 %);
+census live 2.55 (KC 11.04, BAL 11.49); joints (57 ids) jitter p50 0.026, p90 0.156, p99 0.58.
+Every "floor" claimed on 300-460/483 was two-thirds pre-snap; the play itself has 25 hops and a
+p99 joint jitter of 0.58 m/frame^2. This is the number to beat from here. 07l's window now comes
+from play_end.json (a str/Path slip fixed 21:25).
