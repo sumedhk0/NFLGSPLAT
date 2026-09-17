@@ -2403,6 +2403,20 @@ root jitter p90 0.0116 -> 0.0122 / 0.0125; hops 4 -> 3, steps 5 -> 4 / 3. Worse 
 built for and on census and jitter, better on two counts of small hops: DENIED for good. The mean of
 both ankles stays.
 
+Pop cause (21:15, scratch probe_pop_cause; the ground handed to build_timeline captured, then the
+drawn states): two classes. (A) 18 pops where the id is NOT in the ground on the missing frames and
+both neighbours are sideline-only (1, 11, 13, 19, 195, 82, 166 x5, 167, 197): a 1-5 frame hole in a
+long-lived sideline id's detections; the bridge fills it, then dedupe_frames deletes the filled
+frame because it is unanchored (no sideline detection of this id on that frame) and another body
+stands inside DUPLICATE_M -- the rule built for fragment tails (a second id riding a detected man)
+firing on a momentary dropout of the man himself. (B) 14 pops where the id IS in the ground and the
+nearest other drawn body is 0.06-0.44 m away on the missing frames (204, 171 for 8 frames, 40, 17):
+two ids on one man, the box killing this one on the frames it is filled and sparing it where it is
+detected -- twin flicker. Remedy for (A): a filled frame whose id has a sideline detection within a
+few frames on BOTH sides is a hole, not a tail, and stays anchored. Remedy for (B) is the twin
+question (08o folds twins on the tracks; a stretch-consistent dedupe in the timeline would be the
+render-side answer). Building (A) first; rulers = pops, census, hops, steps.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
