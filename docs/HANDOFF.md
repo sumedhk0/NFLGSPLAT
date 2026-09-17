@@ -2521,6 +2521,18 @@ squared up), 13 at 72; the runner 9 faces his motion at 13 deg over 132 frames, 
 40 under 60. Every past-90 case is a man who really moves backwards or sideways. No defect; the
 ruler stays as a check for other plays.
 
+**THE FEET SKATE (22:25, scratch probe_skating -- a new ruler).** On the 244 live body-frames where a
+body moves faster than 0.1 m/frame, the slower ankle's WORLD speed is 0.94 of the pelvis speed at the
+median and a foot is planted (under 0.3 of it) on 1 % of frames. A real runner plants one foot about
+half the time: the foot stands still on the turf while the body passes over it. Every moving body on
+the play glides with its legs cycling too little -- the runner 9 (132 frames, ratio 0.93, planted
+2 %), 40 (1.00), 19 / 166 / 74 (1.00), 3 (0.86), 11 (0.56 -- the least bad). This is the "moonwalk"
+of fitted motion and a viewer sees it without a ruler. Where is the plant lost? Either the sideline
+keypoints themselves never plant (the detector on a 100-px blurred sprinter) or they do and the
+pipeline damps the legs (the fit's temporal term at 3.0, the stride-2 keyframes with SLERP between,
+the sigma-2 Gaussian). Measuring on the runner: each ankle keypoint's image speed against the hips'
+image speed, beside the same for the drawn body (scratch probe_plant).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
