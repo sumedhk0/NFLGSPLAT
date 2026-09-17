@@ -478,8 +478,8 @@ def test_twin_frames_drops_the_shorter_id_on_a_long_close_stretch_only():
     ground = {f: {1: np.array([0.0, 0.0]), 3: np.array([5.0, 0.0]), 4: np.array([5.15, 0.0]), 5: np.array([9.0, 0.0])} for f in frames}
     for f in range(10, 22):
         ground[f][2] = np.array([0.15, 0.0])            # twin of 1 for 12 frames
-    for f in range(30, 35):
-        ground[f][2] = np.array([0.15, 0.0])            # a 5-frame brush: not a run
+    for f in range(40, 45):
+        ground[f][2] = np.array([0.15, 0.0])            # a 5-frame brush, past the bridge and the hole reach: not a run
     for f in frames:
         ground[f][6] = np.array([9.3, 0.0])             # 0.3 m from 5: a pile, not a twin
     team_of = {1: "KC", 2: "KC", 3: "KC", 4: "BAL", 5: "BAL", 6: "BAL"}
@@ -491,6 +491,6 @@ def test_twin_frames_drops_the_shorter_id_on_a_long_close_stretch_only():
     assert drop == {(f, 2) for f in range(10, 22)}
     n = tl.drop_frames(tl_, drop)
     assert n == 12 and all(2 not in {s.pid for s in tl_.states[f]} for f in range(10, 22))
-    assert all(2 in {s.pid for s in tl_.states[f]} for f in range(30, 35))
+    assert all(2 in {s.pid for s in tl_.states[f]} for f in range(40, 45))
     assert all({3, 4, 5, 6} <= {s.pid for s in tl_.states[f]} for f in frames)
 
