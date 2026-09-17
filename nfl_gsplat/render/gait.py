@@ -106,6 +106,35 @@ def forward_on_ground(global_orient):
     return f / n if n > 1e-6 else None
 
 
+def leg_yaw(forward, velocity):
+    """``(yaw, advance)``: the signed angle (rad, positive toward the body's left) that turns the
+    legs' plane from the body's forward onto the direction of motion, and the speed along that
+    turned plane (negative when the body moves backwards along it). The legs run where the body
+    goes -- on play 1's runner the fitted facing sat 45-90 deg off the velocity on 39 % of his moving
+    frames and the legs swung sideways to his motion, planting nothing; a torso twisted off the
+    line of running is what a cut looks like, but the feet still go where the man goes."""
+    f = np.asarray(forward, float)
+    v = np.asarray(velocity, float)
+    sp = float(np.linalg.norm(v))
+    if sp < 1e-9:
+        return 0.0, 0.0
+    left = np.array([-f[1], f[0]])
+    yaw = float(np.arctan2(v @ left, v @ f))
+    if abs(yaw) <= np.pi / 2:
+        return yaw, sp                                      # legs turned onto the motion, running forward
+    yaw = yaw - np.pi if yaw > 0 else yaw + np.pi            # moving backwards: legs face away, cycle backwards
+    return yaw, -sp
+
+
+def hip_rotvec(hip_flex: float, yaw: float):
+    """Axis-angle of a hip flexed forward by ``hip_flex`` (about -x) in a leg plane turned by ``yaw``
+    about the pelvis's up axis (+y)."""
+    from scipy.spatial.transform import Rotation
+
+    r = Rotation.from_rotvec([0.0, yaw, 0.0]) * Rotation.from_rotvec([-hip_flex, 0.0, 0.0])
+    return r.as_rotvec()
+
+
 def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, leg_m: float = LEG_M,
                   knee_stance: float = KNEE_STANCE, knee_swing: float = KNEE_SWING):
     """``(body_poses [T, 21, 3], report)`` for one id's consecutive ``(xy, body_pose, global_orient)``
@@ -121,9 +150,13 @@ def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, l
     vel[0], vel[-1] = xy[1] - xy[0], xy[-1] - xy[-2]
     speed = np.linalg.norm(vel, axis=1)
     adv = np.zeros(T)
+    yaw = np.zeros(T)
     for t in range(T):
         f = forward_on_ground(seq[t][2])
-        adv[t] = float(vel[t] @ f) if f is not None else speed[t]
+        if f is None:
+            adv[t] = speed[t]
+        else:
+            yaw[t], adv[t] = leg_yaw(f, vel[t])
     phi, on = phases(adv, speed, run_m=run_m)
     w = blend_weights(on, blend=blend)
     for t in range(T):
@@ -134,7 +167,7 @@ def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, l
         amp = float(np.arcsin(np.clip(d * L / (2.0 * leg_m), 0.0, 0.95)))
         for side, off in (("L", 0.0), ("R", np.pi)):
             hip, knee = leg_angles(phi[t] + off, amp, duty=d, knee_stance=knee_stance, knee_swing=knee_swing)
-            g_hip = np.array([-hip, 0.0, 0.0])                # forward flexion is about -x
+            g_hip = hip_rotvec(hip, yaw[t])                   # forward flexion about -x, in the plane of the motion
             g_knee = np.array([knee, 0.0, 0.0])
             out[t, HIP_ROW[side]] = (1 - w[t]) * out[t, HIP_ROW[side]] + w[t] * g_hip
             out[t, KNEE_ROW[side]] = (1 - w[t]) * out[t, KNEE_ROW[side]] + w[t] * g_knee

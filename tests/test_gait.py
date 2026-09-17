@@ -69,3 +69,42 @@ def test_gait_sequence_runs_the_legs_of_a_runner_and_leaves_a_standing_man():
     still = [(np.array([0.0, 0.0]), np.full((21, 3), 0.1), go) for _ in range(T)]
     out2, rep2 = gait.gait_sequence(still)
     assert rep2["on"] == 0 and np.allclose(out2, 0.1)
+
+
+def test_leg_yaw_turns_the_legs_onto_the_motion_and_runs_a_backpedal_backwards():
+    fwd = np.array([0.0, -1.0])                                 # facing -y
+    yaw, adv = gait.leg_yaw(fwd, np.array([0.0, -0.1]))          # moving where it faces
+    assert abs(yaw) < 1e-9 and abs(adv - 0.1) < 1e-9
+    yaw, adv = gait.leg_yaw(fwd, np.array([0.1, 0.0]))           # moving to +x: facing -y, +x is the body's LEFT
+    assert abs(yaw - np.pi / 2) < 1e-9 and abs(adv - 0.1) < 1e-9
+    yaw, adv = gait.leg_yaw(fwd, np.array([0.0, 0.1]))           # moving backwards
+    assert abs(abs(yaw) - 0.0) < 1e-9 and abs(adv + 0.1) < 1e-9
+    # a hip flexed forward in a plane turned 90 deg to the left swings the knee toward +x of the pelvis
+    from scipy.spatial.transform import Rotation
+    r = Rotation.from_rotvec(gait.hip_rotvec(0.5, np.pi / 2))
+    thigh = r.apply([0.0, -1.0, 0.0])                           # the thigh hangs down -y in the rest pose
+    assert thigh[0] > 0.4 and abs(thigh[2]) < 1e-6
+
+
+def test_gait_sequence_plants_along_the_velocity_when_the_body_faces_across_it():
+    """A body facing -y but moving along +x at 7 m/s: the stance ankle must stand still in the WORLD."""
+    from scipy.spatial.transform import Rotation as R_
+    from nfl_gsplat.pose.forward_kinematics import load_smplx_skeleton, pose_params_to_rotmats, posed_joint_positions
+    import pathlib
+    if not pathlib.Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists():
+        pytest.skip("SMPL-X model not present")
+    rest, parents = load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    go = np.array([np.pi / 2, 0.0, 0.0])                        # stood up, facing world -y
+    T = 40
+    seq = [(np.array([0.12 * t, 0.0]), np.zeros((21, 3)), go) for t in range(T)]   # moving +x, across the facing
+    out, rep = gait.gait_sequence(seq)
+    assert rep["on"] == T
+    ank = []
+    for t in range(T):
+        J = posed_joint_positions(rest, parents, pose_params_to_rotmats(go, out[t]))
+        J = J - J[0]
+        ank.append(seq[t][0] + J[7, :2])
+    ank = np.array(ank)
+    v = np.linalg.norm(ank[2:] - ank[:-2], axis=1) / 2
+    assert v.min() < 0.03 and (v < 0.04).mean() > 0.15           # the left foot plants for a share of the run
+
