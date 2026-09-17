@@ -2484,6 +2484,16 @@ lying down on the play itself. Id 166 (a KC lineman) at 330-344: in a block, the
 side so the linemen overlap in the image (the camera's angle, not a defect). Whole-play sheet at
 5-frame stride and twelve more per-id strips are cutting (review_v49/more).
 
+v49 read (21:40, scratch review_v49/more): the 33-frame sheet of the live play at 5-frame stride --
+the line holds 300-396, the pile forms 400-420, the play breaks to the near sideline 420-460, no
+body floats, no team swaps, nothing lies down before the tackle. Id 2 (a Baltimore defender, 330-358):
+standing then a natural arm raise, smooth. Id 74 (KC, 410-424): in a tackle scrum under two white
+bodies, plausible. Id 40 (BAL, 380-394): running with bent knees and swinging arms -- and a second
+white body drawn ON him at 380-386, the 1-40 twin before the stretch the 0.2 m rule takes (396-415):
+the twins at 0.2-0.45 m still draw two bodies on one man for a few frames. Measuring TWIN_M 0.3 /
+0.35 post-hoc (census decides: at 0.3 the pile pairs 19-166, 197-204, 19-37 come into reach, and
+those may be two men).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
