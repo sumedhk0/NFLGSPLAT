@@ -63,7 +63,8 @@ def test_gait_sequence_runs_the_legs_of_a_runner_and_leaves_a_standing_man():
     hips = out[:, 0, 0]
     assert hips.min() < -0.2 and hips.max() > 0.2                # the left hip swings both ways
     assert np.all(out[:, 3, 0] >= gait.KNEE_STANCE - 1e-9) and out[:, 3, 0].max() > 1.0   # the knee bends in swing
-    assert np.allclose(out[:, 5:], 0.0) and np.allclose(out[:, 2], 0.0)   # spine and arms untouched
+    keep = [2, 5] + list(range(8, 21))
+    assert np.allclose(out[:, keep], 0.0)                          # spine, feet joints and arms untouched (hips, knees, ankles are the gait's)
     # the two legs are half a cycle apart: somewhere in the run they differ by most of the swing
     assert np.abs(out[:, 0, 0] - out[:, 1, 0]).max() > 0.4
     still = [(np.array([0.0, 0.0]), np.full((21, 3), 0.1), go) for _ in range(T)]
@@ -107,4 +108,26 @@ def test_gait_sequence_plants_along_the_velocity_when_the_body_faces_across_it()
     ank = np.array(ank)
     v = np.linalg.norm(ank[2:] - ank[:-2], axis=1) / 2
     assert v.min() < 0.03 and (v < 0.04).mean() > 0.15           # the left foot plants for a share of the run
+
+
+def test_stance_foot_stays_level_with_the_turf():
+    """Under the gait the stance foot (ankle to foot joint) stays near horizontal whatever the hip and
+    knee do; a flexed swing foot is allowed to point down."""
+    import pathlib
+    if not pathlib.Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists():
+        pytest.skip("SMPL-X model not present")
+    from nfl_gsplat.pose.forward_kinematics import load_smplx_skeleton, pose_params_to_rotmats, posed_joint_positions
+    rest, parents = load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    go = np.array([np.pi / 2, 0.0, 0.0])
+    T = 40
+    seq = [(np.array([0.0, -0.12 * t]), np.zeros((21, 3)), go) for t in range(T)]
+    out, _ = gait.gait_sequence(seq)
+    def pitch(bp):
+        J = posed_joint_positions(rest, parents, pose_params_to_rotmats(go, bp))
+        foot = J[10] - J[7]                                        # left ankle -> left foot joint
+        return np.degrees(np.arctan2(foot[2], np.linalg.norm(foot[:2])))
+    rest_pitch = pitch(np.zeros((21, 3)))                          # the foot joint sits below and ahead of the ankle at rest
+    pitches = np.array([pitch(out[t]) for t in range(T)]) - rest_pitch
+    # the flattest quarter of frames (stances) is within 8 deg of the rest pitch; the swing toes drop, never lift past 20
+    assert np.sort(np.abs(pitches))[: T // 4].max() < 8.0 and pitches.max() < 20.0
 

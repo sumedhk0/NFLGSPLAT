@@ -18,7 +18,8 @@ metres of travel at leg length ``l``, so ``sin A = d L / (2 l)`` plants it exact
 plane); then swing, the hip returning to ``+A`` on a cosine while the knee flexes up to
 ``knee_swing`` at mid-swing; the knee holds ``knee_stance`` through stance. The hip and knee rows
 of the fitted body_pose are replaced by the gait's, blended in and out over ``blend`` frames where
-the gait switches on or off, so a man slowing to a stop hands his legs back to the fit.
+the gait switches on or off, so a man slowing to a stop hands his legs back to the fit. The ankle
+rows level the foot with the turf in stance and drop the toes a little in swing.
 
 Conventions (SMPL-X, verified on the real model 2026-09-16 with the hinge bounds): a knee flexes
 about +x; a hip flexes forward about -x (the leg swings toward the body's +z, its forward).
@@ -33,7 +34,8 @@ DUTY: float = 0.38             # a fixed duty for leg_angles' tests; gait_sequen
 LEG_M: float = 0.88            # hip-to-ankle, metres, for the stance sweep (a mean SMPL-X leg)
 KNEE_STANCE: float = 0.30      # rad, the knee's flexion through stance
 KNEE_SWING: float = 1.30       # rad, the knee's peak flexion in swing
-HIP_ROW, KNEE_ROW = {"L": 0, "R": 1}, {"L": 3, "R": 4}
+HIP_ROW, KNEE_ROW, ANKLE_ROW = {"L": 0, "R": 1}, {"L": 3, "R": 4}, {"L": 6, "R": 7}
+FOOT_SWING: float = 0.6        # share of the levelling ankle rotation kept in swing (the toes drop a little)
 
 
 def stride_length(v: float) -> float:
@@ -169,8 +171,13 @@ def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, l
             hip, knee = leg_angles(phi[t] + off, amp, duty=d, knee_stance=knee_stance, knee_swing=knee_swing)
             g_hip = hip_rotvec(hip, yaw[t])                   # forward flexion about -x, in the plane of the motion
             g_knee = np.array([knee, 0.0, 0.0])
+            # the foot: level with the turf in stance (the shin pitches by -hip + knee about x, the ankle
+            # undoes it), most of the way there in swing so the toes drop a little
+            in_stance = ((phi[t] + off) % (2 * np.pi)) < 2 * np.pi * d
+            g_ankle = np.array([(hip - knee) * (1.0 if in_stance else FOOT_SWING), 0.0, 0.0])
             out[t, HIP_ROW[side]] = (1 - w[t]) * out[t, HIP_ROW[side]] + w[t] * g_hip
             out[t, KNEE_ROW[side]] = (1 - w[t]) * out[t, KNEE_ROW[side]] + w[t] * g_knee
+            out[t, ANKLE_ROW[side]] = (1 - w[t]) * out[t, ANKLE_ROW[side]] + w[t] * g_ankle
     return out, {"on": int(on.sum()), "cycles": float(abs(phi[-1] - phi[0]) / (2 * np.pi)),
                  "stride_m": (float(stride_length(speed[on].min())) if on.any() else 0.0,
                               float(stride_length(speed[on].max())) if on.any() else 0.0)}
