@@ -2571,6 +2571,12 @@ planted 1 % of 244 moving frames; everything else as v55.
    hips -- i.e. animated legs on fitted bodies. A day's work, and a different kind of footage
    (the legs would no longer follow the detector). Not started without a yes.
 
+**v50 delivered (22:35): diag/play_001_v50_hifi_720.mp4 = v49 + HOLE_REACH 8 (07l v55/v56's
+timeline).** Id 11 at 418-432 on the render strip: present on every frame, moving through the scrum
+-- the two vanishes of v49 (422, 428) are gone on the footage. AFFIRMED. Delivered clips tonight:
+v45 (82 re-teamed, rider rule), v46 (the v49 recipe, the before-footage), v47 (+ the half-turn
+unwrap), v48 (+ orphan rule, 10-frame bridge), v49 (+ hole rule, twins), v50 (+ reach 8).
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
