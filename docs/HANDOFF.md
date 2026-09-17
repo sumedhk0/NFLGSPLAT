@@ -4157,3 +4157,11 @@ planted 1 -> 21 % of 244 moving frames; joints jitter p50/p90/p99 0.0106/0.0329/
 rulers compare gait renders with gait renders); steps 5, hops 4, root jitter, census 1.19 unchanged
 (the gait moves no pelvis).
 
+Gait over the footage (05q --gait, scratch review_gait): the runner at 340-354 -- the synthesised
+legs stride while the green keypoints sit within 10-20 px of them; running toward the camera the
+swing leg projects as a sideways kick at mid-swing. Id 40 at 380-394 -- the legs stride hard (a
+sprinter's 39 deg reach at 0.24 m/frame) on a body that stands the known metre off the man (the
+endzone-only placement of 385-394), so the legs look right and the placement wrong. The gait is the
+pipeline default from here (pipeline_play.sh: GAIT=0 draws the fitted legs; both 05k and 07l take
+it), reversible with one variable.
+

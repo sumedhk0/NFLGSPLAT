@@ -425,12 +425,16 @@ if ! done_ play_end; then
 fi
 
 log "plausibility rulers on the timeline 05k will draw (07l)"
-"$PYS" scripts/07l_measure_plausibility.py --play-dir "$P" --tag latest --joints ${LIVE_LO:+--lo "$LIVE_LO"} ${END_LIVE:+--hi "$END_LIVE"} 2>&1 \
+GAIT_FLAG=""; [ "${GAIT:-1}" != "0" ] && GAIT_FLAG="--gait"
+"$PYS" scripts/07l_measure_plausibility.py --play-dir "$P" --tag latest --joints $GAIT_FLAG ${LIVE_LO:+--lo "$LIVE_LO"} ${END_LIVE:+--hi "$END_LIVE"} 2>&1 \
    | grep -v "Warning\|warn" | grep -E "^(steps|root|census|joints|report| +worst)|Error|Traceback" || log "07l failed; the render goes ahead unscored"
 
 if ! done_ hifi; then
   log "hi-fi render on the footage field (05k; resumable)"
-  "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" --uniforms --numbers --helmets --follow --eye-offset 2 -26 10 --fov 50 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|mispaired|roster heights|left out|beyond|Error" || fail hifi
+  # GAIT=0 draws the fitted legs (they skate: planted 1 % of moving frames); the default synthesises a
+  # running gait for moving bodies (render.gait; planted 21 %, v51/v52 on play 1, 2026-09-17).
+  GAIT_FLAG=""; [ "${GAIT:-1}" != "0" ] && GAIT_FLAG="--gait"
+  "$PYS" scripts/05k_render_hifi.py --play-dir "$P" --out-dir "$P/render_hifi" --appearance "$P/appearance"      --field-texture "$P/field_texture.npz" --uniforms --numbers --helmets --follow --eye-offset 2 -26 10 --fov 50 $GAIT_FLAG 2>&1 | grep -v "Warning\|warn" | grep -E "timeline:|field from|wrote|mispaired|roster heights|left out|beyond|Error" || fail hifi
   # A 720p encode next to the diagnostics, so a play's result is a file to look at.
   FFBIN="$("$PYS" -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())")"
   if [ -f "$P/render_hifi/play.mp4" ]; then
