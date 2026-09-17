@@ -79,7 +79,7 @@ def main():
 
         model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral", num_betas=10,
                              use_pca=False, batch_size=1)
-        tl, *_ = load_play_timeline(args.play_dir, model)
+        tl, _tracks, df, _frames, _poses = load_play_timeline(args.play_dir, model)
         pos = mr.positions_by_id(tl.states)
         if args.carrier is not None:
             pid, far = args.carrier, float("nan")
@@ -90,8 +90,15 @@ def main():
             pid, far = got
         end = stop_frame(pos[pid], args.snap, stop_m=args.stop_m, stop_frames=args.stop_frames)
         last = max(pos[pid])
+        # a tackled man is drawn standing for the frames the bridge fills after his last detection
+        # (play 1: keypoints gone at 482, drawn to 493 while he lay under the tackler): the play is
+        # dead no later than the sideline's last sight of him
+        seen = df[(df["cam"] == "sideline") & (df["global_player_id"] == pid)]["frame"]
+        last_seen = int(seen.max()) if len(seen) else last
+        how = "carrier stops" if end < min(last, last_seen) else ("carrier last seen" if last_seen < last else "carrier's track ends")
+        end = min(end, last_seen)
         out.update(end=int(end), carrier=int(pid), carrier_travel_m=round(far, 2), carrier_last_frame=int(last),
-                   how="carrier stops" if end < last else "carrier's track ends")
+                   carrier_last_seen=int(last_seen), how=how)
     print(f"play dead at frame {out['end']} ({out['how']}" + (f"; carrier id {out['carrier']}, {out['carrier_travel_m']} m from the snap, drawn to {out['carrier_last_frame']}" if "carrier" in out else "") + f"); clip to {out['end'] + out['tail']}")
     if not args.dry_run:
         (args.play_dir / "play_end.json").write_text(json.dumps(out, indent=1))

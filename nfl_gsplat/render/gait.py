@@ -29,7 +29,7 @@ import numpy as np
 
 RUN_M: float = 0.08            # pelvis speed (m per timeline frame) above which the legs run; 0.08 = 4.8 m/s at 60 fps
 BLEND: int = 6                 # frames to cross-fade the gait in or out
-DUTY: float = 0.38             # share of the cycle the foot is on the ground (running)
+DUTY: float = 0.38             # a fixed duty for leg_angles' tests; gait_sequence uses duty_share(v)
 LEG_M: float = 0.88            # hip-to-ankle, metres, for the stance sweep (a mean SMPL-X leg)
 KNEE_STANCE: float = 0.30      # rad, the knee's flexion through stance
 KNEE_SWING: float = 1.30       # rad, the knee's peak flexion in swing
@@ -37,9 +37,17 @@ HIP_ROW, KNEE_ROW = {"L": 0, "R": 1}, {"L": 3, "R": 4}
 
 
 def stride_length(v: float) -> float:
-    """Metres per full cycle of one leg (two steps) at ``v`` m per frame (60 fps): a walk of 0.02
-    strides 1.0 m, a sprint of 0.15 (9 m/s) 2.4 m; linear between, clamped."""
-    return float(np.clip(1.0 + (v - 0.02) * (1.4 / 0.13), 0.8, 2.6))
+    """Metres per full cycle of one leg (TWO steps) at ``v`` m per frame (60 fps): a walk of 0.02
+    (1.2 m/s) cycles every 1.3 m, a sprint of 0.15 (9 m/s) every 4.6 m (steps of 2.3 m); linear
+    between, clamped. The first cut used the step length here and ran the runner at 2.8 cycles a
+    second (7 cycles in 148 frames), twice a sprinter's cadence."""
+    return float(np.clip(1.3 + (v - 0.02) * (3.3 / 0.13), 1.0, 5.0))
+
+
+def duty_share(v: float) -> float:
+    """Share of the cycle a foot is on the ground at ``v`` m per frame: 0.6 walking, 0.4 jogging,
+    0.22 sprinting (the flight phase grows with speed); linear, clamped."""
+    return float(np.clip(0.6 - (v - 0.02) * (0.38 / 0.13), 0.22, 0.6))
 
 
 def leg_angles(phase: float, amp: float, *, duty: float = DUTY, knee_stance: float = KNEE_STANCE,
@@ -98,7 +106,7 @@ def forward_on_ground(global_orient):
     return f / n if n > 1e-6 else None
 
 
-def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty: float = DUTY, leg_m: float = LEG_M,
+def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, leg_m: float = LEG_M,
                   knee_stance: float = KNEE_STANCE, knee_swing: float = KNEE_SWING):
     """``(body_poses [T, 21, 3], report)`` for one id's consecutive ``(xy, body_pose, global_orient)``
     frames: the hip and knee rows replaced by the gait where the body runs, blended at the edges.
@@ -122,9 +130,10 @@ def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty: float 
         if w[t] <= 0:
             continue
         L = stride_length(speed[t])
-        amp = float(np.arcsin(np.clip(duty * L / (2.0 * leg_m), 0.0, 0.95)))
+        d = duty_share(speed[t]) if duty is None else duty
+        amp = float(np.arcsin(np.clip(d * L / (2.0 * leg_m), 0.0, 0.95)))
         for side, off in (("L", 0.0), ("R", np.pi)):
-            hip, knee = leg_angles(phi[t] + off, amp, duty=duty, knee_stance=knee_stance, knee_swing=knee_swing)
+            hip, knee = leg_angles(phi[t] + off, amp, duty=d, knee_stance=knee_stance, knee_swing=knee_swing)
             g_hip = np.array([-hip, 0.0, 0.0])                # forward flexion is about -x
             g_knee = np.array([knee, 0.0, 0.0])
             out[t, HIP_ROW[side]] = (1 - w[t]) * out[t, HIP_ROW[side]] + w[t] * g_hip

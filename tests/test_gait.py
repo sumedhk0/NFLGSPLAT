@@ -41,6 +41,8 @@ def test_phase_follows_forward_travel_and_holds_when_slow():
     assert on.tolist() == [False, True, True, True, False, False]
     L = gait.stride_length(0.1)
     assert abs(phi[2] - 2 * np.pi * 0.2 / L) < 1e-9 and abs(phi[3] - 2 * np.pi * 0.1 / L) < 1e-9
+    assert 2.0 < gait.stride_length(0.06) < 3.0 and 4.0 < gait.stride_length(0.15) < 5.0   # jog ~2.4 m, sprint ~4.6 m per cycle
+    assert gait.duty_share(0.02) > gait.duty_share(0.15) >= 0.22
     assert phi[4] == phi[3] and phi[5] == phi[3]
 
 
@@ -57,7 +59,7 @@ def test_gait_sequence_runs_the_legs_of_a_runner_and_leaves_a_standing_man():
     T = 40
     run = [(np.array([0.0, -0.12 * t]), np.zeros((21, 3)), go) for t in range(T)]     # 7 m/s along its facing
     out, rep = gait.gait_sequence(run)
-    assert rep["on"] == T and rep["cycles"] > 1.5
+    assert rep["on"] == T and 0.9 < rep["cycles"] < 1.5     # 40 frames at 7 m/s = 4.7 m, a cycle and a bit
     hips = out[:, 0, 0]
     assert hips.min() < -0.2 and hips.max() > 0.2                # the left hip swings both ways
     assert np.all(out[:, 3, 0] >= gait.KNEE_STANCE - 1e-9) and out[:, 3, 0].max() > 1.0   # the knee bends in swing

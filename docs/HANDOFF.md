@@ -4082,3 +4082,30 @@ easyocr) and `C:\venvs\smplx312` (Python 3.12; torch cu128, smplx, numpy
 paddle/mmcv); run with `PYTHONPATH` set to the repo. ffmpeg 9 via winget.
 SMPL-X models under `data/body_models/smplx/` (license-gated). Rosters:
 `scripts/fetch_nflverse_rosters.py` → `data/rosters/2024/`.
+
+## 2026-09-17 (overnight): the clip ends when the play is dead; a gait for the legs
+
+**Decisions taken by the user (04:00):** end the clip when the play is dead; build and test the gait
+model; keep the loop running overnight, hypotheses -> tests -> footage.
+
+**Play end (08x, commit feb29cd/b26fb91).** The share of moving bodies does not mark the death of the
+play (scratch probe_play_end: 5-25 % of bodies move faster than 3 m/s DURING the play -- linemen
+engaged, backs covering -- and 50-80 % after it, everyone jogging in). The ball carrier stopping does:
+he is taken as the id that travels furthest from its snap position over the live window (play 1: id
+9, 19.2 m), and the play is dead when he stops for 10 frames, his track ends, or the sideline last
+sees him -- the 05q strip of 9 at 480-492 shows him wrapped and going down at 482-486 and on the turf
+by 488, while the bridge kept a standing body on him to 493, so the last sighting caps it. 05k reads
+<play-dir>/play_end.json and stops at end + a 30-frame tail; pipeline_play.sh runs 08x as a marked
+stage before the rulers. Play 1: end 493 by the first rule, re-run with the last-sighting cap pending.
+
+**Gait (render/gait.py, commit feb29cd; opt-in via 05k --gait / 05q --gait).** Where the pelvis
+moves faster than 4.8 m/s the hip and knee rows of both legs are synthesised from a phase that
+advances 2 pi per stride of travel along the body's forward axis (a backpedal cycles backwards):
+stance with the foot planted by construction (the hip's forward reach runs linearly back over the
+stance travel), a cosine swing with the knee to 1.3 rad, blended over 6 frames at the edges; the fit
+keeps the torso and arms. First cut used the STEP length as the cycle (2.2 m at a sprint) and ran the
+runner at 2.8 cycles/s, twice a sprinter's cadence -- the cycle is two steps, 4.6 m at 9 m/s, and the
+ground share falls with speed (0.6 walking to 0.22 sprinting). Fixed before any footage. A/B on the
+live play (skating ruler, sideline reprojection, jitter) running; render v51 = v50 + gait + the clip
+end follows if it reads well.
+
