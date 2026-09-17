@@ -455,6 +455,55 @@ def orphan_ids(tl: "Timeline", team_of: dict, *, max_frames: int = RIDER_MAX_FRA
     return {pid for pid, n in frames.items() if n <= max_frames and not team_of.get(pid)}
 
 
+TWIN_M: float = 0.2          # two drawn bodies this close are one man
+TWIN_MIN_RUN: int = 8        # ... when it lasts this many consecutive frames
+
+
+def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_run: int = TWIN_MIN_RUN) -> set:
+    """``{(frame, pid)}`` to drop: for every same-team pair of drawn ids within ``twin_m`` of each other
+    on at least ``min_run`` CONSECUTIVE frames, the id drawn on fewer frames overall loses those frames.
+    Two sideline boxes 0.13-0.15 m apart on one man for twenty frames, each drawn as a body (play 1,
+    2026-09-16: 166-204 and 1-40), are the twins 08o's ankle-ray test (0.03-0.11 m) left; a pile
+    stands 0.27 m and up. The rider rule handles short fragments; this one handles long ids."""
+    frames_of: dict = {}
+    for f, states in tl.states.items():
+        for s in states:
+            frames_of[int(s.pid)] = frames_of.get(int(s.pid), 0) + 1
+    close: dict = {}
+    for f, states in tl.states.items():
+        for i, a in enumerate(states):
+            for b in states[i + 1:]:
+                pa, pb = int(a.pid), int(b.pid)
+                ta, tb = team_of.get(pa), team_of.get(pb)
+                if ta is None or ta != tb:
+                    continue
+                if float(np.hypot(*(np.asarray(a.xy, float) - np.asarray(b.xy, float)))) <= twin_m:
+                    close.setdefault((min(pa, pb), max(pa, pb)), []).append(int(f))
+    drop: set = set()
+    for (pa, pb), fs in close.items():
+        fs = sorted(set(fs))
+        loser = pa if frames_of.get(pa, 0) < frames_of.get(pb, 0) else pb
+        run = [fs[0]]
+        for f in fs[1:] + [None]:
+            if f is not None and f == run[-1] + 1:
+                run.append(f)
+                continue
+            if len(run) >= min_run:
+                drop.update((g, loser) for g in run)
+            run = [f] if f is not None else []
+    return drop
+
+
+def drop_frames(tl: "Timeline", pairs: set) -> int:
+    """Remove the states named by ``pairs`` ``{(frame, pid)}``; returns the number removed."""
+    n = 0
+    for f, pid in pairs:
+        before = len(tl.states.get(f, ()))
+        tl.states[f] = [s for s in tl.states.get(f, ()) if int(s.pid) != int(pid)]
+        n += before - len(tl.states[f])
+    return n
+
+
 def drop_ids(tl: "Timeline", ids: set) -> int:
     """Remove every state of ``ids``; returns the number of body-frames removed."""
     n = 0

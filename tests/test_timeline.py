@@ -470,3 +470,27 @@ def test_a_short_detection_hole_keeps_its_filled_frame_but_a_fragment_tail_does_
     tl_old = tl.build_timeline(frames, ground, {}, hole_reach=0, **kw)
     assert 1 not in {s.pid for s in tl_old.states[105]}                  # the old rule dropped the hole
 
+
+def test_twin_frames_drops_the_shorter_id_on_a_long_close_stretch_only():
+    """Ids 1 and 2 (same team) 0.15 m apart for 12 consecutive frames: the one drawn on fewer frames
+    loses those 12. A 5-frame brush, a cross-team pair, and a pair 0.3 m apart are left alone."""
+    frames = list(range(0, 60))
+    ground = {f: {1: np.array([0.0, 0.0]), 3: np.array([5.0, 0.0]), 4: np.array([5.15, 0.0]), 5: np.array([9.0, 0.0])} for f in frames}
+    for f in range(10, 22):
+        ground[f][2] = np.array([0.15, 0.0])            # twin of 1 for 12 frames
+    for f in range(30, 35):
+        ground[f][2] = np.array([0.15, 0.0])            # a 5-frame brush: not a run
+    for f in frames:
+        ground[f][6] = np.array([9.3, 0.0])             # 0.3 m from 5: a pile, not a twin
+    team_of = {1: "KC", 2: "KC", 3: "KC", 4: "BAL", 5: "BAL", 6: "BAL"}
+    views = {f: {pid: ("sideline",) for pid in ground[f]} for f in frames}     # all detected: the dedupe keeps them
+    tl_ = tl.build_timeline(frames, ground, {}, default_pose=np.zeros((21, 3)), default_betas=np.zeros(10),
+                            min_frames=1, pose_smooth=0, pose_sigma=0, clamp_joints=False, orient_sigma=0,
+                            views_by_frame=views)
+    drop = tl.twin_frames(tl_, team_of)
+    assert drop == {(f, 2) for f in range(10, 22)}
+    n = tl.drop_frames(tl_, drop)
+    assert n == 12 and all(2 not in {s.pid for s in tl_.states[f]} for f in range(10, 22))
+    assert all(2 in {s.pid for s in tl_.states[f]} for f in range(30, 35))
+    assert all({3, 4, 5, 6} <= {s.pid for s in tl_.states[f]} for f in frames)
+
