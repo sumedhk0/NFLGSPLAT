@@ -4172,3 +4172,11 @@ takes planted to 29 % but the legs to 21.4/37.3 px -- a synthesised walk over le
 shows is a loss. RUN_M stays 0.08: the gait replaces legs only where the keypoints cannot carry
 them (a sprint). Ankle rows level the stance foot from commit 2b9058b (v53 chained behind v52).
 
+**v52 delivered (16:15): diag/play_001_v52_hifi_720.mp4 = v50 + the gait with the legs along the
+motion + the clip ending at 513 (250 rendered frames, 8.3 s; 74 rendered frames after the play left
+out).** Strips: the runner at 326-340 strides (334-340 one leg driving back while the other knee
+comes up), id 40 at 378-392 strides with a sprinter's trailing leg at 390-392. The clip itself, tiled
+every fourth frame from the pile break to the tackle: bodies run, the scene holds, the clip ends
+with the pile forming. v53 (+ the levelled stance foot) is rendering. Next check: whether the fast
+jog band (4.8-6 m/s) is better served by the fitted legs, which would move RUN_M to 0.1.
+
