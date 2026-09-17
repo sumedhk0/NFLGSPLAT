@@ -2397,6 +2397,12 @@ absence with the body 0.17 m away is not a detection gap (the bridge is 10 frame
 removes the body on those frames -- the dedupe box when two bodies pass within DUPLICATE_M is the
 suspect. Probing which rule and how close the nearest other body stood.
 
+Lowest-ankle foot point on the corrected ruler (21:10): endzone pelvis |d| 9.8 / 19.0 (mean of both
+ankles, shipped) -> 10.1 / 20.1 (lowest, endzone) / 10.1 / 19.8 (both cameras); census 1.32 -> 1.37,
+root jitter p90 0.0116 -> 0.0122 / 0.0125; hops 4 -> 3, steps 5 -> 4 / 3. Worse on the ruler it was
+built for and on census and jitter, better on two counts of small hops: DENIED for good. The mean of
+both ankles stays.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
