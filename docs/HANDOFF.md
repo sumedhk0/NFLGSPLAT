@@ -4180,3 +4180,9 @@ every fourth frame from the pile break to the tackle: bodies run, the scene hold
 with the pile forming. v53 (+ the levelled stance foot) is rendering. Next check: whether the fast
 jog band (4.8-6 m/s) is better served by the fitted legs, which would move RUN_M to 0.1.
 
+Fast-jog band alone (0.08-0.1 m/frame, 96 live frames, 16:40): the fitted legs skate there as at a
+sprint (planted 1 %, ratio 0.89) and sit 7.5/15.8 px; the gait plants 17 % at 10.9/21.3 px. Against
+the slower band (0.05-0.08: fitted legs plant 9 %, the gait costs 13 px), 0.08 is where the
+keypoints stop carrying a stance and the gait starts paying for itself. RUN_M stays 0.08; the
+threshold is measured on both sides now.
+
