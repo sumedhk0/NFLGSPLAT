@@ -2577,6 +2577,19 @@ timeline).** Id 11 at 418-432 on the render strip: present on every frame, movin
 v45 (82 re-teamed, rider rule), v46 (the v49 recipe, the before-footage), v47 (+ the half-turn
 unwrap), v48 (+ orphan rule, 10-frame bridge), v49 (+ hole rule, twins), v50 (+ reach 8).
 
+Twins at birth, measured post-hoc (22:45, scratch probe_birth_twins; an id whose first frame stands
+within 0.3 m of a same-team body loses its frames while it stays on him): 6 body-frames (80 one
+frame, 84 five), census 1.19 -> 1.15, pops 7, hops 4; at 0.4 m 16 frames (197 too), census 1.17.
+Measured and NOT adopted: six frames is below what a viewer can see and not worth a rule; revisit
+if play 2 shows the class at scale.
+
+**Where the loop stands at 22:45.** Every mechanism the footage named tonight that had a
+measurable fix is shipped and affirmed on the render (v47-v50); the rulers that remain on the live
+play -- steps 5, hops 4 (all 0.18-0.27 m at source transitions), pops 7, census 1.19, joints p99
+0.069, flails 1.8 % (real hands) -- are at the floor of what the rules can reach. What is left is
+the two product decisions above (clip end, gait model), the runner's handoff 15 px (ambiguous
+between two fits), and the twelfth-man thread (closed 09-13). Next play is the next signal.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
