@@ -161,13 +161,20 @@ def test_a_short_detection_gap_keeps_the_body_beside_its_neighbour():
 
 
 def test_an_interpolated_fragment_on_top_of_a_detected_body_is_dropped():
-    frames = list(range(0, 12))
-    # id 2 is a second fragment of id 1's player: detected 0-3, then interpolated on top of id 1
-    ground = {f: {1: np.array([10.0, 2.0]), **({2: np.array([10.1, 2.1])} if f < 4 or f >= 10 else {})} for f in frames}
+    frames = list(range(0, 20))
+    # id 2 is a second fragment of id 1's player: detected 0-3, then interpolated on top of id 1 for
+    # eight frames (longer than HOLE_REACH: a tail, not a blink), detected again 12-19
+    ground = {f: {1: np.array([10.0, 2.0]), **({2: np.array([10.1, 2.1])} if f < 4 or f >= 12 else {})} for f in frames}
     views = {f: {1: ("sideline",), **({2: ("sideline",)} if 2 in ground[f] else {})} for f in frames}
     out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
     assert sorted(s.pid for s in out.states[6]) == [1]              # interpolated 0.14 m from a detected body: dropped
     assert sorted(s.pid for s in out.states[1]) == [1, 2]           # both detected: two people (the split's job)
+    # a hole within HOLE_REACH is the same id blinking and is kept -- dropping only the hole frames of
+    # a twin that is drawn on its detected frames was the flicker (2026-09-16, 14 of 32 live pops)
+    ground2 = {f: {1: np.array([10.0, 2.0]), **({2: np.array([10.1, 2.1])} if f < 4 or f >= 8 else {})} for f in frames}
+    views2 = {f: {1: ("sideline",), **({2: ("sideline",)} if 2 in ground2[f] else {})} for f in frames}
+    out2 = tl.build_timeline(frames, ground2, {}, views_by_frame=views2)
+    assert sorted(s.pid for s in out2.states[6]) == [1, 2]
 
 
 def test_an_id_unseen_for_long_dedupes_at_the_plain_radius():
@@ -441,4 +448,25 @@ def test_fill_gap_bridge_is_ten_frames_by_default():
     filled = tl.fill_gaps(frames, xy)
     assert np.allclose(filled[5], [5.0, 0.0]) and np.isnan(filled[20]).all()
     assert np.allclose(tl.fill_gaps(frames, xy, max_gap=tl.MAX_GAP_FRAMES)[20], [20.0, 0.0])
+
+
+def test_a_short_detection_hole_keeps_its_filled_frame_but_a_fragment_tail_does_not():
+    """Two linemen 0.3 m apart. Id 1's sideline detection drops on frame 105 only: its filled frame
+    is a hole (detected on both sides within HOLE_REACH) and stays. Id 3 is detected up to 104 and
+    never again: its filled frames after are a tail riding id 2 and go, as before."""
+    frames = list(range(100, 112))
+    ground = {f: {1: np.array([0.0, 0.0]), 2: np.array([0.3, 0.0])} for f in frames}
+    for f in frames:
+        ground[f][3] = np.array([0.3, 0.05])
+    views = {f: {1: ("sideline",), 2: ("sideline",), 3: ("sideline",)} for f in frames}
+    views[105] = {2: ("sideline",), 3: ("sideline",)}                   # id 1 blinks on 105
+    for f in range(105, 112):
+        views[f] = {k: v for k, v in views[f].items() if k != 3}         # id 3 ends at 104
+    kw = dict(default_pose=np.zeros((21, 3)), default_betas=np.zeros(10), min_frames=1, pose_smooth=0,
+              pose_sigma=0, clamp_joints=False, orient_sigma=0, views_by_frame=views)
+    tl_ = tl.build_timeline(frames, ground, {}, **kw)
+    assert 1 in {s.pid for s in tl_.states[105]}                         # the hole is kept
+    assert all(3 not in {s.pid for s in tl_.states[f]} for f in range(106, 112))   # the tail is not
+    tl_old = tl.build_timeline(frames, ground, {}, hole_reach=0, **kw)
+    assert 1 not in {s.pid for s in tl_old.states[105]}                  # the old rule dropped the hole
 

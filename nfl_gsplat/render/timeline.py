@@ -470,6 +470,32 @@ def drop_ids(tl: "Timeline", ids: set) -> int:
 _SOURCE_RANK = {"fused": 0, "sideline": 1, "default": 2}
 
 
+# A body the anchor camera detected within this many frames on BOTH sides of a frame it missed is
+# that man blinking, not a fragment riding him: it keeps its filled frame whatever stands near it.
+# Play 1 (2026-09-16): 18 of the 32 live-play pops (a body gone for 1-5 frames and back 0.17 m away)
+# were linemen whose detection dropped for a frame while a neighbour stood inside INTERP_DUP_M.
+HOLE_REACH: int = 6
+
+
+def _holes_by_frame(frames, views_by_frame, anchor_cam: str, reach: int) -> dict:
+    """frame -> {pid}: ids the anchor camera detected within ``reach`` frames BEFORE and AFTER that
+    frame (a short hole in a detected run)."""
+    seen: dict = {}
+    for f, d in (views_by_frame or {}).items():
+        for pid, v in d.items():
+            if anchor_cam in v:
+                seen.setdefault(int(pid), []).append(int(f))
+    out: dict = {int(f): set() for f in frames}
+    fr = np.asarray(sorted(int(f) for f in frames))
+    for pid, fs in seen.items():
+        fs = np.asarray(sorted(set(fs)))
+        for a, b in zip(fs[:-1], fs[1:]):
+            if 1 < b - a <= reach + 1:
+                for f in fr[(fr > a) & (fr < b)]:
+                    out[int(f)].add(pid)
+    return out
+
+
 def _anchored_by_frame(frames, views_by_frame, anchor_cam: str, gap: int) -> dict:
     """frame -> {pid}: ids the anchor camera detected within ``gap`` frames of that
     frame. A body interpolated through a short detection gap is that player,
@@ -494,7 +520,7 @@ def _anchored_by_frame(frames, views_by_frame, anchor_cam: str, gap: int) -> dic
 
 
 def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_frame=None,
-                  anchor_cam: str = "sideline", anchored=None) -> int:
+                  anchor_cam: str = "sideline", anchored=None, holes=None) -> int:
     """Drop, per frame, states that are another state's duplicate.
 
     A state whose id the anchor camera DETECTED in this frame is never a
@@ -509,18 +535,21 @@ def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_fra
     within the endzone's depth/across radii (its copy of a sideline
     player the pairing missed), interpolated within ``radius_m``. Without
     ``views_by_frame`` nothing is anchored and every state dedupes at
-    ``radius_m``, two-view first, best pose first. Returns the number dropped."""
+    ``radius_m``, two-view first, best pose first. ``holes`` (frame -> {pid},
+    _holes_by_frame): an interpolated state inside a short hole of its own
+    detected run is kept outright. Returns the number dropped."""
     dropped = 0
     for f, states in tl.states.items():
         seen = views_by_frame.get(f, {}) if views_by_frame else {}
         recent = anchored.get(f, set()) if anchored else set()
+        hole = holes.get(f, set()) if holes else set()
         detected = [s for s in states if anchor_cam in seen.get(s.pid, ())]
         interp = [s for s in states if anchor_cam not in seen.get(s.pid, ()) and s.pid in recent]
         rest = [s for s in states if anchor_cam not in seen.get(s.pid, ()) and s.pid not in recent]
         order = sorted(rest, key=lambda s: (-min(len(s.views), 2), _SOURCE_RANK.get(s.source, 3), s.pid))
         kept: list = list(detected)
         for s in sorted(interp, key=lambda s: s.pid):
-            if any(float(np.hypot(*(s.xy - k.xy))) < INTERP_DUP_M for k in detected):
+            if s.pid not in hole and any(float(np.hypot(*(s.xy - k.xy))) < INTERP_DUP_M for k in detected):
                 dropped += 1                                   # a second fragment id on a detected body
                 continue
             kept.append(s)
@@ -566,7 +595,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    min_frames: int = MIN_FRAMES, views_by_frame=None, exclude=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
                    clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
-                   unwrap: bool = True) -> Timeline:
+                   unwrap: bool = True, hole_reach: int = HOLE_REACH) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -630,7 +659,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                 pid=pid, xy=xy[i], body_pose=bp[i], global_orient=orient, betas=betas,
                 source=source, clamped=clamped, views=views))
     anchored = _anchored_by_frame(frames, views_by_frame, "sideline", MAX_GAP_FRAMES) if views_by_frame else None
-    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, views_by_frame=views_by_frame, anchored=anchored)
+    holes = _holes_by_frame(frames, views_by_frame, "sideline", hole_reach) if (views_by_frame and hole_reach > 0) else None
+    tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, views_by_frame=views_by_frame, anchored=anchored, holes=holes)
     _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
               "%d frames tilt-clamped", len(pids), len(frames),
               float(np.median([len(v) for v in tl.states.values()])) if tl.states else 0,
