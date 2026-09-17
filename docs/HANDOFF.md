@@ -4119,3 +4119,17 @@ plant fails where the body moves across its fitted facing (43 deg median off the
 play) -- then the legs should swing along the velocity. v51 (gait as is + the clip ending at 523)
 is rendering for the footage verdict regardless: a leg cycle that looks like running beats a ruler.
 
+Play end, capped at the carrier's last confident keypoints (05:00): the box tracker outlives the
+detector's pose (boxes on 9 to 493, keypoints to 483), so play_end.json now says end 483, clip to 513.
+v51 went out under the earlier 523; the next render uses 513.
+
+Plant diagnosis on the runner (scratch probe_gait_plant, 137 moving frames): where the fitted facing
+is within 20 deg of the velocity (75 frames) the gait plants 24 % (ratio p50 0.75; the stance dips to
+0.08-0.27 every ~15 frames, a 2-cycles-a-second sprint with 0.1-s stances -- physically right; the
+< 0.3 criterion misses the stance edges, ~40 % is the ceiling at a sprinter's duty); where the facing
+sits 45-90 deg off the velocity (53 frames, 39 % of his run) it plants 0 % -- the legs swung along
+the fitted facing, sideways to the motion. The fitted yaw is the unreliable part (43 deg off the
+velocity at the median on this play). Fix: the legs' plane turns onto the direction of motion
+(`gait.leg_yaw`: a yaw about the pelvis's up axis composed with the hip flexion; a backpedal keeps the
+plane and cycles backwards). Re-measuring.
+

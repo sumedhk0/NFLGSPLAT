@@ -93,8 +93,13 @@ def main():
         # a tackled man is drawn standing for the frames the bridge fills after his last detection
         # (play 1: keypoints gone at 482, drawn to 493 while he lay under the tackler): the play is
         # dead no later than the sideline's last sight of him
-        seen = df[(df["cam"] == "sideline") & (df["global_player_id"] == pid)]["frame"]
-        last_seen = int(seen.max()) if len(seen) else last
+        # the box tracker outlives the detector's pose (play 1: boxes on 9 to 493, keypoints to 482),
+        # so the last sighting is the last frame with confident hips or ankles in the keypoint table
+        import pandas as pd
+
+        kp = pd.read_parquet(args.play_dir / "keypoints_2d.parquet")
+        kp = kp[(kp["cam"] == "sideline") & (kp["global_player_id"] == pid) & kp["joint"].isin([11, 12, 15, 16]) & (kp["conf"] >= 0.5)]
+        last_seen = int(kp["frame"].max()) if len(kp) else last
         how = "carrier stops" if end < min(last, last_seen) else ("carrier last seen" if last_seen < last else "carrier's track ends")
         end = min(end, last_seen)
         out.update(end=int(end), carrier=int(pid), carrier_travel_m=round(far, 2), carrier_last_frame=int(last),
