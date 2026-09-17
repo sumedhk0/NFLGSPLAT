@@ -2426,6 +2426,12 @@ pops to 4 but the census to 1.45. ADOPTED at 6: twenty-two fewer vanish-and-reap
 live play for 1.3 mm/frame^2 of root jitter at p90. 07l v53 and render v49 (chained behind v48)
 carry it. The 10 pops left are class (B), the twins.
 
+**07l v53 = v52 + the hole rule (21:40; the v49 render's timeline).** Live steps 5, hops 4 (same
+four), root jitter live p90 0.0115 -> 0.0125 (p99 0.0607 -> 0.0680), census live 1.32 (KC 10.96,
+BAL 11.41), whole clip 2.42 -> 2.46, hinges 0/0, joints p50/p90/p99 0.0107 / 0.0329 / 0.0689,
+14131 body-frames drawn (+173 over v52). The jitter cost is the readmitted filled frames; pops are
+the number that moved (32 -> 10) and 07l does not print them yet -- probe_pops does.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
