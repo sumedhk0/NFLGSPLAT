@@ -2533,6 +2533,19 @@ pipeline damps the legs (the fit's temporal term at 3.0, the stride-2 keyframes 
 the sigma-2 Gaussian). Measuring on the runner: each ankle keypoint's image speed against the hips'
 image speed, beside the same for the drawn body (scratch probe_plant).
 
+Result on the runner (322-372, 49 frames): the ankle KEYPOINTS' slower foot moves at 0.91 of the hips'
+image speed (planted under 0.3 on 8 % of frames); the drawn body's at 0.77 (4 %). The keypoint ankles
+jump 0.2 -> 15 px/frame from one frame to the next on a body whose hips move 3-6 px/frame: the
+detector's ankles on a blurred 100-px sprinter carry no stance phase, so the fit cannot have one,
+and the smoothers do not add or remove one. The skating is a DETECTOR LIMIT of the 2D keypoints;
+the remedy is on the gait side: detect stance from the fitted leg cycle (the drawn ankle's world
+speed dips to 0.3-0.4 of the pelvis speed every 8-15 frames on the runner) and lock the planted
+foot to the turf with a two-bone leg IK while the pelvis keeps its smoothed path -- the leg then
+extends behind the body as it passes over the foot, which is what running looks like. Cost to
+measure: the sideline lower joints (the locked foot leaves its noisy keypoint by the skate distance,
+0.1-0.3 m = 8-24 px), joint jitter; gain: the planted share (1 % -> ~40 %) and the render strip of
+the runner. Building it opt-in.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
