@@ -2432,6 +2432,16 @@ BAL 11.41), whole clip 2.42 -> 2.46, hinges 0/0, joints p50/p90/p99 0.0107 / 0.0
 14131 body-frames drawn (+173 over v52). The jitter cost is the readmitted filled frames; pops are
 the number that moved (32 -> 10) and 07l does not print them yet -- probe_pops does.
 
+**Twins on the live play (21:45, scratch probe_twins; drawn pairs within 0.45 m on >= 5 frames).**
+Ten pairs. Two are twins beyond doubt: 166-204 (KC/KC, 23 frames 406-431 at 0.15 m, both sideline-
+detected on 11 of them) and 1-40 (BAL/BAL, 19 frames 396-415 at 0.13 m, both detected on 9) -- two
+sideline boxes 0.13-0.15 m apart on one man for twenty frames, each drawn as a body. The rest sit
+at 0.27-0.43 m in the pile (19-166, 197-204, 19-37, 13-197, 82-166, 4-167, 17-204, 37-166), where two
+real men can stand that close. 08o folds twins found by ankle rays at 0.03-0.11 m; these two are just
+above it. Render-side rule to measure: a same-team pair within 0.2 m on >= 8 consecutive live frames
+is one man, and the id with fewer drawn frames loses the stretch (the rider rule for long ids);
+rulers = pops, census (a twin was a ghost in the count), hops, drawn body-frames.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
