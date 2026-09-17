@@ -2494,6 +2494,12 @@ the twins at 0.2-0.45 m still draw two bodies on one man for a few frames. Measu
 0.35 post-hoc (census decides: at 0.3 the pile pairs 19-166, 197-204, 19-37 come into reach, and
 those may be two men).
 
+Wider twin radii, post-hoc on the v54 timeline (21:50): 0.3 / 8 drops 51 more body-frames, 0.35 / 8
+87, 0.3 / 12 43 -- ALL of them pre-snap (21 197-212, 196 132-209) or after the whistle (205, 76, 168,
+198); on the live play nothing changes (drawn 3567, census 1.20, pops 11). The 1-40 double at 380-386
+is not a within-0.3-m-for-8-frames case: they touch and part. TWIN_M stays 0.2 / 8; that double is
+recorded as the residue.
+
 **RESUME PLAN (machine off 2026-09-16 ~10:10; nothing running that matters).** Shipped state on disk:
 poses_refit.json = the two-view hard-hinge cache (v47; .pre_tw3 is its copy), timeline with Gaussian
 sigma 2 on body_pose and sigma 4 on orientation (report v48), renders v39..v44 in diag. Scratch caches
