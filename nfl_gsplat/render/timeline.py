@@ -510,7 +510,12 @@ def orphan_ids(tl: "Timeline", team_of: dict, *, max_frames: int = RIDER_MAX_FRA
     return {pid for pid, n in frames.items() if n <= max_frames and not team_of.get(pid)}
 
 
-TWIN_M: float = 0.2          # two drawn bodies this close are one man
+TWIN_M: float = 0.4          # two drawn bodies this close are one man. 0.2 until 2026-09-18; measured on play 1
+                             # with the vouch, the quarterback rule and the hole fill on: play window 393-639 census
+                             # 1.409 -> 1.352 (0.3) -> 1.287 (0.4), steps 11 / hops 0 / jitter unchanged; pre-snap
+                             # 213-383 mean |KC-11| 0.409 -> 0.386 -> 0.345, exact-eleven frames 104 -> 105 -> 112,
+                             # frames at ten or fewer 37 -> 39 -> 40 (three frames lose a real man for eleven that
+                             # lose a double). The near-doubles at 0.26-0.6 m (15/168, 40/194) were the surplus.
 TWIN_MIN_RUN: int = 8        # ... when it lasts this many consecutive frames
 
 
