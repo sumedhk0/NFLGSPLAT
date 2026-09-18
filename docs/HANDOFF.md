@@ -5007,3 +5007,26 @@ render strips; overlay the ids on those frames (05q) to name the receiver; check
 to the tackle in tracks.parquet and fold the pieces (08z) when it does not; verify the render's catch against
 the raw frames, never against the render. The user's eyes were the ruler that caught this; the film was
 available the whole time.
+
+**v72 delivered and checked against the film (18:10 machine clock).** diag/play_001_v72_hifi_720.mp4 (the
+follow-camera clip, 215-615), diag/play_001_v72_sideline_blend.mp4 / _sideline_sbs.mp4 / _endzone_blend.mp4 (the
+blend launchers now cut the footage to play_end.json's own frames, so the streams are aligned). The check that
+matters, diag/catch/catch_check_v72.png (film | render from the sideline camera's pose | blend at 528, 544, 556,
+562, 570, 590, 606, 614): the receiver's avatar sits on the film's receiver from the route through the catch to
+the pile, the rendered ball is beside him at 556 and in his hands from 562, the tackle forms on the film's spot.
+The endzone camera (diag/catch/ez_catch_v72.png, the depth axis) shows the film's receiver wearing 83 -- Noah
+Gray, the id the fold named -- with the avatar half a body-width to his left at 556 and on him by 570; the ball
+in the film's air at 556 and in his hands at 562 where the render puts it. Render strips (review_v72/strips):
+the flight 540-556, the reach and catch 560-562, the carry, the wrap at 584-606. One flaw seen and fixed for
+v73: at the down frame the ball dropped to the turf beside the still-standing held body (08y wrote GROUND_Z on
+"down") and read as a fumble; 08y now keeps the holder and the carry height on held and down frames (05k draws
+the ball between the holder's wrists). Known and open: the pile is drawn standing (the detector loses the men on
+the ground, so the last standing pose is held; a lying pose for a tackled carrier is new work); the ball renders
+dark from the endzone pose (lighting), fine from the follow camera.
+
+**A fourth fragment of the receiver before the snap.** 74 is drawn 213-380 from the endzone track alone, then
+vanishes 381-393: id 39 (sideline 384-408, named "Bryan Cook" by a jersey vote) stands on his exact spot and the
+dedupe rightly keeps the sideline-backed body -- 39 is Noah Gray's sideline fragment before his own sideline track
+begins at 421 (the "odd id 39" of the census note above). 167 (411-420) is a merged two-man box (207 px tall) and
+41 a 23 px speck; neither is folded. v73 chain (scratchpad/chain_v73.sh, running): 08z --keep 74 --drop 39, 08y
+with --snap 395 (play_end's snap moved 393 -> 395 after the first fold), 08x, render + both blends.
