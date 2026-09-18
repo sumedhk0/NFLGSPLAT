@@ -4589,3 +4589,13 @@ whether a bias is correctable; (2) the end-of-play slides (53 steps > 0.25 m/fra
 while the sideline camera pans; the depth axis again); (3) 75, a 49-frame wrong-team fragment on a
 Kansas City lineman (kit -0.30); (4) the quarterback before the snap is inside the centre's box in
 both cameras and stays undrawn. The user's video verdict on v60 decides what matters first.
+
+**One endzone body, one sideline body (06:45).** The depth snap slides every sideline body along its
+ray to the nearest same-team endzone body; on the live window 116 of 4337 snaps had two claimants
+(205/211 x10, 72/81 x10, 49/76 x13, 40/194/198 x9, 79/211 x8 ...) -- two sideline ids pulled onto one
+man. depth_snap.EXCLUSIVE: the nearer ray keeps the body, the other stays at the sideline's own
+point. A/B: hops 2 -> 0, steps > 0.25 m/frame 53 -> 45, but BAL 10.98 -> 11.10, exactly 11/11 49 ->
+47, pile pairs 15 -> 17 (the unsnapped duplicate no longer lands on its man, so the twin rule's 0.2 m
+misses it and it stands 0.3-0.6 m off). Motion better, count worse: not shipped, EXCLUSIVE = False
+(knob exclusive on snap_ground; test added). 37/166 is not among the double claims -- that double
+is 166's own foot point, not a snap.

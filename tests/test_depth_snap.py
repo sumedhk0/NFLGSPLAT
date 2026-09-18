@@ -76,3 +76,16 @@ def test_the_other_camera_runs_on_its_own_clock():
     assert n == 1 and np.allclose(out[0][1], [0.0, -9.0])
     out, n = snap_ground(side, other, tr, frame_shift=0)
     assert n == 0
+
+
+def test_exclusive_snapping_gives_an_endzone_body_to_the_nearer_ray_only():
+    """Two sideline bodies whose rays both pass an endzone body: with EXCLUSIVE the nearer ray
+    snaps, the other keeps the sideline's own point; without it both slide onto the same man."""
+    tr = _Track(n=6)
+    side = {f: {1: np.array([0.0, -10.0]), 2: np.array([0.4, -10.0])} for f in range(6)}
+    other = {f: {7: np.array([0.05, -9.0])} for f in range(6)}          # one endzone body, 1 m further up both rays
+    both, n_both = snap_ground(side, other, tr, veto_window=0, exclusive=False)
+    one, n_one = snap_ground(side, other, tr, veto_window=0, exclusive=True)
+    assert n_both == 12 and n_one == 6
+    assert np.allclose(both[3][1][1], -9.0, atol=0.05) and np.allclose(both[3][2][1], -9.0, atol=0.05)
+    assert np.allclose(one[3][1][1], -9.0, atol=0.05) and np.allclose(one[3][2], [0.4, -10.0])

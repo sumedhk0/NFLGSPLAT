@@ -80,6 +80,21 @@ def snap_one(xy, centre, others, *, lateral_m: float = LATERAL_M, margin_m: floa
     return cands[0][2], cands[0][1]
 
 
+EXCLUSIVE: bool = False     # one endzone body snaps at most one sideline body per frame (the nearer ray keeps it;
+                            # measured 2026-09-18: 116 of 4337 live snaps had two claimants)
+
+
+def _lateral(xy, centre, e):
+    xy = np.asarray(xy, float); centre = np.asarray(centre, float); e = np.asarray(e, float)
+    u = xy - centre
+    n = float(np.linalg.norm(u))
+    if n < MIN_RAY_M:
+        return float("inf")
+    u = u / n
+    along = float((e - centre) @ u)
+    return float(np.linalg.norm((e - centre) - along * u))
+
+
 def veto_outlier_snaps(deltas: dict, *, window: int = VETO_WINDOW, veto_m: float = VETO_M) -> set:
     """``{(frame, pid)}`` of the snaps to drop from ``deltas`` ``{pid: {frame: along-ray correction}}``:
     a correction more than ``veto_m`` from the median of the same body's other snaps within
@@ -102,7 +117,7 @@ def veto_outlier_snaps(deltas: dict, *, window: int = VETO_WINDOW, veto_m: float
 
 def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, frame_shift: int = 0,
                 lateral_m: float = LATERAL_M, margin_m: float = MARGIN_M, max_move_m: float = MAX_MOVE_M,
-                veto_window: int = VETO_WINDOW, veto_m: float = VETO_M):
+                veto_window: int = VETO_WINDOW, veto_m: float = VETO_M, exclusive: bool | None = None):
     """``(ground, n_snapped)``: ``ground_side`` (frame -> {pid: xy}) with each body sliding along
     its own ray to the nearest body of ``ground_other`` (keyed by that camera's own frames, i.e.
     ``frame + frame_shift``). ``teams`` ``{pid: team}`` gates the match; an id whose team is
@@ -117,6 +132,7 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
             continue
         centre = camera_ground_centre(track, int(f))
         new: dict = {}
+        took_by: dict = {}
         for pid, xy in bodies.items():
             side = None if teams is None else teams.get(int(pid))
             others = ({q: e for q, e in others_all.items() if teams.get(int(q)) == side}
@@ -125,6 +141,18 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
                                    max_move_m=max_move_m)
             new[pid] = moved
             if took is not None:
+                took_by.setdefault(int(took), []).append((_lateral(xy, centre, others_all[took]), int(pid)))
+        if (EXCLUSIVE if exclusive is None else exclusive):
+            # one endzone body, one sideline body: the nearer ray keeps it, the others stay put
+            for q, claimants in took_by.items():
+                if len(claimants) > 1:
+                    claimants.sort()
+                    for _lat, pid in claimants[1:]:
+                        new[pid] = np.asarray(bodies[pid], float)
+                    took_by[q] = claimants[:1]
+        for q, claimants in took_by.items():
+            for _lat, pid in claimants:
+                moved, xy = new[pid], bodies[pid]
                 # the signed slide along the ray: positive away from the camera
                 deltas.setdefault(int(pid), {})[int(f)] = (float(np.linalg.norm(np.asarray(moved, float) - centre))
                                                            - float(np.linalg.norm(np.asarray(xy, float) - centre)))
