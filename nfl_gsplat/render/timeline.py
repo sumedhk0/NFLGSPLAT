@@ -544,7 +544,8 @@ def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_ru
     return drop
 
 
-BOX_TWIN_IOU: float | None = None   # sideline boxes of two same-team ids overlapping by this much are one man (off until measured)
+BOX_TWIN_IOU: float | None = 0.6    # sideline boxes of two same-team ids overlapping by this much are one man (2026-09-17: with
+                                    # the despike in, BAL 11.31 -> 11.21 on the live window, pile pairs 18 -> 16, hops 2 -> 2)
 BOX_TWIN_MIN_RUN: int = 8
 
 

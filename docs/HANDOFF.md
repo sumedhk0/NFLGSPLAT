@@ -4436,3 +4436,9 @@ Fix: timeline.yaw_from_motion backfills the frames before the first known headin
 smooths the heading circularly over 5 frames (YAW_SMOOTH). Test added. Numbers below.
 Measured (00:30): id 66 jitter max 0.84 -> 0.08, p90 0.21 -> 0.07; 194 unchanged (0.01). Ships;
 v58 (queued behind v57) carries the long-hole fix and this.
+
+**Box twins re-measured with the despike in, and SHIPPED (00:45).** Same rule, same pairs, live
+window 393-660: KC 10.98 -> 10.95, BAL 11.31 -> 11.21, exactly 11/11 37 -> 41, BAL >= 12 109 -> 100,
+pile pairs 18 -> 16 (285 -> 251 frames), hops 2 -> 2, steps > 0.25 55 -> 53; 82 body-frames left out
+whole play (194 490-497 and 198 489-509 on 40's man, 170 598-605, 27 and 195 pre-clip). The two
+hops it cost at 23:00 were spikes the despike now removes. BOX_TWIN_IOU = 0.6.
