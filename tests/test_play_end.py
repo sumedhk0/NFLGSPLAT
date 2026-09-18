@@ -66,6 +66,18 @@ def test_carrier_by_travel_and_stop_frame():
     assert m.stop_frame(byf_still, 0) == 1
 
 
+def test_dead_ball_from_the_balls_ground_frame_after_the_release_only():
+    m = _load()
+    frames = {str(f): {"src": s} for f, s in [(300, "centre"), (393, "snap"), (400, "passer"), (527, "flight"),
+                                              (583, "carried"), (639, "ground"), (640, "ground")]}
+    assert m.dead_from_ball({"release": 527, "frames": frames}) == 639
+    # a "ground" frame before the release never ends the play
+    frames["100"] = {"src": "ground"}
+    assert m.dead_from_ball({"release": 527, "frames": frames}) == 639
+    assert m.dead_from_ball({"release": 527, "frames": {"600": {"src": "carried"}}}) is None
+    assert m.dead_from_ball({}) is None
+
+
 def test_dead_ball_where_the_crowd_stops_and_the_clip_end_when_it_never_does():
     m = _load()
     rng = np.random.default_rng(1)

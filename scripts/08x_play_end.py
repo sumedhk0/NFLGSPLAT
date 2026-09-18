@@ -15,6 +15,10 @@ the snap at 300 chose play 1's motion man and ended the clip at 513, two seconds
 snap (~395) and in the middle of a pass play. The crowd's motion is the ruler; the footage checks it.
 
   08x_play_end.py --play-dir P [--snap F] [--tail 30] [--carrier ID] [--end FRAME] [--dry-run]
+
+The end, in order: --end as given; --carrier's stop; the ball on the ground (08y's ball.json, its first
+``down``/``ground`` frame after the release, plus DEAD_AFTER_BALL) when that comes before the crowd
+stopping; the crowd stopping; else the clip's last frame.
 """
 from __future__ import annotations
 
@@ -72,6 +76,21 @@ START_BEFORE: int = 180       # the clip starts this many frames (3 s) before th
 DEAD_SHARE: float = 0.4       # the play is dead once fewer than this share of the bodies move ...
 DEAD_HOLD: int = 30           # ... for this many consecutive frames ...
 DEAD_EARLIEST: int = 60       # ... looked for from this many frames after the snap
+DEAD_AFTER_BALL: int = 8      # the play is dead this many frames after the ball is on the ground (08y's ball.json):
+                              # the tackle finishes, then the clip ends. Play 1: the crowd never stops before the
+                              # clip does (the last 30 frames cannot hold a 30-frame test), the ball is down at 639.
+
+
+def dead_from_ball(ball: dict) -> int | None:
+    """The dead-ball frame from 08y's ball path: the first frame after the release on which the ball is
+    ``down`` or on the ``ground`` (the carrier is down, or the chain lost him in the pile). The clip then
+    runs DEAD_AFTER_BALL more frames for the tackle to finish. None when the ball never lands or there
+    is no path."""
+    frames = ball.get("frames") or {}
+    release = ball.get("release")
+    downs = sorted(int(f) for f, r in frames.items() if r.get("src") in ("down", "ground")
+                   and (release is None or int(f) > int(release)))
+    return downs[0] if downs else None
 
 
 def dead_from_motion(pos_by_id: dict, snap: int, *, moving_m: float = MOVING_M, share: float = DEAD_SHARE,
@@ -173,8 +192,12 @@ def main():
             end = min(end, last_seen)
             out.update(end=int(end), carrier=pid, carrier_last_frame=int(last), carrier_last_seen=int(last_seen), how=how)
         else:
+            ball_file = args.play_dir / "ball.json"
+            end_ball = dead_from_ball(json.loads(ball_file.read_text())) if ball_file.exists() else None
             end = dead_from_motion(pos, args.snap)
-            if end is None:
+            if end_ball is not None and (end is None or end_ball < end):
+                out.update(end=int(min(end_ball, last_frame)), tail=int(DEAD_AFTER_BALL), how="ball down (08y)")
+            elif end is None:
                 out.update(end=int(last_frame), tail=0, how="clip end (the crowd runs to the last frame)")
             else:
                 out.update(end=int(end), how="crowd stops")

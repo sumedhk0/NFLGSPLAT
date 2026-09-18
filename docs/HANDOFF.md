@@ -4693,3 +4693,31 @@ direction trades against the focal length (refine_paint's documented valley) and
 (the far-sideline row drifted 30/51/66 px at 620-628 while the yard lines stayed at 2 px). The fix needs a
 ROW constraint per frame: the far sideline while it is in frame, the hash rows, and the players' common-mode
 depth motion between frames. cameras.npz restored (backup cameras_pre_tail.npz).
+
+**Tail cameras, attempt 2 (03:40): REJECTED on the timeline too.** refine_tail2.py chained from 628 with the zoom
+scanned per frame (coarse 0.5 %, then 0.05 %) and chosen by the players' common-mode depth step on the box
+bottoms (+ far sideline + box heights), the rotation refined to the yard lines with the focal fixed: per frame
+the box common-mode reads 0.00-0.02 and the far sideline stays within 12 px to 640, but the timeline under it has
+99 fast steps (53) and a whole-scene slide of -0.20/-0.29/-0.20 m/frame at 638-644. Two causes seen: the
+far-sideline term picked the crowd at 642 (+60 px) once the line reached the image's top edge, and the 3-dof
+rotation refit on the yard lines leaves the TILT free (a pencil of near-vertical lines pins pan, not tilt): the
+smoothed track has a 0.127 deg step at 640 = 17 px at fx 8000 = 0.7 m of far-field depth in one frame. Next:
+pan from the yard lines only (1-dof), zoom and tilt from the bodies' depth steps (their median and their slope
+against depth), roll held; the far sideline as a check, not a term. cameras.npz restored.
+
+**Id 75 is a real man (03:35).** diag/twin75/: the footage shows a white BAL rusher engaged with the red KC
+lineman 48 from 528 to 592, 75's skeleton on the white jersey, 48's on the red one; their boxes overlap (IoU
+p50 0.52, box bottoms 0 px apart) because they are locked together, not because they are one man. "75 = a
+wrong-team fragment" is withdrawn; a cross-team box-twin rule would have deleted a real player. The census
+already counted him right (BAL 10.97).
+
+**v63 (03:30): the clip ends at the dead ball.** 08x has a third end rule between the carrier and the crowd:
+the ball on the ground (08y's ball.json, its first ``down``/``ground`` frame after the release: play 1 = 639,
+the receiver tackled) is the dead ball, and the clip runs DEAD_AFTER_BALL = 8 more frames for the tackle to
+finish (play_end.json: end 639, tail 8, "ball down (08y)"). The crowd rule could not fire on play 1: the clip
+ends 21 frames after the tackle and the rule needs 30. The user's standing instruction: "we can end the clip
+when the play is dead". Effect: the camera-drift window 647-660 (grid 44-77 px) is no longer drawn at all,
+632-647 (12-40 px) still is. 07l on the play (393-639): steps 23 (53 on 393-660), hops 2, census 1.40
+(KC 11.39, BAL 11.12), planted 17 %, joints jitter p99 0.36. diag/play_001_v63_hifi_720.mp4 = v62's frames
+to 647 (the frames are unchanged; no re-render). Next inside the play: the 632-639 camera drift (78's slide),
+the carrier's hands on the ball, 37/166 depth.
