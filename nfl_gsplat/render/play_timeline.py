@@ -277,7 +277,22 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
                 if abs(g[0]) < 60 and abs(g[1]) < 30:
                     out.setdefault(f, {}).setdefault(pid, []).append(np.asarray(g[:2], float))
                     seen.setdefault(f, {}).setdefault(pid, []).append(str(cam))
-    ground = {f: {pid: np.mean(v, axis=0) for pid, v in d.items()} for f, d in out.items()}
+    if FUSE_AXIS and with_views:
+        # each camera is precise ACROSS its own line of sight and poor along it: the sideline (looking along
+        # the field's y) gives x, the endzone (looking along x) gives y. The mean of the two ground points
+        # halves each camera's depth error; taking each axis from the camera that measures it removes it.
+        ground = {}
+        for f, d in out.items():
+            ground[f] = {}
+            for pid, v in d.items():
+                cams = seen[f][pid]
+                if len(v) == 2 and set(cams) == {"sideline", "endzone"}:
+                    side = v[cams.index("sideline")]; endz = v[cams.index("endzone")]
+                    ground[f][pid] = np.array([side[0], endz[1]], float)
+                else:
+                    ground[f][pid] = np.mean(v, axis=0)
+    else:
+        ground = {f: {pid: np.mean(v, axis=0) for pid, v in d.items()} for f, d in out.items()}
     if not with_views:
         return ground
     views = {f: {pid: tuple(sorted(set(v))) for pid, v in d.items()} for f, d in seen.items()}
@@ -289,6 +304,9 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
 # bodies 1.5-3 m toward the camera, feet 50-76 px below the real ones; the box
 # point sits 0.52 m from a right triangulated pelvis at the median, 1.29 p90).
 MAX_REFIT_SHIFT_M = 1.0
+FUSE_AXIS: bool = False       # two-view frames: x from the sideline, y from the endzone. Measured 2026-09-18: NO effect on any
+                              # ruler, because place_from_refit then puts every two-view frame on the refit's pelvis; the
+                              # across-field offsets the endzone blend shows are the refit's own. Kept for a play without a refit.
 
 
 # The refit's pelvis may sit a metre from the box point along the sideline's line of sight (depth the two views
