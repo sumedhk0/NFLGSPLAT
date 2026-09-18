@@ -289,3 +289,55 @@ def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_h
                 out[f][pid] = line
                 moved.append(d)
     return out, moved
+
+
+FORMATION_STILL_M: float | None = None   # a man whose pre-snap sideline points stay within this of their median is set:
+                                         # drawn there from the clip start to the snap (off until measured, 2026-09-18)
+FORMATION_MIN_FRAMES: int = 5
+FORMATION_MARGIN: int = 10               # frames before the snap the hold stops (the line moves before the ball does)
+
+
+FORMATION_EMPTY_M: float = 0.8           # a held spot must be this far from every sideline body that frame
+
+
+def formation_hold(ground, side_ground, *, start: int, snap: int, still_m: float | None = FORMATION_STILL_M,
+                   min_frames: int = FORMATION_MIN_FRAMES, margin: int = FORMATION_MARGIN,
+                   empty_m: float = FORMATION_EMPTY_M):
+    """``ground`` with every set man drawn at his median pre-snap sideline point on the pre-snap frames
+    the sideline missed him on. Set: at least ``min_frames`` sideline points in [start, snap - margin]
+    that all lie within ``still_m`` of their median (a man in motion, a shifting defender or a
+    switched track fails this). Returns ``(ground, {pid: frames_added})``.
+
+    WHY. Before the snap nobody moves for seconds, yet play 1's line was drawn by fragments that
+    came and went (KC 8-10 of 11 on 213-300: 82 drawn 300-307, 31 at 220, 166 from 291), each man
+    flickering in and out of a formation that stood still. Where the sideline has a man set, it has
+    him for the whole window; the tracker's gaps are its own, not the man's."""
+    out = {f: dict(d) for f, d in ground.items()}
+    added: dict = {}
+    if still_m is None:
+        return out, added
+    lo, hi = int(start), int(snap) - int(margin)
+    pts: dict = {}
+    for f, d in side_ground.items():
+        if lo <= int(f) <= hi:
+            for pid, xy in d.items():
+                pts.setdefault(int(pid), []).append(np.asarray(xy, float))
+    for pid, arr in pts.items():
+        if len(arr) < min_frames:
+            continue
+        a = np.stack(arr)
+        med = np.median(a, axis=0)
+        if np.max(np.linalg.norm(a - med, axis=1)) > still_m:
+            continue
+        for f in range(lo, hi + 1):
+            if pid in out.setdefault(f, {}):
+                continue
+            # only an EMPTY spot is filled: a fragment that sat on another man (a rider) held for
+            # the whole window became a duplicate of him (play 1 id 32: BAL 11.0 -> 12.05 pre-snap)
+            near = min((float(np.linalg.norm(np.asarray(q, float) - med)) for j, q in side_ground.get(f, {}).items() if int(j) != pid),
+                       default=np.inf)
+            if near < empty_m:
+                continue
+            out[f][pid] = med.copy()
+            added[pid] = added.get(pid, 0) + 1
+    return out, added

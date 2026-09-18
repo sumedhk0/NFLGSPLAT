@@ -196,3 +196,28 @@ def test_hold_holes_moves_an_endzone_filled_hole_onto_the_sideline_line_only_whe
     assert len(held2) == 2 and np.allclose(out2[12][1], [1.2, 0.0]) and np.allclose(out2[37][1], [3.7, 0.0])
     assert 1 not in out2[20] and sum(1 for m in moved2 if not np.isfinite(m)) == 1     # the middle frame is left out
     assert hold_holes(ground, side, hold_m=None)[1] == []
+
+
+def test_formation_hold_fills_a_set_man_and_leaves_a_moving_one():
+    import numpy as np
+
+    from nfl_gsplat.render.endzone_only_rule import formation_hold
+
+    # id 1 set at (5, 0) seen on 10 scattered pre-snap frames; id 2 in motion across the field; snap 100, clip from 20
+    side = {}
+    for f in (25, 30, 41, 50, 55, 61, 70, 77, 80, 85):
+        side.setdefault(f, {})[1] = np.array([5.0, 0.0]) + np.random.default_rng(f).normal(scale=0.05, size=2)
+    for f in range(20, 91):
+        side.setdefault(f, {})[2] = np.array([0.0, 0.1 * f])
+    ground = {f: dict(d) for f, d in side.items()}
+    out, added = formation_hold(ground, side, start=20, snap=100, still_m=0.3)
+    assert set(added) == {1} and added[1] == (90 - 20 + 1) - 10
+    assert all(1 in out[f] for f in range(20, 91)) and np.allclose(out[24][1], np.median([side[f][1] for f in side if 1 in side[f]], axis=0))
+    assert all(2 in out[f] for f in range(20, 91)) and 2 not in out.get(95, {})
+    assert formation_hold(ground, side, start=20, snap=100, still_m=None)[1] == {}
+    # a spot another sideline body occupies is not filled: id 3 set at (0, 2) is on id 2's path there
+    side3 = {f: dict(d) for f, d in side.items()}
+    for f in (25, 30, 41, 50, 55, 61):
+        side3[f][3] = np.array([0.0, 2.0])
+    out3, added3 = formation_hold({f: dict(d) for f, d in side3.items()}, side3, start=20, snap=100, still_m=0.3, empty_m=0.8)
+    assert added3.get(3, 0) < (90 - 20 + 1) - 6 and all(3 not in out3[f] for f in range(20, 27) if abs(0.1 * f - 2.0) < 0.8 and 3 not in side3.get(f, {}))

@@ -352,6 +352,17 @@ def poses_from_caches(refit, side_blob, tracks, model):
     return out
 
 
+def play_start(play_dir) -> int | None:
+    """The clip's first frame from ``<play-dir>/play_end.json`` (08x ``start``), or None."""
+    import json
+
+    f = Path(play_dir) / "play_end.json"
+    if not f.exists():
+        return None
+    d = json.loads(f.read_text())
+    return int(d["start"]) if d.get("start") is not None else None
+
+
 def play_snap(play_dir) -> int | None:
     """The snap frame from ``<play-dir>/play_end.json`` (08x), or None: before it nobody moves, which
     the span rule uses to tell an endzone-placed ghost from a set man."""
@@ -370,7 +381,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        span_hold_m: float | None = None, span_presnap: str | None = None,
                        hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0,
                        despike_m: float | None = -1.0, weak_kit_margin: float | None = -1.0,
-                       impossible_m: float | None = -1.0):
+                       impossible_m: float | None = -1.0, formation_still_m: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -451,6 +462,19 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         from nfl_gsplat.render.endzone_only_rule import hold_holes
 
         ground, hole_moves = hold_holes(ground, side_ground, hold_m=hole_hold_m)
+        # a set man keeps his spot from the clip start to the snap (endzone_only_rule.formation_hold)
+        from nfl_gsplat.render import endzone_only_rule as _ezr
+
+        if formation_still_m is not None and formation_still_m < 0:
+            formation_still_m = _ezr.FORMATION_STILL_M
+        snap_f = play_snap(P)
+        if formation_still_m is not None and snap_f is not None:
+            start_f = play_start(P)
+            ground, added = _ezr.formation_hold(ground, side_ground, start=start_f if start_f is not None else min(ground),
+                                           snap=snap_f, still_m=float(formation_still_m))
+            if added:
+                print(f"set men held at their pre-snap spot: {sum(added.values())} body-frames on {len(added)} ids "
+                      + str(dict(sorted(added.items()))))
         if hole_moves:
             held = [m for m in hole_moves if np.isfinite(m)]
             print(f"endzone-filled hole frames held to the sideline's line: {len(held)} "

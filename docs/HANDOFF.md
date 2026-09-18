@@ -4511,3 +4511,28 @@ drop the frames) measured: steps 53 -> 3 and hops 2 -> 1, but 97 body-frames of 
 38, 71, 78, 79, 157, 180, 185, 212), KC 10.86 -> 10.66, BAL 10.98 -> 10.82, exactly 11/11 49 -> 47:
 it empties real bodies at the end of the play, where the camera pans and the depth is worst.
 IMPOSSIBLE_M = None (opt-in). The slides themselves are a placement-depth problem for a later day.
+
+**v59 delivered (04:10): diag/play_001_v59_hifi_720.mp4 = v58 + the lying-frame smoothing + the pre-snap
+join window.** The tackler 184 stays prone 640-660 (scratchpad/review_v59/strips/render_184_f640.png),
+the second Baltimore man 28 arrives lying at 654; sheets as v58. v60 (unreadable-kit fragments out)
+next.
+
+**Before the snap Kansas City has nine or ten men, and the quarterback is one of the missing (04:40).**
+Census on 213-383 (the clip's first three seconds): KC 9.64 / BAL 11.00, exactly 11/11 on 32 of 171
+frames, KC <= 10 on 132. The zoomed both-camera overlay at 260 (diag/presnap_v60/formation_260_zoom.jpg)
+shows Mahomes (15) behind the centre with endzone keypoints and no body: the sideline camera sees
+him on five frames (id 33, role QB, 281-288) behind the line, and his endzone-only ids are dropped
+as ghosts because the spot is inside the sideline image. The line itself is drawn by fragments
+that come and go (19, 31, 82, 166; 82 drawn 300-307) while every man stands still.
+Rule tried: formation_hold (endzone_only_rule) -- a man whose pre-snap sideline points stay within
+still_m of their median is drawn there from the clip start to snap-10 wherever the sideline missed
+him. First cut (0.3 m): KC 9.64 -> 10.04 (33 held 166 frames: the QB), but BAL 11.00 -> 12.05 --
+fragment 32, a rider on another man, held for 152 frames became a long duplicate the rider rule
+no longer sees. Keeping the endzone-only ids on top added nothing (10.08 / 12.24, pops 14 -> 28).
+Second cut: only an EMPTY spot is filled (no sideline body within 0.8 m that frame). Numbers below.
+Measured (04:50): empty-spot hold at 0.3 / 0.5 m: KC 9.64 -> 9.64 (the QB's spot is 0.7 m behind the
+centre, never "empty"), BAL 11.00 -> 11.79 (32, 34, 36, 171 still extended: fragments a metre from
+the men they double), exactly 11/11 32 -> 0. REJECTED both ways; FORMATION_STILL_M = None (the code
+stays as the measured alternative). The pre-snap deficit is the quarterback occluded from the
+sideline plus a line drawn by fragments, and the honest fix is in identity/pairing (an endzone-only
+id at the spot the roles call the QB's, paired to 33's five frames), not in the timeline.
