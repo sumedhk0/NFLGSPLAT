@@ -45,6 +45,13 @@ MIN_RAY_M: float = 1.0      # a body this close to the camera has no usable ray 
 # left unsnapped moved bodies that were right where they stood.
 VETO_WINDOW: int = 6
 VETO_M: float = 1.0
+# A run of snaps onto the WRONG man agree with each other and pass the outlier veto; what they do is
+# make the body jump from where it stood the frame before (veto_jumps). Measured on play 1's play window
+# 393-639 (2026-09-18): steps > 0.25 m/frame 23 -> 11, hops 2 -> 0, root jitter p90 0.0301 -> 0.0284 and
+# p99 0.0908 -> 0.0721, census 1.397 -> 1.409 (BAL +0.04); at 0.6 m steps 10 but census 1.47 (KC +0.10:
+# right snaps refused). The sideline reprojection cannot see a slide along the ray, and the vetoed frames
+# have no endzone row of their own, so no reprojection ruler moves.
+JUMP_M: float | None = 1.0
 
 
 def camera_ground_centre(track, f) -> np.ndarray:
@@ -117,7 +124,8 @@ def veto_outlier_snaps(deltas: dict, *, window: int = VETO_WINDOW, veto_m: float
 
 def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, frame_shift: int = 0,
                 lateral_m: float = LATERAL_M, margin_m: float = MARGIN_M, max_move_m: float = MAX_MOVE_M,
-                veto_window: int = VETO_WINDOW, veto_m: float = VETO_M, exclusive: bool | None = None):
+                veto_window: int = VETO_WINDOW, veto_m: float = VETO_M, exclusive: bool | None = None,
+                jump_m: float | None = None):
     """``(ground, n_snapped)``: ``ground_side`` (frame -> {pid: xy}) with each body sliding along
     its own ray to the nearest body of ``ground_other`` (keyed by that camera's own frames, i.e.
     ``frame + frame_shift``). ``teams`` ``{pid: team}`` gates the match; an id whose team is
@@ -160,5 +168,35 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
     bad = veto_outlier_snaps(deltas, window=veto_window, veto_m=veto_m) if veto_window > 0 else set()
     for f, pid in bad:
         out[f][pid] = ground_side[f][pid]
+    jump_m = JUMP_M if jump_m is None else jump_m
+    if jump_m is not None:
+        bad |= veto_jumps(out, ground_side, deltas, bad, jump_m=jump_m)
     n_snap = sum(len(v) for v in deltas.values()) - len(bad)
     return out, n_snap
+
+
+def veto_jumps(out: dict, ground_side: dict, deltas: dict, already: set, *, jump_m: float, reach: int = 3) -> set:
+    """Undo (in ``out``) every snap that makes a body JUMP: its snapped point more than ``jump_m``
+    from the same body's point on the previous drawn frame (within ``reach`` frames) while its
+    unsnapped point is within ``jump_m`` of it. Returns the ``{(frame, pid)}`` undone. The outlier
+    veto compares a snap with the body's other snaps; a run of snaps onto the wrong man agree with
+    each other and pass it (play 1 id 28 at 588-594: +2.0, +1.8, +1.7, +1.2 m along its ray, onto a
+    teammate 2 m deeper, with no endzone row of its own). Frames are walked in order, so a vetoed
+    frame's raw point is what the next frame is judged against."""
+    by_pid: dict = {}
+    for f, bodies in out.items():
+        for pid, xy in bodies.items():
+            by_pid.setdefault(int(pid), {})[int(f)] = xy
+    undone = set()
+    for pid, byf in by_pid.items():
+        prev = None
+        for f in sorted(byf):
+            xy = np.asarray(byf[f], float)
+            if prev is not None and f - prev[0] <= reach and f in deltas.get(pid, {}) and (f, pid) not in already:
+                raw = np.asarray(ground_side[f][pid], float)
+                if np.linalg.norm(xy - prev[1]) > jump_m >= np.linalg.norm(raw - prev[1]):
+                    out[f][pid] = ground_side[f][pid]
+                    xy = raw
+                    undone.add((int(f), int(pid)))
+            prev = (f, xy)
+    return undone

@@ -89,3 +89,19 @@ def test_exclusive_snapping_gives_an_endzone_body_to_the_nearer_ray_only():
     assert n_both == 12 and n_one == 6
     assert np.allclose(both[3][1][1], -9.0, atol=0.05) and np.allclose(both[3][2][1], -9.0, atol=0.05)
     assert np.allclose(one[3][1][1], -9.0, atol=0.05) and np.allclose(one[3][2], [0.4, -10.0])
+
+
+def test_veto_jumps_undoes_a_run_of_snaps_that_make_the_body_jump_but_keeps_a_continuous_one():
+    from nfl_gsplat.render.depth_snap import veto_jumps
+
+    # a body walking along y at 0.1 m/frame; from frame 5 the snap moves it 2 m deeper (the wrong man)
+    side = {f: {28: np.array([0.0, 0.1 * f])} for f in range(10)}
+    out = {f: {28: np.array([0.0, 0.1 * f + (2.0 if f >= 5 else 0.0)])} for f in range(10)}
+    deltas = {28: {f: 2.0 for f in range(5, 10)}}
+    undone = veto_jumps(out, side, deltas, set(), jump_m=0.6)
+    assert undone == {(f, 28) for f in range(5, 10)}
+    assert all(np.allclose(out[f][28], side[f][28]) for f in range(10))
+    # a snap that moves a body 0.4 m stays (no jump), and a body first drawn on a snapped frame stays too
+    out2 = {f: {7: np.array([0.0, 0.1 * f + (0.4 if f >= 5 else 0.0)]), 9: np.array([1.0, 3.0])} for f in range(5, 10)}
+    side2 = {f: {7: np.array([0.0, 0.1 * f]), 9: np.array([1.0, 1.0])} for f in range(5, 10)}
+    assert veto_jumps(out2, side2, {7: {f: 0.4 for f in range(5, 10)}, 9: {5: 2.0}}, set(), jump_m=0.6) == set()

@@ -4813,3 +4813,14 @@ to the turf where the chain lost him (the "ground" segment) and lies there to 64
 surplus KC ids in the pocket after the throw (diag/surplus/): 211 and 170 are both real red-shirted linemen
 blocking Baltimore's 99 and 98 -- the play-window KC 11.4 is crowding and near-doubles in the pocket (12/76
 0.3 m apart, 79/170 0.7 m, 205/211 0.8 m), the closed "no removal route" thread, not wrong-team labels.
+
+**The in-play fast steps were the depth snap onto the wrong man (06:40 machine clock).** Tracing id 28's
+fast steps (584-587, 0.3 m/frame across the field): no ankle keypoints there, the box point moves 1.1 m
+over ten frames, the timeline 2.5 m -- depth_snap.snap_ground moved him +2.0 m along his ray at 588 (and
++1.8, +1.7, +1.2 after) onto a teammate's endzone row (28 has none of his own; the footage shows him
+engaged with a red blocker beside 75/48), and id 157 -2.0 m at 548. The outlier veto compares a snap with
+the body's OTHER snaps, and a run onto the wrong man agrees with itself. New veto_jumps (JUMP_M 1.0,
+default on): a snap whose result lies more than 1 m from the body's point on the previous drawn frame,
+while the raw point lies within 1 m of it, is undone, frames walked in order. Play window 393-639: steps
+23 -> 11, hops 2 -> 0, root jitter p90 0.0301 -> 0.0284 / p99 0.0908 -> 0.0721, census 1.397 -> 1.409;
+0.6 m: steps 10 but census 1.47 (right snaps refused). v68 = v67 + this.
