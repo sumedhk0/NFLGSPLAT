@@ -4568,3 +4568,13 @@ measured on 164 and dropped. The sideline never sees him behind the line (33's f
 the exception). This is an identity thread: link 22 -> 93/95 -> 164 -> 33 -> 49 as one man from the
 formation (the endzone box above the centre, the role), and place him 1.2 m behind the centre
 while he is under centre, then by the sideline once it has him. Not a timeline rule; next session.
+
+**The quarterback before the snap cannot be drawn from data (06:05).** Role-restricted hold tried:
+33 (role QB, five sideline frames) held 124 frames, drawn 51 after the span rule, KC pre-snap 9.64
+-> 9.94 -- but 33 stands at y -5.3, five metres beside the centre (y 0.0), not behind him: the role
+came from the formation rule, not from where he is. Endzone track 164, the only box at the centre's
+spot besides the centre's, IS the centre (top 405 vs 397, bottom 628 vs 637, cx 922 vs 927, a second
+track of one man), and no id has a keypoint at the quarterback's helmet at endzone 245: the
+detector merged him into the centre's box in both cameras. A body there would be invented.
+FORMATION_ROLE_STILL_M = None (the code stays, measured). The pre-snap deficit is now understood
+and left: KC shows ten men for three seconds because the eleventh is inside another man's box.

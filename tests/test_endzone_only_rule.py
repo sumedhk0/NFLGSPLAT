@@ -221,3 +221,17 @@ def test_formation_hold_fills_a_set_man_and_leaves_a_moving_one():
         side3[f][3] = np.array([0.0, 2.0])
     out3, added3 = formation_hold({f: dict(d) for f, d in side3.items()}, side3, start=20, snap=100, still_m=0.3, empty_m=0.8)
     assert added3.get(3, 0) < (90 - 20 + 1) - 6 and all(3 not in out3[f] for f in range(20, 27) if abs(0.1 * f - 2.0) < 0.8 and 3 not in side3.get(f, {}))
+
+
+def test_formation_hold_only_ids_restricts_the_hold():
+    import numpy as np
+
+    from nfl_gsplat.render.endzone_only_rule import formation_hold
+
+    side = {}
+    for f in (25, 30, 41, 50, 55):
+        side.setdefault(f, {})[1] = np.array([5.0, 0.0])
+        side.setdefault(f, {})[2] = np.array([9.0, 0.0])
+    ground = {f: dict(d) for f, d in side.items()}
+    out, added = formation_hold(ground, side, start=20, snap=100, still_m=0.5, min_frames=3, only_ids={1})
+    assert set(added) == {1} and all(2 not in out[f] for f in range(20, 91) if f not in side)

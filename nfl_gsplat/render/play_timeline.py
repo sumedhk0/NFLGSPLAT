@@ -54,6 +54,16 @@ def clip_offset(play_dir) -> int:
     return int(json.loads(f.read_text())["offset"]) if f.exists() else 0
 
 
+def _roles(play_dir) -> dict:
+    """pid -> role from identity_resolved.pkl (08n), or {}."""
+    import pickle
+
+    f = Path(play_dir) / "identity_resolved.pkl"
+    if not f.exists():
+        return {}
+    return {int(p): r for p, r in (pickle.load(open(f, "rb")).get("roles", {}) or {}).items() if r}
+
+
 def _named(play_dir) -> dict:
     """pid -> True when identity_resolved.pkl gives the id a jersey number or a role."""
     import pickle
@@ -475,6 +485,19 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             if added:
                 print(f"set men held at their pre-snap spot: {sum(added.values())} body-frames on {len(added)} ids "
                       + str(dict(sorted(added.items()))))
+        # ... and the roles it is right for regardless (the quarterback under centre, FORMATION_ROLES)
+        if snap_f is not None and _ezr.FORMATION_ROLE_STILL_M is not None and _ezr.FORMATION_ROLES:
+            role_of = _roles(P)
+            role_ids = {pid for pid, ro in role_of.items() if ro in _ezr.FORMATION_ROLES}
+            if role_ids:
+                start_f = play_start(P)
+                ground, added = _ezr.formation_hold(ground, side_ground, start=start_f if start_f is not None else min(ground),
+                                               snap=snap_f, still_m=_ezr.FORMATION_ROLE_STILL_M,
+                                               min_frames=_ezr.FORMATION_ROLE_MIN_FRAMES, empty_m=_ezr.FORMATION_ROLE_EMPTY_M,
+                                               only_ids=role_ids)
+                if added:
+                    print(f"role-held at the pre-snap spot ({'/'.join(_ezr.FORMATION_ROLES)}): "
+                          + ", ".join(f"{pid} {n} frames" for pid, n in sorted(added.items())))
         if hole_moves:
             held = [m for m in hole_moves if np.isfinite(m)]
             print(f"endzone-filled hole frames held to the sideline's line: {len(held)} "

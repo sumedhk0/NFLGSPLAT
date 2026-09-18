@@ -298,11 +298,20 @@ FORMATION_MARGIN: int = 10               # frames before the snap the hold stops
 
 
 FORMATION_EMPTY_M: float = 0.8           # a held spot must be this far from every sideline body that frame
+# The general hold was measured and rejected (fragments a metre from the men they double get held
+# too, 2026-09-18). The one role it is right for is the quarterback under centre: the sideline sees
+# him for a handful of frames behind the line (play 1: id 33, five frames), his spot is fixed, and
+# no fragment doubles him there -- so for these roles the hold runs with its own bar, 0.4 m (the
+# centre stands 0.7 m in front of him and must not count as the spot being taken).
+FORMATION_ROLES: tuple = ("QB",)
+FORMATION_ROLE_STILL_M: float | None = None   # off: play 1 id 33 (role QB) stands 5 m beside the centre, not behind him (2026-09-18)
+FORMATION_ROLE_EMPTY_M: float = 0.4
+FORMATION_ROLE_MIN_FRAMES: int = 3
 
 
 def formation_hold(ground, side_ground, *, start: int, snap: int, still_m: float | None = FORMATION_STILL_M,
                    min_frames: int = FORMATION_MIN_FRAMES, margin: int = FORMATION_MARGIN,
-                   empty_m: float = FORMATION_EMPTY_M):
+                   empty_m: float = FORMATION_EMPTY_M, only_ids=None):
     """``ground`` with every set man drawn at his median pre-snap sideline point on the pre-snap frames
     the sideline missed him on. Set: at least ``min_frames`` sideline points in [start, snap - margin]
     that all lie within ``still_m`` of their median (a man in motion, a shifting defender or a
@@ -323,6 +332,8 @@ def formation_hold(ground, side_ground, *, start: int, snap: int, still_m: float
             for pid, xy in d.items():
                 pts.setdefault(int(pid), []).append(np.asarray(xy, float))
     for pid, arr in pts.items():
+        if only_ids is not None and pid not in only_ids:
+            continue
         if len(arr) < min_frames:
             continue
         a = np.stack(arr)
