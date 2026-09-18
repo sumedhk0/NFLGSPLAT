@@ -52,6 +52,9 @@ VETO_M: float = 1.0
 # right snaps refused). The sideline reprojection cannot see a slide along the ray, and the vetoed frames
 # have no endzone row of their own, so no reprojection ruler moves.
 JUMP_M: float | None = 1.0
+JUMP_REACH: int = 3         # the previous drawn frame must lie within this many frames to judge a jump
+                            # (8 and 15 measured 2026-09-18: steps 11 -> 15 for census 1.409 -> 1.405 -- a body
+                            # returning after a hole is judged against a stale point; 3 keeps the step ruler)
 
 
 def camera_ground_centre(track, f) -> np.ndarray:
@@ -175,7 +178,7 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
     return out, n_snap
 
 
-def veto_jumps(out: dict, ground_side: dict, deltas: dict, already: set, *, jump_m: float, reach: int = 3) -> set:
+def veto_jumps(out: dict, ground_side: dict, deltas: dict, already: set, *, jump_m: float, reach: int | None = None) -> set:
     """Undo (in ``out``) every snap that makes a body JUMP: its snapped point more than ``jump_m``
     from the same body's point on the previous drawn frame (within ``reach`` frames) while its
     unsnapped point is within ``jump_m`` of it. Returns the ``{(frame, pid)}`` undone. The outlier
@@ -183,6 +186,7 @@ def veto_jumps(out: dict, ground_side: dict, deltas: dict, already: set, *, jump
     each other and pass it (play 1 id 28 at 588-594: +2.0, +1.8, +1.7, +1.2 m along its ray, onto a
     teammate 2 m deeper, with no endzone row of its own). Frames are walked in order, so a vetoed
     frame's raw point is what the next frame is judged against."""
+    reach = JUMP_REACH if reach is None else int(reach)
     by_pid: dict = {}
     for f, bodies in out.items():
         for pid, xy in bodies.items():
