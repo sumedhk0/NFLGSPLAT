@@ -5116,3 +5116,10 @@ the camera's wander), but 164's own track stands on the CENTRE's spot pre-snap (
 is absent 380-500, and reappears in the pocket at 520 -- an endzone track that switched men. 08z --frames LO HI
 exists now to fold such a stretch alone; not applied: the film has not named 164's post-520 rows as Mahomes and
 the QB's half-body-width y error after the throw is a secondary figure once the ball is gone. Open.
+Third arm, MISPAIR_FRAME_M 0.7: endzone 35.9 / 105.4, steps 15, census 1.352 -- worse again (703 body-frames vetoed on 33
+ids; at 1.0 m 367 on 32, most on 170, 9, 2, 27, 40). Closed.
+Id 170 is a chimera (probe_qb_endzone.py, third block): its sideline point is 197's twin at 524 (0.3 m), then walks
+to the quarterback's area by 604 (1.4 m from 79 -- a third man, since the sideline sees x well), while its endzone
+rows sit on someone at x -18.8..-18.1 over 524-540 (the quarterback's spot, 2-3 m from 170's own sideline point)
+and on 170's own man from 556. Neither a fold nor a veto describes that; a per-stretch identity check against the
+film is the tool it needs. Open; the pocket after the throw is a secondary figure once the ball is gone.
