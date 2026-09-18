@@ -4880,3 +4880,12 @@ order of what a viewer sees: the far-field slides 632-647 (the sideline camera's
 the pocket's near-doubles after the throw (real men crowding, no removal route), the left guard's pre-snap holes
 234-263 (his sideline id 82 is a partial box that may be the quarterback's upper body early on; no endzone id
 of his own), the runners' arm swing (opt-in, a wash on strips).
+
+**The left guard's endzone body, revived and not adopted (10:40 machine clock).** He was never missing from the
+endzone: id 86, endzone-only, at his spot on all 180 pre-snap frames, passes the vouch on 87 of them (82's partial
+box blocks 32, 19/37/166/9 the rest) -- and endzone_only_ids leaves the whole id out as a ghost before the vouch
+can matter. A revival (the id kept, drawn on its vouched frames only, LINE_VOUCH_REVIVE_MIN 30) draws him on every
+frame (KC at ten or fewer 40 -> 4) but the fragments that stood in his slot -- 166 on 19, 204, his own sideline
+partial box 82 at 0.55 m, 31 -- now count as extras: exact-eleven 112 -> 103, |KC-11| 0.345 -> 0.433, and the
+Baltimore ghost 92 (22 vouched frames) came with it until the 30-frame gate. Opt-in (None). The step that would
+make it pay: fold 82 into 86 (one man, the sideline's upper-body box and the endzone's full body).

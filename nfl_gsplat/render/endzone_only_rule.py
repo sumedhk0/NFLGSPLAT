@@ -453,6 +453,13 @@ def qb_hold(ground, side_ground, *, start: int, snap: int, centre_xy, sign: floa
 # spot), which stood there before too under a nine-man count. 0.5 and 0.7 read the same.
 LINE_VOUCH_ACROSS_M: float | None = 0.7
 LINE_VOUCH_LINE_M: float = 2.0
+# A PURE endzone-only id (no two-view frame, left out whole as a ghost) can be drawn on its vouched frames only,
+# when it has at least LINE_VOUCH_REVIVE_MIN of them (play 1's left guard 86 has 87; the Baltimore ghost 92 has
+# 22). MEASURED AND NOT ADOPTED (2026-09-18, pre-snap 213-383): the guard is drawn on every frame (KC at ten or
+# fewer 40 -> 4) but the fragments that stood in his slot (166, 204, 82, 31) now count as extras: exact-eleven
+# frames 112 -> 103, mean |KC-11| 0.345 -> 0.433. It pays once those fragments are folded (82 is his own
+# sideline partial box 0.55 m away). None = off; 30 to try it.
+LINE_VOUCH_REVIVE_MIN: int | None = None
 LINE_VOUCH_OFFSET_M: float = 1.0          # the line stands about this far on its side of the LOS
 
 

@@ -427,6 +427,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     P = Path(play_dir)
     qb_keep: dict = {}
     qb_held: set = set()         # (pid, frame) of the quarterback's held pre-snap frames (05k draws his stance there)
+    lv_frames: dict = {}         # pid -> the pre-snap frames line_vouch admitted him on (a pure endzone-only id is drawn there only)
     if hole_hold_m is not None and hole_hold_m < 0:
         from nfl_gsplat.render import endzone_only_rule as _ezr
 
@@ -621,6 +622,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                                                  across_m=float(line_vouch_m))
             for f_, pids_ in lv_keep.items():
                 qb_keep.setdefault(int(f_), set()).update(pids_)
+                for pid_ in pids_:
+                    lv_frames.setdefault(int(pid_), set()).add(int(f_))
             print(f"hidden linemen vouched for: {sum(lv_counts.values())} body-frames on {len(lv_counts)} ids " + str(dict(sorted(lv_counts.items()))))
             # a set man's holes before the snap (endzone_only_rule.fill_presnap_holes): a vouched id between its
             # vouched frames (the filled frames vouched too), then every id where the line point is empty
@@ -689,6 +692,19 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         if behind:
             print(f"bodies behind the offence (officials) left out: {sorted(behind)}")
     clipped = set(clipped) | ghosts | dwellers | striped | behind
+    # a hidden lineman the endzone alone sees (line_vouch) is not left out whole with the endzone-only ghosts: he is
+    # drawn on his vouched frames and on no other (play 1 id 86, the left guard on all 180 pre-snap frames, 2026-09-18)
+    revived = ({p for p in lv_frames if p in ghosts and len(lv_frames[p]) >= _ezr.LINE_VOUCH_REVIVE_MIN}
+               if _ezr.LINE_VOUCH_REVIVE_MIN is not None else set())
+    if revived:
+        clipped -= revived
+        n_cut = 0
+        for f_, d_ in ground.items():
+            for p in revived:
+                if p in d_ and int(f_) not in lv_frames[p]:
+                    del d_[p]
+                    n_cut += 1
+        print(f"endzone-only ids revived on their vouched frames: {sorted(revived)} ({n_cut} unvouched body-frames cut)")
     poses = poses_from_caches(refit, side_blob, tracks, model)
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
