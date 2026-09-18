@@ -639,3 +639,27 @@ def test_hold_to_end_keeps_a_body_that_ends_at_the_dead_ball_through_the_tail():
     assert all(any(s.pid == 71 and s.xy[0] == 638.0 for s in tl.states[f]) for f in range(639, 648))
     assert not any(s.pid == 9 for s in tl.states[640])
     assert sum(1 for s in tl.states[645] if s.pid == 5) == 1
+
+
+def test_hold_to_end_drops_a_track_born_at_the_dead_ball_beside_the_held_man():
+    import numpy as np
+
+    from nfl_gsplat.render import timeline as tlm
+
+    def st(pid, x, y=0.0):
+        return tlm.PlayerState(pid=pid, xy=np.array([x, y]), body_pose=np.zeros((21, 3)), global_orient=np.zeros(3),
+                               betas=np.zeros(10), source="sideline")
+    tl = tlm.Timeline(frames=list(range(630, 648)), states={f: [] for f in range(630, 648)})
+    for f in range(630, 639):
+        tl.states[f].append(st(71, 10.0))                       # the receiver's track ends at 638
+    for f in range(639, 648):
+        tl.states[f].append(st(185, 12.0))                      # born at 639, 2 m away: the same man re-identified
+        tl.states[f].append(st(2, 12.5))                        # a defender born there too: kept (other team)
+    for f in range(630, 648):
+        tl.states[f].append(st(5, 11.0))                        # a teammate present all along, 1 m away: kept
+    teams = {71: "KC", 185: "KC", 2: "BAL", 5: "KC"}
+    n = tlm.hold_to_end(tl, end=639, last_frame=647, teams=teams)
+    assert n == 9
+    for f in range(639, 648):
+        pids = sorted(int(s.pid) for s in tl.states[f])
+        assert pids == [2, 5, 71]

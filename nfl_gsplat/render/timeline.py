@@ -921,18 +921,28 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
 # keeps its last state to the end of the clip: the play is dead, nobody moves much, and a man who
 # vanishes is worse than a man who stands still.
 HOLD_END_REACH: int = 3
+# A track BORN at the dead ball within this of a held body's spot is that body's re-identification (play 1:
+# id 185 starts at 639, 2-3 m from where the receiver's track ended at 638 -- the same man, on the footage,
+# after stepping out); the held body owns the spot and the newcomer is dropped, so one man stands there.
+HOLD_END_SAME_M: float = 3.0
 
 
-def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_END_REACH) -> int:
+def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_END_REACH, teams: dict | None = None,
+                same_m: float | None = HOLD_END_SAME_M) -> int:
     """Copy each id's last state to every frame up to ``last_frame`` when that last state lies within
-    ``reach`` frames of ``end`` (the dead ball) or after it. Returns the states added."""
+    ``reach`` frames of ``end`` (the dead ball) or after it. A same-team id whose FIRST frame is at or
+    after ``end - reach`` and which stands within ``same_m`` of a held spot is removed on the held
+    frames (``teams`` {pid: team}; without it any team). Returns the states added."""
     import dataclasses
 
     last: dict = {}
+    first: dict = {}
     for f, sts in tl.states.items():
         for s in sts:
-            if f >= last.get(int(s.pid), (-1, None))[0]:
-                last[int(s.pid)] = (int(f), s)
+            pid = int(s.pid)
+            if f >= last.get(pid, (-1, None))[0]:
+                last[pid] = (int(f), s)
+            first[pid] = min(first.get(pid, int(f)), int(f))
     n = 0
     for pid, (f_last, s) in last.items():
         if f_last < int(end) - int(reach) or f_last >= int(last_frame):
@@ -942,6 +952,17 @@ def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_
                 continue
             if any(int(t.pid) == pid for t in tl.states[f]):
                 continue
+            if same_m is not None:
+                tm = (teams or {}).get(pid)
+                keep = []
+                for t in tl.states[f]:
+                    q = int(t.pid)
+                    born_here = first.get(q, 0) >= int(end) - int(reach)
+                    same_team = teams is None or (teams or {}).get(q) == tm
+                    if born_here and same_team and float(np.linalg.norm(np.asarray(t.xy[:2], float) - np.asarray(s.xy[:2], float))) <= same_m:
+                        continue
+                    keep.append(t)
+                tl.states[f] = keep
             tl.states[f].append(dataclasses.replace(s))
             n += 1
     return n

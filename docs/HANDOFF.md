@@ -4863,3 +4863,9 @@ the gait is on (ARMS / 05k --gait-arms). 07l's joint jitter does not move (p90 0
 ruler is orientation and leg-phase jitter), and the strips of runners 3 and 9 at 440-454 (review_v69 vs
 review_smoke_arms) are a wash from the follow camera behind them -- both show arms at the sides, the gait's a
 little more regular. Neither ruler moves, so the flag stays off; re-judge on a play with a side-on runner.
+
+**The receiver drawn twice after stepping out (08:50).** v69's tail strip showed a second red body beside
+the held receiver from 640: id 185, born at 639 two to three metres from where his track ended -- the same man
+re-identified (footage diag/tackle/player_185_f640.jpg: one red man at the sideline). hold_to_end now takes
+the teams and drops a same-team track born at or after the dead ball within 3 m of a held body's spot on the
+held frames, so the held body owns the spot and keeps the ball. v70 = v69 + this.

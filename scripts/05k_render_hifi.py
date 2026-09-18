@@ -205,7 +205,7 @@ def main() -> None:
         # the renderer's business, so the ball path and the play end see the tracks as they are
         dead = play_dead_frame(P)
         if dead is not None:
-            n_end = tlm.hold_to_end(tl, dead, end)
+            n_end = tlm.hold_to_end(tl, dead, end, teams=team_of or None)
             if n_end:
                 print(f"aftermath: {n_end} body-frames held through the tail after the dead ball at {dead}")
     start = args.start_frame if args.start_frame is not None else play_start_frame(P)
