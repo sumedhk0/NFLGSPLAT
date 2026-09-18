@@ -578,11 +578,13 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                         first_frame = sub.groupby("global_player_id")["frame"].min().to_dict()
                         team_ids = {int(p) for p, tm in teams_now0.items() if tm == offence}
                         start_f = play_start(P)
+                        qb_removed: dict = {}
                         ground, qb, n_qb = _ezr.qb_hold(ground, side_ground, start=start_f if start_f is not None else min(ground), snap=snap_f,
                                                         centre_xy=ground[snap_f][centre], sign=los_blob["sign"], team_ids=team_ids,
-                                                        first_frame=first_frame)
+                                                        first_frame=first_frame, removed=qb_removed)
                         if qb is not None:
-                            print(f"quarterback under centre: id {qb} held at the spot he steps back from on {n_qb} frames (centre {centre})")
+                            print(f"quarterback under centre: id {qb} held at the spot he steps back from on {n_qb} frames (centre {centre})"
+                                  + (f"; teammates on his spot taken out: {dict(sorted(qb_removed.items()))}" if qb_removed else ""))
                             for f_ in range(start_f if start_f is not None else min(ground), int(first_frame[qb])):
                                 if qb in ground.get(f_, {}):
                                     qb_keep.setdefault(int(f_), set()).add(int(qb))

@@ -294,3 +294,24 @@ def test_line_vouch_keeps_the_hidden_lineman_and_not_the_endzone_copy_of_a_drawn
     ground2 = {f: {38: np.array([-18.0, 1.3])} for f in range(100, 130)}
     assert line_vouch(ground2, views, side, start=100, snap=140, teams=teams, los_x=los_x, sign=sign, across_m=0.7)[1] == {}
     assert line_vouch(ground, views, side, start=100, snap=140, teams=teams, los_x=los_x, sign=sign, across_m=None) == ({}, {})
+
+
+def test_qb_hold_takes_out_the_teammate_already_standing_on_the_held_spot():
+    import numpy as np
+
+    from nfl_gsplat.render.endzone_only_rule import qb_hold
+
+    # the centre 17 on the line, 204 (the quarterback under another id) 0.6 m behind him, a guard 19 beside him
+    ground = {f: {17: np.array([-23.0, 0.0]), 204: np.array([-22.4, 0.3]), 19: np.array([-22.9, -0.7])} for f in range(213, 300)}
+    ground.update({f: {17: np.array([-23.0, 0.0]), 19: np.array([-22.9, -0.7])} for f in range(300, 377)})
+    side = {377: {80: np.array([-22.2, 0.1])}}
+    removed = {}
+    out, pid, n = qb_hold(ground, side, start=213, snap=393, centre_xy=(-23.0, 0.0), sign=1.0, team_ids={80, 204, 17, 19},
+                          first_frame={80: 377}, removed=removed)
+    assert pid == 80 and n == 377 - 213
+    assert removed == {204: 87} and all(204 not in out[f] and 80 in out[f] for f in range(213, 300))
+    assert all(17 in out[f] and 19 in out[f] for f in range(213, 377))      # the centre and the guard beside him stay
+    # with the rule off the teammate stays too
+    out2, _, _ = qb_hold(ground, side, start=213, snap=393, centre_xy=(-23.0, 0.0), sign=1.0, team_ids={80, 204, 17, 19},
+                         first_frame={80: 377}, same_m=None)
+    assert all(204 in out2[f] for f in range(213, 300))

@@ -4763,3 +4763,20 @@ body within 2 m along the field of the offence's side of the LOS with no sidelin
 sideline's own twins that were there before (82/166 on one man 291-307, 204 on the quarterback's spot),
 the next pre-snap thread. First tries recorded: a "formation spot hold" for two-view still ids held only two
 BAL twins (171, 195: BAL 11.0 -> 11.63) because the guards are not two-view at all -- reverted.
+
+**v64 delivered (04:50): ball in hand, the throw, the clip to the dead ball.** Strips
+(scratchpad/review_v64/strips): at the snap the ball leaves the turf under the centre and rides in the
+quarterback's hands as he drops (394-402); the throw cocks at 516-518 (the arm swings out wide for two frames
+on the way to the ear -- the carry-to-cocked slerp passes through a straight arm), rises 520-524, releases at
+526; the receiver's hands close on the ball at 584 and it stays at his chest. diag/play_001_v64_hifi_720.mp4
+(218 frames, 213-647). v65 = v64 + the hidden linemen (line_vouch) is rendering.
+
+**The quarterback's double (05:15).** With the guards back, the pre-snap frames at twelve were the sideline's
+twins, and the biggest was the quarterback himself: id 204, a 159-px standing box on his spot on 90 of 180
+pre-snap frames, is the quarterback under another id (his track switches to 80 at 377), and the QB hold drew
+80 beside him. qb_hold now takes out a teammate within QB_SAME_M = 0.5 of the held spot who stands at least
+0.3 m behind the centre (a first cut without the behind test took the centre out on 18 frames), so one body
+with one pose stands there. Mean |KC - 11| a frame on 213-383: 0.602 -> 0.520; exact-eleven frames 80 -> 91;
+at twelve or more 61 -> 34; at ten or fewer 30 -> 46 (204 stood alone on a few frames where 80's held body
+is later dropped -- open). Box twins at IoU 0.5 change nothing pre-snap and 0.4 costs real men (exact 80 ->
+55): 166 on 19's man (291-392, IoU p50 0.57) stays the remaining pre-snap twin. v66 = v65 + this.

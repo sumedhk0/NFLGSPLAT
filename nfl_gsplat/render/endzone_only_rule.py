@@ -372,12 +372,25 @@ QB_HOLD: bool = True             # the quarterback under centre, held at the spo
 QB_BEHIND_M: tuple = (0.5, 2.5)  # his first sideline point lies this far behind the centre (the offence's side) ...
 QB_ACROSS_M: float = 1.0         # ... and this close to the centre's line
 QB_WINDOW: tuple = (-25, 15)     # ... on a track that starts this close to the snap
+QB_SAME_M: float = 0.5           # a teammate the sideline draws this close to the held spot before the snap IS the
+                                 # quarterback under another id (play 1: 204, a 159-px box on the spot on 90 of 180
+                                 # pre-snap frames, flickering): he goes, the held body stands for him on every frame.
+                                 # Measured on play 1's pre-snap 213-383 with the line vouch on (2026-09-18), mean
+                                 # |KC - 11| a frame: off 0.602, 0.8 -> 0.538, 0.5 -> 0.520 (exact-eleven frames 80 ->
+                                 # 91, frames at twelve or more 61 -> 34, at ten or fewer 30 -> 46: 204 stood in for
+                                 # nobody on some frames but for the held man on most)
+QB_SAME_BEHIND_M: float = 0.3    # ... provided he stands at least this far behind the centre: the centre himself and
+                                 # the linemen beside him are never the quarterback (a first cut without this took the
+                                 # centre out on 18 frames and a guard on 10)
 
 
 def qb_hold(ground, side_ground, *, start: int, snap: int, centre_xy, sign: float, team_ids, first_frame: dict,
-            behind_m: tuple = QB_BEHIND_M, across_m: float = QB_ACROSS_M, window: tuple = QB_WINDOW):
+            behind_m: tuple = QB_BEHIND_M, across_m: float = QB_ACROSS_M, window: tuple = QB_WINDOW,
+            same_m: float | None = QB_SAME_M, same_behind_m: float = QB_SAME_BEHIND_M, removed: dict | None = None):
     """``(ground, pid, n_added)``: the quarterback under centre, drawn from ``start`` to the frame
-    before his sideline track begins, at that track's first point.
+    before his sideline track begins, at that track's first point. A teammate within ``same_m`` of
+    that point on a held frame is the same man under another id and is taken out (``removed``, an
+    optional dict, gets ``{pid: frames}``), so one body stands there with one pose.
 
     WHY. Under centre the quarterback stands inside the centre's detection box in both cameras
     (play 1: no keypoint at his helmet, the endzone's second box there is the centre's own), so no
@@ -407,8 +420,16 @@ def qb_hold(ground, side_ground, *, start: int, snap: int, centre_xy, sign: floa
     out = {f: dict(d) for f, d in ground.items()}
     n = 0
     for f in range(int(start), f0):
-        if pid not in out.setdefault(f, {}):
-            out[f][pid] = pt.copy()
+        d = out.setdefault(f, {})
+        if same_m is not None:
+            for other in [j for j, q in d.items() if int(j) != pid and int(j) in team_ids
+                          and float(np.linalg.norm(np.asarray(q, float) - pt)) <= same_m
+                          and (float(q[0]) - cx) * float(sign) >= same_behind_m]:
+                del d[other]
+                if removed is not None:
+                    removed[int(other)] = removed.get(int(other), 0) + 1
+        if pid not in d:
+            d[pid] = pt.copy()
             n += 1
     return out, pid, n
 
