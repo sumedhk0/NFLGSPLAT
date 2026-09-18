@@ -4942,3 +4942,13 @@ avatars stand half a body-width beside theirs ACROSS the field -- the axis the s
 ground_positions averages the two cameras' ground points, which halves the sideline's depth error instead of
 removing it. Under test: FUSE_AXIS (x from the sideline, y from the endzone on two-view frames), judged by ankle
 rulers through BOTH cameras (the endzone's du is the field's y) and the motion rulers.
+
+**The endzone blend (13:50 machine clock).** diag/play_001_v71_endzone_blend.mp4 (render from the endzone pose
+over the endzone footage, frames 198-620, i.e. sideline 213-635; diag/play_001_v71_endzone_view_720.mp4 the
+render alone; scratchpad/launch_endzone_view.sh vNN builds them). Frames at 3.0/4.45/5.87 s: the avatars sit on
+their players to within about half a body-width ACROSS the field; the worst are in the pocket after the throw.
+The endzone-camera ankle ruler (rendered ankle vs endzone keypoint ankle, du = the field's y): pre-snap p50 5.4
+px / p90 16.7, the play p50 6.7 / p90 57.9. Ranked by id over the play: 212 (-307 px: its endzone rows are
+another man's), 170 (p90 190 at 555-567), 206 (114), 198 (-71 p50), 76 (p90 114 at 577-585), 81, 37 (74 at the
+snap), 40, 211, 168 -- mispairings on a handful of ids, not a bias (74 alone carries a steady +19 px). Two
+blends now bracket the placement: the sideline's for x and counts, the endzone's for y.
