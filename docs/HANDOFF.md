@@ -4469,3 +4469,8 @@ snap+5 and stays caught: 1 frame on 360-397), otherwise only the same-body test 
 on 300-483: KC pre-snap 10.32 -> 10.37, exactly 11/11 69 -> 68, BAL >= 12 33 -> 35, pile pairs 9,
 hops 2 (0 live). A wash in numbers -- 74's pre-snap frames were mostly the OLD rule's (a sideline
 body within 1.2 m in the line) -- kept because it is the right question to ask. Tests updated.
+
+**v58 delivered (02:20): diag/play_001_v58_hifi_720.mp4 = v57 + long-hole middles out + heading
+backfill + box twins.** Id 37's strip: absent 558-570, present from 574, no flicker, no glide
+(scratchpad/review_v58/strips/render_37_f558.png); sheets as v57. v59 (lying-frame smoothing,
+pre-snap join window) next.
