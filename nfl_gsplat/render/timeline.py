@@ -163,6 +163,7 @@ class Timeline:
     n_default: int = 0
     n_duplicates: int = 0
     members: dict = field(default_factory=dict)   # player id -> member ids (after stitching)
+    held: set = field(default_factory=set)        # (pid, frame) drawn at a held spot with no fit of its own (the quarterback under centre)
 
 
 # ---- orientation helpers ---------------------------------------------------

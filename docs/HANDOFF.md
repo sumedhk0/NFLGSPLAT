@@ -4805,3 +4805,11 @@ for a frame -- 79's 1.5 m depth excursion after the release (526-547) looked lik
 ANKLE_PICK "lower" (the ankle lowest in the image = the planted foot): steps > 0.25 m/frame on 393-639
 23 -> 15, hops 2 -> 2, but census 1.40 -> 1.53 (KC 11.39 -> 11.49, BAL 11.12 -> 11.30) and root jitter p90
 0.030 -> 0.034 (the pick hops between feet). Opt-in constant, default "mean".
+
+**v66 delivered (06:30) = v65 + the quarterback alone on his spot.** The waiter launched it before the catch
+code landed, so the catch's first visual check is v67 (queued: + pre-snap hole fill + catch). Strips: the
+ball leaves the turf at the snap into 80's hands; 620-638 the carrier holds it at the chest; at 639 it drops
+to the turf where the chain lost him (the "ground" segment) and lies there to 647. Footage check of the
+surplus KC ids in the pocket after the throw (diag/surplus/): 211 and 170 are both real red-shirted linemen
+blocking Baltimore's 99 and 98 -- the play-window KC 11.4 is crowding and near-doubles in the pocket (12/76
+0.3 m apart, 79/170 0.7 m, 205/211 0.8 m), the closed "no removal route" thread, not wrong-team labels.

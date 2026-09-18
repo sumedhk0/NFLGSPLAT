@@ -426,6 +426,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
 
     P = Path(play_dir)
     qb_keep: dict = {}
+    qb_held: set = set()         # (pid, frame) of the quarterback's held pre-snap frames (05k draws his stance there)
     if hole_hold_m is not None and hole_hold_m < 0:
         from nfl_gsplat.render import endzone_only_rule as _ezr
 
@@ -598,6 +599,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                             for f_ in range(start_f if start_f is not None else min(ground), int(first_frame[qb])):
                                 if qb in ground.get(f_, {}):
                                     qb_keep.setdefault(int(f_), set()).add(int(qb))
+                                    qb_held.add((int(qb), int(f_)))
                         else:
                             cx, cy = ground[snap_f][centre]
                             cands = []
@@ -739,6 +741,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                             exclude=clipped if not stitch_ids else None, lying=lying, keep=qb_keep or None,
                             despike_m=tlm.DESPIKE_M if (despike_m is not None and despike_m < 0) else despike_m)
     tl.members = members
+    tl.held = {(p, f) for p, f in qb_held if any(int(s.pid) == p for s in tl.states.get(f, []))}
     # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)
     teams_now = _teams(P)
     riders = tlm.rider_ids(tl, teams_now)

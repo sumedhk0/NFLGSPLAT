@@ -135,6 +135,7 @@ def main() -> None:
     from nfl_gsplat.render import timeline as tlm
     from nfl_gsplat.render.carry import ball_at_hand, ball_between_hands, carry_body_pose, catch_body_pose, throw_body_pose
     from nfl_gsplat.render.play_timeline import load_play_timeline, placed_body
+    from nfl_gsplat.render.stance import stance_body_pose, stance_weights
 
     P = args.play_dir
     model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral",
@@ -277,8 +278,20 @@ def main() -> None:
               + f"; numbers on {len(numbered)} sure ids of {len(named)} named")
 
     hands_at: dict = {}          # frame -> the holder's ball position (render.carry), filled as bodies are built
+    stance_w: dict = {}          # (pid, frame) -> weight of the under-centre stance on the quarterback's held frames
+    held_by_pid: dict = {}
+    for hp, hf in getattr(tl, "held", set()):
+        held_by_pid.setdefault(int(hp), []).append(int(hf))
+    for hp, hfs in held_by_pid.items():
+        for hf, sw_ in stance_weights(hfs).items():
+            stance_w[(hp, hf)] = sw_
+    if stance_w:
+        print(f"stance: the quarterback under centre on {len(stance_w)} held frames of {len(held_by_pid)} ids")
 
     def body_batch(s, f):
+        sw = stance_w.get((int(s.pid), f))
+        if sw:                                    # the quarterback held under centre: his stance, not a copied crouch
+            s = dataclasses.replace(s, body_pose=stance_body_pose(s.body_pose, sw))
         th = throw_w.get((s.pid, f))
         ca = catch_w.get((s.pid, f))
         w = hold_w.get((s.pid, f), 0.0)
