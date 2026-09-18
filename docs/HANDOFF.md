@@ -5051,3 +5051,14 @@ Next: 08y --from-film takes its inputs from 09a's ball_film.json so the hand-typ
 + the ball kept in the carrier's hands on the down frames + the CARRIER's fall (render/tackle.py); the
 tacklers' fall (the other-team bodies within 1.5 m of him on the down frame fall onto him, committed in
 ecf91d8 with the carrier's) is v74. Both chains are queued after the v72 blends, each with its blends.
+
+**v73 delivered (18:50 machine clock).** diag/play_001_v73_hifi_720.mp4 (215-615). = v72 + the pre-snap fragment 39
+folded into the receiver (he is now drawn in the formation through the snap, review_v73/strips/render_74_f380.png)
++ 08y at snap 395 + the ball kept in the carrier's hands on the down frames + the carrier's fall (render/tackle.py:
+600-607 he pitches forward and lies face down along the way he ran, the run sheet at 610-614 shows him on the turf
+under two standing tacklers). Rulers on the play window 395-607 (07l v73, gait on): live steps 5, hops 0, census
+1.25 (KC 11.41 / BAL 10.80), root jitter p99 0.069, joints jitter p99 0.37, planted 19 %. A probe of the fallen
+carrier (scratchpad/probe_fall_ball.py: the hold weight stays 1 through 615, pelvis 0.33 m, wrists 0.05 m) puts the
+ball between his wrists on the turf under his chest -- out of sight under the body, as under a real pile; the
+brown patch beside the yellow marker on the 608-614 strip is a tackler's hands, not the ball. v74 (queued after
+v73's blends) adds the tacklers' fall onto him (28 and 55 stand 0.1 and 0.5 m from him on the down frame).
