@@ -4848,3 +4848,12 @@ the tail, so the receiver stands at the sideline with the ball while the clip en
 bent; v66 had it out at arm's length to the side); id 28 moves smoothly with his blocker through 578-592 where
 he used to jump 2 m deeper at 588; 157 likewise at 546-556. v69 = v68 + the aftermath (the receiver keeps the
 ball and stands through the tail), queued.
+
+**v69 delivered (08:20 machine clock) = v68 + the aftermath.** Strip render_ball_f632 (scratchpad/review_v69):
+the receiver keeps the ball at his chest and stands at the sideline through 646 where v68 dropped him and the
+ball at 639; the late fragment 185 (a red body, 639-660) walks in beside him from 640 -- check whether he is a
+teammate arriving or a ghost before touching him. diag/play_001_v69_hifi_720.mp4 is the current best.
+Rulers on the play window 393-639 (v68's timeline; the aftermath acts after it): steps 11, hops 0, census 1.41,
+root jitter p99 0.072, joints jitter p99 0.36; pre-snap |KC-11| 0.43. Threads left open: the far-field camera
+drift 632-647 (78 slides), pocket near-doubles after the throw, 212's alternating box (a pair under one id),
+the gait's arm swing (opt-in, strip pending).
