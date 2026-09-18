@@ -226,7 +226,7 @@ def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_h
     """``ground`` (frame -> {pid: xy}) with every endzone-filled HOLE frame -- inside a sideline span,
     the sideline has no point that frame, the merged ground has the endzone's -- moved onto the
     sideline's own straight line between its points either side of the hole when it stands farther
-    than ``hold_m`` from that line. Returns ``(ground, moved [metres])``.
+    than ``hold_m`` from that line. Returns ``(ground, moved [metres; NaN for a frame beyond reach of both ends, which is removed])``.
 
     WHY. The span rule (beyond_sideline_span) holds a span's EDGES; inside a span the hole rule draws
     an endzone-placed frame within HOLE_REACH of a sideline sighting, and the endzone's ground point
@@ -259,6 +259,10 @@ def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_h
                 # sighting; those follow that sighting at the sideline's own velocity there
                 near_a = f - fa <= reach
                 if not near_a and not (fb - f <= reach):
+                    # beyond reach of both ends the endzone's point has nothing to hold to: not drawn
+                    # (play 1 id 37 at 560-565 glided two metres into its held frames, v56)
+                    del out[f][pid]
+                    moved.append(float("nan"))
                     continue
                 edge, step = (fa, -1) if near_a else (fb, +1)
                 back = edge + step * vel_frames

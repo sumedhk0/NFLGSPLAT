@@ -4408,3 +4408,17 @@ Second ruler (23:40): 3024 drawn body-frames with hip keypoints on 393-660, hips
 off p50 7.3 / p90 16.0 / p99 40.0 px, 70 over 30 px; despike 0.15: 7.3 / 16.2 / 40.3, 68 over 30.
 The spikes go and the bodies stay on their keypoints. **DESPIKE_M = 0.15 ships**; v57 carries it
 with the dweller line.
+
+**v56 delivered (23:50): diag/play_001_v56_hifi_720.mp4 = v55 + the hole hold.** Sheets as v55. But
+id 37's strip (scratchpad/review_v56/strips/render_37_f558.png) flickers: absent 558, drawn 562-568,
+absent 570, drawn from 574. Per frame in the current timeline: absent 545-559, drawn 560-568 on
+endzone-only views with steps 0.30-0.46 m/frame, absent 569-573, sideline from 574. The hole is 29
+frames; the hold moved the frames within reach 8 of the end (566-573) onto the sideline's line and
+left 560-565 at the endzone's spot two metres away, so the glide moved rather than went, and the
+held frames near the join were then deduped against the man's other id. Fix: in a long hole the
+frames beyond reach of BOTH ends are left out (they were the endzone's blind depth with nothing to
+hold to). v57 (launched 23:45, despike + dweller line) predates this; v58 carries it.
+Measured (00:05, with the despike in): 110 held + 28 left out; live window hops 2, steps > 0.25
+m/frame 63 -> 55, handovers 0, KC 11.10 -> 10.98 (the 28 blind frames), BAL 11.31; id 37 absent
+until the sideline resumes at 574 and steady after (0.03 m/frame): no glide, no flicker. Ships;
+v58 carries it after v57.

@@ -189,6 +189,7 @@ def test_hold_holes_moves_an_endzone_filled_hole_onto_the_sideline_line_only_whe
     for f in (12, 20, 45 - 5 - 3):          # 12 near the start, 20 in the middle, 37 near the end
         ground2[f] = {1: np.array([0.1 * f, 3.0])}
     out2, moved2 = hold_holes(ground2, side2, hold_m=0.8)
-    assert len(moved2) == 2 and np.allclose(out2[12][1], [1.2, 0.0]) and np.allclose(out2[37][1], [3.7, 0.0])
-    assert np.allclose(out2[20][1], [2.0, 3.0])
+    held2 = [m for m in moved2 if np.isfinite(m)]
+    assert len(held2) == 2 and np.allclose(out2[12][1], [1.2, 0.0]) and np.allclose(out2[37][1], [3.7, 0.0])
+    assert 1 not in out2[20] and sum(1 for m in moved2 if not np.isfinite(m)) == 1     # the middle frame is left out
     assert hold_holes(ground, side, hold_m=None)[1] == []

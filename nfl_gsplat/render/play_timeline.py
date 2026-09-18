@@ -435,8 +435,10 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
 
         ground, hole_moves = hold_holes(ground, side_ground, hold_m=hole_hold_m)
         if hole_moves:
-            print(f"endzone-filled hole frames held to the sideline's line: {len(hole_moves)} "
-                  f"(median {np.median(hole_moves):.2f} m off it, max {max(hole_moves):.2f})")
+            held = [m for m in hole_moves if np.isfinite(m)]
+            print(f"endzone-filled hole frames held to the sideline's line: {len(held)} "
+                  f"(median {np.median(held) if held else float('nan'):.2f} m off it, max {max(held) if held else float('nan'):.2f}); "
+                  f"beyond reach of both ends, left out: {len(hole_moves) - len(held)}")
     # A paired id lives on its sideline span: beyond it the endzone track
     # alone draws a second copy of a player (endzone_only_rule).
     if "sideline" in tracks:
