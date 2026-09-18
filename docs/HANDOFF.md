@@ -4641,3 +4641,17 @@ means the sideline has the man. A/B (the QB hold in): 0.6 m missed 37 (0.55 was 
 figure) and cost real frames (pre-snap exactly 11/11 25 -> 11); 0.8 m: 37 drawn from 370 not 340,
 pre-snap KC 10.08 -> 9.75 (frames at twelve 35 -> 14, exactly 11/11 25 -> 28), live KC 10.86 -> 10.79,
 BAL 10.98 -> 10.97, exactly 11/11 49 -> 59, hops 2, steps 53, pile pairs 15. Ships; v62 carries it.
+First look at the ball in v61's early frames (09:50, scratchpad/review_v61/strips/render_ball_f214.png,
+render_80_f214.png): a brown ellipsoid on the turf at the centre's hand, mostly hidden behind the
+linemen from the follow camera (it sits behind the offence), and the held quarterback stands behind
+the centre in his first fitted pose. Review tooling: render_strip.py takes ``--spec ball:START:COUNT:STEP``
+(the crop follows the ball's projected position, its z from ball.json).
+
+**v61 delivered (10:25): diag/play_001_v61_hifi_720.mp4 = v60 + the quarterback under centre + the
+ball.** Ball strips (scratchpad/review_v61/strips/render_ball_f388/528/576.png): at the centre's
+hand 388-392, rising into the quarterback's hands 394-396, then INSIDE his torso 398-402 (placed at
+the body's centre); the flight 528-584 crosses the field alone, brown with its lace, apex 2.9 m,
+and lands on the receiver at 584; then inside the receiver's torso 586-590. Fix: the carried ball
+sits 0.3 m in front of the body along its facing (yaw_of), the release point 0.4 m in front; v62
+relaunched with it (the first v62 had loaded the old path and was stopped). The held quarterback
+stands behind the centre for the whole pre-snap (render_80_f214.png).

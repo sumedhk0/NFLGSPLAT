@@ -31,6 +31,7 @@ G = 9.81
 HAND_RELEASE_Z = 2.0        # the ball leaves the hand about here (m above the turf)
 HAND_CATCH_Z = 1.4
 CARRY_Z = 1.1               # tucked at the chest while running
+CARRY_FWD_M = 0.30          # ... and this far in front of the body along its facing (inside the torso otherwise)
 GROUND_Z = 0.12
 CENTRE_HAND_Z = 0.15
 SNAP_FRAMES = 5             # frames the ball takes from the centre's hand to the quarterback's
@@ -99,6 +100,14 @@ def main():
                 return np.asarray(s.xy[:2], float)
         return None
 
+    def hands_xy(f, pid, fwd_m=CARRY_FWD_M):
+        """The body's xy pushed ``fwd_m`` along its facing: where a carried ball sits, not inside the torso."""
+        for s in tl.states.get(f, []):
+            if int(s.pid) == pid:
+                yaw = tlm.yaw_of(s.global_orient)
+                return np.asarray(s.xy[:2], float) + fwd_m * np.array([np.cos(yaw), np.sin(yaw)])
+        return None
+
     path: dict = {}
     # 1. before the snap: the centre's hand, on the turf, a third of a metre toward the line
     for f in range(start, snap):
@@ -116,14 +125,14 @@ def main():
         qb = min(cands)[1]
     c_last = path.get(snap - 1, path.get(start))
     for f in range(snap, args.release):
-        q = body_xy(f, qb)
+        q = hands_xy(f, qb)
         if q is None:
             # the passer's id may change on the way back (play 1: 80 then 49): chain to the nearest offence body
             got = nearest(tl.states.get(f, []), np.asarray(path[f - 1][:2]), team_of, offence)
             if got is None or got[0] > CHAIN_M:
                 continue
             qb = got[1]
-            q = got[2]
+            q = hands_xy(f, qb)
         z = CARRY_Z
         if f < snap + SNAP_FRAMES and c_last is not None:
             u = (f - snap + 1) / float(SNAP_FRAMES)
@@ -134,11 +143,11 @@ def main():
             z = CARRY_Z + (HAND_RELEASE_Z - CARRY_Z) * (f - (args.release - WINDUP_FRAMES) + 1) / float(WINDUP_FRAMES)
         path[f] = (float(q[0]), float(q[1]), float(z), "passer")
     # 3. the flight: ballistic from the hand at the release to the hands at the catch
-    p0 = body_xy(args.release, qb)
+    p0 = hands_xy(args.release, qb, 0.4)
     receiver = args.receiver
     if receiver is None:
         raise SystemExit("--receiver is needed until the flight's end can name him; pass the id at the catch")
-    p1 = body_xy(args.catch, receiver)
+    p1 = hands_xy(args.catch, receiver)
     if p0 is None or p1 is None:
         raise SystemExit(f"passer {qb} at {args.release} or receiver {receiver} at {args.catch} is not drawn")
     T = (args.catch - args.release) / FPS
@@ -158,14 +167,14 @@ def main():
     carrier = receiver
     down = args.down
     for f in range(args.catch + 1, end + 1):
-        q = body_xy(f, carrier)
+        q = hands_xy(f, carrier)
         if q is None:
             got = nearest(tl.states.get(f, []), np.asarray(path[f - 1][:2]), team_of, offence)
             if got is None or got[0] > CHAIN_M:
                 path[f] = (path[f - 1][0], path[f - 1][1], GROUND_Z, "ground")
                 continue
             carrier = got[1]
-            q = got[2]
+            q = hands_xy(f, carrier)
         on_ground = (down is not None and f >= down) or ((f, carrier) in lying)
         if on_ground and down is None:
             down = f
