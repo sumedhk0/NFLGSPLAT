@@ -4857,3 +4857,9 @@ Rulers on the play window 393-639 (v68's timeline; the aftermath acts after it):
 root jitter p99 0.072, joints jitter p99 0.36; pre-snap |KC-11| 0.43. Threads left open: the far-field camera
 drift 632-647 (78 slides), pocket near-doubles after the throw, 212's alternating box (a pair under one id),
 the gait's arm swing (opt-in, strip pending).
+
+**Runners' arm swing: measured, left opt-in (08:40).** gait.arm_rotvecs pumps the arms opposite the legs where
+the gait is on (ARMS / 05k --gait-arms). 07l's joint jitter does not move (p90 0.122, p99 0.356 either way: that
+ruler is orientation and leg-phase jitter), and the strips of runners 3 and 9 at 440-454 (review_v69 vs
+review_smoke_arms) are a wash from the follow camera behind them -- both show arms at the sides, the gait's a
+little more regular. Neither ruler moves, so the flag stays off; re-judge on a play with a side-on runner.
