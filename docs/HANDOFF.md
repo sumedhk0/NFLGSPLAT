@@ -4655,3 +4655,41 @@ and lands on the receiver at 584; then inside the receiver's torso 586-590. Fix:
 sits 0.3 m in front of the body along its facing (yaw_of), the release point 0.4 m in front; v62
 relaunched with it (the first v62 had loaded the old path and was stopped). The held quarterback
 stands behind the centre for the whole pre-snap (render_80_f214.png).
+
+**The end-of-play slides are not the camera solve (01:10; RETRACTED below).** cameras.npz has the sideline solved on
+every frame 213-660 (conf 1.00, no filled runs), and its pan is slow (yaw rate under 0.06 deg/frame
+by the stored R). The 53 fast steps on real men at 560-660 are one-view depth on bodies 15-20 m
+across the field from the camera's line (185, 78, 77 near the far sideline): the placement thread,
+not calibration. 07l on v62's timeline: census 1.99 (KC 10.79, BAL 10.97), hops 2, steps 53,
+planted 17 %, jitter p99 0.39.
+
+**RETRACTION (01:30): the end-of-play slides ARE the sideline camera.** "conf 1.00 on every frame" says a
+frame was solved, not solved well, and "0.06 deg/frame" is 8 px/frame at fx 7500 (units!). Three rulers
+agree, all on the footage: (1) the solved paint drawn on the frames (scratchpad paint_overlay.py /
+paint_full.py, diag/slides_v62/): on the paint at 500-530, off it at 636-660 (yard lines 35-64 px left,
+hash rows 9-15 px, the far sideline ~108 px at 645); (2) probe_paint_rows.py (brightness search along the
+projected rows/lines): yard-line offset 0-4 px through 630, then -18/-35/-64/-48/-55 px at 636-648 and
++33/+38 at 657-660; (3) the calibrator's own grid_distance_px: 3-7 px on 400-628, then 12, 14, 28, 37, 44,
+61, 77, 46 px at 632-660. Every fast step on 393-660 lies along the camera's depth axis (probe_slides.py:
+|along| share p50 0.98, 53/53), on 78 at 636-656, 185 at 643-658, 180 at 644-649 -- the drift window.
+The camera is not "solved" at 632-660: 08e's refinement did not hold there. Fix thread: re-refine the
+tail (chained from the last good frame), then the placement follows (the timeline places from the ankle
+rays through cameras.npz at load time; the pose caches stay).
+
+**v62 delivered (02:45): the ball moves.** Strips (scratchpad/review_v62/strips/render_ball_*.png): the ball
+rides in front of the passer's chest 518-530, leaves at 532, comes down on the receiver's chest at 584 and
+stays with him to 636; at the snap it sits in the pile at the quarterback's hands. 37's duplicate lead-in
+(340-369) is gone. The carried ball floats a hand's width ahead of the body (0.3 m along the facing): the
+avatar's arms do not hold it -- a hands pose is the next ball thread, not a placement one.
+
+**The chained tail cameras (scratchpad refine_tail.py) were REJECTED on the second ruler (02:40).** Chained
+rotation+focal refinement of 600-660 fits the yard lines to 2-3 px (shipped 5-77) and keeps the box-height
+ratio at 1.05-1.15 (the shipped lens drifts to 1.52 by 660), but the timeline under it has 116 fast steps
+(shipped 53): whole groups of bodies slide shallower together at 614-635. New ruler, "common-mode depth":
+the median over all drawn bodies of the along-depth step per frame (a camera drift moves everyone at once;
+men do not). Mid-play both tracks read 0.006 m/frame; on 600-660 the shipped reads 0.013 (p95 0.039), the
+chained 0.105 (p95 0.127). The yard lines are a pencil of near-parallel lines: rotation about their
+direction trades against the focal length (refine_paint's documented valley) and the chain walks along it
+(the far-sideline row drifted 30/51/66 px at 620-628 while the yard lines stayed at 2 px). The fix needs a
+ROW constraint per frame: the far sideline while it is in frame, the hash rows, and the players' common-mode
+depth motion between frames. cameras.npz restored (backup cameras_pre_tail.npz).
