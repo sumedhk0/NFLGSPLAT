@@ -411,3 +411,56 @@ def qb_hold(ground, side_ground, *, start: int, snap: int, centre_xy, sign: floa
             out[f][pid] = pt.copy()
             n += 1
     return out, pid, n
+
+
+# ---- the hidden linemen: the endzone's across axis separates the line, the sideline's cannot -------------
+# Before the snap the offensive line stands across the field, stacked along the sideline camera's depth
+# axis: from the sideline the guards hide behind the centre and their tracks start late (play 1: 38 at
+# 345, 37 at 370), while the endzone camera, looking along the line, sees every one of them side by side
+# for the whole pre-snap (38 on 169 frames, 37 on 166). Those endzone-only bodies were then deleted by the
+# dedupe as copies of the centre -- along the sideline's depth axis they sit inside its box -- and Kansas
+# City stood 8-10 of 11 for three seconds. A ghost from the endzone (a second copy of a man the sideline
+# draws under another id) shares its man's ACROSS position, which the endzone measures well; a hidden
+# lineman stands a body's width across from every sideline-backed teammate. So on the pre-snap frames an
+# endzone-only body on the line (within LINE_VOUCH_LINE_M along the field of the offence's side of the
+# LOS) is vouched for -- exempt from the dedupe -- when no sideline-backed body of its team stands within
+# LINE_VOUCH_ACROSS_M of it ACROSS the field.
+# Measured on play 1's pre-snap window 213-383 (2026-09-18): KC 9.75 -> 11.18 bodies a frame, frames at
+# exactly eleven a side 28 -> 80, frames with KC at ten or fewer 129 -> 30; 38 vouched on 115 frames,
+# 74 on 157 (both real, checked on the endzone footage: a red skeleton on a red lineman), 86 on 87.
+# The 61 frames now at twelve carry the sideline's own twins (82/166 on one man, 204 on the quarterback's
+# spot), which stood there before too under a nine-man count. 0.5 and 0.7 read the same.
+LINE_VOUCH_ACROSS_M: float | None = 0.7
+LINE_VOUCH_LINE_M: float = 2.0
+LINE_VOUCH_OFFSET_M: float = 1.0          # the line stands about this far on its side of the LOS
+
+
+def line_vouch(ground, views, side_ground, *, start: int, snap: int, teams: dict, los_x: float, sign: float,
+               across_m: float | None = LINE_VOUCH_ACROSS_M, line_m: float = LINE_VOUCH_LINE_M,
+               offset_m: float = LINE_VOUCH_OFFSET_M, margin: int = FORMATION_MARGIN, endzone: str = "endzone"):
+    """``({frame: {pid}}, {pid: n_frames})`` of the pre-snap endzone-only bodies on the line that no
+    sideline-backed teammate stands within ``across_m`` of, across the field. See above."""
+    keep: dict = {}
+    counts: dict = {}
+    if across_m is None or views is None or side_ground is None:
+        return keep, counts
+    line_x = float(los_x) + float(sign) * float(offset_m)
+    for f in range(int(start), int(snap) - int(margin) + 1):
+        vf = views.get(f, {})
+        side = side_ground.get(f, {})
+        for pid, xy in ground.get(f, {}).items():
+            pid = int(pid)
+            v = tuple(vf.get(pid, ()))
+            if v != (endzone,):
+                continue                                    # the sideline sees him: the dedupe's business
+            xy = np.asarray(xy, float)
+            if abs(xy[0] - line_x) > line_m:
+                continue                                    # not on the line
+            tm = teams.get(pid)
+            near = min((abs(float(np.asarray(q, float)[1]) - xy[1]) for j, q in side.items()
+                        if int(j) != pid and teams.get(int(j)) == tm), default=np.inf)
+            if near < across_m:
+                continue                                    # a teammate the sideline draws stands there
+            keep.setdefault(f, set()).add(pid)
+            counts[pid] = counts.get(pid, 0) + 1
+    return keep, counts

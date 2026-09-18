@@ -270,3 +270,27 @@ def test_beyond_sideline_span_gap_same_body_drops_a_lead_in_on_another_mans_spot
     assert d == 30 and all(1 not in out[f] for f in range(10, 40)) and all(1 in out[f] for f in range(40, 61))
     out2, d2 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side, hold_m=None, same_body_gap_m=None)
     assert d2 == 0
+
+
+def test_line_vouch_keeps_the_hidden_lineman_and_not_the_endzone_copy_of_a_drawn_man():
+    import numpy as np
+
+    from nfl_gsplat.render.endzone_only_rule import line_vouch
+
+    los_x, sign = -24.0, 1.0
+    teams = {17: "KC", 38: "KC", 66: "KC", 9: "BAL"}
+    ground, views, side = {}, {}, {}
+    for f in range(100, 130):
+        # 17 the centre (both views) at across 0; 38 an endzone-only guard 1.3 m across; 66 an endzone copy
+        # of the centre 0.2 m across from him; 9 a linebacker of the other team 4 m off the line
+        ground[f] = {17: np.array([-23.0, 0.0]), 38: np.array([-23.1, 1.3]), 66: np.array([-22.6, 0.2]),
+                     9: np.array([-28.0, 1.4])}
+        views[f] = {17: ("endzone", "sideline"), 38: ("endzone",), 66: ("endzone",), 9: ("endzone",)}
+        side[f] = {17: np.array([-23.0, 0.1])}
+    keep, counts = line_vouch(ground, views, side, start=100, snap=140, teams=teams, los_x=los_x, sign=sign, across_m=0.7)
+    assert counts == {38: 30}                       # 66 shares the centre's across position; 9 is off the line
+    assert all(keep[f] == {38} for f in range(100, 130))
+    # off the line (5 m back) nothing is vouched; None switches the rule off
+    ground2 = {f: {38: np.array([-18.0, 1.3])} for f in range(100, 130)}
+    assert line_vouch(ground2, views, side, start=100, snap=140, teams=teams, los_x=los_x, sign=sign, across_m=0.7)[1] == {}
+    assert line_vouch(ground, views, side, start=100, snap=140, teams=teams, los_x=los_x, sign=sign, across_m=None) == ({}, {})

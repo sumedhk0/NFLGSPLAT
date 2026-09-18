@@ -4747,3 +4747,19 @@ up 520-524, release 526, flight after. The slerp from the carry to the cocked po
 straight-arm-out frame or two (the elbow's flexion axis turns from y to z) -- brief, left as is. The first
 solve of the key poses sat in local minima (the arm never rose); seeds from the verified conventions fixed it.
 v64 = v63 + carry + throw, rendering.
+
+**The hidden linemen (04:45): pre-snap KC 9.75 -> 11.18.** The pre-snap deficit was never a missing
+detection: the endzone camera, looking along the line, sees the guards side by side on every pre-snap frame
+(38 on 169, 37 on 166, 74 on 162), while from the sideline they hide behind the centre and their tracks start
+at 345/370. Their endzone-only bodies were deleted by the DEDUPE as copies of the centre (along the sideline's
+depth axis they sit inside its box) -- the closed "dedupe-box" thread's inseparable case. What separates them
+is the endzone's ACROSS axis: a ghost from the endzone shares its man's across position (the endzone measures
+it well), a hidden lineman stands a body's width across from every sideline-backed teammate. New rule
+endzone_only_rule.line_vouch (LINE_VOUCH_ACROSS_M 0.7, default on): on the pre-snap frames an endzone-only
+body within 2 m along the field of the offence's side of the LOS with no sideline-backed teammate within
+0.7 m across is vouched for to the dedupe (build_timeline keep, like the quarterback). Window 213-383: KC
+9.75 -> 11.18, exact-eleven frames 28 -> 80, KC <= 10 frames 129 -> 30; 38 vouched 115 frames, 74 157, 86 87
+(74 confirmed on the endzone footage, diag/vouch/overlay_f00300_both.jpg). The 61 frames at twelve are the
+sideline's own twins that were there before (82/166 on one man 291-307, 204 on the quarterback's spot),
+the next pre-snap thread. First tries recorded: a "formation spot hold" for two-view still ids held only two
+BAL twins (171, 195: BAL 11.0 -> 11.63) because the guards are not two-view at all -- reverted.

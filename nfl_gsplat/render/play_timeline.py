@@ -402,6 +402,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0,
                        despike_m: float | None = -1.0, weak_kit_margin: float | None = -1.0,
                        impossible_m: float | None = -1.0, formation_still_m: float | None = -1.0,
+                       line_vouch_m: float | None = -1.0,
                        same_body_gap_m: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
@@ -594,6 +595,19 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                                     cands.append((int(pid_), int(f0_), None if pt_ is None else (round(float((pt_[0] - cx) * los_blob["sign"]), 2), round(float(pt_[1] - cy), 2))))
                             print(f"quarterback under centre: none found (offence {offence}, centre {centre} at {np.round([cx, cy], 2).tolist()}); "
                                   f"offence tracks starting within 40 of the snap (pid, first, (behind, across)): {sorted(cands, key=lambda c: c[1])}")
+        # the hidden linemen: pre-snap endzone-only bodies on the line with no sideline-backed teammate
+        # across from them are vouched for, past the dedupe (endzone_only_rule.line_vouch)
+        if line_vouch_m is not None and line_vouch_m < 0:
+            line_vouch_m = _ezr.LINE_VOUCH_ACROSS_M
+        lv_los = _los(P)
+        if line_vouch_m is not None and snap_f is not None and lv_los:
+            start_f = play_start(P)
+            lv_keep, lv_counts = _ezr.line_vouch(ground, views, side_ground, start=start_f if start_f is not None else min(ground),
+                                                 snap=snap_f, teams=_teams(P), los_x=float(lv_los["x"]), sign=float(lv_los["sign"]),
+                                                 across_m=float(line_vouch_m))
+            for f_, pids_ in lv_keep.items():
+                qb_keep.setdefault(int(f_), set()).update(pids_)
+            print(f"hidden linemen vouched for: {sum(lv_counts.values())} body-frames on {len(lv_counts)} ids " + str(dict(sorted(lv_counts.items()))))
         # A body the endzone alone sees stands on the endzone's foot point, blind along the field
         # (render.blind_axis): its x from the id's nearest sideline sightings, sliding the point
         # along the endzone's own ray. Measured on play 1 and NOT adopted (live steps 5 -> 7, census
