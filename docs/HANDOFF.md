@@ -4918,3 +4918,11 @@ shoes, so its ankle line is not bottom minus 0.078 h. Against the keypoint ankle
 ankle at the median and the rendered ankle 4.5 px (|dv| p50 5.0, p90 14.1; |du| p50 0.9): the posed feet sit
 0.15 m (p50) ahead of the pelvis on the ground, a lean, not a bias. Two-view (fused) bodies read the same as
 one-view ones once measured this way. The pelvis-vs-box ruler's 11 px pre-snap was the linemen's crouch.
+
+**Correction (12:40 machine clock): the receiver scores, he does not step out.** His x at 638 is -45.3 m; the
+goal line is at -45.72 (50 yards), and the footage at 640 (diag/tackle/crop640.png) has him 7 m inside the far
+sideline beside the goal-line pylons, ball tucked, crossing into the end zone -- the timeline's (x, y) is right
+and the "8 m inside the sideline" worry was correct and harmless. The tracker loses him in the end zone (his
+track ends at 638, id 185 picks him up at 639); the dead-ball rule read that as the play's end, which it is: a
+touchdown. HANDOFF entries above that say "steps out of bounds" mean this. The held body through the tail is a
+small lie (he keeps running); the ball stays with him, as it should.
