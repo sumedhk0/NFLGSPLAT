@@ -110,6 +110,9 @@ def main() -> None:
                     help="Gaussian blur of the rendered frame, sigma in px (0 = none)")
     ap.add_argument("--follow", action="store_true",
                     help="the virtual camera dollies with the play's smoothed centroid (render.camera_path)")
+    ap.add_argument("--view-camera", default=None, choices=["sideline", "endzone"],
+                    help="render from that broadcast camera's own solved pose per frame (cameras.npz), K scaled to "
+                         "--width/--height: the render then overlays the footage frame for frame")
     ap.add_argument("--uniforms", action="store_true",
                     help="every body wears its team's synthetic kit by region (render.uniform); the "
                          "fitted textures are ignored")
@@ -259,6 +262,25 @@ def main() -> None:
     R_v, t_v = look_at(eye, target)
     K_v = intrinsics(args.width, args.height, fov_deg=args.fov)
     print(f"camera on ({centre[0]:.1f}, {centre[1]:.1f}) m")
+    view_track = None
+    if args.view_camera:
+        from nfl_gsplat.calibration.cameras_io import load_camera_track
+
+        view_track = load_camera_track(P / "cameras.npz")[args.view_camera]
+        print(f"camera: the {args.view_camera} broadcast camera's own pose per frame "
+              f"({int(view_track.width)}x{int(view_track.height)} scaled to {args.width}x{args.height})")
+
+    def broadcast_view(f):
+        """``(K, R, t)`` of the broadcast camera at frame ``f`` (the last solved frame at or before it)."""
+        g = min(int(f), len(view_track.conf) - 1)
+        while g > 0 and view_track.conf[g] <= 0:
+            g -= 1
+        K = np.asarray(view_track.K[g], float).copy()
+        sx, sy = args.width / float(view_track.width), args.height / float(view_track.height)
+        K[0, :] *= sx
+        K[1, :] *= sy
+        return K, np.asarray(view_track.R[g], float), np.asarray(view_track.t[g], float)
+
     path = None
     if args.follow:
         from nfl_gsplat.render.camera_path import follow_path
@@ -413,6 +435,8 @@ def main() -> None:
         sp = st.SceneParams.from_batch(scene, device=args.device)
         if path is not None and f in path:
             R_v, t_v = look_at(*path[f])
+        if view_track is not None:
+            K_v, R_v, t_v = broadcast_view(f)
         with torch.no_grad():
             img = st.render(sp, K_v, R_v, t_v, crop=(0, 0, args.width, args.height),
                             background=(0.06, 0.06, 0.08))
