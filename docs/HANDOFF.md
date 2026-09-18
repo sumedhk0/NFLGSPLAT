@@ -5098,3 +5098,21 @@ refit's pelvis is not used there (place_from_refit skip). Tests in test_pair_rul
 probe_mispair_frames_ab.py: None / 1.0 / 0.7 on the play-window motion rulers and the ankle rulers through both
 cameras) is running; v74 (the tacklers' fall) loaded the loader with the veto on by default -- if the A/B rejects
 it, the constant goes to None and v75 re-renders.
+
+**Per-frame veto: MEASURED AND REJECTED (19:20 machine clock).** A/B on the play window 395-607, three loads of the
+loader (scratchpad/probe_mispair_frames_ab.py): off -> endzone ankle ruler du p50 35.3 / p90 104.2 px, sideline
+1.7 / 9.4, steps 5, hops 0, census 1.254; MISPAIR_FRAME_M 1.0 -> endzone 35.4 / 102.1 (unmoved), steps 15, census
+1.277. Vetoing frame by frame flips a body between its two-view and its sideline-only placement and every flip is
+a step along the sideline's depth. The thirteenth correction that lost to what it corrected (memory). The constant
+is None (opt-in), the code and tests stay. NOTE on the ruler: the endzone ankle ruler keyed on the TIMELINE frame
+(the keypoints table's endzone rows already sit on the timeline clock) reads 35 px at p50 -- about half a body-width
+across, what the endzone blend shows -- where the earlier probe (keyed 15 frames off) read 6.7 px; the earlier
+number was the wrong ruler. v74 (rendering) loaded the loader with the veto ON; v75 is queued behind it with the
+veto off and is the candidate for current best; v74 serves only the tacklers' review.
+
+**The quarterback after the throw has no endzone rows (scratchpad/probe_qb_endzone.py).** 80's endzone track ends at
+496; 79 (511-657) has none. The nearest endzone-only KC id to 79 after 512 is 164 (0.85-2.7 m, consistent with
+the camera's wander), but 164's own track stands on the CENTRE's spot pre-snap (x -23.6..-22.8, y 0 over 220-360),
+is absent 380-500, and reappears in the pocket at 520 -- an endzone track that switched men. 08z --frames LO HI
+exists now to fold such a stretch alone; not applied: the film has not named 164's post-520 rows as Mahomes and
+the QB's half-body-width y error after the throw is a secondary figure once the ball is gone. Open.
