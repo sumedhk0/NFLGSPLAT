@@ -125,7 +125,7 @@ def veto_outlier_snaps(deltas: dict, *, window: int = VETO_WINDOW, veto_m: float
 def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, frame_shift: int = 0,
                 lateral_m: float = LATERAL_M, margin_m: float = MARGIN_M, max_move_m: float = MAX_MOVE_M,
                 veto_window: int = VETO_WINDOW, veto_m: float = VETO_M, exclusive: bool | None = None,
-                jump_m: float | None = None):
+                jump_m: float | None | bool = None):
     """``(ground, n_snapped)``: ``ground_side`` (frame -> {pid: xy}) with each body sliding along
     its own ray to the nearest body of ``ground_other`` (keyed by that camera's own frames, i.e.
     ``frame + frame_shift``). ``teams`` ``{pid: team}`` gates the match; an id whose team is
@@ -168,9 +168,9 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
     bad = veto_outlier_snaps(deltas, window=veto_window, veto_m=veto_m) if veto_window > 0 else set()
     for f, pid in bad:
         out[f][pid] = ground_side[f][pid]
-    jump_m = JUMP_M if jump_m is None else jump_m
-    if jump_m is not None:
-        bad |= veto_jumps(out, ground_side, deltas, bad, jump_m=jump_m)
+    jump_m = JUMP_M if jump_m is None else jump_m          # None = the module's setting; False = off
+    if jump_m:
+        bad |= veto_jumps(out, ground_side, deltas, bad, jump_m=float(jump_m))
     n_snap = sum(len(v) for v in deltas.values()) - len(bad)
     return out, n_snap
 

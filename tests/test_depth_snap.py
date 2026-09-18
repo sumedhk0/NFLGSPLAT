@@ -21,8 +21,11 @@ def test_a_snap_that_disagrees_with_its_neighbours_is_undone():
     # the veto itself, on the corrections: a lone slide under the limit is kept
     assert veto_outlier_snaps({3: {4: 0.8}}) == set()
     assert veto_outlier_snaps({3: {4: 1.5}}) == {(4, 3)}
-    # and turning the window off restores the per-frame answer
+    # the jump veto alone (the window off) still catches both: each is a 2 m jump from the frame before
     out, n = snap_ground(side, other, tr, veto_window=0)
+    assert n == 19 and np.allclose(out[10][1], [0.0, -10.0])
+    # and with both vetoes off the per-frame answer comes back
+    out, n = snap_ground(side, other, tr, veto_window=0, jump_m=False)
     assert n == 21 and np.allclose(out[10][1], [0.0, -8.0])
 
 
