@@ -56,15 +56,30 @@ def nearest(states, xy, team_of, team, *, exclude=()):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--play-dir", type=Path, required=True)
-    ap.add_argument("--release", type=int, required=True, help="frame the ball leaves the passer's hand (from the footage)")
-    ap.add_argument("--catch", type=int, required=True, help="frame it reaches the receiver's hands")
+    ap.add_argument("--release", type=int, default=None, help="frame the ball leaves the passer's hand (from the footage, or --from-film)")
+    ap.add_argument("--catch", type=int, default=None, help="frame it reaches the receiver's hands (or --from-film)")
     ap.add_argument("--qb", type=int, default=None, help="the passer's id at the release (default: the offence body nearest the pocket)")
-    ap.add_argument("--receiver", type=int, default=None, help="the receiver's id at the catch (default: chained from the flight's end)")
+    ap.add_argument("--receiver", type=int, default=None, help="the receiver's id at the catch (or --from-film)")
     ap.add_argument("--down", type=int, default=None, help="frame the carrier is down (default: his box on the ground, else the play's end)")
     ap.add_argument("--snap", type=int, default=None)
+    ap.add_argument("--from-film", action="store_true",
+                    help="take release, catch and receiver not given above from <play-dir>/ball_film.json (09a_ball_in_film.py: "
+                         "the flight read off the sideline video), so nothing is typed from a render")
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    if args.from_film:
+        fp = args.play_dir / "ball_film.json"
+        if not fp.exists():
+            raise SystemExit(f"--from-film: {fp} is missing; run scripts/09a_ball_in_film.py first")
+        film = json.loads(fp.read_text())
+        for key in ("release", "catch", "receiver"):
+            if getattr(args, key) is None and film.get(key) is not None:
+                setattr(args, key, int(film[key]))
+                print(f"from the film: {key} {film[key]}")
+    missing = [k for k in ("release", "catch") if getattr(args, k) is None]
+    if missing:
+        raise SystemExit(f"--{' and --'.join(missing)} needed: read them off the footage, or --from-film after 09a")
     import smplx
 
     from nfl_gsplat.render import timeline as tlm

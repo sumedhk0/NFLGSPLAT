@@ -15,7 +15,8 @@ outside the dilated player boxes and outside the broadcast graphics; then tracki
 (RANSAC line, grown along a quadratic, dense inliers, a box at each end) and name_ends (walk the track
 into the passer's box and, among the boxes at the other end, his teammate's: in tight coverage the
 defender's box holds the catch point too). Prints the flight, the ends and, when ball.json exists, whether its release/catch/receiver agree:
-the receiver named here must be ball.json's, or the ball is going to the wrong man.
+the receiver named here must be ball.json's, or the ball is going to the wrong man. Writes
+<play-dir>/ball_film.json, which 08y --from-film takes its release/catch/receiver from.
 """
 from __future__ import annotations
 
@@ -115,6 +116,11 @@ def main() -> None:
           f"from ({x0:.0f}, {y0:.0f}) to ({x1:.0f}, {y1:.0f}); frames with a blob on the line: {fl['frames']}")
     print(f"ends: leaves box of id {ends['passer']} at {ends['release']} (release); enters box of id {ends['receiver']} at {ends['catch']} (catch)"
           + (f"; other boxes holding the catch point: {ends['others']}" if ends.get('others') else ""))
+    film = {"release": ends["release"], "catch": ends["catch"], "passer": ends["passer"], "receiver": ends["receiver"],
+            "others": ends.get("others", []), "frames": fl["frames"], "speed_px": round(fl["speed"], 2), "scanned": [f0, f1],
+            "track": {str(f): [round(v, 1) for v in track_at(fl, f)] for f in range((ends["release"] or fl["frames"][0]), (ends["catch"] or fl["frames"][-1]) + 1)}}
+    (P / "ball_film.json").write_text(json.dumps(film))
+    print(f"wrote {P / 'ball_film.json'} (08y --from-film reads it)")
     bj = args.ball if args.ball is not None else P / "ball.json"
     if bj.exists():
         b = json.loads(bj.read_text())
