@@ -5030,3 +5030,24 @@ dedupe rightly keeps the sideline-backed body -- 39 is Noah Gray's sideline frag
 begins at 421 (the "odd id 39" of the census note above). 167 (411-420) is a merged two-man box (207 px tall) and
 41 a 23 px speck; neither is folded. v73 chain (scratchpad/chain_v73.sh, running): 08z --keep 74 --drop 39, 08y
 with --snap 395 (play_end's snap moved 393 -> 395 after the first fold), 08x, render + both blends.
+
+**The ball read off the film (18:35 machine clock): scripts/09a_ball_in_film.py, nfl_gsplat/tracking/ball_film.py.**
+The hypothesis: the ball in flight is a 10-20 px blob that moves against the camera-compensated background,
+outside every player's box, along a near-straight image line. Tested on the raw sideline frames 500-615:
+per frame pair an ECC affine alignment (the pan is 3-6 px a frame), absolute difference, threshold 28, blobs
+of 8-120 px outside the dilated boxes and the graphics -- the ball shows on 7 of the 36 flight frames
+(539, 550-558; behind the pocket's boxes and at the hands it is inside a box and invisible to this). A RANSAC
+line grown along a quadratic through them, kept only when dense (a third of its span seen, no gap over 12
+frames) and anchored in a box at each end (a far-field runner without a box beat the real flight on inliers
+alone; a junk line through blobs 80 frames apart scored 7), then walked into the boxes: leaves 79 at 530,
+enters 74 at 562 with 55's box on the same point (the passer's teammate is the receiver). Sheet:
+diag/catch/ball_in_film_v73.png (the fitted track over the film 528-564). Against the corrected ball.json:
+release, catch and receiver AGREE. Against the day-old wrong one (ball_v62.json, --ball): "receiver DISAGREES:
+the film's flight enters id 74, ball.json says 77; at 583 the receiver typed is 270 px from the track; catch
+DISAGREES (562 vs 583)". That is the check the pipeline lacked; it runs from the boxes and the film alone.
+Next: 08y --from-film takes its inputs from 09a's ball_film.json so the hand-typing goes away.
+
+**v73 note.** The v73 render (chain_v73.sh) loaded 05k after the tackle edit landed, so v73 = the fold of 39
++ the ball kept in the carrier's hands on the down frames + the CARRIER's fall (render/tackle.py); the
+tacklers' fall (the other-team bodies within 1.5 m of him on the down frame fall onto him, committed in
+ecf91d8 with the carrier's) is v74. Both chains are queued after the v72 blends, each with its blends.
