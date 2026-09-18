@@ -4842,3 +4842,9 @@ cut there fed the held body back into the ball chain, the ball was "carried" to 
 and the clip ran to 660 again): a body drawn within 3 frames of the dead ball keeps its last state through
 the tail, so the receiver stands at the sideline with the ball while the clip ends. The lying body drawn at
 640-647 (184) is a fallen man near the pocket, 12 m away, not a tackler. v69 = v68 + this.
+
+**v68 delivered (07:35 machine clock) = v67 + the depth snap's jump veto + the throw's lift waypoint.** Strips
+(scratchpad/review_v68/strips): the throw's windup keeps the arm in front (516: the ball at the shoulder, elbow
+bent; v66 had it out at arm's length to the side); id 28 moves smoothly with his blocker through 578-592 where
+he used to jump 2 m deeper at 588; 157 likewise at 546-556. v69 = v68 + the aftermath (the receiver keeps the
+ball and stands through the tail), queued.
