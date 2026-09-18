@@ -4935,3 +4935,10 @@ own ankle ray does, which is the fusion doing its job or not -- this ruler canno
 the refit placement (place_from_refit max_across_m; opt-in, MAX_REFIT_ACROSS_M None) changes nothing at 0.5 m
 and hurts at 0.3 m (13 jumps to 41 px). The depth ruler for the pocket is the ENDZONE camera: a render from
 its pose blended with the endzone footage (frames offset -15). Launching that as the second blend.
+
+**The endzone blend's first frame (13:20 machine clock).** diag/ez_blend_214.png (render from the endzone pose
+over endzone frame 199): the running back and the quarterback sit on their players, but several linemen's
+avatars stand half a body-width beside theirs ACROSS the field -- the axis the sideline camera cannot measure.
+ground_positions averages the two cameras' ground points, which halves the sideline's depth error instead of
+removing it. Under test: FUSE_AXIS (x from the sideline, y from the endzone on two-view frames), judged by ankle
+rulers through BOTH cameras (the endzone's du is the field's y) and the motion rulers.
