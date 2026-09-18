@@ -5080,3 +5080,21 @@ sideline's blind-axis error, which only the film can say; 05q overlays of the po
 running to adjudicate before any veto is written. A per-frame common-mode x correction of the endzone ground
 points from the two-view bodies (the players as the ruler, as for the sideline's lens) is the candidate fix for the
 endzone-only placements.
+
+**The pocket on the film (19:05 machine clock; diag/pocket/, 05q overlays on both cameras at 480-600).** Through
+the endzone camera the fitted skeletons sit on their players in the pocket through the throw; at 540 two red
+skeletons stand around Mahomes: 79 (his id after 511) half a body-width to his left and 170 on him. The per-id
+offsets say why: 170's endzone rows are another man's (endzone minus sideline +2 to +3 m in x over 520-568, far
+beyond the frame's common mode of +0.2 to +1.4), and 79 has NO endzone rows after the throw at all, so his y is
+the sideline's blind axis with nothing to correct it. The receiver's endzone skeleton is on number 83 at
+500-580, and the v73 endzone catch sheet (diag/catch/ez_catch_v73.png) has the avatar on him by 562. The
+SkyCam is in the endzone footage (the black cable camera between the pocket and the receiver): the "dark ball
+with spikes" noted on the v72 endzone blend was it, not the render's ball.
+
+**Per-frame endzone-row veto (pair_rule.mispaired_frames, MISPAIR_FRAME_M 1.0; under A/B, not yet adopted).** For
+each (frame, id) in both cameras the endzone-minus-sideline vector less the frame's median over its pairs (the
+camera's wander) is the row's own disagreement; over 1.0 m the endzone row is dropped for that frame and the
+refit's pelvis is not used there (place_from_refit skip). Tests in test_pair_rule. A/B (scratchpad/
+probe_mispair_frames_ab.py: None / 1.0 / 0.7 on the play-window motion rulers and the ankle rulers through both
+cameras) is running; v74 (the tacklers' fall) loaded the loader with the veto on by default -- if the A/B rejects
+it, the constant goes to None and v75 re-renders.
