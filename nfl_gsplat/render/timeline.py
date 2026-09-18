@@ -359,6 +359,7 @@ def clamp_hinges(seq, *, hinges=None, flex_min_deg: float = HINGE_FLEX_MIN_DEG,
     return out
 
 
+DESPIKE_HALF: int = 2            # neighbours either side the despike's median is taken over
 DESPIKE_M: float | None = 0.15   # a frame's xy farther than this from the median of its neighbours (+-2) is a
                                  # measurement spike and takes that median (2026-09-17: live hops 23 -> 2, reprojection unchanged)
 
@@ -836,7 +837,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         seen = np.flatnonzero(np.isfinite(xy).all(1))
         if len(seen) < min_frames:
             continue
-        xy = smooth_xy(despike_xy(fill_gaps(frames, xy), excess_m=despike_m))
+        xy = smooth_xy(despike_xy(fill_gaps(frames, xy), excess_m=despike_m, half=DESPIKE_HALF))
         posed = poses_by_pid.get(pid, {})
         pf = sorted(f for f in posed if f in f_index)
         if pf:

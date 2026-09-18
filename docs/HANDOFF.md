@@ -4578,3 +4578,14 @@ track of one man), and no id has a keypoint at the quarterback's helmet at endzo
 detector merged him into the centre's box in both cameras. A body there would be invented.
 FORMATION_ROLE_STILL_M = None (the code stays, measured). The pre-snap deficit is now understood
 and left: KC shows ten men for three seconds because the eleventh is inside another man's box.
+
+**Despike window 3 measured and denied (06:20):** hops 2 -> 4 (new ones on 75, 79, 37), steps 53 -> 51,
+hip reprojection unchanged. DESPIKE_HALF stays 2 (knob added).
+
+**Next threads (06:25), all in identity/pairing, each with its evidence above:** (1) the pile depth
+of sideline-only linemen (37/166: the sideline-only man drawn half a metre into his neighbour; the
+endzone sees them a metre apart) -- a cross-view depth ruler for one-view body-frames first, then
+whether a bias is correctable; (2) the end-of-play slides (53 steps > 0.25 m/frame on real men
+while the sideline camera pans; the depth axis again); (3) 75, a 49-frame wrong-team fragment on a
+Kansas City lineman (kit -0.30); (4) the quarterback before the snap is inside the centre's box in
+both cameras and stays undrawn. The user's video verdict on v60 decides what matters first.
