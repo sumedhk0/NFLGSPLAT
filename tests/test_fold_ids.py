@@ -41,3 +41,15 @@ def test_keypoints_follow_the_rows():
                        columns=["cam", "frame", "global_player_id", "joint", "x", "y", "conf"])
     kout, kdrop = relabel_keypoints(kdf, m)
     assert kdrop == 1 and list(kout.global_player_id) == [74, 9]
+
+
+def test_fold_only_a_frame_range_of_the_dropped_id():
+    df = _tracks()
+    df = pd.concat([df, pd.DataFrame([("endzone", 1, 600, 75, 0.9), ("endzone", 4, 600, 75, 0.9)],
+                                     columns=df.columns)], ignore_index=True)
+    out, n = fold_ids(df, 74, [75], frames=(4, 9))
+    assert n == 0
+    got = out[out.global_player_id == 74]
+    assert ("endzone", 4) in set(zip(got.cam, got.frame)) and ("sideline", 4) in set(zip(got.cam, got.frame))
+    left = out[out.global_player_id == 75]
+    assert list(zip(left.cam, left.frame)) == [("endzone", 1)]              # the row before the range keeps its id

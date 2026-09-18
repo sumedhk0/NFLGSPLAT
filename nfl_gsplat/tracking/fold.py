@@ -11,14 +11,21 @@ from __future__ import annotations
 import pandas as pd
 
 
-def fold_ids(df: pd.DataFrame, keep: int, drop: list[int]) -> tuple[pd.DataFrame, int]:
+def fold_ids(df: pd.DataFrame, keep: int, drop: list[int], *, frames: tuple[int, int] | None = None) -> tuple[pd.DataFrame, int]:
     """``(tracks with the dropped global ids folded into keep, rows dropped)``. Where two of the folded
     ids have a box on one frame of one camera one row survives: the more confident, then the kept id's
-    own, then the taller box (the tracker's confidences tie at 1.0 on play 1); ``track_id`` stays."""
+    own, then the taller box (the tracker's confidences tie at 1.0 on play 1); ``track_id`` stays.
+    ``frames`` (lo, hi) folds only the dropped ids' rows on those frames (inclusive); the rest keep
+    their id -- an endzone track that is one man for part of the clip and another after (play 1's
+    164: the quarterback's endzone rows after his sideline id changed at 511)."""
     drop = [int(d) for d in drop]
     out = df.copy()
     gid = out["global_player_id"].astype(int)
     folded = gid.isin([int(keep), *drop])
+    if frames is not None:
+        lo, hi = int(frames[0]), int(frames[1])
+        in_range = out["frame"].astype(int).between(lo, hi)
+        folded = folded & (in_range | (gid == int(keep)))
     sub = out[folded].copy()
     sub["_conf"] = out["conf"][folded] if "conf" in out else 1.0
     sub["_own"] = (gid[folded] == int(keep)).astype(int)

@@ -17,6 +17,7 @@ from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_on
 from nfl_gsplat.render.blind_axis import hold_blind_axis
 from nfl_gsplat.render.depth_snap import snap_ground
 from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
+from nfl_gsplat.render import pair_rule as _pair_rule
 from nfl_gsplat.render.pair_rule import mispaired_ids
 from nfl_gsplat.errors import SetupError
 from nfl_gsplat.render import timeline as tlm
@@ -317,23 +318,26 @@ MAX_REFIT_ACROSS_M: float | None = None
 
 
 def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None,
-                     ray_centre=None, max_across_m: float | None = None):
+                     ray_centre=None, max_across_m: float | None = None, skip=None):
     """``ground`` with every (frame, id) that has a refit record moved to the
     record's pelvis. ``pelvis_xy(rec) -> xy`` gives the record's pelvis on the
     field; without it the translation alone is used (the model's origin, which
     sits 0.35 m from the pelvis along the rest skeleton's down axis -- see
     placed_vertices). A shift beyond ``max_shift_m`` is a wrong record and is
-    not applied. Returns ``(ground, shifts)``, ``shifts`` the metres moved."""
+    not applied; a (frame, id) in ``skip`` keeps its ground point (its endzone
+    row was vetoed, so the two-view record fitted to it is not trusted).
+    Returns ``(ground, shifts)``, ``shifts`` the metres moved."""
     out = {f: dict(d) for f, d in ground.items()}
     shifts = []
     accepted: set = set()
+    skip = skip or set()
     for f, recs in refit.items():
         f = int(f)
         if f not in out:
             continue
         for pid, r in recs.items():
             pid = int(pid)
-            if pid not in out[f]:
+            if pid not in out[f] or (f, pid) in skip:
                 continue
             xy = np.asarray(r["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(r), float)[:2]
             d = float(np.hypot(*(xy - np.asarray(out[f][pid], float))))
@@ -502,15 +506,34 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
               f"anchored to them; the raw box point elsewhere")
     # A pair whose two tracks are not one player: the sideline alone draws it
     # (pair_rule; the pairing's median-distance gate catches it upstream now).
+    vetoed: dict = {}
     if {"sideline", "endzone"} <= set(df["cam"].unique()):
-        bad = mispaired_ids(ground_positions(df[df["cam"] == "sideline"], tracks, ankles=ankles, frame_shift=shift),
-                            ground_positions(df[df["cam"] == "endzone"], tracks, ankles=ankles, frame_shift=shift))
+        side_raw = ground_positions(df[df["cam"] == "sideline"], tracks, ankles=ankles, frame_shift=shift)
+        end_raw = ground_positions(df[df["cam"] == "endzone"], tracks, ankles=ankles, frame_shift=shift)
+        bad = mispaired_ids(side_raw, end_raw)
         if bad:
             print("mispaired ids drawn from the sideline alone: "
                   + ", ".join(f"{pid} ({d:.1f} m)" for pid, d in sorted(bad.items())))
             # bad holds PLAYER ids, because ground_positions keys by global_player_id; dropping the
             # rows by the tracker's id instead would miss exactly the relabelled tracks
             df = df[~((df["cam"] == "endzone") & df["global_player_id"].isin(list(bad)))]
+        # ... and per FRAME: an endzone row a body-width or more from the sideline's point once the frame's
+        # common-mode offset (the endzone camera's depth wander) is removed is another man's (pair_rule)
+        mispair_m = _pair_rule.MISPAIR_FRAME_M
+        if mispair_m is not None:
+            vetoed = _pair_rule.mispaired_frames(side_raw, end_raw, max_m=mispair_m)
+            if vetoed:
+                keys = set(zip(df["cam"].astype(str), df["frame"].astype(int), df["global_player_id"].astype(int)))
+                drop = {("endzone", f, p) for (f, p) in vetoed} & keys
+                mask = [(c, int(f), int(p)) in drop for c, f, p in zip(df["cam"].astype(str), df["frame"], df["global_player_id"])]
+                df = df[~np.asarray(mask)]
+                by_id: dict = {}
+                for (_f, p), r in vetoed.items():
+                    by_id.setdefault(p, []).append(r)
+                top = sorted(by_id.items(), key=lambda kv: -len(kv[1]))[:8]
+                print(f"endzone rows vetoed per frame (> {mispair_m} m from the sideline's point after the frame's common "
+                      f"mode): {len(vetoed)} body-frames on {len(by_id)} ids; most: "
+                      + ", ".join(f"{p} x{len(v)} ({np.median(v):.1f} m)" for p, v in top))
     ground, views = ground_positions(df, tracks, with_views=True, ankles=ankles, frame_shift=shift)
     # The sideline's point places a body wherever the sideline sees it: the
     # two-camera average carried the endzone's depth error (1.9 m on id 2 of
@@ -696,7 +719,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         _side = tracks.get("sideline")
         ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model),
                                           ray_centre=(lambda f_: _cgc(_side, min(int(f_), len(_side.conf) - 1))) if _side is not None else None,
-                                          max_across_m=MAX_REFIT_ACROSS_M)
+                                          max_across_m=MAX_REFIT_ACROSS_M, skip=set(vetoed))
         if len(shifts):
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")

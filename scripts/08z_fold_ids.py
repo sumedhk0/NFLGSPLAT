@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Fold ids that the FOOTAGE shows to be one man into one id (an explicit twin merge).
 
-    C:/venvs/smplx312/Scripts/python scripts/08z_fold_ids.py --play-dir P --keep 74 --drop 48 75 [--apply]
+    C:/venvs/smplx312/Scripts/python scripts/08z_fold_ids.py --play-dir P --keep 74 --drop 48 75 [--frames LO HI] [--apply]
 
 WHY. 08o finds twins by ankle rays, boxes and team; it cannot fold a fragment whose team label is
 wrong. Play 1 (2026-09-18): the receiver, Noah Gray (id 74, jersey 83 read by OCR, sideline track
@@ -40,6 +40,8 @@ def main() -> None:
     ap.add_argument("--play-dir", required=True, type=Path)
     ap.add_argument("--keep", type=int, required=True, help="the id that survives (its identity names the man)")
     ap.add_argument("--drop", type=int, nargs="+", required=True, help="ids the footage shows to be the same man")
+    ap.add_argument("--frames", type=int, nargs=2, default=None, metavar=("LO", "HI"),
+                    help="fold only the dropped ids' rows on these frames (inclusive); the rest keep their id")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
     P = args.play_dir
@@ -49,7 +51,7 @@ def main() -> None:
     for pid in [args.keep, *args.drop]:
         if pid not in ids:
             raise SetupError(f"08z: id {pid} has no rows in tracks.parquet")
-    out, n_rows = fold_ids(df, args.keep, args.drop)
+    out, n_rows = fold_ids(df, args.keep, args.drop, frames=tuple(args.frames) if args.frames else None)
     for pid in [args.keep, *args.drop]:
         for cam, g in df[df["global_player_id"] == pid].groupby("cam"):
             print(f"before: id {pid} {cam} frames {int(g.frame.min())}-{int(g.frame.max())} ({len(g)} boxes)")
@@ -75,9 +77,10 @@ def main() -> None:
     blob = pickle.load(open(ip, "rb"))
     ib = backup_path(ip, ".pre_fold")
     shutil.copy2(ip, ib)
+    gone = [p for p in args.drop if not (out["global_player_id"] == p).any()]     # an id folded in part keeps its identity
     for key in ("merged", "roles"):
         d = blob.get(key, {})
-        for pid in args.drop:
+        for pid in gone:
             for k in (pid, str(pid)):
                 if k in d:
                     print(f"identity: {key}[{pid}] = {d.pop(k)} removed")
