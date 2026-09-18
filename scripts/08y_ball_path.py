@@ -175,7 +175,14 @@ def main():
         if q is None:
             got = nearest(tl.states.get(f, []), np.asarray(path[f - 1][:2]), team_of, offence)
             if got is None or got[0] > CHAIN_M:
-                path[f] = (path[f - 1][0], path[f - 1][1], GROUND_Z, "ground")
+                # the chain lost the carrier: his track ended (play 1: the receiver steps out of bounds at 639 and
+                # the tracker stops; the timeline holds his body through the tail). The ball stays in his hands
+                # -- "held" -- unless he was seen on the ground, in which case it is "down" from the down frame.
+                if down is not None and f >= down:
+                    path[f] = (path[f - 1][0], path[f - 1][1], GROUND_Z, "down")
+                else:
+                    path[f] = (path[f - 1][0], path[f - 1][1], path[f - 1][2], "held")
+                    holder[f] = carrier
                 continue
             carrier = got[1]
             q = hands_xy(f, carrier)

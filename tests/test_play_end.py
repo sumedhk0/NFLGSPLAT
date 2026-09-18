@@ -75,6 +75,7 @@ def test_dead_ball_from_the_balls_ground_frame_after_the_release_only():
     frames["100"] = {"src": "ground"}
     assert m.dead_from_ball({"release": 527, "frames": frames}) == 639
     assert m.dead_from_ball({"release": 527, "frames": {"600": {"src": "carried"}}}) is None
+    assert m.dead_from_ball({"release": 527, "frames": {"600": {"src": "carried"}, "639": {"src": "held"}}}) == 639
     assert m.dead_from_ball({}) is None
 
 

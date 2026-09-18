@@ -617,3 +617,25 @@ def test_build_timeline_keep_exempts_a_vouched_unanchored_body_from_the_dedupe()
     kept = tl.build_timeline(frames, ground, poses, keep={f: {2} for f in frames}, **kw)
     assert all(not any(s.pid == 2 for s in plain.states[f]) for f in frames)
     assert all(any(s.pid == 2 for s in kept.states[f]) for f in frames)
+
+
+def test_hold_to_end_keeps_a_body_that_ends_at_the_dead_ball_through_the_tail():
+    import numpy as np
+
+    from nfl_gsplat.render import timeline as tlm
+
+    def st(pid, x):
+        return tlm.PlayerState(pid=pid, xy=np.array([x, 0.0]), body_pose=np.zeros((21, 3)), global_orient=np.zeros(3),
+                               betas=np.zeros(10), source="sideline")
+    tl = tlm.Timeline(frames=list(range(630, 648)), states={f: [] for f in range(630, 648)})
+    for f in range(630, 639):
+        tl.states[f].append(st(71, float(f)))                  # the receiver, out of bounds after 638
+    for f in range(630, 648):
+        tl.states[f].append(st(5, 1.0))                          # a man drawn to the end
+    for f in range(630, 633):
+        tl.states[f].append(st(9, 2.0))                          # a fragment that ended long before the dead ball
+    n = tlm.hold_to_end(tl, end=639, last_frame=647)
+    assert n == 647 - 638
+    assert all(any(s.pid == 71 and s.xy[0] == 638.0 for s in tl.states[f]) for f in range(639, 648))
+    assert not any(s.pid == 9 for s in tl.states[640])
+    assert sum(1 for s in tl.states[645] if s.pid == 5) == 1

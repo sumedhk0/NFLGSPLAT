@@ -4824,3 +4824,21 @@ default on): a snap whose result lies more than 1 m from the body's point on the
 while the raw point lies within 1 m of it, is undone, frames walked in order. Play window 393-639: steps
 23 -> 11, hops 2 -> 0, root jitter p90 0.0301 -> 0.0284 / p99 0.0908 -> 0.0721, census 1.397 -> 1.409;
 0.6 m: steps 10 but census 1.47 (right snaps refused). v68 = v67 + this.
+
+**v67 delivered (07:15 machine clock) = v66 + pre-snap hole fill + the catch + the quarterback stance.**
+Strips (scratchpad/review_v67/strips): the receiver's arms rise to the ball at 580-582 and close on it at
+584 (v66: arms at his sides, the ball on his chest); guard 38 stands on every pre-snap frame (v65: absent
+at 240/280/340); the pre-snap sheet shows a full red line. v68 = v67 + the depth snap's jump veto + the
+throw's lift waypoint, rendering.
+
+**There was no tackle (07:00 machine clock).** The footage (diag/tackle/): the receiver runs alone along the
+far sideline and steps out of bounds at ~639; no Baltimore body is within 7 m of him on the timeline from 612
+on. His track ends at 638, the carrier chain lost him, 08y wrote the ball to the "ground" there and the
+render dropped both man and ball on the frame the play ended. Two changes: (a) 08y keeps the ball in the
+lost carrier's hands ("held", the holder stays him) unless he was seen on the ground; 08x's dead-ball rule
+counts "held" (a carrier the tracker loses is a dead ball: out of bounds or under a pile) -- play 1 still
+ends at 639, clip to 647; (b) timeline.hold_to_end, applied by 05k after loading (NOT in the loader: a first
+cut there fed the held body back into the ball chain, the ball was "carried" to 647, no dead ball was found
+and the clip ran to 660 again): a body drawn within 3 frames of the dead ball keeps its last state through
+the tail, so the receiver stands at the sideline with the ball while the clip ends. The lying body drawn at
+640-647 (184) is a fallen man near the pocket, 12 m away, not a tackler. v69 = v68 + this.

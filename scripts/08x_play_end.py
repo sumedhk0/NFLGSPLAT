@@ -83,12 +83,12 @@ DEAD_AFTER_BALL: int = 8      # the play is dead this many frames after the ball
 
 def dead_from_ball(ball: dict) -> int | None:
     """The dead-ball frame from 08y's ball path: the first frame after the release on which the ball is
-    ``down`` or on the ``ground`` (the carrier is down, or the chain lost him in the pile). The clip then
-    runs DEAD_AFTER_BALL more frames for the tackle to finish. None when the ball never lands or there
-    is no path."""
+    ``down`` or on the ``ground`` (the carrier is down), or ``held`` (the chain lost him: his track ended
+    -- out of bounds, or in a pile). The clip then runs DEAD_AFTER_BALL more frames for the tackle to
+    finish. None when the ball never lands or there is no path."""
     frames = ball.get("frames") or {}
     release = ball.get("release")
-    downs = sorted(int(f) for f, r in frames.items() if r.get("src") in ("down", "ground")
+    downs = sorted(int(f) for f, r in frames.items() if r.get("src") in ("down", "ground", "held")
                    and (release is None or int(f) > int(release)))
     return downs[0] if downs else None
 

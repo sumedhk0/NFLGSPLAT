@@ -48,6 +48,16 @@ def play_end_frame(play_dir):
     return int(d["end"]) + int(d.get("tail", 0))
 
 
+def play_dead_frame(play_dir):
+    """The dead-ball frame itself from ``<play-dir>/play_end.json`` (``"end"``), or None."""
+    import json
+
+    f = Path(play_dir) / "play_end.json"
+    if not f.exists():
+        return None
+    return int(json.loads(f.read_text())["end"])
+
+
 def play_start_frame(play_dir):
     """The first frame to draw from ``<play-dir>/play_end.json`` (``"start"``, 3 s before the snap), or None."""
     import json
@@ -185,6 +195,13 @@ def main() -> None:
         n0 = len(frames)
         frames = [f for f in frames if f <= end]
         print(f"clip ends when the play is dead: frame {end} ({n0 - len(frames)} of {n0} rendered frames after it left out)")
+        # the aftermath: a body drawn up to the dead ball keeps its last state through the tail (timeline.hold_to_end);
+        # the renderer's business, so the ball path and the play end see the tracks as they are
+        dead = play_dead_frame(P)
+        if dead is not None:
+            n_end = tlm.hold_to_end(tl, dead, end)
+            if n_end:
+                print(f"aftermath: {n_end} body-frames held through the tail after the dead ball at {dead}")
     start = args.start_frame if args.start_frame is not None else play_start_frame(P)
     if start is not None:
         n0 = len(frames)

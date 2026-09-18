@@ -742,6 +742,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                             despike_m=tlm.DESPIKE_M if (despike_m is not None and despike_m < 0) else despike_m)
     tl.members = members
     tl.held = {(p, f) for p, f in qb_held if any(int(s.pid) == p for s in tl.states.get(f, []))}
+    # (the aftermath hold -- timeline.hold_to_end -- is the renderer's: 05k applies it after loading, so the ball
+    # path (08y) and the play end (08x) see the tracks as they are and do not chase a held body)
     # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)
     teams_now = _teams(P)
     riders = tlm.rider_ids(tl, teams_now)

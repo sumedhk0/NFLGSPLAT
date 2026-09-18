@@ -912,3 +912,36 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
               float(np.median([len(v) for v in tl.states.values()])) if tl.states else 0,
               tl.n_default, tl.n_clamped)
     return tl
+
+
+# ---- the aftermath: bodies stay where the play left them --------------------------------------------
+# The tracker stops on a man the moment the play ends around him -- play 1's receiver steps out of bounds
+# at 639 and his track ends at 638 -- and the clip's tail (08x: DEAD_AFTER_BALL frames past the dead ball)
+# then drew empty turf where he stood. A body drawn within HOLD_END_REACH frames of the dead-ball frame
+# keeps its last state to the end of the clip: the play is dead, nobody moves much, and a man who
+# vanishes is worse than a man who stands still.
+HOLD_END_REACH: int = 3
+
+
+def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_END_REACH) -> int:
+    """Copy each id's last state to every frame up to ``last_frame`` when that last state lies within
+    ``reach`` frames of ``end`` (the dead ball) or after it. Returns the states added."""
+    import dataclasses
+
+    last: dict = {}
+    for f, sts in tl.states.items():
+        for s in sts:
+            if f >= last.get(int(s.pid), (-1, None))[0]:
+                last[int(s.pid)] = (int(f), s)
+    n = 0
+    for pid, (f_last, s) in last.items():
+        if f_last < int(end) - int(reach) or f_last >= int(last_frame):
+            continue
+        for f in range(f_last + 1, int(last_frame) + 1):
+            if f not in tl.states:
+                continue
+            if any(int(t.pid) == pid for t in tl.states[f]):
+                continue
+            tl.states[f].append(dataclasses.replace(s))
+            n += 1
+    return n
