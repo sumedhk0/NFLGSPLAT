@@ -4536,3 +4536,22 @@ the men they double), exactly 11/11 32 -> 0. REJECTED both ways; FORMATION_STILL
 stays as the measured alternative). The pre-snap deficit is the quarterback occluded from the
 sideline plus a line drawn by fragments, and the honest fix is in identity/pairing (an endzone-only
 id at the spot the roles call the QB's, paired to 33's five frames), not in the timeline.
+
+**v60 delivered (05:15): diag/play_001_v60_hifi_720.mp4 = v59 + short unreadable-kit fragments out.
+This is the current best.** 07l on 393-660 with the gait (play_001_v60_plausibility.json): steps >
+0.25 m/frame 53 (0 handovers), hops 2, planted 17 % of 1069 moving body-frames, census 2.06 (KC
+10.86, BAL 10.98), joints jitter p50 0.023 / p90 0.135 / p99 0.39 (54 ids). Against 21:30's
+baseline on the same window: steps 114, hops 25, handovers 7, planted 13 %, census 2.55, jitter
+p99 0.58. Side by side for the video verdict: diag/play_001_v53_vs_v60_snap.mp4 (timeline 393-513,
+the snap to the throw; v53 left, v60 right; v53 is the last render the user was shown, cut at 513).
+
+**Where play 1 stands (05:20).** Shipped tonight, each on a ruler and a strip: the crowd-motion snap
+and clip end; the span-edge hold (per frame before the snap when the join is at the snap, the join
+jump otherwise); the hole hold with long-hole middles out; the despike; the dweller line at 23.0;
+the heading backfill; box twins; the lying-frame pose smoothing; unreadable-kit fragments out.
+Measured and left opt-in: the lying fit prior, the jog-band gait, box containment, pre-snap
+hold-at-join, impossible-speed runs, the formation hold, the 0.4 kit bar. Open, in order of what
+the viewer sees: Kansas City is nine or ten men before the snap (the quarterback occluded from the
+sideline, the line drawn by fragments -- identity/pairing work, not the timeline); real men slide
+at the end of the play where the camera pans (53 steps over 0.25 m/frame); two ids on one lineman
+by depth (37/166); 75, a 49-frame wrong-team fragment.
