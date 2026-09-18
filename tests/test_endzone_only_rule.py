@@ -315,3 +315,20 @@ def test_qb_hold_takes_out_the_teammate_already_standing_on_the_held_spot():
     out2, _, _ = qb_hold(ground, side, start=213, snap=393, centre_xy=(-23.0, 0.0), sign=1.0, team_ids={80, 204, 17, 19},
                          first_frame={80: 377}, same_m=None)
     assert all(204 in out2[f] for f in range(213, 300))
+
+
+def test_presnap_holes_are_filled_between_sideline_points_and_not_beyond_them():
+    import numpy as np
+
+    from nfl_gsplat.render.endzone_only_rule import fill_presnap_holes
+
+    side = {f: {82: np.array([-23.0 + 0.001 * f, -1.0])} for f in [217, 218, 219, 260, 261, 300, 307]}
+    ground = {f: dict(side.get(f, {})) for f in range(213, 400)}
+    ground[280][82] = np.array([-22.0, -1.5])                       # an endzone-filled frame keeps its own point
+    out, added = fill_presnap_holes(ground, side, start=213, snap=393, margin=10)
+    assert added == {82: 307 - 217 + 1 - 7 - 1}                     # every hole frame but the one already drawn
+    assert 82 not in out[216] and 82 not in out[308]                 # nothing beyond the first or last sighting
+    assert np.allclose(out[240][82], [-23.0 + 0.001 * 219 + (0.001 * (260 - 219)) * (240 - 219) / 41.0, -1.0])
+    assert np.allclose(out[280][82], [-22.0, -1.5])
+    # a single sighting fills nothing
+    assert fill_presnap_holes(ground, {250: {5: np.array([0.0, 0.0])}}, start=213, snap=393)[1] == {}

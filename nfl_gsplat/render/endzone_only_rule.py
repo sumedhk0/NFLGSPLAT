@@ -485,3 +485,45 @@ def line_vouch(ground, views, side_ground, *, start: int, snap: int, teams: dict
             keep.setdefault(f, set()).add(pid)
             counts[pid] = counts.get(pid, 0) + 1
     return keep, counts
+
+
+# ---- a set man's holes before the snap ---------------------------------------------------------------
+# Inside its own pre-snap span a sideline track has holes the hole rule cannot touch: hold_holes moves
+# endzone-filled frames, and a sideline-only id has none to move (play 1's left guard, id 82: sideline
+# points on 51 of the 91 frames 217-307, a 69-px box on a man hidden behind the centre, no endzone id).
+# Before the snap a set man does not move, so a hole between two of his sideline points is filled with
+# the straight line between them, whatever its length; nothing is added beyond his first or last
+# pre-snap sighting (that is the span rule's business).
+# MEASURED AND NOT ADOPTED (play 1 pre-snap 213-383, 2026-09-18, with the line vouch and the quarterback rule
+# on): mean |KC - 11| a frame 0.520 -> 0.538, exact-eleven frames 91 -> 82, frames at twelve or more 34 -> 52.
+# It filled the guard (82: 36 frames) but also every twin's and fragment's holes (19: 15, 34: 19, 195: 9,
+# 204: 9 ...), and a filled twin is a filled ghost. Opt-in (05k/loader presnap_fill=True).
+PRESNAP_FILL: bool = False
+
+
+def fill_presnap_holes(ground, side_ground, *, start: int, snap: int, margin: int = FORMATION_MARGIN):
+    """``(ground, {pid: frames_added})``: every frame between an id's first and last sideline point in
+    [start, snap - margin] on which the merged ground has no point for it gets the line between the
+    sideline points either side."""
+    out = {f: dict(d) for f, d in ground.items()}
+    added: dict = {}
+    lo, hi = int(start), int(snap) - int(margin)
+    side_frames: dict = {}
+    for f, d in side_ground.items():
+        if lo <= int(f) <= hi:
+            for pid in d:
+                side_frames.setdefault(int(pid), []).append(int(f))
+    for pid, fs in side_frames.items():
+        fs.sort()
+        if len(fs) < 2:
+            continue
+        arr = np.asarray(fs)
+        for f in range(fs[0], fs[-1] + 1):
+            if pid in out.get(f, {}) or pid in side_ground.get(f, {}):
+                continue
+            i = int(np.searchsorted(arr, f))
+            fa, fb = int(arr[i - 1]), int(arr[i])
+            a = np.asarray(side_ground[fa][pid], float); b = np.asarray(side_ground[fb][pid], float)
+            out.setdefault(f, {})[pid] = a + (b - a) * (f - fa) / float(fb - fa)
+            added[pid] = added.get(pid, 0) + 1
+    return out, added

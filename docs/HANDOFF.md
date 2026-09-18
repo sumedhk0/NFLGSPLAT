@@ -4780,3 +4780,12 @@ with one pose stands there. Mean |KC - 11| a frame on 213-383: 0.602 -> 0.520; e
 at twelve or more 61 -> 34; at ten or fewer 30 -> 46 (204 stood alone on a few frames where 80's held body
 is later dropped -- open). Box twins at IoU 0.5 change nothing pre-snap and 0.4 costs real men (exact 80 ->
 55): 166 on 19's man (291-392, IoU p50 0.57) stays the remaining pre-snap twin. v66 = v65 + this.
+
+**Pre-snap hole fill: measured and not adopted (05:40).** The left guard (82) is sideline-only with holes on
+40 of its 91 pre-snap frames (a 69-px partial box on a man behind the centre; no endzone id -- the endzone
+detection of that man carries 166's/82's labels but no separate track). hold_holes moves endzone-filled
+frames and has nothing to move here, so endzone_only_rule.fill_presnap_holes draws the line between a set
+man's sideline points across any pre-snap hole. It filled 82 on 36 frames but also every twin's holes
+(19, 34, 195, 204 ...): |KC-11| 0.520 -> 0.538, exact-eleven 91 -> 82, twelve-or-more 34 -> 52. Opt-in
+(PRESNAP_FILL False; loader presnap_fill=True). The pre-snap now stands at 10.9 a frame with the left guard
+its remaining hole and 82/166's overlap (291-307) its remaining double.

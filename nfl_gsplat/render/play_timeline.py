@@ -402,7 +402,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0,
                        despike_m: float | None = -1.0, weak_kit_margin: float | None = -1.0,
                        impossible_m: float | None = -1.0, formation_still_m: float | None = -1.0,
-                       line_vouch_m: float | None = -1.0,
+                       line_vouch_m: float | None = -1.0, presnap_fill: bool | None = None,
                        same_body_gap_m: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
@@ -550,6 +550,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         if span_report:
             print("beyond-span stretches drawn from the endzone (id: frames, worst m from the sideline's join point, dropped as far): "
                   + ", ".join(f"{p}: {r[0]}, {r[1]:.2f}, {r[2]}" for p, r in sorted(span_report.items())))
+        # a set man's holes before the snap: the line between his sideline points (endzone_only_rule.fill_presnap_holes)
+        if (presnap_fill if presnap_fill is not None else _ezr.PRESNAP_FILL) and snap_f is not None:
+            start_f = play_start(P)
+            ground, filled = _ezr.fill_presnap_holes(ground, side_ground, start=start_f if start_f is not None else min(ground), snap=snap_f)
+            if filled:
+                print(f"pre-snap holes filled: {sum(filled.values())} body-frames on {len(filled)} ids " + str(dict(sorted(filled.items()))))
         # after the span rule, so the held frames are not 'beyond the span'; their ids are vouched for to the dedupe
         # the quarterback under centre: inside the centre's box until he steps back at the snap; held
         # at the spot he steps back from (endzone_only_rule.qb_hold)
