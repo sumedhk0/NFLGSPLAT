@@ -155,7 +155,7 @@ def throw_schedule(release: int, *, cock: int = THROW_COCK, swing: int = THROW_S
             phase = (f - start + 1) / float(cock)
             w = 1.0
         elif f <= release:
-            phase = 1.0 + (f - (release - swing) + 1) / float(swing)
+            phase = 1.0 + (f - (release - swing) + 1) / float(swing + 1)     # 2.0 on the release frame
             w = 1.0
         else:
             phase = 2.0

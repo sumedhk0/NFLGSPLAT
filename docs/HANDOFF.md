@@ -4721,3 +4721,29 @@ when the play is dead". Effect: the camera-drift window 647-660 (grid 44-77 px) 
 (KC 11.39, BAL 11.12), planted 17 %, joints jitter p99 0.36. diag/play_001_v63_hifi_720.mp4 = v62's frames
 to 647 (the frames are unchanged; no re-render). Next inside the play: the 632-639 camera drift (78's slide),
 the carrier's hands on the ball, 37/166 depth.
+
+**Hands on the ball (04:00, v64 rendering).** render/carry.py: 08y now names the ball's holder per frame in
+ball.json (the passer chain 80 then 79, the carrier chain 77 then 71; nobody in flight, on the ground, or
+BEFORE THE SNAP -- the centre's hand rests on a ball that stays on the turf, and the first cut marked him a
+holder, which would have stood him up with the ball at his chest for 180 frames: caught on the launch
+log's "5 holders" and fixed before the render). 05k turns the holder's shoulder and elbow rows toward a
+carry pose solved on the real SMPL-X model (both hands in front of the chest a ball's width apart; the
+conventions -- +x left, +y up, +z forward, a shoulder about -y swings the arm forward, about -z drops it --
+are recorded in carry.py), ramping over 4 frames at each edge of a holding stretch, and draws the ball at the
+posed wrists' midpoint + 6 cm along the facing. Smoke render 594-606: the ball sits in both hands at the
+chest (scratchpad/review_smoke/render_ball_f594.png); v62 had it floating a hand's width ahead. Known seam:
+the last two windup frames before the release use the path's rising z (a chest-to-shoulder pop at 525-527);
+the throwing arm is the next ball thread. Also seen: the receiver's id changes 77 -> 71 at 624-628 (the same
+man, 0.2 m apart, both drawn for 5 frames -- under the twins rule's 8), so the carrier chain's "hand-off" at
+629 is an id change, not a fumble.
+
+**The throw (04:25).** carry.py's second half: two key arm poses solved on the model (COCKED: the ball beside
+the ear, the elbow out, the left arm pointing at the target; RELEASE: the throwing arm extended up and forward,
+the left arm dropping across), a schedule around ball.json's release (the arms cock over 6 frames, swing over
+8 with the release pose on the release frame, fade back to the fit over 8), the ball in the throwing hand
+(the wrist + 8 cm along the forearm) until it flies; 05k --throw-hand R|L (default R; play 1's passer is
+right-handed). Smoke render 512-532 (scratchpad/review_smoke/render_ball_f512.png): windup 514-518, the arm
+up 520-524, release 526, flight after. The slerp from the carry to the cocked pose passes through a
+straight-arm-out frame or two (the elbow's flexion axis turns from y to z) -- brief, left as is. The first
+solve of the key poses sat in local minima (the arm never rose); seeds from the verified conventions fixed it.
+v64 = v63 + carry + throw, rendering.
