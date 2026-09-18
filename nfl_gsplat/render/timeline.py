@@ -933,11 +933,14 @@ HOLD_END_SAME_M: float = 4.0   # 3.0 let play 1 id 185 back in at 646 (3.4 m off
 
 
 def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_END_REACH, teams: dict | None = None,
-                same_m: float | None = HOLD_END_SAME_M) -> int:
+                same_m: float | None = HOLD_END_SAME_M, always: set | None = None) -> int:
     """Copy each id's last state to every frame up to ``last_frame`` when that last state lies within
     ``reach`` frames of ``end`` (the dead ball) or after it. A same-team id whose FIRST frame is at or
     after ``end - reach`` and which stands within ``same_m`` of a held spot is removed on the held
-    frames (``teams`` {pid: team}; without it any team). Returns the states added."""
+    frames (``teams`` {pid: team}; without it any team). Ids in ``always`` are held from wherever their
+    track ends, however far before ``end``: the ball's carrier vanishes under the tackle (play 1's
+    receiver: the detector loses him at 602, he is down at 607) and the ball must not float where a
+    man was. Returns the states added."""
     import dataclasses
 
     last: dict = {}
@@ -950,7 +953,9 @@ def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_
             first[pid] = min(first.get(pid, int(f)), int(f))
     n = 0
     for pid, (f_last, s) in last.items():
-        if f_last < int(end) - int(reach) or f_last >= int(last_frame):
+        if f_last >= int(last_frame):
+            continue
+        if f_last < int(end) - int(reach) and pid not in (always or ()):
             continue
         for f in range(f_last + 1, int(last_frame) + 1):
             if f not in tl.states:

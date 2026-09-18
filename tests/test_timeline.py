@@ -642,6 +642,27 @@ def test_hold_to_end_keeps_a_body_that_ends_at_the_dead_ball_through_the_tail():
     assert sum(1 for s in tl.states[645] if s.pid == 5) == 1
 
 
+def test_hold_to_end_always_holds_the_carrier_from_wherever_his_track_ends():
+    import numpy as np
+
+    from nfl_gsplat.render import timeline as tlm
+
+    def st(pid, x):
+        return tlm.PlayerState(pid=pid, xy=np.array([x, 0.0]), body_pose=np.zeros((21, 3)), global_orient=np.zeros(3),
+                               betas=np.zeros(10), source="sideline")
+    tl = tlm.Timeline(frames=list(range(590, 616)), states={f: [] for f in range(590, 616)})
+    for f in range(590, 603):
+        tl.states[f].append(st(74, float(f)))                  # the receiver, lost under the pile after 602
+    for f in range(590, 603):
+        tl.states[f].append(st(9, 2.0))                          # a fragment ending at the same frame: not held
+    for f in range(590, 616):
+        tl.states[f].append(st(5, 1.0))
+    n = tlm.hold_to_end(tl, end=607, last_frame=615, always={74})
+    assert n == 615 - 602
+    assert all(any(s.pid == 74 and s.xy[0] == 602.0 for s in tl.states[f]) for f in range(603, 616))
+    assert not any(s.pid == 9 for s in tl.states[610])
+
+
 def test_hold_to_end_drops_a_track_born_at_the_dead_ball_beside_the_held_man():
     import numpy as np
 

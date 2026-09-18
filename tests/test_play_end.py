@@ -77,6 +77,11 @@ def test_dead_ball_from_the_balls_ground_frame_after_the_release_only():
     assert m.dead_from_ball({"release": 527, "frames": {"600": {"src": "carried"}}}) is None
     assert m.dead_from_ball({"release": 527, "frames": {"600": {"src": "carried"}, "639": {"src": "held"}}}) == 639
     assert m.dead_from_ball({}) is None
+    # the carrier's down frame (08y --down, from the footage) beats the chain losing him in the pile
+    frames = {str(f): {"src": s} for f, s in [(562, "flight"), (589, "held"), (607, "down")]}
+    assert m.dead_from_ball({"release": 527, "down": 607, "frames": frames}) == 607
+    assert m.dead_from_ball({"release": 527, "down": None, "frames": frames}) == 589
+    assert m.dead_from_ball({"release": 527, "down": 100, "frames": frames}) == 589
 
 
 def test_dead_ball_where_the_crowd_stops_and_the_clip_end_when_it_never_does():

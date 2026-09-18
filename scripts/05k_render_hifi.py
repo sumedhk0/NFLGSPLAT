@@ -208,9 +208,16 @@ def main() -> None:
         # the renderer's business, so the ball path and the play end see the tracks as they are
         dead = play_dead_frame(P)
         if dead is not None:
-            n_end = tlm.hold_to_end(tl, dead, end, teams=team_of or None)
+            # the ball's carrier is held from wherever the detector lost him (under the tackle) to the end:
+            # the ball sits in his hands through the dead ball and must not float where a man was
+            from nfl_gsplat.render.carry import load_holders
+
+            holders_ = load_holders(P)
+            carrier = holders_[max(holders_)] if holders_ else None
+            n_end = tlm.hold_to_end(tl, dead, end, teams=team_of or None, always={carrier} if carrier is not None else None)
             if n_end:
-                print(f"aftermath: {n_end} body-frames held through the tail after the dead ball at {dead}")
+                print(f"aftermath: {n_end} body-frames held through the tail after the dead ball at {dead}"
+                      + (f" (the carrier {carrier} from his last frame)" if carrier is not None else ""))
     start = args.start_frame if args.start_frame is not None else play_start_frame(P)
     if start is not None:
         n0 = len(frames)
