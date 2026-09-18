@@ -90,6 +90,8 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--gait", action="store_true",
                     help="synthesise a running gait for the legs of moving bodies (render.gait); the fit keeps the torso")
+    ap.add_argument("--gait-arms", action="store_true",
+                    help="with --gait: the arms pump opposite the legs too (render.gait ARMS)")
     ap.add_argument("--start-frame", type=int, default=None,
                     help="first timeline frame to draw (default: play_end.json's start, else the first)")
     ap.add_argument("--end-frame", type=int, default=None,
@@ -186,6 +188,10 @@ def main() -> None:
     if args.gait:
         from nfl_gsplat.render.gait import gait_timeline
 
+        if args.gait_arms:
+            import nfl_gsplat.render.gait as _gait
+
+            _gait.ARMS = True
         reps = gait_timeline(tl)
         n_on = sum(r["on"] for r in reps.values())
         print(f"gait: legs synthesised on {n_on} body-frames of {sum(1 for r in reps.values() if r['on'])} ids")
