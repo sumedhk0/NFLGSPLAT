@@ -4952,3 +4952,13 @@ px / p90 16.7, the play p50 6.7 / p90 57.9. Ranked by id over the play: 212 (-30
 another man's), 170 (p90 190 at 555-567), 206 (114), 198 (-71 p50), 76 (p90 114 at 577-585), 81, 37 (74 at the
 snap), 40, 211, 168 -- mispairings on a handful of ids, not a bias (74 alone carries a steady +19 px). Two
 blends now bracket the placement: the sideline's for x and counts, the endzone's for y.
+
+**PAUSED (14:00 machine clock, user's request).** Tree clean, everything pushed, suite green, no render running.
+Current best: v71 (diag/play_001_v71_hifi_720.mp4; the follow-camera clip), with the review clips
+diag/play_001_v71_sideline_blend.mp4 / _sideline_sbs.mp4 / _endzone_blend.mp4. Resume point: a per-frame
+MISPAIR veto in the loader after place_from_refit (play_timeline.py ~line 693-703): for every (frame, id) whose
+views include the endzone, project ground[f][pid] at ankle height through the endzone camera at f + offset and
+compare with that id's endzone ankle keypoints (kdf, cam endzone, already shifted to sideline frames); when |du|
+exceeds MISPAIR_PX (try 100, then 60) the endzone rows are another man's -- fall back to side_ground[f][pid] and
+drop "endzone" from views[f][pid]. Rulers: scratchpad/probe_mispair_ab.py (endzone ankle ruler p90 57.9 -> ?,
+sideline ruler unchanged, steps 11 / hops 0 / census 1.29). Then v72 with both blends. Play 1 only, as ever.
