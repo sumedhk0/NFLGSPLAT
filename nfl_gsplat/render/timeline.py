@@ -619,6 +619,34 @@ def box_twin_frames(tl: "Timeline", df, team_of: dict, *, iou_min: float = 0.6, 
     return drop
 
 
+IMPOSSIBLE_M: float | None = None   # a drawn step past this per frame (0.2 = 12 m/s, past any player) held for
+IMPOSSIBLE_RUN: int = 4             # IMPOSSIBLE_RUN frames is a tracker switch smoothed into a glide (off until measured)
+
+
+def impossible_runs(tl: "Timeline", *, max_m: float = 0.2, min_run: int = IMPOSSIBLE_RUN) -> set:
+    """``{(frame, pid)}``: frames inside a run of at least ``min_run`` consecutive drawn steps longer
+    than ``max_m`` (metres per frame). No player covers 12 m/s for four frames; a body that does is
+    two men under one id joined by the smoother (play 1's 185 at 650-657: 0.33-0.40 m/frame for eight
+    frames, three metres across the tackle). The frames of the run go, including its far end."""
+    by: dict = {}
+    for f, states in tl.states.items():
+        for st in states:
+            by.setdefault(int(st.pid), {})[int(f)] = np.asarray(st.xy[:2], float)
+    drop: set = set()
+    for pid, byf in by.items():
+        fs = sorted(byf)
+        run: list = []
+        for a, b in zip(fs, fs[1:] + [None]):
+            fast = b is not None and b - a == 1 and float(np.linalg.norm(byf[b] - byf[a])) > max_m
+            if fast:
+                run.append(a)
+                continue
+            if len(run) >= min_run:
+                drop.update((g, pid) for g in run + [run[-1] + 1])
+            run = []
+    return drop
+
+
 def drop_frames(tl: "Timeline", pairs: set) -> int:
     """Remove the states named by ``pairs`` ``{(frame, pid)}``; returns the number removed."""
     n = 0

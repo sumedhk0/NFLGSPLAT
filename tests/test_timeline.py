@@ -585,3 +585,18 @@ def test_unreadable_kit_ids_drops_short_unnamed_fragments_only():
     df = pd.DataFrame(rows)
     # 1: long (kept); 2: short, unreadable, unnamed (dropped); 3: short but a clear kit (kept); 4: short, unreadable, but named (kept)
     assert unreadable_kit_ids(tl, df, {4: True}, margin=0.2, max_frames=40) == {2}
+
+
+def test_impossible_runs_marks_a_sustained_teleport_and_not_a_sprint():
+    from nfl_gsplat.render.timeline import PlayerState, Timeline, impossible_runs
+
+    tl = Timeline(frames=list(range(0, 40)))
+    for f in range(0, 40):
+        x1 = 0.18 * f                                                   # id 1 sprints at 0.18 m/frame (11 m/s): legal
+        x2 = 0.05 * f + (0.3 * (f - 10) if 10 <= f <= 15 else (1.5 if f > 15 else 0.0))   # id 2 slides 1.5 m over 10-15
+        for pid, x in ((1, x1), (2, x2)):
+            tl.states.setdefault(f, []).append(PlayerState(pid=pid, xy=np.array([x, 0.0]), body_pose=np.zeros((21, 3)),
+                                                          global_orient=np.zeros(3), betas=np.zeros(10), source="sideline"))
+    d = impossible_runs(tl, max_m=0.2, min_run=4)
+    assert {p for _f, p in d} == {2} and {f for f, _p in d} == set(range(10, 16))
+    assert impossible_runs(tl, max_m=0.2, min_run=7) == set()

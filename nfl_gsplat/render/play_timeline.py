@@ -369,7 +369,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        no_depth_snap: bool = False, blind_axis: bool = False, span_gap: int | None = None,
                        span_hold_m: float | None = None, span_presnap: str | None = None,
                        hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0,
-                       despike_m: float | None = -1.0, weak_kit_margin: float | None = -1.0):
+                       despike_m: float | None = -1.0, weak_kit_margin: float | None = -1.0,
+                       impossible_m: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -628,6 +629,17 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             for f, pid in btw:
                 by.setdefault(pid, []).append(f)
             print(f"box twins left out: {n} body-frames -- " + ", ".join(f"{pid} {min(fs)}-{max(fs)}" for pid, fs in sorted(by.items())))
+    # a run of steps no player could take is two men under one id (timeline.impossible_runs)
+    if impossible_m is not None and impossible_m < 0:
+        impossible_m = tlm.IMPOSSIBLE_M
+    if impossible_m is not None:
+        fast = tlm.impossible_runs(tl, max_m=float(impossible_m))
+        if fast:
+            n = tlm.drop_frames(tl, fast)
+            by = {}
+            for f, pid in fast:
+                by.setdefault(pid, []).append(f)
+            print(f"impossible runs left out: {n} body-frames -- " + ", ".join(f"{pid} {min(fs)}-{max(fs)}" for pid, fs in sorted(by.items())))
     return tl, tracks, df, frames_all, poses
 
 

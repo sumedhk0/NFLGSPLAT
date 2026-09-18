@@ -4492,3 +4492,22 @@ Baltimore rusher; 75 (49 frames, -0.30) is a real man. Rule (timeline.unreadable
 out. Live window: drops 23, 67, 158, 177, 201 (106 body-frames); KC 10.95 -> 10.86, BAL 11.21 ->
 10.98, exactly 11/11 41 -> 49, BAL >= 12 100 -> 60, pile pairs 16 -> 15, hops 2, steps 53. Ships;
 v60 carries it (v59 had loaded its timeline).
+75's strip (03:15, diag/fragments_v59/player_75_f528.jpg) is NOT a real man after all: a white
+skeleton on a red Kansas City player for 528-584, kit margin -0.30 -- under the kit module's own
+carry bar (KIT_MARGIN 0.4, |margin| below it = unknown) but over this rule's 0.2, and 49 frames
+against the 40-frame limit. Measuring 0.4 and 60 next, with strips of the ids they would add
+(186 KC 47 frames -0.07; 66 KC 32 frames 0.23, the default-posed runner).
+Measured (03:35): 0.2/40 (shipped) KC 10.86 / BAL 10.98, exactly 11/11 49; 0.4/40 drops 8, 66, 71,
+185 as well (213 body-frames): KC 10.60, exactly 49 -> 44, and 66's strip shows a real red man under
+the skeleton; 0.4/60 adds 75: BAL 10.79, exactly 45. The kit module's bar is too greedy here:
+0.2/40 stays, 75 remains a known wrong-team fragment (49 frames).
+
+**The 53 steps over 0.25 m/frame left on the play are real men sliding, not switches (03:55).**
+Worst: 185 at 650-657 (0.33-0.40 for eight frames) is a Kansas City receiver sprinting along the
+sideline with the skeleton on him throughout (diag/steps_v59/player_185_f639.jpg) -- his placement
+slides three metres while he runs; 79 at 543-544 is the scrambling quarterback with a two-frame
+jump. A rule for runs of impossible steps (timeline.impossible_runs, 0.2 m/frame for 4+ frames,
+drop the frames) measured: steps 53 -> 3 and hops 2 -> 1, but 97 body-frames of ten ids go (5, 28,
+38, 71, 78, 79, 157, 180, 185, 212), KC 10.86 -> 10.66, BAL 10.98 -> 10.82, exactly 11/11 49 -> 47:
+it empties real bodies at the end of the play, where the camera pans and the depth is worst.
+IMPOSSIBLE_M = None (opt-in). The slides themselves are a placement-depth problem for a later day.
