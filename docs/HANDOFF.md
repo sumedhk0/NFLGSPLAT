@@ -4798,3 +4798,10 @@ no same-team body within 0.7 m across and 2 m along (a twin's hole is its man's 
 213-383: 0.520 -> 0.462 (a) -> 0.427 (a+b); exact-eleven frames 91 -> 96 -> 102; frames at ten or fewer
 46 -> 28; at twelve or more 34 -> 41 (the sideline twins 82/166 and small fragments 98/172 fill too). v67 =
 v66 + this. The pre-snap thread stands at |KC-11| 0.43 from 1.25 this morning (9.75 a frame).
+
+**Lower-ankle placement: measured, not adopted (06:15).** Hypothesis: the mean of the two ankle keypoints is
+pulled up the image by a lifted foot (a runner, a thrower stepping into the throw), placing the body deeper
+for a frame -- 79's 1.5 m depth excursion after the release (526-547) looked like that. play_timeline
+ANKLE_PICK "lower" (the ankle lowest in the image = the planted foot): steps > 0.25 m/frame on 393-639
+23 -> 15, hops 2 -> 2, but census 1.40 -> 1.53 (KC 11.39 -> 11.49, BAL 11.12 -> 11.30) and root jitter p90
+0.030 -> 0.034 (the pick hops between feet). Opt-in constant, default "mean".

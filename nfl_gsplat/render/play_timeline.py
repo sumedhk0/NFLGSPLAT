@@ -35,6 +35,11 @@ BOX_MARGIN_FRAC: float = 0.078
 # its depth, its ankle ray 0.23 m.
 ANKLE_Z_M: float = 0.08
 ANKLE_MIN_CONF: float = 0.5
+ANKLE_PICK: str = "mean"        # "mean" of the two ankles, or the "lower" one in the image (the planted foot).
+                                # "lower" measured on play 1's play window 393-639 (2026-09-18): steps > 0.25 m/frame
+                                # 23 -> 15, but census 1.40 -> 1.53 (both teams up: bodies shift and the dedupe
+                                # merges fewer) and root jitter p90 0.030 -> 0.034 (the pick switches feet between
+                                # frames). Not adopted: a correction must beat what it corrects on the second ruler.
 # Where a view has no confident ankles the box point stands in, and the two disagree by that 0.31 m
 # (1.2 m on a crouched man), so every switch between them was a hop and every ankle-less frame carried
 # the bias. anchor_boxes_to_ankles moves a box point by the id's own median (ankle - box) offset over
@@ -147,7 +152,12 @@ def ankle_ground(kdf, tracks, *, z: float = ANKLE_Z_M, min_conf: float = ANKLE_M
             if (sc <= 0).any():
                 continue
             pts = C[None, :2] + sc[:, None] * d[ok, :2]
-            out[(cam, f, int(pid))] = pts.mean(axis=0)
+            if ANKLE_PICK == "lower" and len(pts) > 1:
+                # the planted foot: the ankle lowest in the image; a lifted foot pulls the mean up the
+                # image and the body deeper into the field
+                out[(cam, f, int(pid))] = pts[int(np.argmax(uv[ok, 1]))]
+            else:
+                out[(cam, f, int(pid))] = pts.mean(axis=0)
     return out
 
 
