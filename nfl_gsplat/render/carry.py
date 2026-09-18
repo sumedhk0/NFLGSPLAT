@@ -225,13 +225,15 @@ def catch_body_pose(body_pose, phase: float, w: float):
 
 
 def load_ball_meta(play_dir) -> dict:
-    """``{"release", "catch", "passer", "receiver"}`` from ``<play-dir>/ball.json`` (values may be
-    None), {} without a ball path. The passer is the holder on the frame before the release."""
+    """``{"release", "catch", "passer", "receiver", "down", "carrier"}`` from ``<play-dir>/ball.json``
+    (values may be None), {} without a ball path. The passer is the holder on the frame before the
+    release; the carrier is the holder on the last frame that has one (the man under the tackle)."""
     f = Path(play_dir) / "ball.json"
     if not f.exists():
         return {}
     d = json.loads(f.read_text())
-    holders = {int(k): r.get("pid") for k, r in d["frames"].items()}
+    holders = {int(k): r.get("pid") for k, r in d["frames"].items() if r.get("pid") is not None}
     rel = d.get("release")
-    return {"release": rel, "catch": d.get("catch"), "receiver": d.get("receiver"),
-            "passer": holders.get(int(rel) - 1) if rel is not None else None}
+    return {"release": rel, "catch": d.get("catch"), "receiver": d.get("receiver"), "down": d.get("down"),
+            "passer": holders.get(int(rel) - 1) if rel is not None else None,
+            "carrier": holders[max(holders)] if holders else None}

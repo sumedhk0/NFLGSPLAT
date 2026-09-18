@@ -353,6 +353,10 @@ def main() -> None:
             s = dataclasses.replace(s, body_pose=catch_body_pose(s.body_pose, ca[0], ca[1]))
         elif w > 0:
             s = dataclasses.replace(s, body_pose=carry_body_pose(s.body_pose, w))
+        fp = fall_w.get((int(s.pid), f))
+        if fp:                                    # the tackle: pitched to the turf, legs curled, the carrier's arms on the ball
+            s = dataclasses.replace(s, body_pose=tackled_body_pose(s.body_pose, fp[0]),
+                                    global_orient=fall_orient(s.global_orient, fp[0], direction=fp[1]))
         verts, joints = placed_body(s, model)
         if th is not None and f < throw_release and th[0] >= 0.5:
             hands_at[f] = ball_at_hand(joints, args.throw_hand)
@@ -391,11 +395,13 @@ def main() -> None:
     hold_w: dict = {}            # (pid, frame) -> carry-pose weight for the ball's holder
     throw_w: dict = {}           # (passer, frame) -> (phase, weight) of the throw around the release
     catch_w: dict = {}           # (receiver, frame) -> (phase, weight) of the reach and settle around the catch
+    fall_w: dict = {}            # (carrier, frame) -> phase of his fall to the turf, ending on the down frame
     throw_release = None
     catch_frame = None
     if args.ball:
         from nfl_gsplat.render.ball import ball_mesh, load_ball
         from nfl_gsplat.render.carry import catch_schedule, holder_weights, load_ball_meta, load_holders, throw_schedule
+        from nfl_gsplat.render.tackle import FALL_FRAMES, TACKLER_M, fall_orient, fall_schedule, tackled_body_pose, tacklers
 
         ball = load_ball(P)
         holders = load_holders(P)
@@ -418,6 +424,20 @@ def main() -> None:
             catch_frame = int(meta["catch"])
             for cf, pw in catch_schedule(catch_frame).items():
                 catch_w[(int(meta["receiver"]), cf)] = pw
+        if meta.get("down") is not None and meta.get("carrier") is not None:
+            # the carrier goes to the ground over the frames ending on the down frame (render.tackle), along
+            # the way he ran; the other-team bodies beside him on that frame fall onto him
+            down_f, carrier_ = int(meta["down"]), int(meta["carrier"])
+            last_drawn = max(drawn.get(carrier_, [down_f]))
+            sched = fall_schedule(down_f, last=last_drawn)
+            for ff, fp in sched.items():
+                fall_w[(carrier_, ff)] = (fp, None)
+            who = tacklers(tl.states.get(down_f, []), carrier_, team_of)
+            for tp, direction in who.items():
+                for ff, fp in sched.items():
+                    fall_w[(int(tp), ff)] = (fp, direction)
+            print(f"tackle: the carrier {carrier_} falls over {FALL_FRAMES} frames to the down frame {down_f}, lying to "
+                  f"{last_drawn}; tacklers {sorted(who)} within {TACKLER_M} m fall onto him")
         print(f"ball: {len(ball)} frames from ball.json; hands on it for {len(by_pid)} holders on {len(hold_w)} body-frames; "
               f"the throw by {meta.get('passer')} ({args.throw_hand}) on {len(throw_w)} frames around {meta.get('release')}"
               if ball else "ball: no ball.json in the play dir")
