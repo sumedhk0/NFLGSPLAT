@@ -155,14 +155,17 @@ def test_beyond_sideline_span_before_the_snap_every_frame_is_held_to_the_join_po
     side_ground = {f: {1: np.array([0.0, 0.0])} for f in range(40, 61)}
     out, d = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8)
     assert d == 0                                                       # join jump 0.3: kept whole
-    out2, d2 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=100)
+    out2, d2 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=45)   # the join at 40 is at the snap
     far = [f for f in range(10, 40) if 2.4 - 2.1 * (f - 10) / 29.0 > 0.8]
     assert d2 == len(far) and all(1 not in out2[f] for f in far) and all(1 in out2[f] for f in range(10, 61) if f not in far)
+    # a join deep in the play (snap 20 frames before it) says nothing about the set man: nothing dropped
+    out5, d5 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=20, presnap_join_max=10)
+    assert d5 == 0
     # with the snap inside the lead-in, only the frames before it are held per frame
-    out3, d3 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=20)
+    out3, d3 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=20, presnap_join_max=30)
     assert d3 == len([f for f in far if f < 20])
     # "hold": the far pre-snap frames stay, moved to where the sideline first has the man
-    out4, d4 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=100, presnap="hold")
+    out4, d4 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side_ground, hold_m=0.8, snap=45, presnap="hold")
     assert d4 == 0 and all(1 in out4[f] for f in range(10, 61)) and all(np.allclose(out4[f][1], [0.0, 0.0]) for f in far)
     assert all(np.allclose(out4[f][1], ground[f][1]) for f in range(10, 40) if f not in far)
 

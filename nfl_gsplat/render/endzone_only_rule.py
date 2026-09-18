@@ -43,6 +43,7 @@ def _inside_sideline(xy, track, f, *, margin: float = MARGIN_PX) -> bool:
 SAME_BODY_M: float = 1.2         # a sideline body this close is the same man under another id
 
 
+PRESNAP_JOIN_MAX: int = 10       # the pre-snap per-frame test applies when the join is within this many frames of the snap
 PRESNAP: str = "drop"            # a pre-snap beyond frame farther than HOLD_M from the join point: "drop" it, or "hold" the
                                  # man AT the join point (a set man has not moved; the join is where the sideline first has him)
 HOLD_M: float | None = 0.8       # a beyond-span stretch whose join jumps farther than this from where the sideline first (or
@@ -52,7 +53,7 @@ HOLD_M: float | None = 0.8       # a beyond-span stretch whose join jumps farthe
 def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sideline",
                          margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M,
                          hold_m: float | None = HOLD_M, report: dict | None = None, snap: int | None = None,
-                         presnap: str = PRESNAP):
+                         presnap: str = PRESNAP, presnap_join_max: int = PRESNAP_JOIN_MAX):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -156,11 +157,19 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                 jump = jl if lead_in else jt
                 held = None
                 if snap is not None and f < snap and side_at is not None:
-                    # before the snap the man stands still: this frame's own distance from the join
-                    sp = side_point(pid, lo[pid] + gap if lead_in else hi[pid] - gap, -1 if lead_in else 1)
-                    if sp is not None:
-                        jump = float(np.linalg.norm(np.asarray(xy, float) - sp))
-                        held = sp
+                    # before the snap the man stands still: this frame's own distance from the join --
+                    # when the join itself is at the snap (within PRESNAP_JOIN_MAX frames of it); a join
+                    # deep in the play is where a man who has since run stands, and says nothing about
+                    # where he stood set (play 1 id 74: join at snap+28, 1.14 m off, a real lineman
+                    # dropped for the whole pre-snap; id 40's phantom joins at snap+5 and is caught)
+                    edge = lo[pid] + gap if lead_in else hi[pid] - gap
+                    if abs(edge - snap) <= presnap_join_max:
+                        sp = side_point(pid, edge, -1 if lead_in else 1)
+                        if sp is not None:
+                            jump = float(np.linalg.norm(np.asarray(xy, float) - sp))
+                            held = sp
+                    else:
+                        jump = float("nan")                      # nothing to hold to: the same-body test above stands
                 st = stats.setdefault(pid, [0, jump, 0])
                 st[0] += 1
                 if np.isfinite(jump) and (not np.isfinite(st[1]) or jump > st[1]):

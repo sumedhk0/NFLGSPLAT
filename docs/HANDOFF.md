@@ -4457,3 +4457,15 @@ lying frames alone made a seam: id 1's isolated lying frames went p90 0.08 -> 0.
 0.031 (x5); 184 0.42 -> 0.09 / 0.03; 28 0.19 -> 0.02 / 0.04; 1 0.08 -> 0.15 / 0.19; all-frames p99
 0.105 -> 0.098. LYING_SIGMA_MULT = 3.0 ships (the seam cost on 1 is the reason not 5). Footage strip
 of 184 with it: diag/lying_smooth/player_184_f646.jpg.
+The tackler's footage strip with the smoothing (01:40, diag/lying_smooth/player_184_f646.jpg): the
+skeleton lies along the man from 646 to 660 -- he no longer rises at 654-658. v59 (queued behind
+v58) carries it.
+
+**Pre-snap per-frame hold only when the join is at the snap (01:55).** A join deep in the play is
+where a man who has since run stands, and says nothing about where he stood set: 74 (join at
+snap+28, 1.14 m off) and 164 were real linemen dropped for the whole pre-snap. PRESNAP_JOIN_MAX 10:
+the per-frame test applies when the join is within 10 frames of the snap (40's phantom joins at
+snap+5 and stays caught: 1 frame on 360-397), otherwise only the same-body test stands. Measured
+on 300-483: KC pre-snap 10.32 -> 10.37, exactly 11/11 69 -> 68, BAL >= 12 33 -> 35, pile pairs 9,
+hops 2 (0 live). A wash in numbers -- 74's pre-snap frames were mostly the OLD rule's (a sideline
+body within 1.2 m in the line) -- kept because it is the right question to ask. Tests updated.
