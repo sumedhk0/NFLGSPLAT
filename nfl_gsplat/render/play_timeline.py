@@ -771,13 +771,15 @@ def _pelvis_xy_fn(model):
     return fn
 
 
-def placed_vertices(state: tlm.PlayerState, model):
-    """World vertices of a state's body: the PELVIS over ``state.xy``, feet on
+def placed_body(state: tlm.PlayerState, model):
+    """``(vertices, joints)`` of a state's body in the world: the PELVIS over ``state.xy``, feet on
     the turf. It used to put the model's origin at xy, which is 0.35 m from
     the pelvis along the rest skeleton's down axis (a world direction here,
     since the pelvis joint is not rotated by the orientation): every body
     without a refit record stood 0.35 m from its box-bottom point, and a
-    body popped by that much at every record boundary (play 1, 2026-09-08)."""
+    body popped by that much at every record boundary (play 1, 2026-09-08).
+    The joints (SMPL-X order, the first 22 the body) share the vertices' placement, so a hand
+    or a foot reads in world metres (render.carry puts the ball between the wrists)."""
     import torch
 
     with torch.no_grad():
@@ -785,5 +787,12 @@ def placed_vertices(state: tlm.PlayerState, model):
                     body_pose=torch.tensor(state.body_pose.reshape(1, -1).astype(np.float32)),
                     global_orient=torch.tensor(state.global_orient.reshape(1, 3).astype(np.float32)))
     verts = res.vertices[0].numpy().astype(np.float64)
-    pelvis = res.joints[0, 0].numpy().astype(np.float64)
-    return verts + np.array([state.xy[0] - pelvis[0], state.xy[1] - pelvis[1], -verts[:, 2].min()])
+    joints = res.joints[0].numpy().astype(np.float64)
+    pelvis = joints[0]
+    shift = np.array([state.xy[0] - pelvis[0], state.xy[1] - pelvis[1], -verts[:, 2].min()])
+    return verts + shift, joints + shift
+
+
+def placed_vertices(state: tlm.PlayerState, model):
+    """World vertices of a state's body (placed_body's first half)."""
+    return placed_body(state, model)[0]

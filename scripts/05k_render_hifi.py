@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses
 import pickle
 import time
 from pathlib import Path
@@ -113,7 +114,9 @@ def main() -> None:
                     help="join the linker's fragments into players (tracking.stitch) so a "
                          "player keeps one id and one texture across breaks")
     ap.add_argument("--ball", action="store_true",
-                    help="draw the football from <play-dir>/ball.json (08y_ball_path.py)")
+                    help="draw the football from <play-dir>/ball.json (08y_ball_path.py); the holder's arms carry it "
+                         "and the passer throws it (render.carry)")
+    ap.add_argument("--throw-hand", default="R", choices=["R", "L"], help="the passer's throwing hand")
     ap.add_argument("--no-resume", dest="resume", action="store_false",
                     help="re-render frames whose PNG already exists (default: skip them)")
     args = ap.parse_args()
@@ -129,7 +132,9 @@ def main() -> None:
     from nfl_gsplat.field.procedural_field import render_field_texture, texture_to_gaussians
     from nfl_gsplat.render import helmet as hm
     from nfl_gsplat.render import uniform as un
-    from nfl_gsplat.render.play_timeline import load_play_timeline, placed_vertices
+    from nfl_gsplat.render import timeline as tlm
+    from nfl_gsplat.render.carry import ball_at_hand, ball_between_hands, carry_body_pose, throw_body_pose
+    from nfl_gsplat.render.play_timeline import load_play_timeline, placed_body
 
     P = args.play_dir
     model = smplx.create(str(args.body_models), model_type="smplx", gender="neutral",
@@ -271,8 +276,20 @@ def main() -> None:
         print("uniforms: " + ", ".join(f"{t or 'unknown'} kit" for t in kit_colours)
               + f"; numbers on {len(numbered)} sure ids of {len(named)} named")
 
-    def body_batch(s):
-        verts = placed_vertices(s, model)
+    hands_at: dict = {}          # frame -> the holder's ball position (render.carry), filled as bodies are built
+
+    def body_batch(s, f):
+        th = throw_w.get((s.pid, f))
+        w = hold_w.get((s.pid, f), 0.0)
+        if th is not None:                        # the passer around the release: the throw over the carry
+            s = dataclasses.replace(s, body_pose=throw_body_pose(s.body_pose, th[0], th[1], args.throw_hand))
+        elif w > 0:
+            s = dataclasses.replace(s, body_pose=carry_body_pose(s.body_pose, w))
+        verts, joints = placed_body(s, model)
+        if th is not None and f < throw_release and th[0] >= 0.5:
+            hands_at[f] = ball_at_hand(joints, args.throw_hand)
+        elif th is None and w >= 0.5:
+            hands_at[f] = ball_between_hands(joints, tlm.yaw_of(s.global_orient))
         # Fitted COLOUR only: the fit's scale and opacity were tuned to blurry
         # 140-px crops and read as translucent bodies at this distance; the
         # colours were the acceptance-tested part.
@@ -301,14 +318,38 @@ def main() -> None:
         return body
 
     ball = {}
+    hold_w: dict = {}            # (pid, frame) -> carry-pose weight for the ball's holder
+    throw_w: dict = {}           # (passer, frame) -> (phase, weight) of the throw around the release
+    throw_release = None
     if args.ball:
         from nfl_gsplat.render.ball import ball_mesh, load_ball
+        from nfl_gsplat.render.carry import holder_weights, load_ball_meta, load_holders, throw_schedule
 
         ball = load_ball(P)
-        print(f"ball: {len(ball)} frames from ball.json" if ball else "ball: no ball.json in the play dir")
+        holders = load_holders(P)
+        by_pid: dict = {}
+        for hf, pid in holders.items():
+            by_pid.setdefault(pid, set()).add(hf)
+        drawn: dict = {}
+        for tf, sts in tl.states.items():
+            for s in sts:
+                drawn.setdefault(s.pid, []).append(tf)
+        for pid, held in by_pid.items():
+            for hf, w in holder_weights(drawn.get(pid, []), held).items():
+                hold_w[(pid, hf)] = w
+        meta = load_ball_meta(P)
+        if meta.get("release") is not None and meta.get("passer") is not None:
+            throw_release = int(meta["release"])
+            for tf, pw in throw_schedule(throw_release).items():
+                throw_w[(int(meta["passer"]), tf)] = pw
+        print(f"ball: {len(ball)} frames from ball.json; hands on it for {len(by_pid)} holders on {len(hold_w)} body-frames; "
+              f"the throw by {meta.get('passer')} ({args.throw_hand}) on {len(throw_w)} frames around {meta.get('release')}"
+              if ball else "ball: no ball.json in the play dir")
 
     def ball_batch(f):
         xyz, v = ball[f]
+        if f in hands_at:
+            xyz = hands_at[f]                     # in the holder's hands, wherever his arms are
         verts, bfaces, colours = ball_mesh(xyz, v)
         return tune(mesh_to_gaussians(verts, bfaces, colour=colours))
 
@@ -321,7 +362,7 @@ def main() -> None:
             written.append(out)                      # a stalled or interrupted run resumes here
             continue
         states = tl.states.get(f, [])
-        scene = merge([field] + [body_batch(s) for s in states] + ([ball_batch(f)] if f in ball else []))
+        scene = merge([field] + [body_batch(s, f) for s in states] + ([ball_batch(f)] if f in ball else []))
         sp = st.SceneParams.from_batch(scene, device=args.device)
         if path is not None and f in path:
             R_v, t_v = look_at(*path[f])

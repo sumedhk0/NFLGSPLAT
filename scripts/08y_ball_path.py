@@ -109,12 +109,15 @@ def main():
         return None
 
     path: dict = {}
+    holder: dict = {}           # frame -> the id whose hands hold the ball (None in flight); 05k poses his arms
     # 1. before the snap: the centre's hand, on the turf, a third of a metre toward the line
     for f in range(start, snap):
         c = body_xy(f, centre)
         if c is None:
             continue
         path[f] = (float(c[0] - 0.35 * sign), float(c[1]), CENTRE_HAND_Z, "centre")
+        # the centre is not a holder: his hand rests on a ball that stays on the turf (a carry pose
+        # here would stand him up with the ball at his chest for the whole pre-snap)
     # 2. the passer: from the snap to the release
     qb = args.qb
     if qb is None:
@@ -134,6 +137,7 @@ def main():
             qb = got[1]
             q = hands_xy(f, qb)
         z = CARRY_Z
+        holder[f] = qb
         if f < snap + SNAP_FRAMES and c_last is not None:
             u = (f - snap + 1) / float(SNAP_FRAMES)
             x = c_last[0] + u * (q[0] - c_last[0]); y = c_last[1] + u * (q[1] - c_last[1]); z = CENTRE_HAND_Z + u * (CARRY_Z - CENTRE_HAND_Z)
@@ -180,6 +184,8 @@ def main():
             down = f
         z = GROUND_Z if on_ground else CARRY_Z
         path[f] = (float(q[0]), float(q[1]), float(z), "down" if on_ground else "carried")
+        if not on_ground:
+            holder[f] = carrier
     # velocities for the ball's orientation
     fs = sorted(path)
     out = {}
@@ -187,7 +193,8 @@ def main():
         a = path[fs[max(0, i - 1)]]; b = path[fs[min(len(fs) - 1, i + 1)]]
         n = max(1, fs[min(len(fs) - 1, i + 1)] - fs[max(0, i - 1)])
         v = [(b[0] - a[0]) / n, (b[1] - a[1]) / n, (b[2] - a[2]) / n]
-        out[str(f)] = {"xyz": [round(path[f][0], 3), round(path[f][1], 3), round(path[f][2], 3)], "v": [round(c, 4) for c in v], "src": path[f][3]}
+        out[str(f)] = {"xyz": [round(path[f][0], 3), round(path[f][1], 3), round(path[f][2], 3)], "v": [round(c, 4) for c in v], "src": path[f][3],
+                       "pid": (int(holder[f]) if holder.get(f) is not None else None)}
     segs = {}
     for f in fs:
         segs.setdefault(path[f][3], []).append(f)
