@@ -5,12 +5,15 @@ from nfl_gsplat.render import tackle
 from nfl_gsplat.render.timeline import upright_from_yaw, yaw_of
 
 
-def test_fall_schedule_ends_on_the_down_frame_and_holds_to_the_last():
-    s = tackle.fall_schedule(607, frames=8, last=615)
+def test_fall_schedule_ends_after_the_down_frame_and_holds_to_the_last():
+    s = tackle.fall_schedule(607, frames=8, last=615, settle=0)
     assert min(s) == 600 and max(s) == 615
     assert abs(s[600] - 1 / 8) < 1e-9 and s[607] == 1.0 and s[615] == 1.0
     assert 599 not in s
-    assert tackle.fall_schedule(607, frames=4) == {604: 0.25, 605: 0.5, 606: 0.75, 607: 1.0}
+    assert tackle.fall_schedule(607, frames=4, settle=0) == {604: 0.25, 605: 0.5, 606: 0.75, 607: 1.0}
+    # "down" is mid-fall: the body is flat FALL_SETTLE frames later (the film: down at 607, the pile flat by 610)
+    s3 = tackle.fall_schedule(607, frames=8, last=615)
+    assert s3[610] == 1.0 and s3[607] < 1.0 and min(s3) == 603 and abs(s3[603] - 1 / 8) < 1e-9
 
 
 def test_fall_orient_pitches_the_body_face_down_along_its_facing():

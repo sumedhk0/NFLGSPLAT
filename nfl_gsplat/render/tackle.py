@@ -20,7 +20,10 @@ from scipy.spatial.transform import Rotation
 
 from nfl_gsplat.render.timeline import yaw_of
 
-FALL_FRAMES: int = 8            # frames over which the carrier goes from upright to the turf, the last being the down frame
+FALL_FRAMES: int = 8            # frames over which the carrier goes from upright to the turf
+FALL_SETTLE: int = 3            # ... ending this many frames AFTER the down frame: "down" (08y --down, read off the film as
+                                # the knee or the body first touching) comes mid-fall; v74 against the film (diag/catch/
+                                # tackle_check_v74.png) had the pile flat at 604 where the film's is flat at 608-610
 FALL_PITCH: float = np.pi / 2   # radians forward at the end of the fall: face down
 TACKLED_ROWS = {0: np.array([-0.60, 0.0, 0.0]),   # L hip: flexed
                 1: np.array([-0.60, 0.0, 0.0]),   # R hip
@@ -32,14 +35,15 @@ TACKLED_ROWS = {0: np.array([-0.60, 0.0, 0.0]),   # L hip: flexed
                 11: np.array([-0.30, 0.0, 0.0])}  # neck: the head up off the turf
 
 
-def fall_schedule(down: int, *, frames: int = FALL_FRAMES, last: int | None = None) -> dict[int, float]:
+def fall_schedule(down: int, *, frames: int = FALL_FRAMES, last: int | None = None, settle: int = FALL_SETTLE) -> dict[int, float]:
     """``{frame: phase}`` for the carrier: the phase rises from 1/frames to 1 over the ``frames`` frames
-    ending on ``down`` and stays 1 through ``last`` (the clip's last frame; ``down`` alone when None)."""
-    down = int(down)
+    ending ``settle`` frames after ``down`` and stays 1 through ``last`` (the clip's last frame; the end
+    of the fall alone when None)."""
+    end = int(down) + int(settle)
     out = {}
     for i in range(int(frames)):
-        out[down - int(frames) + 1 + i] = (i + 1) / float(frames)
-    for f in range(down + 1, int(last if last is not None else down) + 1):
+        out[end - int(frames) + 1 + i] = (i + 1) / float(frames)
+    for f in range(end + 1, int(last if last is not None else end) + 1):
         out[f] = 1.0
     return out
 
