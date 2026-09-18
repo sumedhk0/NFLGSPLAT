@@ -4869,3 +4869,14 @@ the held receiver from 640: id 185, born at 639 two to three metres from where h
 re-identified (footage diag/tackle/player_185_f640.jpg: one red man at the sideline). hold_to_end now takes
 the teams and drops a same-team track born at or after the dead ball within 3 m of a held body's spot on the
 held frames, so the held body owns the spot and keeps the ball. v70 = v69 + this.
+
+**v71 delivered (10:05 machine clock) = v70 + twins 0.4 + the 4 m re-identification radius. CURRENT BEST:**
+diag/play_001_v71_hifi_720.mp4 (218 frames, 213-647). Strips/sheets (scratchpad/review_v71): the receiver
+alone with the ball through 646; the pre-snap line full; the play from the snap to the sideline coherent, the
+ball visible in flight 537-561. Rulers on this timeline: play window 393-639 steps 11, hops 0, census 1.29
+(KC 11.10, BAL 11.06), root jitter p99 0.072, joints jitter p99 0.36 (the gait's own foot strikes; yaw jitter
+median p90 0.66 deg/frame^2); pre-snap 213-383 |KC-11| 0.345, exact-eleven frames 112 of 171. Open threads, in
+order of what a viewer sees: the far-field slides 632-647 (the sideline camera's drift; two re-solves rejected),
+the pocket's near-doubles after the throw (real men crowding, no removal route), the left guard's pre-snap holes
+234-263 (his sideline id 82 is a partial box that may be the quarterback's upper body early on; no endzone id
+of his own), the runners' arm swing (opt-in, a wash on strips).
