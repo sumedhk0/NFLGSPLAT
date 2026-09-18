@@ -929,7 +929,7 @@ HOLD_END_REACH: int = 3
 # A track BORN at the dead ball within this of a held body's spot is that body's re-identification (play 1:
 # id 185 starts at 639, 2-3 m from where the receiver's track ended at 638 -- the same man, on the footage,
 # after stepping out); the held body owns the spot and the newcomer is dropped, so one man stands there.
-HOLD_END_SAME_M: float = 3.0
+HOLD_END_SAME_M: float = 4.0   # 3.0 let play 1 id 185 back in at 646 (3.4 m off, drifting with the far-field camera)
 
 
 def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_END_REACH, teams: dict | None = None,
