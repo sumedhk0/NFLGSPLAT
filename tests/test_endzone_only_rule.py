@@ -235,3 +235,18 @@ def test_formation_hold_only_ids_restricts_the_hold():
     ground = {f: dict(d) for f, d in side.items()}
     out, added = formation_hold(ground, side, start=20, snap=100, still_m=0.5, min_frames=3, only_ids={1})
     assert set(added) == {1} and all(2 not in out[f] for f in range(20, 91) if f not in side)
+
+
+def test_qb_hold_holds_the_man_who_steps_back_from_behind_the_centre():
+    import numpy as np
+
+    from nfl_gsplat.render.endzone_only_rule import qb_hold
+
+    # centre at (-23, 0); id 80 first seen at 377, 0.8 m behind him (offence side +x); id 38 first seen at 375 but 1.9 m across
+    side = {377: {80: np.array([-22.2, 0.1])}, 375: {38: np.array([-22.8, 1.9])}}
+    ground = {f: {} for f in range(213, 400)}
+    ground[377][80] = np.array([-22.2, 0.1])
+    out, pid, n = qb_hold(ground, side, start=213, snap=393, centre_xy=(-23.0, 0.0), sign=1.0, team_ids={80, 38}, first_frame={80: 377, 38: 375})
+    assert pid == 80 and n == 377 - 213 and np.allclose(out[300][80], [-22.2, 0.1]) and 38 not in out[300]
+    # nobody steps back: nothing held
+    assert qb_hold(ground, {375: {38: np.array([-22.8, 1.9])}}, start=213, snap=393, centre_xy=(-23.0, 0.0), sign=1.0, team_ids={38}, first_frame={38: 375})[1] is None

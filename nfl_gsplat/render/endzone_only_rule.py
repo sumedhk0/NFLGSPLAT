@@ -352,3 +352,48 @@ def formation_hold(ground, side_ground, *, start: int, snap: int, still_m: float
             out[f][pid] = med.copy()
             added[pid] = added.get(pid, 0) + 1
     return out, added
+
+
+QB_HOLD: bool = True             # the quarterback under centre, held at the spot he steps back from
+QB_BEHIND_M: tuple = (0.5, 2.5)  # his first sideline point lies this far behind the centre (the offence's side) ...
+QB_ACROSS_M: float = 1.0         # ... and this close to the centre's line
+QB_WINDOW: tuple = (-25, 15)     # ... on a track that starts this close to the snap
+
+
+def qb_hold(ground, side_ground, *, start: int, snap: int, centre_xy, sign: float, team_ids, first_frame: dict,
+            behind_m: tuple = QB_BEHIND_M, across_m: float = QB_ACROSS_M, window: tuple = QB_WINDOW):
+    """``(ground, pid, n_added)``: the quarterback under centre, drawn from ``start`` to the frame
+    before his sideline track begins, at that track's first point.
+
+    WHY. Under centre the quarterback stands inside the centre's detection box in both cameras
+    (play 1: no keypoint at his helmet, the endzone's second box there is the centre's own), so no
+    id carries him until he steps back at the snap -- the sideline then picks him up 0.8 m behind
+    the centre (play 1 id 80 at 377, snap 393). A set quarterback has not moved: the spot he steps
+    back from is the spot he stood on. ``team_ids``: the offence's ids; ``first_frame``: pid -> first
+    sideline frame; the candidate is the offence id whose track starts within ``window`` of the snap,
+    ``behind_m`` behind the centre along the field (toward the offence, ``sign``) and within
+    ``across_m`` of the centre's line, with no sideline point before the window."""
+    cx, cy = float(centre_xy[0]), float(centre_xy[1])
+    best = None
+    for pid, f0 in first_frame.items():
+        pid = int(pid); f0 = int(f0)
+        if pid not in team_ids or not (snap + window[0] <= f0 <= snap + window[1]):
+            continue
+        pt = side_ground.get(f0, {}).get(pid)
+        if pt is None:
+            continue
+        behind = (float(pt[0]) - cx) * float(sign)
+        across = abs(float(pt[1]) - cy)
+        if behind_m[0] <= behind <= behind_m[1] and across <= across_m:
+            if best is None or across < best[0]:
+                best = (across, pid, f0, np.asarray(pt, float))
+    if best is None:
+        return ground, None, 0
+    _a, pid, f0, pt = best
+    out = {f: dict(d) for f, d in ground.items()}
+    n = 0
+    for f in range(int(start), f0):
+        if pid not in out.setdefault(f, {}):
+            out[f][pid] = pt.copy()
+            n += 1
+    return out, pid, n

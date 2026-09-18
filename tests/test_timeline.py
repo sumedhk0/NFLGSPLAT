@@ -600,3 +600,20 @@ def test_impossible_runs_marks_a_sustained_teleport_and_not_a_sprint():
     d = impossible_runs(tl, max_m=0.2, min_run=4)
     assert {p for _f, p in d} == {2} and {f for f, _p in d} == set(range(10, 16))
     assert impossible_runs(tl, max_m=0.2, min_run=7) == set()
+
+
+def test_build_timeline_keep_exempts_a_vouched_unanchored_body_from_the_dedupe():
+    """A body with no sideline sighting standing 0.8 m from a detected one is a duplicate to the
+    dedupe -- unless a rule vouched for it (``keep``): the quarterback held under centre."""
+    from nfl_gsplat.render import timeline as tl
+
+    frames = list(range(0, 30))
+    ground = {f: {1: np.array([0.0, 0.0]), 2: np.array([0.8, 0.0])} for f in frames}
+    views = {f: {1: ["sideline"]} for f in frames}                      # only id 1 is ever detected
+    poses = {1: {0: (np.zeros((21, 3)), tl.upright_from_yaw(0.0), np.zeros(10), "fused")},
+             2: {0: (np.zeros((21, 3)), tl.upright_from_yaw(0.0), np.zeros(10), "fused")}}
+    kw = dict(default_pose=np.zeros((21, 3)), views_by_frame=views, pose_smooth=0, pose_sigma=0, clamp_joints=False, orient_sigma=0)
+    plain = tl.build_timeline(frames, ground, poses, **kw)
+    kept = tl.build_timeline(frames, ground, poses, keep={f: {2} for f in frames}, **kw)
+    assert all(not any(s.pid == 2 for s in plain.states[f]) for f in frames)
+    assert all(any(s.pid == 2 for s in kept.states[f]) for f in frames)

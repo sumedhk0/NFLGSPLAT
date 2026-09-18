@@ -54,6 +54,16 @@ def clip_offset(play_dir) -> int:
     return int(json.loads(f.read_text())["offset"]) if f.exists() else 0
 
 
+def _los(play_dir) -> dict:
+    """The line of scrimmage blob from identity_resolved.pkl (08n), or {}."""
+    import pickle
+
+    f = Path(play_dir) / "identity_resolved.pkl"
+    if not f.exists():
+        return {}
+    return pickle.load(open(f, "rb")).get("line_of_scrimmage", {}) or {}
+
+
 def _roles(play_dir) -> dict:
     """pid -> role from identity_resolved.pkl (08n), or {}."""
     import pickle
@@ -403,6 +413,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     import pandas as pd
 
     P = Path(play_dir)
+    qb_keep: dict = {}
     if hole_hold_m is not None and hole_hold_m < 0:
         from nfl_gsplat.render import endzone_only_rule as _ezr
 
@@ -536,6 +547,51 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         if span_report:
             print("beyond-span stretches drawn from the endzone (id: frames, worst m from the sideline's join point, dropped as far): "
                   + ", ".join(f"{p}: {r[0]}, {r[1]:.2f}, {r[2]}" for p, r in sorted(span_report.items())))
+        # after the span rule, so the held frames are not 'beyond the span'; their ids are vouched for to the dedupe
+        # the quarterback under centre: inside the centre's box until he steps back at the snap; held
+        # at the spot he steps back from (endzone_only_rule.qb_hold)
+        if _ezr.QB_HOLD and snap_f is not None:
+            los_blob = _los(P)
+            teams_now0 = _teams(P)
+            role_of0 = _roles(P)
+            if los_blob and teams_now0:
+                offence = None
+                # the offence is the team whose linemen stand on the LOS's positive side (08n: sign * (x - los) > 0)
+                cnt = {}
+                for pid, xy in ground.get(snap_f, {}).items():
+                    tm = teams_now0.get(int(pid))
+                    if tm and role_of0.get(int(pid)) == "OL":
+                        cnt[tm] = cnt.get(tm, 0) + 1
+                offence = max(cnt, key=cnt.get) if cnt else None
+                if offence:
+                    ol_y = {int(pid): float(xy[1]) for pid, xy in ground.get(snap_f, {}).items()
+                            if teams_now0.get(int(pid)) == offence and role_of0.get(int(pid)) == "OL"}
+                    if ol_y:
+                        # the centre is the middle of the line: the lineman nearest the line's mean across
+                        # (08n's y_centre missed by half a metre on play 1 and named the guard)
+                        mean_y = float(np.mean(list(ol_y.values())))
+                        centre = min(ol_y, key=lambda p: abs(ol_y[p] - mean_y))
+                        sub = df[(df["cam"] == "sideline") & (df["track_id"] >= 0)]
+                        first_frame = sub.groupby("global_player_id")["frame"].min().to_dict()
+                        team_ids = {int(p) for p, tm in teams_now0.items() if tm == offence}
+                        start_f = play_start(P)
+                        ground, qb, n_qb = _ezr.qb_hold(ground, side_ground, start=start_f if start_f is not None else min(ground), snap=snap_f,
+                                                        centre_xy=ground[snap_f][centre], sign=los_blob["sign"], team_ids=team_ids,
+                                                        first_frame=first_frame)
+                        if qb is not None:
+                            print(f"quarterback under centre: id {qb} held at the spot he steps back from on {n_qb} frames (centre {centre})")
+                            for f_ in range(start_f if start_f is not None else min(ground), int(first_frame[qb])):
+                                if qb in ground.get(f_, {}):
+                                    qb_keep.setdefault(int(f_), set()).add(int(qb))
+                        else:
+                            cx, cy = ground[snap_f][centre]
+                            cands = []
+                            for pid_, f0_ in first_frame.items():
+                                if int(pid_) in team_ids and snap_f - 40 <= int(f0_) <= snap_f + 40:
+                                    pt_ = side_ground.get(int(f0_), {}).get(int(pid_))
+                                    cands.append((int(pid_), int(f0_), None if pt_ is None else (round(float((pt_[0] - cx) * los_blob["sign"]), 2), round(float(pt_[1] - cy), 2))))
+                            print(f"quarterback under centre: none found (offence {offence}, centre {centre} at {np.round([cx, cy], 2).tolist()}); "
+                                  f"offence tracks starting within 40 of the snap (pid, first, (behind, across)): {sorted(cands, key=lambda c: c[1])}")
         # A body the endzone alone sees stands on the endzone's foot point, blind along the field
         # (render.blind_axis): its x from the id's nearest sideline sightings, sliding the point
         # along the endzone's own ray. Measured on play 1 and NOT adopted (live steps 5 -> 7, census
@@ -632,7 +688,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
               f"ids {sorted({p for _f, p in lying})[:12]}")
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
                             default_betas=default_betas, views_by_frame=views,
-                            exclude=clipped if not stitch_ids else None, lying=lying,
+                            exclude=clipped if not stitch_ids else None, lying=lying, keep=qb_keep or None,
                             despike_m=tlm.DESPIKE_M if (despike_m is not None and despike_m < 0) else despike_m)
     tl.members = members
     # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)

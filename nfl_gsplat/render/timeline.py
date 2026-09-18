@@ -762,6 +762,9 @@ def dedupe_frames(tl: "Timeline", radius_m: float = DUPLICATE_M, *, views_by_fra
                 continue
             kept.append(s)
         for s in order:
+            if s.pid in hole:
+                kept.append(s)                                 # vouched for (build_timeline's ``keep``): never a duplicate
+                continue
             this = seen.get(s.pid, ())
             if this and anchor_cam not in this:
                 d = [np.abs(s.xy - k.xy) for k in kept]
@@ -813,7 +816,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
                    clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
                    unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None,
-                   despike_m: float | None = DESPIKE_M, lying_sigma_mult: float | None = None) -> Timeline:
+                   despike_m: float | None = DESPIKE_M, lying_sigma_mult: float | None = None, keep=None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -897,6 +900,11 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                 source=source, clamped=clamped, views=views))
     anchored = _anchored_by_frame(frames, views_by_frame, "sideline", MAX_GAP_FRAMES) if views_by_frame else None
     holes = _holes_by_frame(frames, views_by_frame, "sideline", hole_reach) if (views_by_frame and hole_reach > 0) else None
+    if keep:
+        # frames a rule vouches for (the quarterback held under centre): never deduped
+        holes = dict(holes or {})
+        for f_, pids_ in keep.items():
+            holes[int(f_)] = set(holes.get(int(f_), set())) | {int(p) for p in pids_}
     tl.n_duplicates = dedupe_frames(tl, DUPLICATE_M, views_by_frame=views_by_frame, anchored=anchored, holes=holes)
     _LOG.info("timeline: %d players, %d frames, median %.0f bodies/frame, %d default-posed, "
               "%d frames tilt-clamped", len(pids), len(frames),

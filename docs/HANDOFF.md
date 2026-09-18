@@ -4599,3 +4599,36 @@ point. A/B: hops 2 -> 0, steps > 0.25 m/frame 53 -> 45, but BAL 10.98 -> 11.10, 
 misses it and it stands 0.3-0.6 m off). Motion better, count worse: not shipped, EXCLUSIVE = False
 (knob exclusive on snap_ground; test added). 37/166 is not among the double claims -- that double
 is 166's own foot point, not a snap.
+
+## 2026-09-18 (morning): the ball, and the quarterback under centre
+
+**User (08:00): "resume on the open items - you can now add in the ball as well - i want to see it
+moving as well."**
+
+**The quarterback under centre, drawn (08:40).** He is inside the centre's box in both cameras
+until he steps back at the snap, and the sideline then has him 0.8 m behind the centre (id 80 at
+377). A set man has not moved: endzone_only_rule.qb_hold holds the offence id whose track starts
+within 25 frames before / 15 after the snap, 0.5-2.5 m behind the centre and within 1 m of his
+line, at that first point from the clip start (QB_HOLD, on by default). Three things had to be
+right: the centre is the lineman nearest the line's MEAN across (08n's y_centre named the guard,
+half a metre off); the hold runs AFTER the span rule (else "beyond the span, a sideline body within
+1.2 m"); and the dedupe treats the held frames as vouched for (build_timeline ``keep``: an
+unanchored body 0.8 m from a detected one is otherwise a duplicate). Pre-snap 213-383: KC 9.64 ->
+10.08, KC <= 10 on 132 -> 111 frames, exactly 11/11 32 -> 25 (the frames at 347-392 already had
+eleven with the lineman fragments; now twelve -- the pile thread, not this one). 80 drawn 213-511.
+
+**The ball (08:20-09:00).** No detector sees a football at this scale; the ball is placed from the
+bodies and two events read off the film. scripts/08y_ball_path.py writes <play-dir>/ball.json:
+before the snap at the centre's hand on the turf (0.35 m toward the line, z 0.15); at the snap it
+rises over five frames into the hands of the id that steps back (80), travels at chest height with
+the passer chain (80 -> 79 by nearest-body continuity; 79 is Mahomes after 511, his "OL" role is a
+formation guess), winds up to 2.0 m over the last eight frames; from the release it flies a
+ballistic arc (gravity only) from the hand to the receiver's hands (1.4 m) at the catch; then rides
+at chest height with the carrier chain (77 -> 71) and drops to the turf when the chain ends or the
+carrier's box is on the ground. Play 1 from the footage: release 527 (endzone frames 530/540: arm
+forward, then the ball high over the line), catch 583 (sideline 578-586: the receiver has it and
+meets 14 at 586). Flight 27.1 m in 0.93 s = 29.3 m/s (65 mph), apex 1.1 m above the chord -- a
+laser; the plausibility bar is 30 m/s and 9 m. A first run with --qb 49 chained the passer to a
+lineman at the snap (49 only exists from 509): the chain must start with the id that steps back.
+render/ball.py draws it as gaussians on a 28 x 17 cm ellipsoid, brown with a lace line, pointed
+along its velocity; 05k --ball. v61 launched 09:05 with both.

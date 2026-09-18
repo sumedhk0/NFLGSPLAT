@@ -112,6 +112,8 @@ def main() -> None:
     ap.add_argument("--stitch", action="store_true",
                     help="join the linker's fragments into players (tracking.stitch) so a "
                          "player keeps one id and one texture across breaks")
+    ap.add_argument("--ball", action="store_true",
+                    help="draw the football from <play-dir>/ball.json (08y_ball_path.py)")
     ap.add_argument("--no-resume", dest="resume", action="store_false",
                     help="re-render frames whose PNG already exists (default: skip them)")
     args = ap.parse_args()
@@ -298,6 +300,18 @@ def main() -> None:
                 return merge([body, dec])
         return body
 
+    ball = {}
+    if args.ball:
+        from nfl_gsplat.render.ball import ball_mesh, load_ball
+
+        ball = load_ball(P)
+        print(f"ball: {len(ball)} frames from ball.json" if ball else "ball: no ball.json in the play dir")
+
+    def ball_batch(f):
+        xyz, v = ball[f]
+        verts, bfaces, colours = ball_mesh(xyz, v)
+        return tune(mesh_to_gaussians(verts, bfaces, colour=colours))
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     written = []
@@ -307,7 +321,7 @@ def main() -> None:
             written.append(out)                      # a stalled or interrupted run resumes here
             continue
         states = tl.states.get(f, [])
-        scene = merge([field] + [body_batch(s) for s in states])
+        scene = merge([field] + [body_batch(s) for s in states] + ([ball_batch(f)] if f in ball else []))
         sp = st.SceneParams.from_batch(scene, device=args.device)
         if path is not None and f in path:
             R_v, t_v = look_at(*path[f])
