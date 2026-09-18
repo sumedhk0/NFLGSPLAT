@@ -4899,3 +4899,14 @@ Time-aligned, not viewpoint-aligned (the render's follow camera sits behind the 
 (select between(n,213,647) and even offsets, setpts, hstack); diag/play_001_footage_213_647_720.mp4 is the
 footage half. Next: a render from the broadcast camera's own solved pose (cameras.npz sideline K/R/t per frame)
 so the two halves compare frame for frame.
+
+**The blend ruler (11:40 machine clock).** 05k --view-camera sideline renders the timeline from the broadcast
+camera's own solved pose (K/R/t per frame, K scaled to the output), so the render overlays the footage frame for
+frame. diag/play_001_v71_sideline_view_720.mp4 (the render), diag/play_001_v71_sideline_sbs.mp4 (footage | render),
+diag/play_001_v71_sideline_blend.mp4 (50/50 blend); scratchpad/launch_view_v71.sh builds all three. What the
+blend shows that the strips and sheets could not: at the snap (394) every avatar sits on its player and the paint
+on the paint; at 533 (after the release) and 583 (the catch) the avatars sit on their players except one red body
+near the 30 with no player under it; at 639 the held receiver's avatar stands on empty grass at the far left
+(placed 8-9 m inside the sideline he stepped over: the far-field depth of a one-view body under the drifting
+camera) while the footage has a white-on-red pile mid-field (184 on 76, a block that ended on the ground, not the
+receiver). Every version from here gets the blend; it is the footage-versus-render comparison the user asked for.
