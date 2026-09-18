@@ -4910,3 +4910,11 @@ near the 30 with no player under it; at 639 the held receiver's avatar stands on
 (placed 8-9 m inside the sideline he stepped over: the far-field depth of a one-view body under the drifting
 camera) while the footage has a white-on-red pile mid-field (184 on 76, a block that ended on the ground, not the
 receiver). Every version from here gets the blend; it is the footage-versus-render comparison the user asked for.
+
+**Placement checked against the keypoints through the broadcast camera (12:20 machine clock).** A "feet vs box"
+ruler read every body 0.12 box heights too deep and was WRONG: the detector's box bottom lies well below the
+shoes, so its ankle line is not bottom minus 0.078 h. Against the keypoint ankles themselves (COCO 15/16, conf
+> 0.5, 285 body-frames sampled every 20 frames) the timeline's ground point projects 1.4 px above the keypoint
+ankle at the median and the rendered ankle 4.5 px (|dv| p50 5.0, p90 14.1; |du| p50 0.9): the posed feet sit
+0.15 m (p50) ahead of the pelvis on the ground, a lean, not a bias. Two-view (fused) bodies read the same as
+one-view ones once measured this way. The pelvis-vs-box ruler's 11 px pre-snap was the linemen's crouch.
