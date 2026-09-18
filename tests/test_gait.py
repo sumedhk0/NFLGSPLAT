@@ -131,3 +131,33 @@ def test_stance_foot_stays_level_with_the_turf():
     # the flattest quarter of frames (stances) is within 8 deg of the rest pitch; the swing toes drop, never lift past 20
     assert np.sort(np.abs(pitches))[: T // 4].max() < 8.0 and pitches.max() < 20.0
 
+
+
+def test_arms_swing_opposite_their_own_leg_and_hang_down_with_the_elbow_bent():
+    from scipy.spatial.transform import Rotation
+
+    sh0, el0 = gait.arm_rotvecs(0.0, "L")                       # the left foot strikes: the left arm is BACK
+    shp, elp = gait.arm_rotvecs(np.pi, "L")                     # the left leg is back: the arm is forward
+    d0 = Rotation.from_rotvec(sh0).apply([1.0, 0.0, 0.0])       # the upper arm's direction from the T-pose
+    dp = Rotation.from_rotvec(shp).apply([1.0, 0.0, 0.0])
+    assert d0[1] < -0.8 and dp[1] < -0.8                        # hanging down either way
+    assert d0[2] < -0.2 and dp[2] > 0.2                         # back, then forward
+    assert el0[1] < -1.0 and np.allclose(el0, elp)              # the left elbow flexed forward about -y
+    shr, elr = gait.arm_rotvecs(0.0, "R")
+    assert elr[1] > 1.0 and Rotation.from_rotvec(shr).apply([-1.0, 0.0, 0.0])[1] < -0.8
+    # in gait_sequence (ARMS on) the arm rows follow the legs where the gait is on, and stay fitted where it is off
+    xy = [(0.15 * t, 0.0) for t in range(40)]
+    seq = [(np.array(p), np.zeros((21, 3)), np.zeros(3)) for p in xy]
+    was = gait.ARMS
+    try:
+        gait.ARMS = True
+        out, rep = gait.gait_sequence(seq)
+        assert rep["on"] > 0 and abs(out[20, 17, 1]) > 0.5 and abs(out[20, 15]).max() > 0.5
+        still = [(np.array([0.0, 0.0]), np.zeros((21, 3)), np.zeros(3)) for _ in range(40)]
+        out2, rep2 = gait.gait_sequence(still)
+        assert rep2["on"] == 0 and np.allclose(out2[:, 15:19], 0.0)
+        gait.ARMS = False
+        out3, _ = gait.gait_sequence(seq)
+        assert np.allclose(out3[:, 15:19], 0.0)                     # off: the arms stay the fit's
+    finally:
+        gait.ARMS = was

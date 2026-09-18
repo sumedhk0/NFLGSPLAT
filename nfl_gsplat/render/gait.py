@@ -36,6 +36,31 @@ KNEE_STANCE: float = 0.30      # rad, the knee's flexion through stance
 KNEE_SWING: float = 1.30       # rad, the knee's peak flexion in swing
 HIP_ROW, KNEE_ROW, ANKLE_ROW = {"L": 0, "R": 1}, {"L": 3, "R": 4}, {"L": 6, "R": 7}
 FOOT_SWING: float = 0.6        # share of the levelling ankle rotation kept in swing (the toes drop a little)
+# The arms of a runner pump opposite the legs; the fitted arms of a sprinter flail (2026-09-18: joint
+# jitter p90 on the running ids 0.19-0.24 m/frame^2 with the legs already synthesised). Where the gait is
+# on, the shoulder and elbow rows go the same way: each arm hangs ARM_DOWN from the T-pose and swings
+# ARM_SWING about the body's lateral axis in antiphase with its own leg, the elbow bent ELBOW_RUN.
+# Conventions checked on the model (scratch probe): the drop is a rotation about z (-z left, +z right)
+# and the swing a rotation about x applied AFTER it (R_x(swing) R_z(drop)); negative swings the arm
+# forward; the elbow flexes forward about -y (left) / +y (right).
+ARMS: bool = False             # opt-in until a render strip shows it: 07l's joint jitter does not move with the arms
+                               # (p90 0.122 / p99 0.356 either way on play 1's play window, 2026-09-18) -- that ruler
+                               # is orientation and leg-phase jitter, so the arms are judged on the footage
+ARM_DOWN: float = 1.3
+ARM_SWING: float = 0.55
+ELBOW_RUN: float = 1.4
+SHOULDER_ROW, ELBOW_ROW = {"L": 15, "R": 16}, {"L": 17, "R": 18}
+
+
+def arm_rotvecs(phase: float, side: str, *, down: float = ARM_DOWN, swing: float = ARM_SWING, elbow: float = ELBOW_RUN):
+    """``(shoulder, elbow)`` rotation vectors for one arm at its own leg's ``phase`` (0 = that foot's
+    strike): the arm is back when its leg is forward and forward when the leg is back."""
+    from scipy.spatial.transform import Rotation
+
+    sgn = -1.0 if side == "L" else 1.0
+    sw = float(swing) * float(np.cos(phase))                  # + = back (the leg is forward at phase 0)
+    sh = (Rotation.from_rotvec([sw, 0.0, 0.0]) * Rotation.from_rotvec([0.0, 0.0, sgn * down])).as_rotvec()
+    return sh, np.array([0.0, sgn * float(elbow), 0.0])
 
 
 def stride_length(v: float) -> float:
@@ -178,6 +203,10 @@ def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, l
             out[t, HIP_ROW[side]] = (1 - w[t]) * out[t, HIP_ROW[side]] + w[t] * g_hip
             out[t, KNEE_ROW[side]] = (1 - w[t]) * out[t, KNEE_ROW[side]] + w[t] * g_knee
             out[t, ANKLE_ROW[side]] = (1 - w[t]) * out[t, ANKLE_ROW[side]] + w[t] * g_ankle
+            if ARMS:
+                g_sh, g_el = arm_rotvecs(phi[t] + off, side)
+                out[t, SHOULDER_ROW[side]] = (1 - w[t]) * out[t, SHOULDER_ROW[side]] + w[t] * g_sh
+                out[t, ELBOW_ROW[side]] = (1 - w[t]) * out[t, ELBOW_ROW[side]] + w[t] * g_el
     return out, {"on": int(on.sum()), "cycles": float(abs(phi[-1] - phi[0]) / (2 * np.pi)),
                  "stride_m": (float(stride_length(speed[on].min())) if on.any() else 0.0,
                               float(stride_length(speed[on].max())) if on.any() else 0.0)}
