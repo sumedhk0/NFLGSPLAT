@@ -5123,3 +5123,11 @@ to the quarterback's area by 604 (1.4 m from 79 -- a third man, since the sideli
 rows sit on someone at x -18.8..-18.1 over 524-540 (the quarterback's spot, 2-3 m from 170's own sideline point)
 and on 170's own man from 556. Neither a fold nor a veto describes that; a per-stretch identity check against the
 film is the tool it needs. Open; the pocket after the throw is a secondary figure once the ball is gone.
+
+**v74 reviewed against the film (19:45 machine clock; diag/catch/tackle_check_v74.png, review_v74/strips).** The
+tacklers' fall works: 28 and 55 (within 1.5 m of the carrier on the down frame) pitch onto him and the three lie
+in a pile on the film's spot, extended the film's way, at 608-614. The timing was early: the render is flat at 604
+where the film's three are still upright, going down at 608 and flat by 610 -- "down" as read off the film (the
+knee or the body first touching, 08y --down 607) is mid-fall. render/tackle.py FALL_SETTLE 3: the fall ends three
+frames after the down frame (committed, tests updated). v74 also carried the rejected per-frame veto (steps 15),
+so it is not a candidate; v75 = the tacklers + the settled fall + the veto off, rendering with its sideline blend.
