@@ -63,6 +63,22 @@ def test_ball_at_hand_sits_beyond_the_wrist_along_the_forearm():
     assert np.allclose(carry.ball_at_hand(j, "L", palm_m=0.1), [1.5, 0.0, 1.0])
 
 
+def test_catch_schedule_reaches_before_and_settles_after_the_catch():
+    s = carry.catch_schedule(583, reach=8, settle=6)
+    assert min(s) == 576 and max(s) == 589
+    assert s[576] == (0.0, 0.125) and s[583] == (0.0, 1.0)         # the reach pose, arriving on the catch frame
+    assert s[584] == (1.0 / 6.0, 1.0) and s[589] == (1.0, 1.0)     # settling into the carry
+    bp = np.zeros((21, 3)); bp[20] = [0.2, 0.0, 0.0]
+    reach = carry.catch_body_pose(bp, 0.0, 1.0)
+    for r, target in carry.REACH_ROWS.items():
+        assert np.degrees((Rotation.from_rotvec(reach[r]) * Rotation.from_rotvec(target).inv()).magnitude()) < 1e-6
+    assert np.allclose(reach[20], 0.0)
+    settled = carry.catch_body_pose(bp, 1.0, 1.0)
+    for r, target in carry.CARRY_ROWS.items():
+        assert np.degrees((Rotation.from_rotvec(settled[r]) * Rotation.from_rotvec(target).inv()).magnitude()) < 1e-6
+    assert np.allclose(carry.catch_body_pose(bp, 0.0, 0.0), bp)
+
+
 def test_ball_between_hands_is_the_wrist_midpoint_pushed_forward():
     j = np.zeros((22, 3))
     j[20] = [1.0, 2.0, 1.1]; j[21] = [1.2, 2.0, 1.1]

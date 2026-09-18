@@ -133,7 +133,7 @@ def main() -> None:
     from nfl_gsplat.render import helmet as hm
     from nfl_gsplat.render import uniform as un
     from nfl_gsplat.render import timeline as tlm
-    from nfl_gsplat.render.carry import ball_at_hand, ball_between_hands, carry_body_pose, throw_body_pose
+    from nfl_gsplat.render.carry import ball_at_hand, ball_between_hands, carry_body_pose, catch_body_pose, throw_body_pose
     from nfl_gsplat.render.play_timeline import load_play_timeline, placed_body
 
     P = args.play_dir
@@ -280,15 +280,20 @@ def main() -> None:
 
     def body_batch(s, f):
         th = throw_w.get((s.pid, f))
+        ca = catch_w.get((s.pid, f))
         w = hold_w.get((s.pid, f), 0.0)
         if th is not None:                        # the passer around the release: the throw over the carry
             s = dataclasses.replace(s, body_pose=throw_body_pose(s.body_pose, th[0], th[1], args.throw_hand))
+        elif ca is not None:                      # the receiver around the catch: the reach over the carry
+            s = dataclasses.replace(s, body_pose=catch_body_pose(s.body_pose, ca[0], ca[1]))
         elif w > 0:
             s = dataclasses.replace(s, body_pose=carry_body_pose(s.body_pose, w))
         verts, joints = placed_body(s, model)
         if th is not None and f < throw_release and th[0] >= 0.5:
             hands_at[f] = ball_at_hand(joints, args.throw_hand)
-        elif th is None and w >= 0.5:
+        elif ca is not None and f >= catch_frame:
+            hands_at[f] = ball_between_hands(joints, tlm.yaw_of(s.global_orient))
+        elif th is None and ca is None and w >= 0.5:
             hands_at[f] = ball_between_hands(joints, tlm.yaw_of(s.global_orient))
         # Fitted COLOUR only: the fit's scale and opacity were tuned to blurry
         # 140-px crops and read as translucent bodies at this distance; the
@@ -320,10 +325,12 @@ def main() -> None:
     ball = {}
     hold_w: dict = {}            # (pid, frame) -> carry-pose weight for the ball's holder
     throw_w: dict = {}           # (passer, frame) -> (phase, weight) of the throw around the release
+    catch_w: dict = {}           # (receiver, frame) -> (phase, weight) of the reach and settle around the catch
     throw_release = None
+    catch_frame = None
     if args.ball:
         from nfl_gsplat.render.ball import ball_mesh, load_ball
-        from nfl_gsplat.render.carry import holder_weights, load_ball_meta, load_holders, throw_schedule
+        from nfl_gsplat.render.carry import catch_schedule, holder_weights, load_ball_meta, load_holders, throw_schedule
 
         ball = load_ball(P)
         holders = load_holders(P)
@@ -342,6 +349,10 @@ def main() -> None:
             throw_release = int(meta["release"])
             for tf, pw in throw_schedule(throw_release).items():
                 throw_w[(int(meta["passer"]), tf)] = pw
+        if meta.get("catch") is not None and meta.get("receiver") is not None:
+            catch_frame = int(meta["catch"])
+            for cf, pw in catch_schedule(catch_frame).items():
+                catch_w[(int(meta["receiver"]), cf)] = pw
         print(f"ball: {len(ball)} frames from ball.json; hands on it for {len(by_pid)} holders on {len(hold_w)} body-frames; "
               f"the throw by {meta.get('passer')} ({args.throw_hand}) on {len(throw_w)} frames around {meta.get('release')}"
               if ball else "ball: no ball.json in the play dir")

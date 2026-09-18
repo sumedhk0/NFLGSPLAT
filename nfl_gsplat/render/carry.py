@@ -174,6 +174,46 @@ def ball_at_hand(joints_world, hand: str = THROW_HAND, *, palm_m: float = PALM_M
     return wrist + (palm_m * d / n if n > 1e-6 else 0.0)
 
 
+# ---- the catch -----------------------------------------------------------------------------------
+# The receiver's hands go up to a ball arriving at head height over the last CATCH_REACH frames of the
+# flight (the REACH pose: both arms forward and up, solved on the model, scratchpad solve_reach_pose.py:
+# wrists at L (0.22, 0.21, 0.41), R (-0.17, 0.34, 0.36) from the model origin), then settle into the carry
+# over CATCH_SETTLE frames with the ball between the hands. Without it (v64) the ball landed on the chest
+# of a man whose arms hung at his sides.
+CATCH_REACH: int = 8
+CATCH_SETTLE: int = 6
+REACH_ROWS = {15: np.array([0.2, -0.999, 0.699]), 17: np.array([0.0, -0.779, 0.2]),
+              16: np.array([-0.23, 0.999, -0.699]), 18: np.array([0.0, 0.899, -0.2])}
+
+
+def catch_schedule(catch: int, *, reach: int = CATCH_REACH, settle: int = CATCH_SETTLE) -> dict[int, tuple[float, float]]:
+    """``{frame: (phase, weight)}`` around ``catch``: the arms rise to the reach pose over the ``reach``
+    frames before the catch (phase 0, the weight ramping to 1 on the catch frame), then turn into the
+    carry pose over ``settle`` frames (phase 0 -> 1, weight 1). After that the carry rule takes over."""
+    out = {}
+    for f in range(catch - reach + 1, catch + settle + 1):
+        if f <= catch:
+            out[f] = (0.0, (f - (catch - reach)) / float(reach))
+        else:
+            out[f] = (min(1.0, (f - catch) / float(settle)), 1.0)
+    return out
+
+
+def catch_body_pose(body_pose, phase: float, w: float):
+    """A copy of ``body_pose`` with the arm rows turned by ``w`` toward the reach pose (phase 0) slerped
+    into the carry pose (phase 1)."""
+    bp = np.array(body_pose, float).reshape(21, 3).copy()
+    w = float(np.clip(w, 0.0, 1.0))
+    if w <= 0:
+        return bp
+    for row, target in _slerp_rows(REACH_ROWS, CARRY_ROWS, phase).items():
+        a = Rotation.from_rotvec(bp[row]); b = Rotation.from_rotvec(target)
+        bp[row] = (a * Rotation.from_rotvec((a.inv() * b).as_rotvec() * w)).as_rotvec()
+    for row in WRIST_ROWS:
+        bp[row] *= (1.0 - w)
+    return bp
+
+
 def load_ball_meta(play_dir) -> dict:
     """``{"release", "catch", "passer", "receiver"}`` from ``<play-dir>/ball.json`` (values may be
     None), {} without a ball path. The passer is the holder on the frame before the release."""
