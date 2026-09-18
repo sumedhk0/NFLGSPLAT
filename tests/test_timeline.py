@@ -567,3 +567,21 @@ def test_lying_frames_take_a_wider_pose_smoothing():
         return np.ptp([[s for s in t.states[f] if s.pid == 1][0].body_pose[0, 0] for f in range(lo, hi)])
     assert swing(wide, 36, 54) < 0.5 * swing(plain, 36, 54)             # damped where lying
     assert abs(swing(wide, 6, 24) - swing(plain, 6, 24)) < 1e-6          # untouched where standing
+
+
+def test_unreadable_kit_ids_drops_short_unnamed_fragments_only():
+    import pandas as pd
+    from nfl_gsplat.render.timeline import PlayerState, Timeline, unreadable_kit_ids
+
+    tl = Timeline(frames=list(range(0, 60)))
+    rows = []
+    for f in range(0, 60):
+        for pid, n in ((1, 60), (2, 20), (3, 20), (4, 20)):
+            if f < n:
+                tl.states.setdefault(f, []).append(PlayerState(pid=pid, xy=np.zeros(2), body_pose=np.zeros((21, 3)), global_orient=np.zeros(3),
+                                                              betas=np.zeros(10), source="sideline"))
+                rows.append({"cam": "sideline", "track_id": pid, "global_player_id": pid, "frame": f,
+                             "kit_margin": {1: 0.05, 2: 0.05, 3: 0.7, 4: 0.05}[pid]})
+    df = pd.DataFrame(rows)
+    # 1: long (kept); 2: short, unreadable, unnamed (dropped); 3: short but a clear kit (kept); 4: short, unreadable, but named (kept)
+    assert unreadable_kit_ids(tl, df, {4: True}, margin=0.2, max_frames=40) == {2}

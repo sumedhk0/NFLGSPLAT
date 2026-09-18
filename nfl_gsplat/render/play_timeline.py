@@ -54,6 +54,22 @@ def clip_offset(play_dir) -> int:
     return int(json.loads(f.read_text())["offset"]) if f.exists() else 0
 
 
+def _named(play_dir) -> dict:
+    """pid -> True when identity_resolved.pkl gives the id a jersey number or a role."""
+    import pickle
+
+    f = Path(play_dir) / "identity_resolved.pkl"
+    if not f.exists():
+        return {}
+    blob = pickle.load(open(f, "rb"))
+    merged = blob.get("merged", {}) or {}
+    roles = blob.get("roles", {}) or {}
+    out = {}
+    for pid, m in merged.items():
+        out[int(pid)] = bool(getattr(m, "jersey", 0)) or bool(roles.get(pid) or roles.get(int(pid)))
+    return out
+
+
 def _teams(play_dir):
     """``{pid: team}`` from identity_resolved.pkl, empty without it."""
     import pickle
@@ -353,7 +369,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        no_depth_snap: bool = False, blind_axis: bool = False, span_gap: int | None = None,
                        span_hold_m: float | None = None, span_presnap: str | None = None,
                        hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0,
-                       despike_m: float | None = -1.0):
+                       despike_m: float | None = -1.0, weak_kit_margin: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -582,6 +598,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     if orphans:
         n = tlm.drop_ids(tl, orphans)
         print(f"short teamless fragments left out: {sorted(orphans)} ({n} body-frames)")
+    # a short fragment whose kit could not be read and that identity never named wears a guessed
+    # team (timeline.unreadable_kit_ids)
+    if weak_kit_margin is not None and weak_kit_margin < 0:
+        weak_kit_margin = tlm.WEAK_KIT_MARGIN
+    if weak_kit_margin is not None:
+        weak = tlm.unreadable_kit_ids(tl, df, _named(P), margin=float(weak_kit_margin))
+        if weak:
+            n = tlm.drop_ids(tl, weak)
+            print(f"short fragments with an unreadable kit left out: {sorted(weak)} ({n} body-frames)")
     # two same-team ids within TWIN_M for TWIN_MIN_RUN frames are one man: the shorter-lived loses the
     # stretch (timeline.twin_frames; play 1: census live 1.32 -> 1.20, hops and steps unchanged)
     twins = tlm.twin_frames(tl, teams_now)

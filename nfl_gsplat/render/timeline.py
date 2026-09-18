@@ -512,6 +512,32 @@ TWIN_M: float = 0.2          # two drawn bodies this close are one man
 TWIN_MIN_RUN: int = 8        # ... when it lasts this many consecutive frames
 
 
+WEAK_KIT_MARGIN: float | None = 0.2    # a short fragment whose kit reads under this (|median margin|), with no jersey
+                                       # and no role, wears a guessed team: left out (2026-09-18: BAL 11.21 -> 10.98, exactly-eleven 41 -> 49)
+
+
+def unreadable_kit_ids(tl: "Timeline", df, named: dict, *, margin: float = 0.2, max_frames: int = RIDER_MAX_FRAMES,
+                       cam: str = "sideline") -> set:
+    """Ids drawn on at most ``max_frames`` frames whose ``cam`` kit margin reads under ``margin`` in
+    median (the torso saturation could not say which kit) and which carry neither a jersey number
+    nor a role (``named``: pid -> True when identity knows the man): their team label is a guess,
+    and play 1's 201 (26 frames, margin -0.05) stood as a white body on Kansas City linemen's legs."""
+    sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
+    km = sub.groupby("global_player_id")["kit_margin"].median().to_dict()
+    frames: dict = {}
+    for f, states in tl.states.items():
+        for st in states:
+            frames[int(st.pid)] = frames.get(int(st.pid), 0) + 1
+    out = set()
+    for pid, n in frames.items():
+        if n > max_frames or named.get(pid):
+            continue
+        m = km.get(pid)
+        if m is not None and np.isfinite(m) and abs(float(m)) < margin:
+            out.add(pid)
+    return out
+
+
 def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_run: int = TWIN_MIN_RUN) -> set:
     """``{(frame, pid)}`` to drop: for every same-team pair of drawn ids within ``twin_m`` of each other
     on at least ``min_run`` CONSECUTIVE frames, the id drawn on fewer frames overall loses those frames.

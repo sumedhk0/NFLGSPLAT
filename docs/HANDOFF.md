@@ -4474,3 +4474,21 @@ body within 1.2 m in the line) -- kept because it is the right question to ask. 
 backfill + box twins.** Id 37's strip: absent 558-570, present from 574, no flicker, no glide
 (scratchpad/review_v58/strips/render_37_f558.png); sheets as v57. v59 (lying-frame smoothing,
 pre-snap join window) next.
+
+**The evening against the 21:30 baseline (02:45), 07l on 393-660 with the gait, v59's timeline
+(play_001_v59_plausibility.json):** steps > 0.25 m/frame 114 -> 53, hops 25 -> 2, handovers 7 -> 0,
+skating planted 13 -> 17 %, census 2.55 -> 2.13 (KC 11.04 -> 10.95, BAL 11.49 -> 11.21), joints
+jitter p50 0.026 -> 0.023, p90 0.156 -> 0.136, p99 0.58 -> 0.39 (the p99 is the gait's leg swing).
+What did it: the despike (hops), the span/hole holds (steps, handovers), box twins and the dweller
+line (census), the lying-frame smoothing and the heading backfill (jitter). What is left on the
+play: two hops (79 at 544, 194 at 503), BAL +0.2 from fragments (201/177/75, strips in
+diag/fragments_v59/), KC -0.05, the pile depth of 37/166.
+
+**Short fragments with an unreadable kit wear a guessed team (03:10).** Footage strips
+(diag/fragments_v59/): 201 (26 frames, kit margin -0.05, no jersey, no role) is a white skeleton
+standing on Kansas City linemen's legs; 177 (36 frames, -0.10) the same on the lineman beside the
+Baltimore rusher; 75 (49 frames, -0.30) is a real man. Rule (timeline.unreadable_kit_ids, WEAK_KIT_MARGIN
+0.2, at most RIDER_MAX_FRAMES 40 frames, and identity gave the id neither a jersey nor a role): left
+out. Live window: drops 23, 67, 158, 177, 201 (106 body-frames); KC 10.95 -> 10.86, BAL 11.21 ->
+10.98, exactly 11/11 41 -> 49, BAL >= 12 100 -> 60, pile pairs 16 -> 15, hops 2, steps 53. Ships;
+v60 carries it (v59 had loaded its timeline).
