@@ -4962,3 +4962,48 @@ compare with that id's endzone ankle keypoints (kdf, cam endzone, already shifte
 exceeds MISPAIR_PX (try 100, then 60) the endzone rows are another man's -- fall back to side_ground[f][pid] and
 drop "endzone" from views[f][pid]. Rulers: scratchpad/probe_mispair_ab.py (endzone ankle ruler p90 57.9 -> ?,
 sideline ruler unchanged, steps 11 / hops 0 / census 1.29). Then v72 with both blends. Play 1 only, as ever.
+
+## 2026-09-18 (afternoon): the ball went to the WRONG MAN -- RETRACTION of "receiver 77", "out of bounds", "touchdown"
+
+**What the user saw (16:00 machine clock).** "In this play the ball didn't go to the endzone / score a touchdown -
+it went to the tight end in the middle for a smaller gain (first down) - why did your pipeline not catch this?
+Why is the ball tracking going to the wrong player?" He is right. Every line above that says the receiver is
+77, that he steps out of bounds at 639, or that the play is a touchdown, is wrong.
+
+**What the film shows (diag/catch/, raw sideline frames 520-631 tiled at full resolution).** Mahomes (#15)
+throws at 527 (sheet_qb_520_535.png: the arm comes forward 525-527, extended at 528). The ball is a 10 px
+brown blur crossing the pocket at 532-540 (sheet_release_528_541.png) and flying flat over the middle
+(sheet_flight_524_564.png). The catch is at ~562 by the red body at the near hash between the far 10 and 20
+numerals (sheet_catch_556_571.png: he reaches at 560-563, tucks by 564). BAL 14 (Hamilton) wraps him at
+584-596, he is dragged and down at 607, the pile lies still to the clip's end (sheet_tackle_584_631.png).
+The 05q overlay of the timeline's ids on those frames (sheet_overlay_sl.png) names the receiver: id 48 at
+560-583, then nobody -- and 77, the man I had typed as the receiver, is the far-sideline receiver 13 m away
+who never had the ball. The gain is x -24.1 -> ~-33: about nine yards, the first down the user describes.
+
+**Why the pipeline had no way to catch it.** (1) No ball detector: 08y builds the ball from three HAND-TYPED
+inputs (release, catch, receiver). (2) I typed them from RENDER strips and then checked the constructed ball
+against the render -- a closed loop that cannot fail. (3) The receiver's track was in three pieces, which is
+the normal state of a man in a pile: 74 (Noah Gray, jersey 83 read by OCR, sideline 421-520; the timeline
+even had him "fused" to 527), then 48 (508-588, unnamed, given an OL build and 315 lb by 08n's role rule),
+then 75 (528-602, labelled BAL on an unreadable kit, the "real man engaged with 48" of the cross-team twin
+note above -- he WAS 48). Even 08y's "nearest offence body" chain would have lost him at 588 to a man wearing
+the other team's colour. (4) The dead-ball rule then read the chain loss as the play's end and the story
+built itself: "tackle at 640" -> "out of bounds" -> "touchdown", each a reading of the render, none of the film.
+
+**Fix (all committed).** `scripts/08z_fold_ids.py --keep 74 --drop 48 75` (nfl_gsplat/tracking/fold.py): an
+explicit fold in the GLOBAL id space, track ids untouched, the weaker of two boxes on one frame dropped (41),
+keypoints follow, 08v carries the pose caches, identity loses 48/75 (74 = Noah Gray keeps his real build).
+Not via 08o's merge_map: it works in the tracker-id space and rewrites every row's global id from its track
+id, and a fifth of play 1's rows differ since the pairing stages -- that path relabels unrelated men. Then
+`08y --release 527 --catch 562 --qb 80 --receiver 74 --down 607` (flight 13.8 m in 0.58 s = 23.7 m/s;
+carried 563-602, held 603-606, down 607+); 08x's dead_from_ball now takes the carrier's DOWN frame over the
+chain loss ("held" is the weakest signal); play_end.json = snap 395, end 607, clip 215-615.
+timeline.hold_to_end(always={carrier}) keeps the carrier drawn from wherever the detector lost him (602) to
+the end, so the ball does not float over empty turf. Timeline after the fold: 74 KC drawn 213-602, one body
+at the catch spot with BAL 28 and 55 beside him; 48 and 75 gone. v72 rendering with both blends.
+
+**Rule for every play from now on (also in memory ball-from-events).** Read the events off RAW frames, not
+render strips; overlay the ids on those frames (05q) to name the receiver; check that his id spans the catch
+to the tackle in tracks.parquet and fold the pieces (08z) when it does not; verify the render's catch against
+the raw frames, never against the render. The user's eyes were the ruler that caught this; the film was
+available the whole time.
