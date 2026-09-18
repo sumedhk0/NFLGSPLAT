@@ -401,7 +401,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                        span_hold_m: float | None = None, span_presnap: str | None = None,
                        hole_hold_m: float | None = -1.0, box_twin_iou: float | None = -1.0,
                        despike_m: float | None = -1.0, weak_kit_margin: float | None = -1.0,
-                       impossible_m: float | None = -1.0, formation_still_m: float | None = -1.0):
+                       impossible_m: float | None = -1.0, formation_still_m: float | None = -1.0,
+                       same_body_gap_m: float | None = -1.0):
     """``(timeline, tracks, df, frames_all, poses)`` for a play-dir. With
     ``stitch_ids`` the linker's fragments are joined by tracking.stitch
     (position and speed, in field metres) and every state carries the
@@ -541,7 +542,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                                                 side_ground=side_ground,
                                                 hold_m=ezr.HOLD_M if span_hold_m is None else float(span_hold_m),
                                                 report=span_report, snap=snap,
-                                                presnap=ezr.PRESNAP if span_presnap is None else span_presnap)
+                                                presnap=ezr.PRESNAP if span_presnap is None else span_presnap,
+                                                same_body_gap_m=ezr.SAME_BODY_GAP_M if (same_body_gap_m is not None and same_body_gap_m < 0) else same_body_gap_m)
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
         if span_report:

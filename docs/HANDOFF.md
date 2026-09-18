@@ -4632,3 +4632,12 @@ laser; the plausibility bar is 30 m/s and 9 m. A first run with --qb 49 chained 
 lineman at the snap (49 only exists from 509): the chain must start with the id that steps back.
 render/ball.py draws it as gaussians on a 28 x 17 cm ellipsoid, brown with a lace line, pointed
 along its velocity; 05k --ball. v61 launched 09:05 with both.
+
+**A lead-in on another man's spot, inside the gap (09:40).** The span rule's same-body test (a
+sideline body within 1.2 m) only ran beyond the 30-frame gap; inside it 37's endzone lead-in
+(340-369) stood on the lineman the sideline already draws as 166 (the zoom at 380 had both
+skeletons on 76). SAME_BODY_GAP_M = 0.8: inside the gap, a sideline body of another id within 0.8 m
+means the sideline has the man. A/B (the QB hold in): 0.6 m missed 37 (0.55 was the smoothed
+figure) and cost real frames (pre-snap exactly 11/11 25 -> 11); 0.8 m: 37 drawn from 370 not 340,
+pre-snap KC 10.08 -> 9.75 (frames at twelve 35 -> 14, exactly 11/11 25 -> 28), live KC 10.86 -> 10.79,
+BAL 10.98 -> 10.97, exactly 11/11 49 -> 59, hops 2, steps 53, pile pairs 15. Ships; v62 carries it.

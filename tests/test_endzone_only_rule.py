@@ -250,3 +250,23 @@ def test_qb_hold_holds_the_man_who_steps_back_from_behind_the_centre():
     assert pid == 80 and n == 377 - 213 and np.allclose(out[300][80], [-22.2, 0.1]) and 38 not in out[300]
     # nobody steps back: nothing held
     assert qb_hold(ground, {375: {38: np.array([-22.8, 1.9])}}, start=213, snap=393, centre_xy=(-23.0, 0.0), sign=1.0, team_ids={38}, first_frame={38: 375})[1] is None
+
+
+def test_beyond_sideline_span_gap_same_body_drops_a_lead_in_on_another_mans_spot():
+    import numpy as np
+    import pandas as pd
+
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    # id 1's sideline span 40..60, endzone from 10; in the gap (10..39) it stands 0.5 m from id 2, whom the sideline draws
+    df = pd.DataFrame([{"cam": "sideline", "track_id": 1, "global_player_id": 1, "frame": f} for f in range(40, 61)]
+                      + [{"cam": "endzone", "track_id": 1, "global_player_id": 1, "frame": f} for f in range(0, 61)]
+                      + [{"cam": "sideline", "track_id": 2, "global_player_id": 2, "frame": f} for f in range(0, 61)])
+    ground = {f: {1: np.array([0.5, 0.0]), 2: np.array([0.0, 0.0])} for f in range(10, 61)}
+    side = {f: {2: np.array([0.0, 0.0])} for f in range(0, 61)}
+    for f in range(40, 61):
+        side[f][1] = np.array([0.5, 0.0])
+    out, d = beyond_sideline_span(ground, df, None, gap=30, side_ground=side, hold_m=None, same_body_gap_m=0.8)
+    assert d == 30 and all(1 not in out[f] for f in range(10, 40)) and all(1 in out[f] for f in range(40, 61))
+    out2, d2 = beyond_sideline_span(ground, df, None, gap=30, side_ground=side, hold_m=None, same_body_gap_m=None)
+    assert d2 == 0

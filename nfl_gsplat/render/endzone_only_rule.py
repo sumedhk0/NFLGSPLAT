@@ -41,6 +41,8 @@ def _inside_sideline(xy, track, f, *, margin: float = MARGIN_PX) -> bool:
 
 
 SAME_BODY_M: float = 1.2         # a sideline body this close is the same man under another id
+SAME_BODY_GAP_M: float | None = 0.8    # ... and inside the 30-frame gap, this close (2026-09-18: 37's lead-in went, exactly-eleven +3 pre-snap, +10 live; 37's
+                                       # lead-in at 340-369 stood 0.55 m from 166, the sideline's id for the same lineman)
 
 
 PRESNAP_JOIN_MAX: int = 10       # the pre-snap per-frame test applies when the join is within this many frames of the snap
@@ -53,7 +55,8 @@ HOLD_M: float | None = 0.8       # a beyond-span stretch whose join jumps farthe
 def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sideline",
                          margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M,
                          hold_m: float | None = HOLD_M, report: dict | None = None, snap: int | None = None,
-                         presnap: str = PRESNAP, presnap_join_max: int = PRESNAP_JOIN_MAX):
+                         presnap: str = PRESNAP, presnap_join_max: int = PRESNAP_JOIN_MAX,
+                         same_body_gap_m: float | None = SAME_BODY_GAP_M):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -150,6 +153,17 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                         dropped += 1
                         continue
                     kept_gap += 1
+                # inside the gap: a sideline body of ANOTHER id this close is the same man (the sideline
+                # already draws him under that id; the endzone's lead-in is his second copy)
+                if same_body_gap_m is not None and side_at is not None and (lo[pid] <= f <= hi[pid]):
+                    near_gap = min((float(np.linalg.norm(np.asarray(xy, float) - q))
+                                    for j, q in side_at.get(f, {}).items() if j != pid), default=np.inf)
+                    if near_gap <= same_body_gap_m:
+                        st = stats.setdefault(pid, [0, float("nan"), 0])
+                        st[0] += 1
+                        st[2] += 1
+                        dropped += 1
+                        continue
                 # the hold test: the jump at the join between the endzone's stretch and the sideline's
                 # span (see ``hold_m`` above); the whole side of the span goes with its join
                 jl, jt = jumps.get(pid, (float("nan"), float("nan")))
