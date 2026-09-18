@@ -101,6 +101,14 @@ COCKED_ROWS = {15: np.array([-0.404, -1.266, -0.261]), 17: np.array([0.0, -0.193
                16: np.array([0.0, -0.263, -0.237]), 18: np.array([0.0, 0.0, -1.313])}
 RELEASE_ROWS = {15: np.array([0.229, -0.457, -0.762]), 17: np.array([-0.105, -1.143, 0.0]),
                 16: np.array([0.229, 0.61, -1.294]), 18: np.array([0.0, 0.0, -0.131])}
+# The way from the carry to the cocked pose: the shoulder's straight slerp from arm-forward-down to
+# arm-up-back passes through zero rotation, the T-pose, and v64/v66 drew the ball at arm's length out to
+# the side for two frames (516-518). LIFT is a waypoint at phase 0.5 -- the arm raised in FRONT, the ball
+# coming up past the shoulder -- checked on the model: the throwing wrist rises from (-0.11, -0.18, 0.34)
+# through (-0.42, 0.09, 0.36) and (-0.36, 0.42, 0.15) to the cocked (-0.41, 0.36, -0.14), never out at
+# the body's side, the shoulder never under 19 degrees from rest, the elbow 51-71 degrees flexed.
+LIFT_ROWS = {15: np.array([0.1, -1.0, -0.3]), 17: np.array([0.0, -0.9, 0.0]),
+             16: np.array([0.0, 0.35, -0.55]), 18: np.array([0.0, 0.5, -1.0])}
 
 
 def _mirror_rows(rows: dict) -> dict:
@@ -119,13 +127,15 @@ def _slerp_rows(a: dict, b: dict, u: float) -> dict:
 
 
 def throw_rows(phase: float, hand: str = THROW_HAND) -> dict:
-    """The four arm rows at ``phase``: 0 = the carry pose, 1 = cocked, 2 = the release, slerped
-    between; ``hand`` "R" or "L"."""
-    carry, cocked, release = CARRY_ROWS, COCKED_ROWS, RELEASE_ROWS
+    """The four arm rows at ``phase``: 0 = the carry pose, 0.5 = the lift, 1 = cocked, 2 = the
+    release, slerped between; ``hand`` "R" or "L"."""
+    carry, lift, cocked, release = CARRY_ROWS, LIFT_ROWS, COCKED_ROWS, RELEASE_ROWS
     if hand == "L":
-        cocked, release = _mirror_rows(cocked), _mirror_rows(release)
+        lift, cocked, release = _mirror_rows(lift), _mirror_rows(cocked), _mirror_rows(release)
+    if phase <= 0.5:
+        return _slerp_rows(carry, lift, 2.0 * phase)
     if phase <= 1.0:
-        return _slerp_rows(carry, cocked, phase)
+        return _slerp_rows(lift, cocked, 2.0 * (phase - 0.5))
     return _slerp_rows(cocked, release, phase - 1.0)
 
 

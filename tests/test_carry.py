@@ -38,6 +38,7 @@ def test_throw_rows_run_carry_to_cocked_to_release_and_mirror_for_a_lefty():
     def same(a, b):
         return all(np.degrees((Rotation.from_rotvec(a[r]) * Rotation.from_rotvec(b[r]).inv()).magnitude()) < 1e-6 for r in a)
     assert same(carry.throw_rows(0.0), carry.CARRY_ROWS)
+    assert same(carry.throw_rows(0.5), carry.LIFT_ROWS)
     assert same(carry.throw_rows(1.0), carry.COCKED_ROWS)
     assert same(carry.throw_rows(2.0), carry.RELEASE_ROWS)
     lefty = carry.throw_rows(1.0, "L")
