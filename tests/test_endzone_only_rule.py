@@ -317,18 +317,23 @@ def test_qb_hold_takes_out_the_teammate_already_standing_on_the_held_spot():
     assert all(204 in out2[f] for f in range(213, 300))
 
 
-def test_presnap_holes_are_filled_between_sideline_points_and_not_beyond_them():
+def test_presnap_holes_are_filled_between_an_ids_points_only_where_the_spot_is_empty():
     import numpy as np
 
     from nfl_gsplat.render.endzone_only_rule import fill_presnap_holes
 
-    side = {f: {82: np.array([-23.0 + 0.001 * f, -1.0])} for f in [217, 218, 219, 260, 261, 300, 307]}
-    ground = {f: dict(side.get(f, {})) for f in range(213, 400)}
-    ground[280][82] = np.array([-22.0, -1.5])                       # an endzone-filled frame keeps its own point
-    out, added = fill_presnap_holes(ground, side, start=213, snap=393, margin=10)
-    assert added == {82: 307 - 217 + 1 - 7 - 1}                     # every hole frame but the one already drawn
+    teams = {82: "KC", 17: "KC", 19: "KC", 166: "KC", 9: "BAL"}
+    ground = {f: {17: np.array([-23.0, 0.0]), 19: np.array([-22.6, -3.3])} for f in range(213, 400)}
+    for f in [217, 218, 219, 260, 261, 300, 307]:                   # the guard, with holes
+        ground[f][82] = np.array([-23.0, -1.0])
+    for f in list(range(291, 320)) + list(range(340, 393)):           # a twin on 19's man, with a hole 320-339
+        ground[f][166] = np.array([-22.6, -3.2])
+    out, added = fill_presnap_holes(ground, start=213, snap=393, teams=teams)
+    assert added == {82: 307 - 217 + 1 - 7}                         # every hole frame of the guard ...
+    assert 166 not in added                                           # ... none of the twin's: 19 stands there
     assert 82 not in out[216] and 82 not in out[308]                 # nothing beyond the first or last sighting
-    assert np.allclose(out[240][82], [-23.0 + 0.001 * 219 + (0.001 * (260 - 219)) * (240 - 219) / 41.0, -1.0])
-    assert np.allclose(out[280][82], [-22.0, -1.5])
-    # a single sighting fills nothing
-    assert fill_presnap_holes(ground, {250: {5: np.array([0.0, 0.0])}}, start=213, snap=393)[1] == {}
+    assert np.allclose(out[240][82], [-23.0, -1.0])
+    # a vouched id is filled only between its vouched frames
+    out2, added2 = fill_presnap_holes(ground, start=213, snap=393, teams=teams, only_ids={82}, frames_of={82: {260, 261, 300, 307}})
+    assert added2 == {82: 307 - 260 + 1 - 4} and 82 not in out2[240]
+    assert fill_presnap_holes({250: {5: np.array([0.0, 0.0])}}, start=213, snap=393, teams={5: "KC"})[1] == {}

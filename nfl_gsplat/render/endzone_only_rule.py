@@ -488,42 +488,61 @@ def line_vouch(ground, views, side_ground, *, start: int, snap: int, teams: dict
 
 
 # ---- a set man's holes before the snap ---------------------------------------------------------------
-# Inside its own pre-snap span a sideline track has holes the hole rule cannot touch: hold_holes moves
-# endzone-filled frames, and a sideline-only id has none to move (play 1's left guard, id 82: sideline
-# points on 51 of the 91 frames 217-307, a 69-px box on a man hidden behind the centre, no endzone id).
-# Before the snap a set man does not move, so a hole between two of his sideline points is filled with
-# the straight line between them, whatever its length; nothing is added beyond his first or last
-# pre-snap sighting (that is the span rule's business).
-# MEASURED AND NOT ADOPTED (play 1 pre-snap 213-383, 2026-09-18, with the line vouch and the quarterback rule
-# on): mean |KC - 11| a frame 0.520 -> 0.538, exact-eleven frames 91 -> 82, frames at twelve or more 34 -> 52.
-# It filled the guard (82: 36 frames) but also every twin's and fragment's holes (19: 15, 34: 19, 195: 9,
-# 204: 9 ...), and a filled twin is a filled ghost. Opt-in (05k/loader presnap_fill=True).
-PRESNAP_FILL: bool = False
+# Inside its own pre-snap span an id has holes the hole rule cannot touch: hold_holes moves endzone-filled
+# frames, and a sideline-only id has none to move (play 1's left guard, id 82: sideline points on 51 of
+# the 91 frames 217-307, a 69-px box on a man hidden behind the centre, no endzone id); a vouched
+# endzone-only guard (38) has the endzone's own gaps (drawn in seven runs, holes of 3-24 frames: he
+# flickered in v65). Before the snap a set man does not move, so a hole between two of his points is
+# filled with the straight line between them, whatever its length -- but only where that line point is
+# EMPTY: no same-team body within PRESNAP_FILL_ACROSS_M across and PRESNAP_FILL_ALONG_M along the field
+# (a twin's hole is its man's frame; filling it would draw the ghost -- the first cut without the empty
+# test filled 19, 34, 195 and 204 and read |KC - 11| 0.520 -> 0.538). Nothing is added beyond an id's
+# first or last pre-snap point (the span rule's business). ``frames_of`` restricts an id to holes between
+# the frames given (the vouched ones, for a vouched id).
+# Measured on play 1's pre-snap 213-383 (2026-09-18, line vouch and quarterback rule on), mean |KC - 11| a
+# frame: off 0.520; the vouched ids' holes only (38: 28 frames) 0.462, exact-eleven frames 91 -> 96; plus
+# every empty spot (36 more frames: 172, 98, 82 ...) 0.427, exact 102, frames at ten or fewer 46 -> 28,
+# at twelve or more 34 -> 41. On by default; the loader's presnap_fill takes False / "vouched" / True.
+PRESNAP_FILL: bool = True
+PRESNAP_FILL_ACROSS_M: float = 0.7
+PRESNAP_FILL_ALONG_M: float = 2.0
 
 
-def fill_presnap_holes(ground, side_ground, *, start: int, snap: int, margin: int = FORMATION_MARGIN):
-    """``(ground, {pid: frames_added})``: every frame between an id's first and last sideline point in
-    [start, snap - margin] on which the merged ground has no point for it gets the line between the
-    sideline points either side."""
+def fill_presnap_holes(ground, *, start: int, snap: int, teams: dict, margin: int = FORMATION_MARGIN,
+                       only_ids=None, frames_of: dict | None = None, across_m: float = PRESNAP_FILL_ACROSS_M,
+                       along_m: float = PRESNAP_FILL_ALONG_M):
+    """``(ground, {pid: frames_added})``: see above."""
     out = {f: dict(d) for f, d in ground.items()}
     added: dict = {}
     lo, hi = int(start), int(snap) - int(margin)
-    side_frames: dict = {}
-    for f, d in side_ground.items():
-        if lo <= int(f) <= hi:
-            for pid in d:
-                side_frames.setdefault(int(pid), []).append(int(f))
-    for pid, fs in side_frames.items():
+    have: dict = {}
+    for f in range(lo, hi + 1):
+        for pid in ground.get(f, {}):
+            pid = int(pid)
+            if only_ids is not None and pid not in only_ids:
+                continue
+            if frames_of is not None and pid in frames_of and f not in frames_of[pid]:
+                continue
+            have.setdefault(pid, []).append(f)
+    for pid, fs in have.items():
         fs.sort()
         if len(fs) < 2:
             continue
         arr = np.asarray(fs)
+        tm = teams.get(pid)
         for f in range(fs[0], fs[-1] + 1):
-            if pid in out.get(f, {}) or pid in side_ground.get(f, {}):
+            d = out.setdefault(f, {})
+            if pid in d:
                 continue
             i = int(np.searchsorted(arr, f))
             fa, fb = int(arr[i - 1]), int(arr[i])
-            a = np.asarray(side_ground[fa][pid], float); b = np.asarray(side_ground[fb][pid], float)
-            out.setdefault(f, {})[pid] = a + (b - a) * (f - fa) / float(fb - fa)
+            a = np.asarray(ground[fa][pid], float); b = np.asarray(ground[fb][pid], float)
+            pt = a + (b - a) * (f - fa) / float(fb - fa)
+            taken = any(int(j) != pid and teams.get(int(j)) == tm
+                        and abs(float(q[1]) - pt[1]) < across_m and abs(float(q[0]) - pt[0]) < along_m
+                        for j, q in d.items())
+            if taken:
+                continue
+            d[pid] = pt
             added[pid] = added.get(pid, 0) + 1
     return out, added

@@ -4789,3 +4789,12 @@ man's sideline points across any pre-snap hole. It filled 82 on 36 frames but al
 (19, 34, 195, 204 ...): |KC-11| 0.520 -> 0.538, exact-eleven 91 -> 82, twelve-or-more 34 -> 52. Opt-in
 (PRESNAP_FILL False; loader presnap_fill=True). The pre-snap now stands at 10.9 a frame with the left guard
 its remaining hole and 82/166's overlap (291-307) its remaining double.
+
+**Pre-snap hole fill, second cut, ADOPTED (06:00).** The rejected fill filled the twins' holes; the vouched
+guard 38 meanwhile flickered in v65 (drawn in seven runs, holes of 3-24 frames: strips render_38_f240.png
+"absent" at 240/280/340). fill_presnap_holes now (a) fills a VOUCHED id's holes between its vouched frames
+(the filled frames vouched too), then (b) fills any id's pre-snap holes only where the line point is EMPTY --
+no same-team body within 0.7 m across and 2 m along (a twin's hole is its man's frame). |KC-11| a frame on
+213-383: 0.520 -> 0.462 (a) -> 0.427 (a+b); exact-eleven frames 91 -> 96 -> 102; frames at ten or fewer
+46 -> 28; at twelve or more 34 -> 41 (the sideline twins 82/166 and small fragments 98/172 fill too). v67 =
+v66 + this. The pre-snap thread stands at |KC-11| 0.43 from 1.25 this morning (9.75 a frame).
