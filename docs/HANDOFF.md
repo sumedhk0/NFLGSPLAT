@@ -4555,3 +4555,16 @@ the viewer sees: Kansas City is nine or ten men before the snap (the quarterback
 sideline, the line drawn by fragments -- identity/pairing work, not the timeline); real men slide
 at the end of the play where the camera pans (53 steps over 0.25 m/frame); two ids on one lineman
 by depth (37/166); 75, a 49-frame wrong-team fragment.
+
+**The quarterback is five ids and none of them covers the snap (05:45).** Identity's QB role sits on
+22 (sideline 14-171 + endzone 125-156: the walk to the line), 93 (endzone 197-237) and 95 (endzone
+214-220), 33 (sideline 281-288, five frames behind the line) and 49 (sideline 509-639, after the
+throw). Between 238 and 508 -- the set formation, the snap, the dropback and the pocket -- no id with
+his role has a box in either camera. At endzone frame 245 (sideline 260) the boxes at his spot are
+the centre 17 (bottom 638) and a second endzone track 164 (tid 22, 230-362, bottom 630, cx 922):
+the QB under centre shares the centre's box bottom because his feet are hidden, so 164's ground
+point IS the centre's spot, 1.2 m short of his own -- the very 1.22 m join jump the span hold
+measured on 164 and dropped. The sideline never sees him behind the line (33's five frames are
+the exception). This is an identity thread: link 22 -> 93/95 -> 164 -> 33 -> 49 as one man from the
+formation (the endzone box above the centre, the role), and place him 1.2 m behind the centre
+while he is under centre, then by the sideline once it has him. Not a timeline rule; next session.
