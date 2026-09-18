@@ -4442,3 +4442,18 @@ window 393-660: KC 10.98 -> 10.95, BAL 11.31 -> 11.21, exactly 11/11 37 -> 41, B
 pile pairs 18 -> 16 (285 -> 251 frames), hops 2 -> 2, steps > 0.25 55 -> 53; 82 body-frames left out
 whole play (194 490-497 and 198 489-509 on 40's man, 170 598-605, 27 and 195 pre-clip). The two
 hops it cost at 23:00 were spikes the despike now removes. BOX_TWIN_IOU = 0.6.
+
+**v57 delivered (01:05): diag/play_001_v57_hifi_720.mp4 = v56 + the despike + the dweller line.** Id 70
+(the official) absent on 611-638 (strip); 76 stays with the pile at 628-646 instead of sliding off
+it; sheets as v56 otherwise. v58 (long-hole middles out, heading backfill, box twins) rendering.
+
+**Bodies on the ground flail between sparse records: a wider pose Gaussian on lying frames (01:30).**
+The one real flail left on the play was the diving tackler 184 at 655-658 (joint acceleration p90
+0.43 m/frame^2, records on 7 of 19 frames). timeline.build_timeline: frames the box calls lying
+(lying_frames, aspect 0.7) take the pose Gaussian at LYING_SIGMA_MULT x sigma, blended in over
+LYING_BLEND 3 frames either side of a lying run. Without the blend, swapping the values on the
+lying frames alone made a seam: id 1's isolated lying frames went p90 0.08 -> 0.55. With it, on
+393-660 (55 lying body-frames, ids 1/28/34/35/36/55/82/184/206): lying p90 0.189 -> 0.079 (x3) /
+0.031 (x5); 184 0.42 -> 0.09 / 0.03; 28 0.19 -> 0.02 / 0.04; 1 0.08 -> 0.15 / 0.19; all-frames p99
+0.105 -> 0.098. LYING_SIGMA_MULT = 3.0 ships (the seam cost on 1 is the reason not 5). Footage strip
+of 184 with it: diag/lying_smooth/player_184_f646.jpg.

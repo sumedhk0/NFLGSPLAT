@@ -44,6 +44,9 @@ MAX_TILT_TWO_VIEW_DEG: float = 60.0
 # linemen pre-snap (ids 4 and 17 on 110 frames each, boxes 0.80); linemen's p5 is 0.87 and none
 # go under 0.7, the tackled men all do.
 LYING_ASPECT: float = 0.7
+LYING_SIGMA_MULT: float | None = 3.0    # pose Gaussian sigma multiplier on lying frames (2026-09-18: lying-frame joint acceleration
+                                        # p90 0.19 -> 0.08, the diving tackler 0.42 -> 0.09, one isolated case 0.08 -> 0.15)
+LYING_BLEND: int = 3                    # frames the wider smoothing ramps in over, either side of a lying run
 DUPLICATE_M: float = 0.9         # two ids closer than this on one frame are one player
 # An id the endzone alone sees this frame is its unreconciled detection,
 # poor along its depth axis (x). Within these distances of a kept state it
@@ -755,13 +758,15 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
                    clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
                    unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None,
-                   despike_m: float | None = DESPIKE_M) -> Timeline:
+                   despike_m: float | None = DESPIKE_M, lying_sigma_mult: float | None = None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
     subset). ``lying``: ``{(frame, pid)}`` on the ground (lying_frames), where
     the tilt is not clamped. Returns a Timeline with a state per player per frame."""
     lying = lying or set()
+    if lying_sigma_mult is None:
+        lying_sigma_mult = LYING_SIGMA_MULT
     frames = [int(f) for f in frames]
     f_index = {f: i for i, f in enumerate(frames)}
     exclude = set(int(p) for p in (exclude or ()))
@@ -793,6 +798,18 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                 # turn flips sign between frames and the smoothers below would mix antipodes
                 bp, go = unwrap_axis_angles(bp), unwrap_axis_angles(go)
             bp = smooth_axis_angles_gaussian(bp, sigma=pose_sigma)
+            # a body on the ground (the box says so) is fitted from sparse, poor records and its
+            # interpolated pose flails between them (play 1's diving tackler 184 at 655-658, joint
+            # acceleration p90 0.43 m/frame^2): those frames take a wider Gaussian
+            ly = [i for i, f in enumerate(frames) if (f, pid) in lying] if lying else []
+            if ly and lying_sigma_mult and pose_sigma:
+                wide = smooth_axis_angles_gaussian(bp, sigma=pose_sigma * lying_sigma_mult)
+                # blended in over LYING_BLEND frames either side of a lying run: swapping values on
+                # the lying frames alone made a seam (play 1 id 1, isolated lying frames: p90 0.08 -> 0.55)
+                idx = np.arange(len(frames))
+                dist = np.min(np.abs(idx[:, None] - np.asarray(ly)[None, :]), axis=1)
+                w = np.clip(1.0 - dist / float(LYING_BLEND + 1), 0.0, 1.0)[:, None, None]
+                bp = (1.0 - w) * bp + w * wide
             go = (smooth_axis_angles_gaussian(go, sigma=orient_sigma) if orient_sigma and orient_sigma > 0
                   else smooth_axis_angles(go, window=pose_smooth))
             betas = np.mean([np.asarray(posed[f][2], float) for f in pf], axis=0)

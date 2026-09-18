@@ -547,3 +547,23 @@ def test_yaw_from_motion_faces_the_first_heading_before_it_moves_and_turns_smoot
     y2 = yaw_from_motion(xy2, smooth=5)
     d = np.abs(np.degrees(np.angle(np.exp(1j * (y2[1:] - y2[:-1])))))
     assert d.max() < 60.0 and abs(np.degrees(y2[5])) < 15.0 and abs(np.degrees(y2[-3]) - 90.0) < 15.0
+
+
+def test_lying_frames_take_a_wider_pose_smoothing():
+    """A body whose left-hip angle flips every six frames: with the wider Gaussian on its lying
+    frames the swing there is damped, the standing frames keep the ordinary smoothing."""
+    from nfl_gsplat.render import timeline as tl
+
+    frames = list(range(0, 60))
+    ground = {f: {1: np.array([0.1 * f, 0.0])} for f in frames}
+    poses = {1: {}}
+    for f in range(0, 60, 2):
+        bp = np.zeros((21, 3)); bp[0, 0] = 0.6 if (f // 6) % 2 == 0 else -0.6
+        poses[1][f] = (bp, tl.upright_from_yaw(0.0), np.zeros(10), "fused")
+    kw = dict(default_pose=np.zeros((21, 3)), clamp_joints=False, orient_sigma=0)
+    plain = tl.build_timeline(frames, ground, poses, **kw)
+    wide = tl.build_timeline(frames, ground, poses, lying={(f, 1) for f in range(30, 60)}, lying_sigma_mult=4.0, **kw)
+    def swing(t, lo, hi):
+        return np.ptp([[s for s in t.states[f] if s.pid == 1][0].body_pose[0, 0] for f in range(lo, hi)])
+    assert swing(wide, 36, 54) < 0.5 * swing(plain, 36, 54)             # damped where lying
+    assert abs(swing(wide, 6, 24) - swing(plain, 6, 24)) < 1e-6          # untouched where standing
