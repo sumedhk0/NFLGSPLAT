@@ -291,7 +291,15 @@ def ground_positions(df, tracks, *, with_views: bool = False, margin_frac: float
 MAX_REFIT_SHIFT_M = 1.0
 
 
-def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None):
+# The refit's pelvis may sit a metre from the box point along the sideline's line of sight (depth the two views
+# argue about) but not ACROSS it: across the ray the sideline keypoints pin the man to a few pixels. A shift
+# with more than this across the ray is a record on the wrong man or a fit that fell over (under test 2026-09-18:
+# the pocket after the throw, ids 76 and 211, rendered ankles 20-33 px from their keypoint ankles). None = off.
+MAX_REFIT_ACROSS_M: float | None = None
+
+
+def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, max_gap: int = 12, pelvis_xy=None,
+                     ray_centre=None, max_across_m: float | None = None):
     """``ground`` with every (frame, id) that has a refit record moved to the
     record's pelvis. ``pelvis_xy(rec) -> xy`` gives the record's pelvis on the
     field; without it the translation alone is used (the model's origin, which
@@ -311,6 +319,16 @@ def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, m
                 continue
             xy = np.asarray(r["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(r), float)[:2]
             d = float(np.hypot(*(xy - np.asarray(out[f][pid], float))))
+            if np.isfinite(d) and d <= max_shift_m and max_across_m is not None and ray_centre is not None:
+                c = np.asarray(ray_centre(f), float)
+                u = np.asarray(out[f][pid], float) - c
+                n = float(np.linalg.norm(u))
+                if n > 1e-6:
+                    u /= n
+                    delta = xy - np.asarray(out[f][pid], float)
+                    across = float(abs(delta[0] * u[1] - delta[1] * u[0]))
+                    if across > max_across_m:
+                        continue                                   # a record on the wrong man: the box point stands
             if np.isfinite(d) and d <= max_shift_m:
                 out[f][pid] = xy
                 shifts.append(d)
@@ -655,7 +673,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                 print(f"endzone-only frames held on the sideline's x: {len(moved)} body-frames "
                       f"(median slide {np.median(moved):.2f} m, max {max(moved):.2f})")
     if place_from_refit_transl and refit:
-        ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model))
+        from nfl_gsplat.render.depth_snap import camera_ground_centre as _cgc
+
+        _side = tracks.get("sideline")
+        ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model),
+                                          ray_centre=(lambda f_: _cgc(_side, min(int(f_), len(_side.conf) - 1))) if _side is not None else None,
+                                          max_across_m=MAX_REFIT_ACROSS_M)
         if len(shifts):
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")

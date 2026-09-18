@@ -4926,3 +4926,12 @@ and the "8 m inside the sideline" worry was correct and harmless. The tracker lo
 track ends at 638, id 185 picks him up at 639); the dead-ball rule read that as the play's end, which it is: a
 touchdown. HANDOFF entries above that say "steps out of bounds" mean this. The held body through the tail is a
 small lie (he keeps running); the ball stays with him, as it should.
+
+**The ankle ruler through the sideline camera measures depth disagreement, not error (13:00 machine clock).**
+A ground point moving along the sideline's line of sight moves up and down the IMAGE (a near-vertical line at
+this camera height), so the rendered-ankle-minus-keypoint-ankle row offset is the sideline's blind axis: the
+pocket bodies 76 and 211 read 26-33 px because the two-view placement puts them ~1 m from where the sideline's
+own ankle ray does, which is the fusion doing its job or not -- this ruler cannot say. An across-ray gate on
+the refit placement (place_from_refit max_across_m; opt-in, MAX_REFIT_ACROSS_M None) changes nothing at 0.5 m
+and hurts at 0.3 m (13 jumps to 41 px). The depth ruler for the pocket is the ENDZONE camera: a render from
+its pose blended with the endzone footage (frames offset -15). Launching that as the second blend.
