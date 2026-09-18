@@ -175,24 +175,23 @@ def main():
         if q is None:
             got = nearest(tl.states.get(f, []), np.asarray(path[f - 1][:2]), team_of, offence)
             if got is None or got[0] > CHAIN_M:
-                # the chain lost the carrier: his track ended (play 1: the receiver steps out of bounds at 639 and
-                # the tracker stops; the timeline holds his body through the tail). The ball stays in his hands
-                # -- "held" -- unless he was seen on the ground, in which case it is "down" from the down frame.
-                if down is not None and f >= down:
-                    path[f] = (path[f - 1][0], path[f - 1][1], GROUND_Z, "down")
-                else:
-                    path[f] = (path[f - 1][0], path[f - 1][1], path[f - 1][2], "held")
-                    holder[f] = carrier
+                # the chain lost the carrier: his track ended (play 1: the detector loses the receiver under the
+                # tackle at 602; the renderer holds his body through the tail). The ball stays in his hands --
+                # "held", or "down" from the down frame (08x ends the play there). It stays in his hands on the
+                # down frames too: the man drawn there is the last one the detector saw, standing or lying, and
+                # 05k puts the ball between the holder's wrists; a ball dropping to the turf beside a standing
+                # avatar (v72) read as a fumble.
+                src = "down" if (down is not None and f >= down) else "held"
+                path[f] = (path[f - 1][0], path[f - 1][1], path[f - 1][2], src)
+                holder[f] = carrier
                 continue
             carrier = got[1]
             q = hands_xy(f, carrier)
         on_ground = (down is not None and f >= down) or ((f, carrier) in lying)
         if on_ground and down is None:
             down = f
-        z = GROUND_Z if on_ground else CARRY_Z
-        path[f] = (float(q[0]), float(q[1]), float(z), "down" if on_ground else "carried")
-        if not on_ground:
-            holder[f] = carrier
+        path[f] = (float(q[0]), float(q[1]), float(CARRY_Z), "down" if on_ground else "carried")
+        holder[f] = carrier
     # velocities for the ball's orientation
     fs = sorted(path)
     out = {}
