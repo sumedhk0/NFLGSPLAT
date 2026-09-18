@@ -459,7 +459,8 @@ LINE_VOUCH_LINE_M: float = 2.0
 # fewer 40 -> 4) but the fragments that stood in his slot (166, 204, 82, 31) now count as extras: exact-eleven
 # frames 112 -> 103, mean |KC-11| 0.345 -> 0.433. It pays once those fragments are folded (82 is his own
 # sideline partial box 0.55 m away). None = off; 30 to try it.
-LINE_VOUCH_REVIVE_MIN: int | None = None
+LINE_VOUCH_REVIVE_MIN: int | None = None    # off (see above); 30 to try it, with LINE_VOUCH_FOLD_M folding his sideline fragment
+LINE_VOUCH_FOLD_M: float = 0.8              # a same-team sideline-only body this close to a revived man is his fragment
 LINE_VOUCH_OFFSET_M: float = 1.0          # the line stands about this far on its side of the LOS
 
 

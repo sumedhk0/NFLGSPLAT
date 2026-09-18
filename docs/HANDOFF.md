@@ -4889,3 +4889,6 @@ frame (KC at ten or fewer 40 -> 4) but the fragments that stood in his slot -- 1
 partial box 82 at 0.55 m, 31 -- now count as extras: exact-eleven 112 -> 103, |KC-11| 0.345 -> 0.433, and the
 Baltimore ghost 92 (22 vouched frames) came with it until the 30-frame gate. Opt-in (None). The step that would
 make it pay: fold 82 into 86 (one man, the sideline's upper-body box and the endzone's full body).
+Folding his sideline fragment (82, within 0.8 m) into the revived 86 on his frames folded 13 body-frames and
+moved nothing the right way (exact-eleven 101, |KC-11| 0.444): the extras are 166 on 19, 204 and 31, not 82.
+Both revival and fold stay opt-in.

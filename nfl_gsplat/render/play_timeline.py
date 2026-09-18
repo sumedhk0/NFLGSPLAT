@@ -704,7 +704,21 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                 if p in d_ and int(f_) not in lv_frames[p]:
                     del d_[p]
                     n_cut += 1
-        print(f"endzone-only ids revived on their vouched frames: {sorted(revived)} ({n_cut} unvouched body-frames cut)")
+        # the revived man owns his spot: a same-team SIDELINE-only body within LINE_VOUCH_FOLD_M of him on one of his
+        # frames is his own fragment (play 1: 82, a 69-px partial box of the guard's upper body, 0.55 m shallower)
+        n_fold = 0
+        teams_lv = _teams(P)
+        for f_, d_ in ground.items():
+            for p in revived:
+                if p not in d_:
+                    continue
+                for q_ in [q for q in d_ if q != p and teams_lv.get(int(q)) == teams_lv.get(p)
+                           and tuple(views.get(f_, {}).get(q, ())) == ("sideline",)
+                           and float(np.linalg.norm(np.asarray(d_[q], float) - np.asarray(d_[p], float))) <= _ezr.LINE_VOUCH_FOLD_M]:
+                    del d_[q_]
+                    n_fold += 1
+        print(f"endzone-only ids revived on their vouched frames: {sorted(revived)} ({n_cut} unvouched body-frames cut, "
+              f"{n_fold} sideline fragment body-frames folded into them)")
     poses = poses_from_caches(refit, side_blob, tracks, model)
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
