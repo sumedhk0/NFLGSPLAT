@@ -396,7 +396,10 @@ def fill_gaps(frames, xy, *, max_gap: int = FILL_GAP_FRAMES):
     return xy
 
 
-def yaw_from_motion(xy, *, window: int = VEL_WINDOW, fallback: float = 0.0):
+YAW_SMOOTH: int = 5              # frames of circular smoothing on a motion-derived heading
+
+
+def yaw_from_motion(xy, *, window: int = VEL_WINDOW, fallback: float = 0.0, smooth: int = YAW_SMOOTH):
     """Facing from the direction of travel, per row; ``fallback`` when still."""
     xy = np.asarray(xy, float)
     n = len(xy)
@@ -406,12 +409,25 @@ def yaw_from_motion(xy, *, window: int = VEL_WINDOW, fallback: float = 0.0):
         d = xy[b] - xy[a]
         if np.isfinite(d).all() and np.linalg.norm(d) > 0.3:
             yaw[i] = float(np.arctan2(d[1], d[0]))
-    # hold the last known heading through still stretches
+    # hold the last known heading through still stretches ...
+    known = [i for i in range(n) if yaw[i] != fallback]
     last = fallback
     for i in range(n):
         if yaw[i] == fallback and i > 0:
             yaw[i] = last
         last = yaw[i]
+    # ... and face the first known heading before it: a default-posed body that starts still and
+    # then runs turned from the fallback to its heading in one frame (play 1 id 66 at 582, a joint
+    # jump of 0.84 m; 2026-09-17)
+    if known and known[0] > 0:
+        yaw[: known[0]] = yaw[known[0]]
+    if smooth > 1 and known:
+        # circular moving mean over ``smooth`` frames: the heading of a runner turns, it does not step
+        c, s_ = np.cos(yaw), np.sin(yaw)
+        k = np.ones(smooth) / smooth
+        cs = np.convolve(np.pad(c, (smooth // 2, smooth - 1 - smooth // 2), mode="edge"), k, mode="valid")
+        ss = np.convolve(np.pad(s_, (smooth // 2, smooth - 1 - smooth // 2), mode="edge"), k, mode="valid")
+        yaw = np.arctan2(ss, cs)
     return yaw
 
 

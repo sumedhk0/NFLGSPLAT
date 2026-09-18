@@ -4422,3 +4422,17 @@ Measured (00:05, with the despike in): 110 held + 28 left out; live window hops 
 m/frame 63 -> 55, handovers 0, KC 11.10 -> 10.98 (the 28 blind frames), BAL 11.31; id 37 absent
 until the sideline resumes at 574 and steady after (0.03 m/frame): no glide, no flicker. Ships;
 v58 carries it after v57.
+
+**Where the live joint jitter is (00:20).** 07l's "jitter p99 0.58" on 393-660 was measured WITH
+the gait: the synthetic legs swing, and that swing is most of the p99 (the 09-16 note already had
+0.263 for gait swings). Without the gait, the worst ids by 07l read: 212 p90 0.008, 206 0.000 (nothing
+there), 185 0.10, 184 0.43 (the diving tackler at 655-658, interpolated between sparse records),
+79 and 5 0.2 at 536-541 (a throw-side arm, real), and 66 0.84 at 581-582 -- a DEFAULT-POSED body
+(no fit at all; 66 at 576-607 and 194 at 467-509 are the two on the play) whose heading comes from
+its motion and started at the fallback 0 deg until the motion gate opened, then turned 104 deg in
+one frame. Across the worst ids the jitter does not sit at view switches (p90 0.032 there vs 0.080
+elsewhere) nor differ between record and interpolated frames (0.072 vs 0.081).
+Fix: timeline.yaw_from_motion backfills the frames before the first known heading with it and
+smooths the heading circularly over 5 frames (YAW_SMOOTH). Test added. Numbers below.
+Measured (00:30): id 66 jitter max 0.84 -> 0.08, p90 0.21 -> 0.07; 194 unchanged (0.01). Ships;
+v58 (queued behind v57) carries the long-hole fix and this.

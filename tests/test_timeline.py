@@ -533,3 +533,17 @@ def test_despike_xy_removes_a_single_frame_spike_and_keeps_a_cut():
     holes = xy.copy(); holes[7] = np.nan
     out2 = despike_xy(holes, excess_m=0.15)
     assert np.isnan(out2[7]).all() and abs(out2[8, 1] - 0.5) < 1e-9      # a hole in the window: the frame is left alone
+
+
+def test_yaw_from_motion_faces_the_first_heading_before_it_moves_and_turns_smoothly():
+    from nfl_gsplat.render.timeline import yaw_from_motion
+
+    xy = np.zeros((30, 2))
+    xy[10:, 0] = 0.2 * np.arange(20)                                  # still for 10 frames, then runs +x
+    yaw = yaw_from_motion(xy, smooth=1)
+    assert np.allclose(yaw[:10], yaw[12]) and abs(yaw[15]) < 1e-6      # the still frames face where it will run
+    # a turn from +x to +y over the run is smoothed, not stepped: no single-frame jump over 60 deg
+    xy2 = np.zeros((40, 2)); xy2[:20, 0] = 0.2 * np.arange(20); xy2[20:, 0] = xy2[19, 0]; xy2[20:, 1] = 0.2 * np.arange(1, 21)
+    y2 = yaw_from_motion(xy2, smooth=5)
+    d = np.abs(np.degrees(np.angle(np.exp(1j * (y2[1:] - y2[:-1])))))
+    assert d.max() < 60.0 and abs(np.degrees(y2[5])) < 15.0 and abs(np.degrees(y2[-3]) - 90.0) < 15.0
