@@ -5062,3 +5062,21 @@ carrier (scratchpad/probe_fall_ball.py: the hold weight stays 1 through 615, pel
 ball between his wrists on the turf under his chest -- out of sight under the body, as under a real pile; the
 brown patch beside the yellow marker on the 608-614 strip is a tackler's hands, not the ball. v74 (queued after
 v73's blends) adds the tacklers' fall onto him (28 and 55 stand 0.1 and 0.5 m from him on the down frame).
+
+**The endzone camera wanders in depth during the play (19:00 machine clock; scratchpad/probe_mispair_dist.py).** For
+every (frame, id) with rows in both cameras, the sideline's ankle-ground point against the endzone's: pre-snap
+d p50 0.40 m (|dx| 0.23, |dy| 0.23); the play p50 0.98 m, |dx| p50 0.81, |dy| p50 0.32, and the x offset is a
+COMMON-MODE bias that walks with time: dx (endzone minus sideline) -0.6 m at the snap, -1.1 m over 435-515, +0.2 at
+515-545, +1.4 at 545-575, +0.9 to the end -- the same for the slow bodies (< 1.2 m/s) as for the fast ones in every
+bin, so it is not a time offset (a time error gives a still body no offset; the whole-play slope of dx on velocity
+is confounded by the bins) but the endzone camera's pose: its depth axis is the field's x, and while it pans the
+paint solve walks along its tilt-zoom valley by up to 1.4 m (conf 1.0 throughout, as with the sideline's tail).
+The sideline's x is trusted (the sideline blend puts every avatar on its player to a few px), and the loader lets the
+sideline's point override on two-view frames, so the damage is confined to the endzone-only bodies (placed up to
+1.4 m off in x on those frames), the endzone ankle ruler used above to rank "mispairs" (contaminated in dv), and
+whatever the two-view refit's pelvis inherits. The y disagreements are smaller and id-specific: 211 (+0.91 m over
+523-607), 40 (-0.87), 11 (+0.71), 37 (+0.68), 81 (+0.57), 76 (+0.53) -- each either a mispaired endzone row or the
+sideline's blind-axis error, which only the film can say; 05q overlays of the pocket frames (diag/pocket/) are
+running to adjudicate before any veto is written. A per-frame common-mode x correction of the endzone ground
+points from the two-view bodies (the players as the ruler, as for the sideline's lens) is the candidate fix for the
+endzone-only placements.
