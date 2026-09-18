@@ -4892,3 +4892,10 @@ make it pay: fold 82 into 86 (one man, the sideline's upper-body box and the end
 Folding his sideline fragment (82, within 0.8 m) into the revived 86 on his frames folded 13 body-frames and
 moved nothing the right way (exact-eleven 101, |KC-11| 0.444): the extras are 166 on 19, 204 and 31, not 82.
 Both revival and fold stay opt-in.
+
+**A side-by-side for the eye (10:55 machine clock).** diag/play_001_v71_vs_footage.mp4: the sideline footage at
+the render's frames (213-647, every second frame, 1280x720) on the left, v71 on the right, 218 frames at 29.97.
+Time-aligned, not viewpoint-aligned (the render's follow camera sits behind the offence). Built with ffmpeg
+(select between(n,213,647) and even offsets, setpts, hstack); diag/play_001_footage_213_647_720.mp4 is the
+footage half. Next: a render from the broadcast camera's own solved pose (cameras.npz sideline K/R/t per frame)
+so the two halves compare frame for frame.
