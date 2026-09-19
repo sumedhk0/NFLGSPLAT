@@ -5238,3 +5238,12 @@ kit votes against KC (a stranger clipped at the border; the edge rule let it thr
 76 are two men (checked at 576). The bench people 51/47/52 carry KC labels but the off-field rules already drop them.
 v79 chain (chain_v79.sh, running): 66 teamless (the loader drops teamless fragments), `08z --keep 76 --drop 12
 --frames 581 609`, 08x, dump, 07l, render, sideline blend. Expected: census KC 11.23 -> about 11.0.
+
+**v79 = CURRENT BEST (02:45 machine clock).** diag/play_001_v79_hifi_720.mp4 + _sideline_blend.mp4. = v78 + 66 dropped
+(teamless) + 12 folded into 76 on 581-609. Rulers 395-607: steps 5, hops 0, census 0.99 (KC 10.93 / BAL 10.80) --
+under 1.0 for the first time. Film checks (diag/catch/pocket_check_v79.png at 540/580/600, catch_check_v79.png at
+562/608/614): every avatar on its man, Thuney beside 98 at 580, the pile as before; the reader agrees with ball.json.
+The KC count by frame: 11 on 112 frames, 12 on 44 (395-434, right after the snap: 3 5 9 11 12 17 19 37 38 74 80 204
+-- 17 the centre ends at 420 while 204 runs on, so the two are twins over 395-420; 19 and 166 are 6- and 8-frame
+fragments), 10 on 51 and 9 on 5 (runs 435-442, 455-474, 501-508, 534-547, 602-607: a KC man missing). Next, in
+this order, each against the film: 17/204 at the snap, the 19/166 fragments, then who is missing on the under-11 runs.
