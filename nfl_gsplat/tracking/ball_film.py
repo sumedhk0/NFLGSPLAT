@@ -98,7 +98,9 @@ def candidate_flights(cands: dict, *, min_speed: float = MIN_SPEED_PX, max_speed
         if fl is None:
             continue
         fl = _grow(fl, pts, tol=tol, min_span=min_span)
-        if dense_enough(fl["frames"]):
+        # the grown track's own speed must still be a ball's (a cloud of slow blobs in the pocket grew into
+        # 24-inlier tracks at 3 px/frame on play 1 once a twin's boxes stopped masking them)
+        if dense_enough(fl["frames"]) and min_speed <= fl["speed"] <= max_speed:
             out.append(fl)
     # a track whose frames lie inside another's is that track seen shorter
     out.sort(key=lambda fl: -fl["n"])
@@ -111,23 +113,37 @@ def candidate_flights(cands: dict, *, min_speed: float = MIN_SPEED_PX, max_speed
     return kept
 
 
+MIN_LENGTH_PX: float = 100.0  # a pass covers at least this much image between its first and last seen frames (about 4 m
+                              # at the pocket's depth on play 1, where the real flight covers 335 px); a blob wandering
+                              # 50 px between two boxes in the pocket named the quarterback as his own receiver (v76)
+
+
 def fit_flight(cands: dict, boxes_by_frame: dict | None = None, *, min_speed: float = MIN_SPEED_PX, max_speed: float = MAX_SPEED_PX,
-               tol: float = TOL_PX, min_inliers: int = MIN_INLIERS, min_span: int = MIN_SPAN, reach: int = 20) -> dict | None:
-    """The ball's flight among candidate_flights: with ``boxes_by_frame`` the track that leaves a box and
-    enters a box (name_ends) beats one that does not -- a pass goes from a hand to a hand, while a
-    player without a box moves in the open for as long as he likes (play 1: a far-field runner at 14
-    px/frame outscored the real flight by inliers alone) -- then the most inliers. None when nothing
-    moves like a ball."""
-    fls = candidate_flights(cands, min_speed=min_speed, max_speed=max_speed, tol=tol, min_inliers=min_inliers, min_span=min_span)
+               tol: float = TOL_PX, min_inliers: int = MIN_INLIERS, min_span: int = MIN_SPAN, reach: int = 20,
+               min_length: float = MIN_LENGTH_PX) -> dict | None:
+    """The ball's flight among candidate_flights at least ``min_length`` px long: with ``boxes_by_frame``
+    the track that leaves a box and enters a box (name_ends) beats one that does not -- a pass goes
+    from a hand to a hand, while a player without a box moves in the open for as long as he likes
+    (play 1: a far-field runner at 14 px/frame outscored the real flight by inliers alone) -- then the
+    LONGEST track (v76: a 50 px wander between two pocket boxes, with both ends named, outscored the
+    335 px flight on inliers), then the most inliers. None when nothing moves like a ball."""
+    fls = [fl for fl in candidate_flights(cands, min_speed=min_speed, max_speed=max_speed, tol=tol, min_inliers=min_inliers, min_span=min_span)
+           if track_length(fl) >= min_length]
     if not fls:
         return None
     if boxes_by_frame is None:
-        return fls[0]
+        return max(fls, key=lambda fl: (fl["n"], track_length(fl)))
 
     def score(fl):
         e = name_ends(fl, boxes_by_frame, reach=reach)
-        return ((e["passer"] is not None) + (e["receiver"] is not None), fl["n"])
+        return ((e["passer"] is not None) + (e["receiver"] is not None), track_length(fl), fl["n"])
     return max(fls, key=score)
+
+
+def track_length(flight: dict) -> float:
+    """The image distance the fitted track covers between its first and last seen frames, px."""
+    x0, y0 = track_at(flight, flight["frames"][0]); x1, y1 = track_at(flight, flight["frames"][-1])
+    return float(np.hypot(x1 - x0, y1 - y0))
 
 
 def track_at(flight: dict, f: int) -> tuple[float, float]:

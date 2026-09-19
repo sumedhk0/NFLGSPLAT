@@ -38,6 +38,8 @@ SNAP_FRAMES = 5             # frames the ball takes from the centre's hand to th
 WINDUP_FRAMES = 8           # frames before the release the ball rises to the throwing hand
 CHAIN_M = 1.5               # the carrier chain follows the nearest offence body within this per frame
 MAX_SPEED = 30.0            # m/s (67 mph): the hardest arms reach 60-plus; play 1 measured 27.7 on a 25.6 m dart
+MIN_SPEED = 8.0             # m/s: slower than a lob is not a pass (v76: a film-read "flight" of 2.1 m at 4 m/s from a
+                            # lineman's box into the quarterback's own went straight into the render)
 MAX_APEX = 9.0              # m above the chord: a punt, not a pass
 
 
@@ -174,8 +176,8 @@ def main():
     speed = np.hypot(dist / T, (HAND_CATCH_Z - HAND_RELEASE_Z) / T + 0.5 * G * T)
     apex = 0.5 * G * (T / 2) ** 2
     print(f"flight: {dist:.1f} m in {T:.2f} s from {np.round(p0, 1).tolist()} to {np.round(p1, 1).tolist()}: speed {speed:.1f} m/s, apex {apex:.1f} m above the chord")
-    if speed > MAX_SPEED or apex > MAX_APEX:
-        raise SystemExit("implausible flight: check --release / --catch on the footage")
+    if speed > MAX_SPEED or apex > MAX_APEX or speed < MIN_SPEED:
+        raise SystemExit(f"implausible flight ({speed:.1f} m/s, apex {apex:.1f} m): check --release / --catch / --receiver on the footage")
     for f in range(args.release, args.catch + 1):
         u = (f - args.release) / float(args.catch - args.release)
         t = u * T

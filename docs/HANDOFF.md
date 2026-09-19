@@ -5167,3 +5167,16 @@ OCR of number 15: 93 (197-237) and 95 (214-220), with the roster build. Queued a
 folded into 80 (one quarterback id, no passer chain: 08y --qb 80), 80's identity replaced by 93's (Patrick
 Mahomes, 15, the roster build; the OL role dropped), then 08x, the dump, 07l, v77 and its blend. Not folding
 93/95's rows in: they sit pre-snap where qb_hold draws him, and a track that "starts" at 197 would silence that rule.
+
+**v76 is INVALID: the film reader fed a junk flight into the render (21:40 machine clock).** After the 170 -> 79 fold
+the film reader named "release 520 from 197, catch 557 by 79" -- a 2.1 m, 4 m/s "flight" from a lineman's box into
+the quarterback's own -- and 08y --from-film took it, so v76's ball goes to the quarterback. Why: the fold dropped
+170's sideline boxes on 74 frames (the lineman twin), which had been masking a region beside the quarterback; the
+slow blobs there (3-5 px/frame, a wandering cloud over 521-567) grew into 15-24-inlier tracks with a box at each
+end and outscored the real flight (7 inliers, 353 px) on inliers. Fixes (tracking/ball_film.py, 08y): a grown
+track keeps only if its own speed is a ball's (6-60 px/frame); a flight must cover MIN_LENGTH_PX 100; with a box
+at each end the LONGEST track wins, then inliers; and 08y refuses a flight under MIN_SPEED 8 m/s. On the current
+data the reader now picks 540-558 (353 px) -> 79/80 to 74 again. The lesson is the same as the day's: a reader
+that names a receiver must be gated on what a pass IS (long, fast, hand to hand), not on how many blobs agree.
+v77 (chain_v77b.sh, running) = v75 + the quarterback's endzone rows + one quarterback id with Mahomes' identity and
+build + the ball from the corrected reader; v76 is discarded.

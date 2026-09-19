@@ -62,6 +62,24 @@ def test_name_ends_walks_into_the_passers_and_the_receivers_boxes():
     assert pid == 74 and d < 60
 
 
+def test_a_short_wander_between_two_boxes_loses_to_the_long_flight_and_alone_is_no_flight():
+    cands = _flight_cands()
+    for f in range(520, 545):                                   # a blob drifting 60 px inside the pocket, 25 frames, 2.5 px/frame
+        cands.setdefault(f, []).append((1330.0 + 2.4 * (f - 520), 700.0 + 0.5 * (f - 520), 15))
+    boxes = _boxes()
+    for f in boxes:
+        boxes[f].append((197, 1300.0, 620.0, 1345.0, 720.0))    # a lineman's box the wander starts in ...
+        boxes[f].append((79, 1380.0, 660.0, 1430.0, 760.0))     # ... and the quarterback's it ends in
+    fl = bf.fit_flight(cands, boxes)
+    assert 535 <= fl["frames"][0] <= 536                           # the real flight wins
+    assert bf.track_length(fl) > 250
+    short = {f: [(1330.0 + 2.4 * (f - 520), 700.0 + 0.5 * (f - 520), 15)] for f in range(520, 545)}
+    assert bf.fit_flight(short, boxes) is None                     # too slow and too short to be a flight at all
+    fast_short = {f: [(1330.0 + 7.0 * (f - 520), 700.0, 15)] for f in range(520, 530)}    # 63 px at 7 px/frame
+    assert bf.fit_flight(fast_short, boxes) is None                # under MIN_LENGTH_PX ...
+    assert bf.fit_flight(fast_short, boxes, min_length=10.0) is not None   # ... and a flight when the floor is lowered
+
+
 def test_the_receiver_is_the_passers_teammate_when_a_defender_holds_the_same_point():
     fl = bf.fit_flight(_flight_cands())
     boxes = _boxes()
