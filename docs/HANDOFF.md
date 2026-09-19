@@ -5274,3 +5274,10 @@ caches restored from the backup taken one remap later; the tables and identity a
 rendered. A two-camera box-overlap gate for the twin-stretch rule (TWIN_BOX_IOU_MIN: any camera seeing the pair's
 boxes apart keeps both men -- two engaged linemen overlap in the sideline image but not in the endzone's) is
 committed opt-in and under A/B (scratchpad/probe_twinbox_ab.py, None vs 0.3).
+
+**ADOPTED: the twin-stretch rule asks both cameras (04:30 machine clock).** TWIN_BOX_IOU_MIN 0.3: a same-team pair
+within 0.4 m is left alone when either camera has boxes for both that overlap less than 0.3. A/B on the v79 data
+(scratchpad/probe_twinbox_ab.py): census 1.042 -> 0.920 with steps 5, hops 0, jitter and both ankle rulers
+unchanged; the centre 204 is back on 435-475 and 166 keeps 392-409. The sideline-only version had done nothing
+(0.991 -> 0.981) because a guard and the centre overlap in that image at different depths; the endzone camera
+sees them side by side. Full suite gating the commit; v81 chain (dump, 07l, render, both blends) follows.
