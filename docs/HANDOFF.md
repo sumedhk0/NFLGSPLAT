@@ -5198,3 +5198,10 @@ film reader with its gates (release 530, catch 562, passer 80, receiver 74; 25.8
 root jitter p90 0.027. Film checks: diag/catch/pocket_check_v77.png (the pocket 500-560 through the sideline camera:
 the quarterback's avatar on number 15 through the throw) and catch_check_v77.png (528-614: route, catch, wrap, pile
 as in v75). Two reader failures were caught on the way and gated (above); v76 was discarded.
+
+**v77 from the endzone camera (23:10 machine clock; diag/catch/ez_pocket_v77.png, diag/play_001_v77_endzone_blend.mp4).**
+The quarterback's avatar sits on number 15 at 500, 520, 540 and 560 -- the half-body-width offset of v72-v75 at 540
+is gone, which is what the 170 -> 79 -> 80 folds were for. What remains in the pocket from this camera: the linemen
+and a BAL rusher half a body-width ACROSS at 500-520 (the sideline-only bodies' blind axis: Thuney's endzone track
+139 has no sideline partner, so his sideline id is drawn without depth) -- the pairing thread, per stretch, is the
+next placement lead; 08r_pair_by_rays exists and could be re-run now that the pocket ids are cleaner.
