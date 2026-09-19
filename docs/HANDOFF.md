@@ -5131,3 +5131,20 @@ where the film's three are still upright, going down at 608 and flat by 610 -- "
 knee or the body first touching, 08y --down 607) is mid-fall. render/tackle.py FALL_SETTLE 3: the fall ends three
 frames after the down frame (committed, tests updated). v74 also carried the rejected per-frame veto (steps 15),
 so it is not a candidate; v75 = the tacklers + the settled fall + the veto off, rendering with its sideline blend.
+
+**v75 = CURRENT BEST (20:30 machine clock).** diag/play_001_v75_hifi_720.mp4 (215-615) with diag/play_001_v75_sideline_blend.mp4
+/ _sideline_sbs.mp4. = v73's timeline (the veto off) + the tackle: the carrier and the two tacklers within 1.5 m
+of him go to the turf with the fall ending three frames after the down frame. Against the film through the
+sideline camera (diag/catch/tackle_check_v75.png at 590-614): upright wrap at 590-604 like the film, going down
+at 608 with the film, flat on the film's spot and along the film's direction at 612-614. The whole-clip check
+(diag/catch/catch_check_v75.png at 300, 420, 528, 562): the formation, the snap, the throw and the catch on
+their players. Rulers are v73's (same timeline): play window 395-607 steps 5, hops 0, census 1.25. Suite 1241
+passed. The endzone-only body-frames during the play are 150 of 4731 (3.2 %, at most 17 on any id), so the
+common-mode correction of the endzone camera's wander would touch little; not built.
+
+**Where the day ends.** The user's question is answered and fixed: the ball goes to Noah Gray, and the film reader
+(09a) would now flag a wrong receiver on its own. Open, in value order: (1) the pocket after the throw -- the
+quarterback has no endzone rows after 511 and 170 is a chimera (a per-stretch identity check against the film);
+(2) the endzone camera's depth wander while panning (a players-as-ruler refit of its pose during the play);
+(3) the far-sideline receiver 77's twins after 624 (outside the clip now); (4) the pile's lying poses are
+synthesised, not fitted (the detector loses the men on the ground).
