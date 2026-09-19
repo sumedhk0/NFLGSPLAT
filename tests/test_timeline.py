@@ -708,3 +708,25 @@ def test_twin_frames_leaves_two_men_whose_sideline_boxes_do_not_overlap():
     assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes=on_top, box_iou_min=0.3)} == {38}
     missing = {(f, 17): (100.0, 100.0, 160.0, 240.0) for f in range(100, 130)}                   # 38 has no sideline box: the distance decides
     assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes=missing, box_iou_min=0.3)} == {38}
+
+
+def test_twin_frames_lets_the_endzone_camera_split_two_linemen_the_sideline_sees_overlapping():
+    import numpy as np
+
+    from nfl_gsplat.render import timeline as tlm
+
+    def st(pid, x, y):
+        return tlm.PlayerState(pid=pid, xy=np.array([x, y]), body_pose=np.zeros((21, 3)), global_orient=np.zeros(3),
+                               betas=np.zeros(10), source="sideline")
+    tl = tlm.Timeline(frames=list(range(90, 130)), states={f: [st(17, 0.0, 0.0)] for f in range(90, 130)})
+    for f in range(100, 130):
+        tl.states[f].append(st(38, 0.3, 0.1))
+    teams = {17: "KC", 38: "KC"}
+    sideline = {(f, p): (100.0 + (8.0 if p == 38 else 0.0), 100.0, 160.0 + (8.0 if p == 38 else 0.0), 240.0) for f in range(100, 130) for p in (17, 38)}
+    endzone = {(f, 17): (400.0, 300.0, 440.0, 400.0) for f in range(100, 130)}
+    endzone.update({(f, 38): (450.0, 300.0, 490.0, 400.0) for f in range(100, 130)})     # side by side, apart
+    both = {"sideline": sideline, "endzone": endzone}
+    assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes={"sideline": sideline}, box_iou_min=0.3)} == {38}
+    assert tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes=both, box_iou_min=0.3) == set()
+    twin_ez = dict(endzone); twin_ez.update({(f, 38): (404.0, 302.0, 444.0, 402.0) for f in range(100, 130)})
+    assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes={"sideline": sideline, "endzone": twin_ez}, box_iou_min=0.3)} == {38}

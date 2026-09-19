@@ -862,9 +862,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     # stretch (timeline.twin_frames; play 1: census live 1.32 -> 1.20, hops and steps unchanged)
     twin_boxes = None
     if tlm.TWIN_BOX_IOU_MIN is not None:
-        sd = df[df["cam"] == "sideline"]
-        twin_boxes = {(int(r.frame), int(r.global_player_id)): (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
-                      for r in sd.itertuples()}
+        # both cameras' boxes on the timeline's frames: two engaged linemen overlap in the sideline image but
+        # not in the endzone's, so either camera seeing two boxes apart is enough to keep both men
+        twin_boxes = {}
+        for cam, sub in df.groupby("cam"):
+            twin_boxes[str(cam)] = {(int(r.frame), int(r.global_player_id)): (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
+                                    for r in sub.itertuples()}
     twins = tlm.twin_frames(tl, teams_now, boxes=twin_boxes, box_iou_min=tlm.TWIN_BOX_IOU_MIN)
     if twins:
         n = tlm.drop_frames(tl, twins)

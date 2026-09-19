@@ -561,6 +561,20 @@ def _box_iou(a, b) -> float:
     return float(inter / ua) if ua > 0 else 0.0
 
 
+def _two_men(boxes: dict, f: int, pa: int, pb: int, iou_min: float) -> bool:
+    """True when some camera has a box for BOTH ids on frame ``f`` and the two overlap less than
+    ``iou_min``: that camera sees two men. ``boxes`` is ``{cam: {(frame, pid): box}}`` (the timeline's
+    frames in every camera) or one camera's ``{(frame, pid): box}``. Two linemen shoulder to shoulder
+    overlap in the sideline image (different depths on one line of sight) but not in the endzone's,
+    and a real twin's boxes coincide in both."""
+    cams = boxes.values() if boxes and not isinstance(next(iter(boxes)), tuple) else [boxes]
+    for cam_boxes in cams:
+        ba, bb = cam_boxes.get((f, pa)), cam_boxes.get((f, pb))
+        if ba is not None and bb is not None and _box_iou(ba, bb) < iou_min:
+            return True
+    return False
+
+
 def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_run: int = TWIN_MIN_RUN,
                 boxes: dict | None = None, box_iou_min: float | None = None) -> set:
     """``{(frame, pid)}`` to drop: for every same-team pair of drawn ids within ``twin_m`` of each other
@@ -583,10 +597,8 @@ def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_ru
                 if ta is None or ta != tb:
                     continue
                 if float(np.hypot(*(np.asarray(a.xy, float) - np.asarray(b.xy, float)))) <= twin_m:
-                    if boxes is not None and box_iou_min is not None:
-                        ba, bb = boxes.get((int(f), pa)), boxes.get((int(f), pb))
-                        if ba is not None and bb is not None and _box_iou(ba, bb) < box_iou_min:
-                            continue                                   # the sideline sees two men
+                    if boxes is not None and box_iou_min is not None and _two_men(boxes, int(f), pa, pb, box_iou_min):
+                        continue                                       # a camera sees two men
                     close.setdefault((min(pa, pb), max(pa, pb)), []).append(int(f))
     drop: set = set()
     for (pa, pb), fs in close.items():
