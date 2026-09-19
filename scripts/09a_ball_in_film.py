@@ -101,16 +101,24 @@ def main() -> None:
     n_c = sum(len(v) for v in cands.values())
     print(f"09a: {len(cands)} frames {f0}-{f1} scanned, {n_c} moving blobs outside the boxes")
     ident = P / "identity_resolved.pkl"
-    team_of = {}
+    team_of = {}; offence = None
     if ident.exists():
         import pickle
 
-        team_of = {int(k): getattr(v, "team", None) for k, v in pickle.load(open(ident, "rb")).get("merged", {}).items()}
+        blob = pickle.load(open(ident, "rb"))
+        team_of = {int(k): getattr(v, "team", None) for k, v in blob.get("merged", {}).items()}
+        # the offence: the team with the most linemen by role (08n); a rusher leaning into the pocket holds the
+        # release point too, and without this the reader named him the passer and his teammate the receiver
+        from collections import Counter
+
+        ol = Counter(team_of.get(int(p)) for p, r in (blob.get("roles", {}) or {}).items() if r == "OL" and team_of.get(int(p)))
+        offence = ol.most_common(1)[0][0] if ol else None
+        print(f"offence by the linemen's roles: {offence} ({dict(ol)})")
     fl = fit_flight(cands, boxes)
     if fl is None:
         print("no flight: nothing moves like a ball outside the boxes (the pass may stay inside boxes, or the threshold is off)")
         return
-    ends = name_ends(fl, boxes, teams=team_of or None)
+    ends = name_ends(fl, boxes, teams=team_of or None, offence=offence)
     x0, y0 = track_at(fl, fl["frames"][0]); x1, y1 = track_at(fl, fl["frames"][-1])
     print(f"flight seen on {fl['n']} frames {fl['frames'][0]}-{fl['frames'][-1]} at {fl['speed']:.1f} px/frame, "
           f"from ({x0:.0f}, {y0:.0f}) to ({x1:.0f}, {y1:.0f}); frames with a blob on the line: {fl['frames']}")

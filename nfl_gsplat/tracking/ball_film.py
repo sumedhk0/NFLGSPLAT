@@ -172,29 +172,49 @@ def box_holding(boxes, x: float, y: float, *, pad: float = 0.0, teams: dict | No
     return hits[0]
 
 
-def name_ends(flight: dict, boxes_by_frame: dict, *, reach: int = 20, pad: float = 4.0, teams: dict | None = None) -> dict:
+def _walk(flight, boxes_by_frame, frames, *, pad, teams, prefer):
+    """The first frame along ``frames`` where a box holds the track point -- an offence box when
+    ``prefer`` names the offence and one holds it within the walk, else the first box of any team."""
+    first_any = None
+    for f in frames:
+        x, y = track_at(flight, f)
+        hits = boxes_holding(boxes_by_frame.get(f, []), x, y, pad=pad)
+        if not hits:
+            continue
+        if first_any is None:
+            first_any = (f, hits[0])
+        if prefer is not None and teams is not None:
+            own = [pid for pid in hits if teams.get(pid) == prefer]
+            if own:
+                return f, own[0]
+        elif first_any is not None:
+            return first_any
+    return first_any
+
+
+def name_ends(flight: dict, boxes_by_frame: dict, *, reach: int = 20, pad: float = 4.0, teams: dict | None = None,
+              offence=None) -> dict:
     """Walk the fitted track backwards from its first frame until it lies inside a box (the passer's
     hand: the release frame and id) and forwards from its last until it does again (the receiver's
     hands: the catch frame and id); ``reach`` frames each way at most. ``boxes_by_frame`` is
-    ``{frame: [(pid, x1, y1, x2, y2), ...]}``. With ``teams`` ({pid: team}) the receiver is the passer's
-    teammate among the boxes holding the catch point; ``others`` lists the other boxes holding it.
-    Missing ends are None."""
+    ``{frame: [(pid, x1, y1, x2, y2), ...]}``. With ``teams`` ({pid: team}) and ``offence`` (the team
+    with the ball; without it the passer's team once his box is found) both ends prefer an offence box
+    within the walk: a rusher leaning into the pocket holds the release point too (play 1: BAL 198 at
+    530 named the defender 55 as the receiver through the "passer's teammate" rule), and the defender
+    draped on the receiver holds the catch point. ``others`` lists the other boxes holding the catch
+    point. Missing ends are None."""
     f0, f1 = flight["frames"][0], flight["frames"][-1]
     out = {"release": None, "passer": None, "catch": None, "receiver": None, "others": []}
-    for f in range(f0, f0 - reach - 1, -1):
-        x, y = track_at(flight, f)
-        pid = box_holding(boxes_by_frame.get(f, []), x, y, pad=pad)
-        if pid is not None:
-            out["release"], out["passer"] = f, pid
-            break
-    offence = teams.get(out["passer"]) if (teams is not None and out["passer"] is not None) else None
-    for f in range(f1, f1 + reach + 1):
-        x, y = track_at(flight, f)
-        pid = box_holding(boxes_by_frame.get(f, []), x, y, pad=pad, teams=teams, prefer=offence)
-        if pid is not None:
-            out["catch"], out["receiver"] = f, pid
-            out["others"] = [q for q in boxes_holding(boxes_by_frame.get(f, []), x, y, pad=pad) if q != pid]
-            break
+    got = _walk(flight, boxes_by_frame, range(f0, f0 - reach - 1, -1), pad=pad, teams=teams, prefer=offence)
+    if got is not None:
+        out["release"], out["passer"] = got
+    if offence is None and teams is not None and out["passer"] is not None:
+        offence = teams.get(out["passer"])
+    got = _walk(flight, boxes_by_frame, range(f1, f1 + reach + 1), pad=pad, teams=teams, prefer=offence)
+    if got is not None:
+        out["catch"], out["receiver"] = got
+        x, y = track_at(flight, out["catch"])
+        out["others"] = [q for q in boxes_holding(boxes_by_frame.get(out["catch"], []), x, y, pad=pad) if q != out["receiver"]]
     return out
 
 

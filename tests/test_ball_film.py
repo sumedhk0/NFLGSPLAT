@@ -89,3 +89,16 @@ def test_the_receiver_is_the_passers_teammate_when_a_defender_holds_the_same_poi
     ends = bf.name_ends(fl, boxes, teams=teams)
     assert ends["passer"] == 80 and ends["receiver"] == 74 and ends["others"] == [55]
     assert bf.name_ends(fl, boxes)["receiver"] == 55            # without teams the smaller box wins: the ambiguity is real
+
+
+def test_a_rusher_leaning_into_the_pocket_does_not_become_the_passer_when_the_offence_is_known():
+    fl = bf.fit_flight(_flight_cands())
+    boxes = _boxes()
+    for f in boxes:                                              # a small defender's box over the release point
+        boxes[f].append((198, 1318.0, 500.0, 1370.0, 590.0))
+        boxes[f].append((55, 890.0 - 5.0 * (f - 560), 500.0, 935.0 - 5.0 * (f - 560), 600.0))
+    teams = {80: "KC", 74: "KC", 77: "KC", 55: "BAL", 198: "BAL"}
+    naive = bf.name_ends(fl, boxes, teams=teams)
+    assert naive["passer"] == 198 and naive["receiver"] == 55     # the smaller box names a rusher, and then his "teammate"
+    ends = bf.name_ends(fl, boxes, teams=teams, offence="KC")
+    assert ends["passer"] == 80 and ends["receiver"] == 74 and 55 in ends["others"]
