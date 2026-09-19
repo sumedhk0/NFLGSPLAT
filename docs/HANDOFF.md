@@ -5327,3 +5327,6 @@ fold makes that offset a step), census 0.92 -> 0.94 (KC 11.05 -> 10.92: the 12-c
 gone, but the loss of the joins' frames and the twin rule's other drops leave him under). The gate no longer
 punishes the neighbour (139 is not in the twin list), so what remains is the join itself: a fold of two ids on one
 man needs the boxes reconciled at the seam (an offset blend over a few frames), not a cut. Tables restored to v81.
+Note: with the two-camera twin gate on, 08x's motion-detected snap reads 393 (v79's tables read 395 without it -- the
+drawn set at the line changed by two frames); v81 was rendered on snap 395 / start 215 and ball.json's snap segment
+is 395, so play_end.json is pinned back with `08x --snap 395` to keep the state coherent with v81.
