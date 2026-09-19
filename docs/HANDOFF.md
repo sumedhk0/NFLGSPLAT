@@ -5180,3 +5180,11 @@ data the reader now picks 540-558 (353 px) -> 79/80 to 74 again. The lesson is t
 that names a receiver must be gated on what a pass IS (long, fast, hand to hand), not on how many blobs agree.
 v77 (chain_v77b.sh, running) = v75 + the quarterback's endzone rows + one quarterback id with Mahomes' identity and
 build + the ball from the corrected reader; v76 is discarded.
+
+**The reader's second failure and fix (22:05 machine clock).** With the length ranking the reader found the right
+flight again (540-558, 353 px) but walked its start into BAL 198's box (Madubuike leaning into the pocket, a
+smaller box than the quarterback's at 530) and, by the passer's-teammate rule, named BAL 55 the receiver -- the
+defender draped on 74. Fix: name_ends takes the offence (09a: the team with the most linemen by 08n's roles, KC 11
+to BAL 1 on play 1) and both ends prefer an offence box within the walk; 08y refuses a receiver who is not on the
+offence. Now: leaves 80 at 530, enters 74 at 562 (55 also at the point). v77 chain relaunched (chain_v77b.sh):
+09a, 08y --from-film, 08x, dump, 07l, render, sideline blend.
