@@ -5254,3 +5254,17 @@ out) and 166 (sideline 291-431) all sit on the same red lineman -- the centre af
 left on him. 19 (to 400) is the neighbouring lineman's fragment. v80 chain (chain_v80.sh, running): `08z --keep 17
 --drop 204 --frames 395 499` and `--drop 166 --frames 395 431` (17 keeps the centre's identity and 08y's centre pick
 at the snap), 08x, dump, 07l, render, blend. Expected: the 12-KC frames right after the snap go to 11.
+
+**v80 REJECTED and reverted (03:45 machine clock).** The centre folds (204 and 166 into 17) are true on the film, but the
+rulers went the wrong way: live steps 5 -> 11 (139 at 453-457, "handover"), census KC 10.93 -> 10.87, the 12-KC
+frames after the snap 44 -> 40 only. What happened: with 17 now the long id through 435-499, the twin-stretch rule
+(the shorter-lived of two same-team bodies within 0.4 m loses the stretch) dropped Thuney 139 on 435-442 instead
+of the centre 204 on 435-474, and 139's re-entry made the steps. The rule's loser choice is the wound: two
+engaged linemen stand 0.4-0.5 m apart on the turf and the depth error pulls them inside 0.4, so whichever is
+shorter-lived vanishes for a stretch. The sideline box-overlap gate (TWIN_BOX_IOU_MIN 0.3 / 0.15, A/B on the v80
+data: census 0.991 -> 0.981 -> 0.991, steps 11 unchanged) does not separate them either -- a guard and the
+centre overlap in the sideline image because they sit at different depths on the same line of sight. Kept
+opt-in (None). The fourteenth correction that lost to what it corrected. Restored tracks / keypoints / identity /
+pose caches to the v79 state (the .pre_fold.6 and matching .pre08v backups); v79 stays CURRENT BEST. The
+right fix is a twin rule that asks the FILM per frame (two boxes, two jersey reads) rather than a distance; until
+then the 12-count frames after the snap (395-434) stay.
