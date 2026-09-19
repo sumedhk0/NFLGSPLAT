@@ -5188,3 +5188,13 @@ defender draped on 74. Fix: name_ends takes the offence (09a: the team with the 
 to BAL 1 on play 1) and both ends prefer an offence box within the walk; 08y refuses a receiver who is not on the
 offence. Now: leaves 80 at 530, enters 74 at 562 (55 also at the point). v77 chain relaunched (chain_v77b.sh):
 09a, 08y --from-film, 08x, dump, 07l, render, sideline blend.
+
+**v77 = CURRENT BEST (22:55 machine clock).** diag/play_001_v77_hifi_720.mp4 (215-615) with _sideline_blend.mp4 /
+_sideline_sbs.mp4; the endzone view and blend rendering. = v75 + the quarterback's endzone rows after the throw
+(170's from 516, film-named) + one quarterback id for the play (79 folded into 80) wearing Mahomes' identity and
+build (jersey 15, 1.87 m, 212 lb, from the endzone OCR fragment 93; the OL build of P79 is gone) + the ball from the
+film reader with its gates (release 530, catch 562, passer 80, receiver 74; 25.8 m/s; no passer chain). Rulers on
+395-607: steps 5, hops 0, census 1.12 (KC 11.08 / BAL 10.80; v73/v75 read 1.25 -- the quarterback's twin is gone),
+root jitter p90 0.027. Film checks: diag/catch/pocket_check_v77.png (the pocket 500-560 through the sideline camera:
+the quarterback's avatar on number 15 through the throw) and catch_check_v77.png (528-614: route, catch, wrap, pile
+as in v75). Two reader failures were caught on the way and gated (above); v76 was discarded.
