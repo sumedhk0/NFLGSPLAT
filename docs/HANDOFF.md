@@ -5287,3 +5287,15 @@ _endzone_blend. = v79's data + the two-camera twin gate. Rulers 395-607: steps 5
 BAL 10.81), root jitter p90 0.026; the film reader agrees with ball.json. Film checks: diag/catch/line_check_v81.png
 (sideline camera, 440/456/472: the engaged line, Kelce 87 and 65 on their players, the centre's cluster whole) and
 ez_line_v81.png (endzone camera, 440-500: 62, 52 and 15 on their numbers). Suite 1245 passed, everything pushed.
+
+**The BAL deficit, id by id on the film (04:25 machine clock; diag/pocket/bal_boxes_play.png; yellow boxes drawn,
+red boxes not).** BAL counts 395-607: 11 on 126 frames, 10 on 43, 9 on 15, 12 on 26. The under-eleven runs: 489-495
+(198 not drawn -- rightly, its box coincides with 40's and 194's on one rusher, IoU 0.66-0.75), 530-563 (171 dropped
+as 55's twin over 331-566 -- one man, the defender on the receiver), 588-599 (84, 206). At 492 the sideline film
+shows eleven Ravens and the timeline's ten drawn ids sit on ten distinct men: the eleventh has NO sideline box at
+all -- a rusher hidden behind a lineman in the pocket. At 546 the same: 180 dropped at the far numeral (a hole rule)
+and an unboxed rusher at the pocket's edge. So the BAL deficit is mostly DETECTION (occlusion in the pocket), not
+identity. The endzone camera sees the pocket rushers side by side; the pre-snap line_vouch (an endzone-only body on
+the line with no sideline-backed teammate within 0.7 m across is drawn) is the shape of the fix for the play
+window: vouch an endzone-only body in the pocket region during the play when no sideline-backed body of its team
+stands within the across radius. Next experiment, measured on the census and the film.
