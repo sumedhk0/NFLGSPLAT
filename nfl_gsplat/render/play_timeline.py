@@ -433,6 +433,17 @@ def play_start(play_dir) -> int | None:
     return int(d["start"]) if d.get("start") is not None else None
 
 
+def play_end(play_dir) -> int | None:
+    """The dead-ball frame from ``<play-dir>/play_end.json`` (08x ``end``), or None."""
+    import json
+
+    f = Path(play_dir) / "play_end.json"
+    if not f.exists():
+        return None
+    d = json.loads(f.read_text())
+    return int(d["end"]) if d.get("end") is not None else None
+
+
 def play_snap(play_dir) -> int | None:
     """The snap frame from ``<play-dir>/play_end.json`` (08x), or None: before it nobody moves, which
     the span rule uses to tell an endzone-placed ghost from a set man."""
@@ -468,6 +479,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     qb_keep: dict = {}
     qb_held: set = set()         # (pid, frame) of the quarterback's held pre-snap frames (05k draws his stance there)
     lv_frames: dict = {}         # pid -> the pre-snap frames line_vouch admitted him on (a pure endzone-only id is drawn there only)
+    pv_frames: dict = {}         # pid -> the play frames pocket_vouch admitted him on (its own revival threshold)
     if hole_hold_m is not None and hole_hold_m < 0:
         from nfl_gsplat.render import endzone_only_rule as _ezr
 
@@ -684,6 +696,20 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                 for pid_ in pids_:
                     lv_frames.setdefault(int(pid_), set()).add(int(f_))
             print(f"hidden linemen vouched for: {sum(lv_counts.values())} body-frames on {len(lv_counts)} ids " + str(dict(sorted(lv_counts.items()))))
+        # the rusher the sideline cannot see during the play (endzone_only_rule.pocket_vouch): the same test on the
+        # play frames, in the pocket region; his frames count toward a revival of his own (POCKET_VOUCH_REVIVE_MIN)
+        pv_los = _los(P)
+        pe_end = play_end(P)
+        if _ezr.POCKET_VOUCH_ACROSS_M is not None and snap_f is not None and pe_end is not None and pv_los:
+            pv_keep, pv_counts = _ezr.pocket_vouch(ground, views, side_ground, snap=snap_f, end=int(pe_end), teams=_teams(P),
+                                                   los_x=float(pv_los["x"]), sign=float(pv_los["sign"]), across_m=float(_ezr.POCKET_VOUCH_ACROSS_M))
+            for f_, pids_ in pv_keep.items():
+                qb_keep.setdefault(int(f_), set()).update(pids_)
+                for pid_ in pids_:
+                    lv_frames.setdefault(int(pid_), set()).add(int(f_))
+                    pv_frames.setdefault(int(pid_), set()).add(int(f_))
+            print(f"pocket rushers vouched for on the play: {sum(pv_counts.values())} body-frames on {len(pv_counts)} ids "
+                  + str(dict(sorted(pv_counts.items()))))
             # a set man's holes before the snap (endzone_only_rule.fill_presnap_holes): a vouched id between its
             # vouched frames (the filled frames vouched too), then every id where the line point is empty
             mode = presnap_fill if presnap_fill is not None else _ezr.PRESNAP_FILL
@@ -760,6 +786,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     # drawn on his vouched frames and on no other (play 1 id 86, the left guard on all 180 pre-snap frames, 2026-09-18)
     revived = ({p for p in lv_frames if p in ghosts and len(lv_frames[p]) >= _ezr.LINE_VOUCH_REVIVE_MIN}
                if _ezr.LINE_VOUCH_REVIVE_MIN is not None else set())
+    revived |= {p for p in pv_frames if p in ghosts and len(pv_frames[p]) >= _ezr.POCKET_VOUCH_REVIVE_MIN}
     if revived:
         clipped -= revived
         n_cut = 0

@@ -495,6 +495,55 @@ def line_vouch(ground, views, side_ground, *, start: int, snap: int, teams: dict
     return keep, counts
 
 
+# ---- the pocket during the play: the rusher the sideline cannot see ------------------------------------
+# After the snap the sideline camera loses a pass rusher behind the lineman he is engaged with (play 1 at 492
+# and 546: eleven Ravens on the film, ten sideline boxes on ten distinct men, the eleventh unboxed at the
+# pocket's edge; 2026-09-19), so Baltimore reads 10.8 a frame on the play window with no identity error to
+# fix. The endzone camera, looking along the line, sees the rushers side by side. line_vouch's test carries
+# over: an endzone-only body in the pocket region (from POCKET_VOUCH_BEHIND_M in front of the LOS to
+# POCKET_VOUCH_DEPTH_M behind it, on the offence's side) is vouched on a play frame when no sideline-backed
+# body of ITS team stands within POCKET_VOUCH_ACROSS_M of it across the field -- a ghost of a drawn rusher
+# shares his across position (the endzone measures it well), a hidden rusher does not. A pure endzone-only id
+# is then revived on its vouched frames when it has POCKET_VOUCH_REVIVE_MIN of them (the loader). Off (None)
+# until measured on the census and the film.
+POCKET_VOUCH_ACROSS_M: float | None = None
+POCKET_VOUCH_DEPTH_M: float = 8.0
+POCKET_VOUCH_BEHIND_M: float = 2.0
+POCKET_VOUCH_REVIVE_MIN: int = 10
+
+
+def pocket_vouch(ground, views, side_ground, *, snap: int, end: int, teams: dict, los_x: float, sign: float,
+                 across_m: float | None = POCKET_VOUCH_ACROSS_M, depth_m: float = POCKET_VOUCH_DEPTH_M,
+                 behind_m: float = POCKET_VOUCH_BEHIND_M, endzone: str = "endzone"):
+    """``({frame: {pid}}, {pid: n_frames})`` of the endzone-only bodies in the pocket on the play frames
+    ``snap..end`` that no sideline-backed teammate stands within ``across_m`` of across the field."""
+    keep: dict = {}
+    counts: dict = {}
+    if across_m is None or views is None or side_ground is None:
+        return keep, counts
+    lo = float(los_x) * float(sign) - float(behind_m)          # along the field, on the offence's side, in sign units
+    hi = float(los_x) * float(sign) + float(depth_m)
+    for f in range(int(snap), int(end) + 1):
+        vf = views.get(f, {})
+        side = side_ground.get(f, {})
+        for pid, xy in ground.get(f, {}).items():
+            pid = int(pid)
+            if tuple(vf.get(pid, ())) != (endzone,):
+                continue
+            xy = np.asarray(xy, float)
+            along = float(xy[0]) * float(sign)
+            if not (lo <= along <= hi):
+                continue                                    # not in the pocket
+            tm = teams.get(pid)
+            near = min((abs(float(np.asarray(q, float)[1]) - xy[1]) for j, q in side.items()
+                        if int(j) != pid and teams.get(int(j)) == tm), default=np.inf)
+            if near < across_m:
+                continue                                    # a teammate the sideline draws stands there: a ghost
+            keep.setdefault(f, set()).add(pid)
+            counts[pid] = counts.get(pid, 0) + 1
+    return keep, counts
+
+
 # ---- a set man's holes before the snap ---------------------------------------------------------------
 # Inside its own pre-snap span an id has holes the hole rule cannot touch: hold_holes moves endzone-filled
 # frames, and a sideline-only id has none to move (play 1's left guard, id 82: sideline points on 51 of

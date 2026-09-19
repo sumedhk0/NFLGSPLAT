@@ -337,3 +337,25 @@ def test_presnap_holes_are_filled_between_an_ids_points_only_where_the_spot_is_e
     out2, added2 = fill_presnap_holes(ground, start=213, snap=393, teams=teams, only_ids={82}, frames_of={82: {260, 261, 300, 307}})
     assert added2 == {82: 307 - 260 + 1 - 4} and 82 not in out2[240]
     assert fill_presnap_holes({250: {5: np.array([0.0, 0.0])}}, start=213, snap=393, teams={5: "KC"})[1] == {}
+
+
+def test_pocket_vouch_admits_the_rusher_the_sideline_cannot_see_and_not_a_ghost():
+    import numpy as np
+
+    from nfl_gsplat.render import endzone_only_rule as ezr
+
+    los_x, sign = -24.0, 1.0                      # the offence on x > -24
+    ground, views, side = {}, {}, {}
+    for f in range(400, 430):
+        ground[f] = {1: np.array([-21.0, 0.5]),   # a KC lineman, sideline-backed
+                     2: np.array([-20.5, 2.5]),   # a BAL rusher the sideline draws
+                     3: np.array([-19.8, -1.6]),  # a BAL rusher only the endzone sees, 2 m across from 2: hidden
+                     4: np.array([-20.7, 2.4]),   # a BAL endzone-only copy of 2, on his across position: a ghost
+                     5: np.array([-40.0, 5.0])}   # a BAL endzone-only body far downfield: not the pocket
+        views[f] = {1: ("sideline", "endzone"), 2: ("sideline",), 3: ("endzone",), 4: ("endzone",), 5: ("endzone",)}
+        side[f] = {1: ground[f][1], 2: ground[f][2]}
+    teams = {1: "KC", 2: "BAL", 3: "BAL", 4: "BAL", 5: "BAL"}
+    keep, counts = ezr.pocket_vouch(ground, views, side, snap=400, end=429, teams=teams, los_x=los_x, sign=sign, across_m=0.7)
+    assert counts == {3: 30}
+    assert all(keep[f] == {3} for f in range(400, 430))
+    assert ezr.pocket_vouch(ground, views, side, snap=400, end=429, teams=teams, los_x=los_x, sign=sign, across_m=None) == ({}, {})
