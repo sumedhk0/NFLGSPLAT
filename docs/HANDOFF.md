@@ -5225,3 +5225,7 @@ hops 0, census 1.18 (KC 11.23, up from 11.08 in v77): 197's sideline track ends 
 the endzone alone to ~590 while the sideline ids 157 (566-572, 1.2-1.4 m off) and 37 (578-608, 1.4-1.7 m off,
 the camera's +1 m wander inside those numbers) stand near him -- one of them may be Thuney's later sideline
 fragment and the other a neighbour; the sideline film decides (diag/pocket/sl_boxes_thuney_tail.png).
+The sideline film after 565 (diag/pocket/sl_boxes_thuney_tail.png): Thuney (the red lineman engaged with BAL 98) has NO
+sideline box at 572-614 -- 157, 37, 205 and 211 sit on other red men. So 139 drawn from the endzone alone on 566-590
+is right, not a twin; v77 was missing him there. The KC 11.23 surplus is elsewhere and the film, id by id, is the
+only ruler for it. **v78 = CURRENT BEST.** Suite 1243 passed; tree clean; everything pushed.
