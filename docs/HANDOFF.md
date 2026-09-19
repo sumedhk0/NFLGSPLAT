@@ -5268,3 +5268,9 @@ opt-in (None). The fourteenth correction that lost to what it corrected. Restore
 pose caches to the v79 state (the .pre_fold.6 and matching .pre08v backups); v79 stays CURRENT BEST. The
 right fix is a twin rule that asks the FILM per frame (two boxes, two jersey reads) rather than a distance; until
 then the 12-count frames after the snap (395-434) stay.
+Restored state re-measured (07l v79r): steps 5, hops 0, census 1.04 (KC 10.88) against v79's 0.99 (KC 10.93) -- the
+loader's drop lists match to one frame (204 435-475 vs 435-474), the 11 body-frames of difference sit in the pose
+caches restored from the backup taken one remap later; the tables and identity are v79's. Current best stays v79 as
+rendered. A two-camera box-overlap gate for the twin-stretch rule (TWIN_BOX_IOU_MIN: any camera seeing the pair's
+boxes apart keeps both men -- two engaged linemen overlap in the sideline image but not in the endzone's) is
+committed opt-in and under A/B (scratchpad/probe_twinbox_ab.py, None vs 0.3).
