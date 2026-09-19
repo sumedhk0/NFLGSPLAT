@@ -5299,3 +5299,23 @@ identity. The endzone camera sees the pocket rushers side by side; the pre-snap 
 the line with no sideline-backed teammate within 0.7 m across is drawn) is the shape of the fix for the play
 window: vouch an endzone-only body in the pocket region during the play when no sideline-backed body of its team
 stands within the across radius. Next experiment, measured on the census and the film.
+
+**Pocket vouch: MEASURED AND REJECTED (05:00 machine clock).** endzone_only_rule.pocket_vouch (line_vouch's test on the
+play frames in the pocket region, a revival at 10 vouched frames) on v81's data: across 0.7 m -> census 0.92 -> 1.085
+(263 body-frames vouched on 25 ids, revived 111, 112, 113, 140, 145, 170 -- KC copies among them: 170's endzone rows
+are Mahomes', 111 is a lineman's second endzone id -- so Kansas City gains ghosts while the unboxed Raven is still
+not among the endzone ids that survive the region test); across 1.0 m -> 0.93, revived 112, 145, 170, nothing gained.
+Steps 5 and hops 0 either way. The fifteenth correction that lost. The constant stays None; the code and test stay.
+The eleventh Raven at 492 and 546 is a DETECTION hole in the pocket: the fix is a detector that finds a man behind
+another (or the endzone rows paired to their men, so the two-view id carries him), not a rule on the timeline.
+
+**State at the end of the night (05:00 machine clock, 2026-09-19).** CURRENT BEST v81: diag/play_001_v81_hifi_720.mp4
+with _sideline_blend / _sideline_sbs / _endzone_blend. Play window 395-607: steps 5, hops 0, census 0.92 (KC 11.05 /
+BAL 10.81). Suite 1245 passed. Tree clean, everything pushed. Since the user's question: the ball to the right man
+(three ids folded), the film reader (09a) with its gates and 08y --from-film, the tackle (carrier and tacklers), the
+quarterback's endzone rows and identity, Thuney paired across cameras, the edge fragment and a late twin out, the
+twin-stretch rule asking both cameras. Rejected with numbers: the per-frame endzone veto, the centre fold (until
+the twin rule is fixed for it), the pocket vouch. Open, in value order: (1) the sideline detector's occlusion in the
+pocket (a Raven unboxed at 492 and 546); (2) the 12-KC frames right after the snap (17/204/166 are one man; fold
+them once the twin rule's loser choice cannot punish the neighbour -- re-measure now that the two-camera gate is in);
+(3) the endzone camera's play-time depth wander; (4) the pile's lying poses are synthesised.
