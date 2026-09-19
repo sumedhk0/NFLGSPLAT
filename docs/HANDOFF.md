@@ -5229,3 +5229,12 @@ The sideline film after 565 (diag/pocket/sl_boxes_thuney_tail.png): Thuney (the 
 sideline box at 572-614 -- 157, 37, 205 and 211 sit on other red men. So 139 drawn from the endzone alone on 566-590
 is right, not a twin; v77 was missing him there. The KC 11.23 surplus is elsewhere and the film, id by id, is the
 only ruler for it. **v78 = CURRENT BEST.** Suite 1243 passed; tree clean; everything pushed.
+
+**The KC surplus, id by id on the film (00:40 machine clock; diag/pocket/kc_boxes_play.png, sl_boxes_66_49.png).** Frames
+with 12 or more KC bodies: 61 of 213, all after the throw. The KC sideline boxes drawn on the film at 460/500/540/580:
+every box on a red man except (a) 66, a 21-row fragment whose boxes sit at x 1913 -- the frame's right edge -- with
+kit votes against KC (a stranger clipped at the border; the edge rule let it through), and (b) 12, whose late boxes
+(581-609) sit on the same lineman as 76's (both boxes on one man at 590 and 604; 12's box is the upper part). 49 and
+76 are two men (checked at 576). The bench people 51/47/52 carry KC labels but the off-field rules already drop them.
+v79 chain (chain_v79.sh, running): 66 teamless (the loader drops teamless fragments), `08z --keep 76 --drop 12
+--frames 581 609`, 08x, dump, 07l, render, sideline blend. Expected: census KC 11.23 -> about 11.0.
