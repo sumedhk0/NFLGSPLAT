@@ -5216,3 +5216,12 @@ identity and roster build survive), 08x, dump, 07l, render, both blends. 86 (Thu
 125-377) is left alone: a two-view id with endzone-only pre-snap rows would be drawn from the endzone alone there
 and double the sideline's lineman. 211 (Suamataia by OCR) has its sideline box on a white jersey at 520 -- another
 identity mess in the pocket, unchased.
+
+**v78 delivered (00:15 machine clock, 2026-09-19).** diag/play_001_v78_hifi_720.mp4 + _sideline_blend / _endzone_blend.
+= v77 + Thuney (139 <- 197). From the endzone camera (diag/catch/ez_pocket_v78.png) the left guard's avatar now
+sits ON number 62 at 500-560 where v77 had it half a body-width to his right; the quarterback stays on 15. The
+film reader AGREES with ball.json on all three (release 530, catch 562, receiver 74). Rulers 395-607: steps 5,
+hops 0, census 1.18 (KC 11.23, up from 11.08 in v77): 197's sideline track ends at 565 and 139 is then drawn from
+the endzone alone to ~590 while the sideline ids 157 (566-572, 1.2-1.4 m off) and 37 (578-608, 1.4-1.7 m off,
+the camera's +1 m wander inside those numbers) stand near him -- one of them may be Thuney's later sideline
+fragment and the other a neighbour; the sideline film decides (diag/pocket/sl_boxes_thuney_tail.png).
