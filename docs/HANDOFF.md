@@ -5330,3 +5330,67 @@ man needs the boxes reconciled at the seam (an offset blend over a few frames), 
 Note: with the two-camera twin gate on, 08x's motion-detected snap reads 393 (v79's tables read 395 without it -- the
 drawn set at the line changed by two frames); v81 was rendered on snap 395 / start 215 and ball.json's snap segment
 is 395, so play_end.json is pinned back with `08x --snap 395` to keep the state coherent with v81.
+
+## 2026-09-19 (evening): players vanishing in the pocket -- a man who vanishes stands still
+
+**The user's question.** "players are vanishing in some frames, especially on the line of scrimmage when they are locked up in
+the middle of the play - how can we address this?" Answered on v81's tables against the film.
+
+**Why they vanish.** The sideline detector loses an engaged lineman to the man on him: his box merges into his opponent's
+or his neighbour's. The centre 204's last sideline box is 499; from 500 the Raven 84's box covers 0.9-1.0 of it with
+Thuney's at IoU 0.15-0.18, and the film shows the centre still locked with that Raven at 531 (`diag/pocket/centre_sl_zoom.png`).
+The endzone camera keeps seeing him, but under other ids the pairing never joined to 204 (jersey 52 Humphrey is 174 until
+~505, 166 from ~507 to ~546, 164 from 547 on -- `diag/pocket/ez_early_zoom.png`, `ez_switch_zoom.png`, `ez_164_zoom.png`),
+and those endzone-only beyond-span rows are dropped or placed with the endzone camera's depth wander. On v81, 22 tracks end
+inside the play window (395-607) and 19 holes open. New ruler `timeline.vanishings`: body-frames after an id's last drawn
+frame, or inside a hole, with no same-team body within 0.6 m of his spot -- v81: 736 end frames, 160 hole frames (9 holes).
+The twin rule's drops are not vanishings (the other id draws the man).
+
+**The rule (timeline.stand_still; the loader runs it after every dedupe rule on the play window, knobs passed at call time).**
+- Bridge: a hole of at most 50 frames (STAND_BRIDGE_MAX_FRAMES) whose ends lie within 1.5 m takes the straight line, copying
+  the nearer end's state, on frames with no same-team body within 0.6 m. 33 body-frames on 55, 84, 198; census 0.92 -> 0.84
+  (the bridged men were missing, not doubled); steps 5, hops 0; vanish holes 9 -> 5, hole frames 160 -> 127.
+- Hold: a track that ends inside the window while the man moved <= 1.0 m over his last 10 frames is held at his last spot
+  for at most 25 frames (STAND_HOLD_MAX); the BOXES stop it: a same-team box on his last box at IoU >= 0.45
+  (STAND_SUCCESSOR_IOU; >= 0.35 for an id born within 3 frames of the end, STAND_NEWBORN_IOU/REACH) is the man under a new
+  id; other boxes covering less than 0.5 of the last box (STAND_OCCLUDED_COVER) is open turf, he left; a same-team body
+  within 0.6 m is a twin. The box numbers that set the gates (probe_end_boxes.py, every play-window end): re-identified men
+  4/194 0.67, 12/76 0.86, 15/168 0.67, 19/37 0.85, 30/180 0.94, 38/12 0.90, 60/55 0.80, 84/168 0.75, 157/37 0.93, 40/198
+  0.48, 6/78 0.49, 198/206 0.41 (born +2); two men: 204/139 0.18, 204/211 0.08 (born +1), 166/80 0.29-0.42 (Mahomes behind
+  the centre in the endzone image), 9/77 0.29.
+- Film check of every hold (`diag/pocket/holds_v83_film.png`): the centre 500-525 locked with the Raven -- right; BAL 1
+  421-434 under Noah Gray's box, dropped on open turf at 435 -- right (he walks off); BAL 6 489-493 then 78 on his box --
+  right; 74 (the receiver, tackled) 603-607 -- right; 166 (the centre's endzone id) 544-568 -- right to ~560, a Raven on
+  the endzone spot by 563 (hence the 25 cap, not 40); 198 -> 206 newborn at IoU 0.41 -- the newborn gate.
+
+**Final numbers on v81's tables (steps_by_id_v81rule.log):** 33 bridged + 75 held body-frames on 8 ids (1:14, 6:5, 74:5,
+166:25, 204:25, 198:1; 55/84/198 bridged); steps 5 (157 at 553-556, 212 at 602/605, v81's own), hops 0, census 0.92 ->
+1.005 (the holds land on frames where the team already reads 11 or more -- a ghost elsewhere; the film says the held men
+are there), vanish holes 9 -> 5, hole frames 160 -> 102, end frames 736 -> 661. Suite 1248 passed, 3 skipped.
+
+**Measured and rejected on the way (each on the play window):**
+- the hold with the same 0.6 m clearance: 501 held body-frames on 11 ids, census 0.92 -> 2.62;
+- the hold stopped by any teammate within 1.5 m: never holds the centre (Thuney stands 1.3 m from him);
+- the hold stopped by a teammate BORN within 8 frames within 1.5 m: still loses the centre (211 born 1.3 m away) and holds
+  BAL 40 beside his own new id 198 (an OLD id at IoU 0.48 on his last box);
+- a 40-frame hold cap: 166's endzone hold ran 20 frames past a Raven standing on its spot -- the last box is a stale image
+  position and both cameras pan;
+- the bridge without a hole cap: 166's 135-frame hole (406-542) bridged 116 body-frames of a ghost beside the centre,
+  census 0.92 -> 1.19;
+- the A/B whose three hold arms printed identical numbers: module constants bound as default arguments (TWIN_M again);
+  the loader passes every knob at call time now -- memory probe-monkeypatch-default-args;
+- **the centre's endzone ids folded into 204** (174 455-508, 166 507-546, 164 547-634, each stretch read on the film):
+  the loader's beyond-span rule keeps him only 521-543 (500-520 dropped as more than 0.8 m from the join, which itself
+  is 0.14 m), his placement slides 1.7 m over 524-528 (steps 0.32-0.39 x5), live steps 5 -> 10, census 0.92 -> 0.953,
+  vanish end frames 736 -> 694. Two rulers worse for one better: tables restored to v81 (cmp against the .v81 copies).
+  The sixteenth correction that lost. The endzone camera's play-time depth is what stops the endzone carrying a lost
+  lineman -- open item (3), not a fold. A first, wider fold (166 on 472-562) was also wrong on the film: 166 is on the
+  man beside Humphrey before ~505 and on the Raven in front of him after ~546.
+
+**What the centre looks like now:** drawn 395-499 from his sideline track, held 500-524 at his last spot (the film has him
+there), gone 525-541, back 542-568 as his endzone id 166 (542 detected, 543-568 held), gone after. Better than v81
+(gone from 500), not whole: the remaining gap is the sideline detector's merge of two engaged men into one box and the
+endzone pairing's three ids for one man.
+
+**Tools:** `scratchpad/probe_end_boxes.py` (box coverage after every end), `hold_sheet.py` (film sheet per hold),
+`zoom_strip.py` (a zoomed strip around a fixed image box, ZR/ZZ env for radius/zoom), `steps_by_id.py`.
