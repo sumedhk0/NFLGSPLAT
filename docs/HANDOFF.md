@@ -5205,3 +5205,14 @@ is gone, which is what the 170 -> 79 -> 80 folds were for. What remains in the p
 and a BAL rusher half a body-width ACROSS at 500-520 (the sideline-only bodies' blind axis: Thuney's endzone track
 139 has no sideline partner, so his sideline id is drawn without depth) -- the pairing thread, per stretch, is the
 next placement lead; 08r_pair_by_rays exists and could be re-run now that the pocket ids are cleaner.
+
+**Thuney, named by both films (23:20 machine clock; diag/pocket/sl_boxes_linemen.png, ez_boxes_qb.png).** 08r's
+one rejected candidate that mattered was "sideline 197 <- endzone 139, rays 0.31 m" (its gate is 0.30, and the
+endzone camera's wander is in that number). The sideline film: 197's box is on number 62 through 500-560 (the
+jersey reads inside the box at 520; identity had him as "Bryan Cook" from a misread). The endzone film: 139's box
+is on number 62 at 500-540 and identity names it Joe Thuney from the endzone OCR. Same man, two cameras, never
+paired. v78 chain (chain_v78.sh, running): `08z --keep 139 --drop 197` (no overlap: one camera each; 139's
+identity and roster build survive), 08x, dump, 07l, render, both blends. 86 (Thuney's pre-snap endzone track,
+125-377) is left alone: a two-view id with endzone-only pre-snap rows would be drawn from the endzone alone there
+and double the sideline's lineman. 211 (Suamataia by OCR) has its sideline box on a white jersey at 520 -- another
+identity mess in the pocket, unchased.
