@@ -5281,3 +5281,9 @@ within 0.4 m is left alone when either camera has boxes for both that overlap le
 unchanged; the centre 204 is back on 435-475 and 166 keeps 392-409. The sideline-only version had done nothing
 (0.991 -> 0.981) because a guard and the centre overlap in that image at different depths; the endzone camera
 sees them side by side. Full suite gating the commit; v81 chain (dump, 07l, render, both blends) follows.
+
+**v81 = CURRENT BEST (04:10 machine clock).** diag/play_001_v81_hifi_720.mp4 + _sideline_blend / _sideline_sbs /
+_endzone_blend. = v79's data + the two-camera twin gate. Rulers 395-607: steps 5, hops 0, census 0.92 (KC 11.05 /
+BAL 10.81), root jitter p90 0.026; the film reader agrees with ball.json. Film checks: diag/catch/line_check_v81.png
+(sideline camera, 440/456/472: the engaged line, Kelce 87 and 65 on their players, the centre's cluster whole) and
+ez_line_v81.png (endzone camera, 440-500: 62, 52 and 15 on their numbers). Suite 1245 passed, everything pushed.
