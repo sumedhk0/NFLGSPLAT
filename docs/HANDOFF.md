@@ -5247,3 +5247,10 @@ The KC count by frame: 11 on 112 frames, 12 on 44 (395-434, right after the snap
 -- 17 the centre ends at 420 while 204 runs on, so the two are twins over 395-420; 19 and 166 are 6- and 8-frame
 fragments), 10 on 51 and 9 on 5 (runs 435-442, 455-474, 501-508, 534-547, 602-607: a KC man missing). Next, in
 this order, each against the film: 17/204 at the snap, the 19/166 fragments, then who is missing on the under-11 runs.
+
+**The centre's post-snap twins (03:00 machine clock; diag/pocket/sl_boxes_centre.png).** At 396, 408 and 420 the boxes
+of 17 (the centre, sideline to 420), 204 (sideline 210-499; pre-snap he is the quarterback's twin that qb_hold takes
+out) and 166 (sideline 291-431) all sit on the same red lineman -- the centre after the snap; at 440 only 204 is
+left on him. 19 (to 400) is the neighbouring lineman's fragment. v80 chain (chain_v80.sh, running): `08z --keep 17
+--drop 204 --frames 395 499` and `--drop 166 --frames 395 431` (17 keeps the centre's identity and 08y's centre pick
+at the snap), 08x, dump, 07l, render, blend. Expected: the 12-KC frames right after the snap go to 11.
