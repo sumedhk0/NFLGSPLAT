@@ -730,3 +730,120 @@ def test_twin_frames_lets_the_endzone_camera_split_two_linemen_the_sideline_sees
     assert tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes=both, box_iou_min=0.3) == set()
     twin_ez = dict(endzone); twin_ez.update({(f, 38): (404.0, 302.0, 444.0, 402.0) for f in range(100, 130)})
     assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes={"sideline": sideline, "endzone": twin_ez}, box_iou_min=0.3)} == {38}
+
+
+def _st_(pid, x, y):
+    import numpy as np
+
+    from nfl_gsplat.render import timeline as tlm
+    return tlm.PlayerState(pid=pid, xy=np.array([x, y]), body_pose=np.zeros((21, 3)), global_orient=np.zeros(3),
+                           betas=np.zeros(10), source="sideline")
+
+
+def test_stand_still_bridges_a_close_hole_and_holds_a_slow_end_but_not_where_a_teammate_stands():
+    import numpy as np
+
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in list(range(400, 420)) + list(range(431, 460)):
+        tl.states[f].append(_st_(17, 0.0 + 0.01 * (f - 400), 0.0))        # a hole 420-430, the man barely moved
+    for f in range(400, 440):
+        tl.states[f].append(_st_(37, 5.0, 5.0))                            # ends at 439 while standing still
+    for f in range(400, 460):
+        tl.states[f].append(_st_(9, 20.0 + 0.5 * (f - 400), 0.0))          # a runner, drawn throughout
+    for f in range(450, 460):
+        tl.states[f].append(_st_(204, 5.1, 5.0))                           # 37's continuation under another id from 450
+    for f in range(400, 430):
+        tl.states[f].append(_st_(40, 30.0, 0.0))                           # ends at 429 while sprinting away
+    teams = {17: "KC", 37: "KC", 9: "KC", 204: "KC", 40: "BAL"}
+    for f in range(420, 430):
+        tl.states[f].append(_st_(40, 30.0 + 0.3 * (f - 419), 0.0))
+    rep = tlm.stand_still(tl, teams, lo=395, hi=459, bridge_m=1.5, slow_m=1.0, window=10, clear_m=0.6, hold=True, hold_max=40)
+    assert rep["bridged"] == 11                                             # 17 on 420-430
+    assert all(any(s.pid == 17 for s in tl.states[f]) for f in range(420, 431))
+    assert rep["held"] == 10                                                # 37 on 440-449, stopping where 204 stands
+    assert all(any(s.pid == 37 for s in tl.states[f]) for f in range(440, 450))
+    assert not any(s.pid == 37 for s in tl.states[452])
+    assert not any(s.pid == 40 for s in tl.states[435])                     # a sprinter's end is not held
+    tl3 = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in range(400, 440):
+        tl3.states[f].append(_st_(37, 5.0, 5.0))
+    only_bridge = tlm.stand_still(tl3, {37: "KC"}, lo=395, hi=459, bridge_m=1.5, hold=False)
+    assert only_bridge["held"] == 0                                           # holds off: the bridge alone
+    capped = tlm.stand_still(tl3, {37: "KC"}, lo=395, hi=459, bridge_m=1.5, hold=True, hold_max=5)
+    assert capped["held"] == 5
+    v = tlm.vanishings(tl, teams, lo=395, hi=459)
+    assert v["hole_frames"] == 0 and v["end_frames"] == 30 and v["worst"][0][0] == 40   # only the sprinter's exit is left, as it should be ...
+    tl2 = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in list(range(400, 420)) + list(range(431, 440)):
+        tl2.states[f].append(_st_(17, 0.0, 0.0))
+    v2 = tlm.vanishings(tl2, {17: "KC"}, lo=395, hi=459)
+    assert v2["holes"] == 1 and v2["hole_frames"] == 11 and v2["end_frames"] == 20 and v2["worst"][0][0] == 17   # ... before the rule
+
+
+def test_stand_still_hold_reads_the_boxes_pile_holds_new_id_on_the_spot_stops_open_turf_stops():
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    boxes = {"sideline": {}}
+    for f in range(400, 440):
+        tl.states[f].append(_st_(204, 0.0, 0.0))                           # the centre, ends at 439 standing still
+        boxes["sideline"][(f, 204)] = (100, 100, 160, 260)
+    for f in range(400, 460):
+        tl.states[f].append(_st_(139, 1.1, 0.0))                           # the guard beside him: boxes overlap a little
+        boxes["sideline"][(f, 139)] = (145, 100, 205, 260)
+        tl.states[f].append(_st_(84, -0.5, 0.4))                           # the nose tackle on him: covers his box
+        boxes["sideline"][(f, 84)] = (95, 110, 165, 270)
+    for f in range(400, 440):
+        tl.states[f].append(_st_(40, 5.0, 5.0))                            # a Raven, ends at 439 ...
+        boxes["sideline"][(f, 40)] = (500, 100, 560, 260)
+    for f in range(440, 460):
+        tl.states[f].append(_st_(198, 5.8, 5.2))                           # ... and goes on as 198, box on the same spot
+        boxes["sideline"][(f, 198)] = (505, 102, 565, 262)
+    for f in range(400, 440):
+        tl.states[f].append(_st_(1, 9.0, 9.0))                             # a Raven who walks off: nothing on his box after 445
+        boxes["sideline"][(f, 1)] = (900, 100, 960, 260)
+    for f in range(440, 446):
+        tl.states[f].append(_st_(74, 9.7, 9.3))
+        boxes["sideline"][(f, 74)] = (905, 105, 965, 265)
+    for f in range(446, 460):
+        tl.states[f].append(_st_(74, 12.0, 9.3))
+        boxes["sideline"][(f, 74)] = (1200, 105, 1260, 265)
+    for f in range(400, 440):
+        tl.states[f].append(_st_(198, 15.0, 5.0))                          # a Raven, ends at 439 ...
+        boxes["sideline"][(f, 198)] = (1500, 100, 1560, 260)
+    for f in range(440, 460):
+        tl.states[f].append(_st_(206, 15.6, 5.3))                          # ... and goes on as 206, born the frame after, IoU 0.36
+        boxes["sideline"][(f, 206)] = (1525, 112, 1585, 272)
+    for f in range(400, 440):
+        tl.states[f].append(_st_(166, 20.0, 5.0))                          # a lineman, ends at 439, an OLD teammate's box behind him at IoU 0.36
+        boxes["sideline"][(f, 166)] = (2000, 100, 2060, 260)
+    for f in range(400, 460):
+        tl.states[f].append(_st_(80, 21.5, 5.0))
+        boxes["sideline"][(f, 80)] = (2025, 112, 2085, 272)
+    teams = {204: "KC", 139: "KC", 84: "BAL", 40: "BAL", 198: "BAL", 1: "BAL", 74: "KC", 206: "BAL", 166: "KC", 80: "KC"}
+    rep = tlm.stand_still(tl, teams, lo=395, hi=459, bridge_m=1.5, clear_m=0.6, hold=True, hold_max=40, boxes=boxes,
+                          successor_iou=0.45, occluded_cover=0.5, newborn_iou=0.35, newborn_reach=3)
+    assert rep["ids"].get(204) == 20                                       # the pile covers his box to the window's end
+    assert all(any(s.pid == 204 for s in tl.states[f]) for f in range(440, 460))
+    assert 40 not in rep["ids"]                                            # 198's box sits on his: the man re-identified
+    assert rep["ids"].get(1) == 6                                          # held under 74's box, dropped on open turf
+    assert not any(s.pid == 1 for s in tl.states[446])
+    assert 198 not in rep["ids"]                                           # the newborn 206 on his box stops it at once
+    assert rep["ids"].get(166) == 20                                       # the old neighbour at 0.36 is another man: held on
+    assert rep["held"] == 46
+
+    # without boxes only the clearance and the cap stop a hold
+    tl2 = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in range(400, 440):
+        tl2.states[f].append(_st_(1, 9.0, 9.0))
+    assert tlm.stand_still(tl2, {1: "BAL"}, lo=395, hi=459, bridge_m=1.5, hold=True, hold_max=8)["held"] == 8
+    assert tlm.stand_still(tl2, {1: "BAL"}, lo=395, hi=459, bridge_m=1.5, hold=False)["held"] == 0
+
+    # a 51-frame hole is a track that ended and came back, not an occlusion
+    tl3 = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in list(range(400, 405)) + list(range(456, 460)):
+        tl3.states[f].append(_st_(166, 5.0, 5.0))
+    rep3 = tlm.stand_still(tl3, {166: "KC"}, lo=395, hi=459, bridge_m=1.5, hold=False, bridge_max_frames=50)
+    assert rep3["bridged"] == 0 and not any(s.pid == 166 for s in tl3.states[430])

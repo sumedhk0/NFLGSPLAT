@@ -1015,3 +1015,193 @@ def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_
             tl.states[f].append(dataclasses.replace(s))
             n += 1
     return n
+
+
+# ---- a man who vanishes is worse than a man who stands still (the play window) -----------------------------
+# During the play the sideline detector loses men locked up on the line (occlusion behind the man they are
+# engaged with): an id's track breaks for 10-40 frames or ends while he is still there, and nobody else is
+# drawn on his spot -- the user sees linemen vanish mid-play (play 1, 2026-09-19: the centre gone from 500 to
+# the end, 37 for 43 frames, 84 twice, BAL 1, 15 and 40 for good; 374 body-frames lost across 19 holes, 18 of
+# them in the pocket). An engaged man barely moves, so: a hole whose two ends lie within STAND_BRIDGE_M is
+# bridged with the straight line between them, and an id whose track ENDS while he was moving slowly (under
+# STAND_SLOW_M over the last STAND_WINDOW frames) is held at his last state to the play's end. Both only on
+# frames where no same-team body is already drawn within STAND_CLEAR_M of the point: where the man goes on
+# under another id, the other id has him and the hold stops. The renderer's aftermath hold (hold_to_end)
+# covers the tail after the dead ball; this covers the play.
+STAND_BRIDGE_M: float | None = 1.5      # None = off
+STAND_SLOW_M: float = 1.0
+STAND_WINDOW: int = 10
+STAND_CLEAR_M: float = 0.6
+# The hold after a track's end. Measured on play 1 (2026-09-19, the play window, v81's data): held with the same
+# 0.6 m clearance it added 501 body-frames on 11 ids (census 0.92 -> 2.62); stopped by any teammate within 1.5 m it
+# never held the centre (Thuney stands 1.3 m from him); stopped by a teammate BORN within 8 frames it held BAL 40
+# beside his own new id 198 (an old id) and again lost the centre (211 is born 1.3 m away). The boxes decide it:
+# after 204's last box at 499, BAL 84's box covers 0.9-1.0 of it for 25 frames with Thuney's at IoU 0.15-0.18 (a
+# pile: hold); BAL 40's last box has 198's on it at IoU 0.48 (the man re-identified: stop); BAL 1's is covered by
+# 74's for 8 frames and then by nothing (he walked off: stop). 4/194 0.67, 12/76 0.86, 15/168 0.67, 19/37 0.85,
+# 30/180 0.94, 38/12 0.90, 60/55 0.80, 84/168 0.75, 157/37 0.93 are the same man; 166/80 (the centre and the
+# quarterback behind him in the endzone image) 0.29-0.41 and 9/77 0.29 are two.
+STAND_HOLD: bool = True                 # False = the bridge alone
+STAND_HOLD_MAX: int = 25                # the last box is a stale image position and both cameras pan: 166's 40-frame hold
+                                        # ran 20 frames past a Raven standing on its endzone spot (film, 2026-09-19)
+STAND_SUCCESSOR_IOU: float = 0.45       # a same-team box on the last box at or above this: the man under a new id
+STAND_NEWBORN_IOU: float = 0.35         # ... or at this, for a same-team id born within STAND_NEWBORN_REACH frames of the
+STAND_NEWBORN_REACH: int = 3            # end (198 -> 206: born two frames after, IoU 0.41; 204 -> 211: born one frame
+                                        # after 1.3 m away, IoU 0.08; Mahomes behind the centre, an old id, 0.29-0.42)
+STAND_OCCLUDED_COVER: float = 0.5       # other boxes covering less of the last box than this: open turf, he left
+# A hole longer than this is not an occlusion but a track that ended and came back: on play 1 id 166's 135-frame
+# hole (406-542) bridged 116 body-frames of a ghost beside the centre (census 0.92 -> 1.19); the real pocket holes
+# are 5-45 frames.
+STAND_BRIDGE_MAX_FRAMES: int = 50
+
+
+def _same_team_near(states, pid: int, team, xy, teams: dict, clear_m: float) -> bool:
+    for t in states:
+        q = int(t.pid)
+        if q == pid or teams.get(q) != team:
+            continue
+        if float(np.hypot(*(np.asarray(t.xy[:2], float) - np.asarray(xy, float)))) <= clear_m:
+            return True
+    return False
+
+
+def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: float | None = STAND_BRIDGE_M,
+                slow_m: float = STAND_SLOW_M, window: int = STAND_WINDOW, clear_m: float = STAND_CLEAR_M,
+                hold: bool = STAND_HOLD, hold_max: int = STAND_HOLD_MAX, boxes: dict | None = None,
+                successor_iou: float = STAND_SUCCESSOR_IOU, occluded_cover: float = STAND_OCCLUDED_COVER,
+                bridge_max_frames: int = STAND_BRIDGE_MAX_FRAMES, newborn_iou: float = STAND_NEWBORN_IOU,
+                newborn_reach: int = STAND_NEWBORN_REACH) -> dict:
+    """Bridge an id's holes of at most ``bridge_max_frames`` whose ends lie within ``bridge_m``, and hold an id
+    whose track ends while slow, on frames ``lo..hi`` where no same-team body is drawn within ``clear_m`` of the
+    point. A hold runs at most ``hold_max`` frames and, given ``boxes`` (``{cam: {(frame, pid): box}}``), stops at
+    the first frame a same-team box lies on his last box at IoU ``successor_iou`` or more (the man under a new id;
+    ``newborn_iou`` for an id born within ``newborn_reach`` frames of the end) or other boxes cover less than
+    ``occluded_cover`` of it (open turf: he left); without boxes only the clearance and the cap stop it.
+    Returns ``{"bridged": n, "held": n, "ids": {pid: n}}``."""
+    import dataclasses
+
+    out = {"bridged": 0, "held": 0, "ids": {}}
+    if bridge_m is None:
+        return out
+    by_id: dict = {}
+    for f, sts in tl.states.items():
+        for s in sts:
+            by_id.setdefault(int(s.pid), {})[int(f)] = s
+    per_frame: dict = {}                                    # {cam: {frame: {pid: box}}}
+    born: dict = {}                                         # an id's first boxed frame in any camera
+    if boxes:
+        for cam, cb in boxes.items():
+            for (f, q), b in cb.items():
+                per_frame.setdefault(cam, {}).setdefault(int(f), {})[int(q)] = b
+                born[int(q)] = min(born.get(int(q), int(f)), int(f))
+
+    def last_box(pid, f_last):
+        for cam in ("sideline", "endzone", *[c for c in per_frame if c not in ("sideline", "endzone")]):
+            for f in range(f_last, f_last - 6, -1):
+                b = per_frame.get(cam, {}).get(f, {}).get(pid)
+                if b is not None:
+                    return cam, b
+        return None
+
+    def on_last_box(cam, b0, f, pid, team, f_end):
+        """(a same-team successor sits on ``b0``, cover) from the other boxes on frame ``f``."""
+        successor = False; cover = 0.0
+        a0 = max(0.0, b0[2] - b0[0]) * max(0.0, b0[3] - b0[1])
+        for q, b in per_frame.get(cam, {}).get(f, {}).items():
+            if q == pid:
+                continue
+            w = max(0.0, min(b0[2], b[2]) - max(b0[0], b[0])); h = max(0.0, min(b0[3], b[3]) - max(b0[1], b[1]))
+            cover += w * h
+            if teams.get(q) == team:
+                v = _box_iou(b0, b)
+                if v >= successor_iou or (v >= newborn_iou and born.get(q, -10**9) >= f_end - int(newborn_reach)):
+                    successor = True
+        return successor, (cover / a0 if a0 > 0 else 0.0)
+
+    for pid, byf in by_id.items():
+        team = teams.get(pid)
+        if team is None:
+            continue
+        fs = sorted(f for f in byf if lo <= f <= hi)
+        if not fs:
+            continue
+        # holes
+        for a, b in zip(fs, fs[1:]):
+            if b - a <= 1 or b - a - 1 > int(bridge_max_frames):
+                continue
+            xa = np.asarray(byf[a].xy[:2], float); xb = np.asarray(byf[b].xy[:2], float)
+            if float(np.hypot(*(xb - xa))) > bridge_m:
+                continue
+            for f in range(a + 1, b):
+                if f not in tl.states:
+                    continue
+                t = (f - a) / float(b - a)
+                xy = xa + t * (xb - xa)
+                if _same_team_near(tl.states[f], pid, team, xy, teams, clear_m):
+                    continue
+                s = byf[a] if t < 0.5 else byf[b]
+                tl.states[f].append(dataclasses.replace(s, xy=np.array([xy[0], xy[1]], float)))
+                out["bridged"] += 1; out["ids"][pid] = out["ids"].get(pid, 0) + 1
+        # a track that ends inside the window while slow
+        f_last = fs[-1]
+        if f_last >= hi or not hold:
+            continue
+        back = [f for f in fs if f_last - window <= f <= f_last]
+        moved = float(np.hypot(*(np.asarray(byf[f_last].xy[:2], float) - np.asarray(byf[back[0]].xy[:2], float)))) if len(back) > 1 else 0.0
+        if moved > slow_m:
+            continue
+        s = byf[f_last]
+        lb = last_box(pid, f_last) if per_frame else None
+        for f in range(f_last + 1, min(hi, f_last + int(hold_max)) + 1):
+            if f not in tl.states:
+                continue
+            if _same_team_near(tl.states[f], pid, team, s.xy[:2], teams, clear_m):
+                break                                       # a twin on the spot
+            if lb is not None:
+                successor, cover = on_last_box(lb[0], lb[1], f, pid, team, f_last)
+                if successor or cover < occluded_cover:
+                    break                                   # the man under a new id, or open turf: he left
+            tl.states[f].append(dataclasses.replace(s))
+            out["held"] += 1; out["ids"][pid] = out["ids"].get(pid, 0) + 1
+    return out
+
+
+def vanishings(tl: "Timeline", teams: dict, *, lo: int, hi: int, clear_m: float = STAND_CLEAR_M) -> dict:
+    """The ruler for the rule above: over ``lo..hi``, the holes inside an id and the frames after an id's
+    last drawn frame, counted only where no same-team body is drawn within ``clear_m`` of the man's spot
+    (the straight line across a hole, the last spot after an end). ``{"holes": n, "hole_frames": n,
+    "end_frames": n, "worst": [(pid, first, last, n)]}``."""
+    by_id: dict = {}
+    for f, sts in tl.states.items():
+        for s in sts:
+            by_id.setdefault(int(s.pid), {})[int(f)] = np.asarray(s.xy[:2], float)
+    holes = 0; hole_frames = 0; end_frames = 0; worst = []
+    for pid, byf in by_id.items():
+        team = teams.get(pid)
+        if team is None:
+            continue
+        fs = sorted(f for f in byf if lo <= f <= hi)
+        if not fs:
+            continue
+        for a, b in zip(fs, fs[1:]):
+            if b - a <= 1:
+                continue
+            n = 0
+            for f in range(a + 1, b):
+                t = (f - a) / float(b - a)
+                xy = byf[a] + t * (byf[b] - byf[a])
+                if not _same_team_near(tl.states.get(f, ()), pid, team, xy, teams, clear_m):
+                    n += 1
+            if n:
+                holes += 1; hole_frames += n; worst.append((pid, a + 1, b - 1, n))
+        f_last = fs[-1]
+        if f_last < hi:
+            n = 0
+            for f in range(f_last + 1, hi + 1):
+                if _same_team_near(tl.states.get(f, ()), pid, team, byf[f_last], teams, clear_m):
+                    break
+                n += 1
+            if n:
+                end_frames += n; worst.append((pid, f_last + 1, f_last + n, n))
+    worst.sort(key=lambda w: -w[3])
+    return {"holes": holes, "hole_frames": hole_frames, "end_frames": end_frames, "worst": worst[:12]}

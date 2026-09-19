@@ -887,14 +887,9 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             print(f"short fragments with an unreadable kit left out: {sorted(weak)} ({n} body-frames)")
     # two same-team ids within TWIN_M for TWIN_MIN_RUN frames are one man: the shorter-lived loses the
     # stretch (timeline.twin_frames; play 1: census live 1.32 -> 1.20, hops and steps unchanged)
-    twin_boxes = None
-    if tlm.TWIN_BOX_IOU_MIN is not None:
-        # both cameras' boxes on the timeline's frames: two engaged linemen overlap in the sideline image but
-        # not in the endzone's, so either camera seeing two boxes apart is enough to keep both men
-        twin_boxes = {}
-        for cam, sub in df.groupby("cam"):
-            twin_boxes[str(cam)] = {(int(r.frame), int(r.global_player_id)): (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
-                                    for r in sub.itertuples()}
+    # both cameras' boxes on the timeline's frames: two engaged linemen overlap in the sideline image but
+    # not in the endzone's, so either camera seeing two boxes apart is enough to keep both men
+    twin_boxes = _boxes_by_cam(df) if tlm.TWIN_BOX_IOU_MIN is not None else None
     twins = tlm.twin_frames(tl, teams_now, boxes=twin_boxes, box_iou_min=tlm.TWIN_BOX_IOU_MIN)
     if twins:
         n = tlm.drop_frames(tl, twins)
@@ -925,7 +920,29 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             for f, pid in fast:
                 by.setdefault(pid, []).append(f)
             print(f"impossible runs left out: {n} body-frames -- " + ", ".join(f"{pid} {min(fs)}-{max(fs)}" for pid, fs in sorted(by.items())))
+    # a man who vanishes is worse than a man who stands still (timeline.stand_still): on the play window a hole
+    # whose ends lie close is bridged and a track that ends while slow is held, where no teammate is drawn there.
+    # After every dedupe rule, so nothing it adds is deduped away; the knobs are read here, not bound as defaults.
+    st_snap, st_end = play_snap(P), play_end(P)
+    if tlm.STAND_BRIDGE_M is not None and st_snap is not None and st_end is not None:
+        rep = tlm.stand_still(tl, teams_now, lo=int(st_snap), hi=int(st_end), bridge_m=tlm.STAND_BRIDGE_M,
+                              hold=tlm.STAND_HOLD, hold_max=tlm.STAND_HOLD_MAX, boxes=_boxes_by_cam(df),
+                              successor_iou=tlm.STAND_SUCCESSOR_IOU, occluded_cover=tlm.STAND_OCCLUDED_COVER,
+                              bridge_max_frames=tlm.STAND_BRIDGE_MAX_FRAMES, newborn_iou=tlm.STAND_NEWBORN_IOU,
+                              newborn_reach=tlm.STAND_NEWBORN_REACH)
+        if rep["bridged"] or rep["held"]:
+            print(f"stands still: {rep['bridged']} hole body-frames bridged, {rep['held']} held after a track's end, on "
+                  f"{len(rep['ids'])} ids " + str(dict(sorted(rep["ids"].items()))))
     return tl, tracks, df, frames_all, poses
+
+
+def _boxes_by_cam(df) -> dict:
+    """``{cam: {(frame, pid): (x1, y1, x2, y2)}}`` of every camera's boxes on the timeline's frame clock."""
+    out = {}
+    for cam, sub in df.groupby("cam"):
+        out[str(cam)] = {(int(r.frame), int(r.global_player_id)): (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
+                         for r in sub.itertuples()}
+    return out
 
 
 def rest_pelvis_xy(model, betas):
