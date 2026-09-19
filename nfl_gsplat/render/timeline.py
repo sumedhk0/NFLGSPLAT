@@ -550,8 +550,12 @@ def unreadable_kit_ids(tl: "Timeline", df, named: dict, *, margin: float = 0.2, 
 # pulls them inside TWIN_M, but their sideline boxes barely overlap, while a real twin's boxes coincide (the
 # box-twin rule's 0.6). When both ids have a sideline box on the frame and the boxes overlap less than this,
 # they are two men and the stretch rule leaves them (play 1, 2026-09-19: the centre 204 lost 435-474 to a
-# neighbour). None = the distance alone, as before.
-TWIN_BOX_IOU_MIN: float | None = None
+# neighbour). None = the distance alone, as before. The sideline's boxes alone could not tell (a guard and the
+# centre sit at different depths on one line of sight and their sideline boxes overlap); with BOTH cameras'
+# boxes (any camera seeing the pair apart keeps both) the A/B on play 1's window 395-607 read: census 1.042 ->
+# 0.920 (the centre back on 435-475, 166 kept 392-409), steps 5, hops 0, root jitter and both ankle rulers
+# unchanged. Adopted at 0.3 on 2026-09-19.
+TWIN_BOX_IOU_MIN: float | None = 0.3
 
 
 def _box_iou(a, b) -> float:
