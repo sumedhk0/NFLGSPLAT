@@ -168,6 +168,10 @@ def main():
     receiver = args.receiver
     if receiver is None:
         raise SystemExit("--receiver is needed until the flight's end can name him; pass the id at the catch")
+    if team_of.get(int(receiver)) != offence:
+        # a completed pass ends in the offence's hands; the film reader once named the defender draped on the
+        # receiver (BAL 55 for KC 74) and a lineman's neighbour the quarterback -- refuse rather than render it
+        raise SystemExit(f"receiver {receiver} is {team_of.get(int(receiver))}, the offence is {offence}: check the receiver on the footage")
     p1 = hands_xy(args.catch, receiver)
     if p0 is None or p1 is None:
         raise SystemExit(f"passer {qb} at {args.release} or receiver {receiver} at {args.catch} is not drawn")
