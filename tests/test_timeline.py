@@ -685,3 +685,26 @@ def test_hold_to_end_drops_a_track_born_at_the_dead_ball_beside_the_held_man():
     for f in range(639, 648):
         pids = sorted(int(s.pid) for s in tl.states[f])
         assert pids == [2, 5, 71]
+
+
+def test_twin_frames_leaves_two_men_whose_sideline_boxes_do_not_overlap():
+    import numpy as np
+
+    from nfl_gsplat.render import timeline as tlm
+
+    def st(pid, x, y):
+        return tlm.PlayerState(pid=pid, xy=np.array([x, y]), body_pose=np.zeros((21, 3)), global_orient=np.zeros(3),
+                               betas=np.zeros(10), source="sideline")
+    tl = tlm.Timeline(frames=list(range(90, 130)), states={f: [st(17, 0.0, 0.0)] for f in range(90, 130)})
+    for f in range(100, 130):
+        tl.states[f].append(st(38, 0.3, 0.1))          # 17 has more frames overall, so 38 is the loser
+    teams = {17: "KC", 38: "KC"}
+    assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8)} == {38}
+    side_by_side = {(f, 17): (100.0, 100.0, 160.0, 240.0) for f in range(100, 130)}
+    side_by_side.update({(f, 38): (170.0, 100.0, 230.0, 240.0) for f in range(100, 130)})       # boxes touching, no overlap
+    assert tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes=side_by_side, box_iou_min=0.3) == set()
+    on_top = {(f, 17): (100.0, 100.0, 160.0, 240.0) for f in range(100, 130)}
+    on_top.update({(f, 38): (108.0, 104.0, 166.0, 244.0) for f in range(100, 130)})               # the same man twice
+    assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes=on_top, box_iou_min=0.3)} == {38}
+    missing = {(f, 17): (100.0, 100.0, 160.0, 240.0) for f in range(100, 130)}                   # 38 has no sideline box: the distance decides
+    assert {p for _f, p in tlm.twin_frames(tl, teams, twin_m=0.4, min_run=8, boxes=missing, box_iou_min=0.3)} == {38}

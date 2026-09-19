@@ -545,12 +545,31 @@ def unreadable_kit_ids(tl: "Timeline", df, named: dict, *, margin: float = 0.2, 
     return out
 
 
-def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_run: int = TWIN_MIN_RUN) -> set:
+# Two same-team bodies within TWIN_M on the turf are one man -- unless the sideline camera sees two: two linemen
+# shoulder to shoulder in an engaged line stand 0.4-0.5 m apart on the turf and the placement's depth error
+# pulls them inside TWIN_M, but their sideline boxes barely overlap, while a real twin's boxes coincide (the
+# box-twin rule's 0.6). When both ids have a sideline box on the frame and the boxes overlap less than this,
+# they are two men and the stretch rule leaves them (play 1, 2026-09-19: the centre 204 lost 435-474 to a
+# neighbour). None = the distance alone, as before.
+TWIN_BOX_IOU_MIN: float | None = None
+
+
+def _box_iou(a, b) -> float:
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1]); x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    ua = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return float(inter / ua) if ua > 0 else 0.0
+
+
+def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_run: int = TWIN_MIN_RUN,
+                boxes: dict | None = None, box_iou_min: float | None = None) -> set:
     """``{(frame, pid)}`` to drop: for every same-team pair of drawn ids within ``twin_m`` of each other
     on at least ``min_run`` CONSECUTIVE frames, the id drawn on fewer frames overall loses those frames.
     Two sideline boxes 0.13-0.15 m apart on one man for twenty frames, each drawn as a body (play 1,
     2026-09-16: 166-204 and 1-40), are the twins 08o's ankle-ray test (0.03-0.11 m) left; a pile
-    stands 0.27 m and up. The rider rule handles short fragments; this one handles long ids."""
+    stands 0.27 m and up. The rider rule handles short fragments; this one handles long ids.
+    ``boxes`` ``{(frame, pid): (x1, y1, x2, y2)}`` of the sideline camera with ``box_iou_min``: a pair
+    whose two boxes overlap less than that on the frame is two men, not twins (TWIN_BOX_IOU_MIN)."""
     frames_of: dict = {}
     for f, states in tl.states.items():
         for s in states:
@@ -564,6 +583,10 @@ def twin_frames(tl: "Timeline", team_of: dict, *, twin_m: float = TWIN_M, min_ru
                 if ta is None or ta != tb:
                     continue
                 if float(np.hypot(*(np.asarray(a.xy, float) - np.asarray(b.xy, float)))) <= twin_m:
+                    if boxes is not None and box_iou_min is not None:
+                        ba, bb = boxes.get((int(f), pa)), boxes.get((int(f), pb))
+                        if ba is not None and bb is not None and _box_iou(ba, bb) < box_iou_min:
+                            continue                                   # the sideline sees two men
                     close.setdefault((min(pa, pb), max(pa, pb)), []).append(int(f))
     drop: set = set()
     for (pa, pb), fs in close.items():

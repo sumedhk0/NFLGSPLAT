@@ -860,7 +860,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             print(f"short fragments with an unreadable kit left out: {sorted(weak)} ({n} body-frames)")
     # two same-team ids within TWIN_M for TWIN_MIN_RUN frames are one man: the shorter-lived loses the
     # stretch (timeline.twin_frames; play 1: census live 1.32 -> 1.20, hops and steps unchanged)
-    twins = tlm.twin_frames(tl, teams_now)
+    twin_boxes = None
+    if tlm.TWIN_BOX_IOU_MIN is not None:
+        sd = df[df["cam"] == "sideline"]
+        twin_boxes = {(int(r.frame), int(r.global_player_id)): (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
+                      for r in sd.itertuples()}
+    twins = tlm.twin_frames(tl, teams_now, boxes=twin_boxes, box_iou_min=tlm.TWIN_BOX_IOU_MIN)
     if twins:
         n = tlm.drop_frames(tl, twins)
         by = {}
