@@ -5159,3 +5159,11 @@ where 79 has none they are his). Running as chain_v76.sh: the fold, 09a, 08y --f
 overlays of 520-580 on both cameras (diag/pocket_v76/), then v76 with its sideline blend. The check: 79's endzone
 skeleton on number 15 at 540 with the depth the endzone gives, and the rulers not worse than v73's (steps 5, hops
 0, census 1.25).
+
+**The quarterback wears a lineman's build after 511 (20:55 machine clock).** identity_resolved: 80 (377-511) is
+'P80' with the default build; 79 (511-657) is 'P79' with role OL and 08n's OL build, 1.96 m / 315 lb -- Mahomes
+rendered as a tackle for the second half of the play. Two endzone-only fragments carry his name from the endzone
+OCR of number 15: 93 (197-237) and 95 (214-220), with the roster build. Queued as chain_v77.sh after v76: 79
+folded into 80 (one quarterback id, no passer chain: 08y --qb 80), 80's identity replaced by 93's (Patrick
+Mahomes, 15, the roster build; the OL role dropped), then 08x, the dump, 07l, v77 and its blend. Not folding
+93/95's rows in: they sit pre-snap where qb_hold draws him, and a track that "starts" at 197 would silence that rule.
