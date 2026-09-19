@@ -5319,3 +5319,11 @@ the twin rule is fixed for it), the pocket vouch. Open, in value order: (1) the 
 pocket (a Raven unboxed at 492 and 546); (2) the 12-KC frames right after the snap (17/204/166 are one man; fold
 them once the twin rule's loser choice cannot punish the neighbour -- re-measure now that the two-camera gate is in);
 (3) the endzone camera's play-time depth wander; (4) the pile's lying poses are synthesised.
+
+**The centre fold re-tried with the two-camera gate: still rejected (04:30 machine clock).** chain_v82.sh folded 204
+(395-499) and 166 (395-431) into 17 on v81's data, measured, and restored on its own gate: live steps 5 -> 11 (two
+handovers: the joins at 395 and 431, where 204's box and 17's box on the same man sit a few tenths apart and the
+fold makes that offset a step), census 0.92 -> 0.94 (KC 11.05 -> 10.92: the 12-count frames after the snap are
+gone, but the loss of the joins' frames and the twin rule's other drops leave him under). The gate no longer
+punishes the neighbour (139 is not in the twin list), so what remains is the join itself: a fold of two ids on one
+man needs the boxes reconciled at the seam (an offset blend over a few frames), not a cut. Tables restored to v81.
