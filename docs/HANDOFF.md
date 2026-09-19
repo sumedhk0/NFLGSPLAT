@@ -5148,3 +5148,14 @@ quarterback has no endzone rows after 511 and 170 is a chimera (a per-stretch id
 (2) the endzone camera's depth wander while panning (a players-as-ruler refit of its pose during the play);
 (3) the far-sideline receiver 77's twins after 624 (outside the clip now); (4) the pile's lying poses are
 synthesised, not fitted (the detector loses the men on the ground).
+
+**The quarterback's endzone rows, named by the film (20:45 machine clock; diag/pocket/ez_boxes_qb.png).** The endzone
+BOXES of the candidates drawn on the endzone frames: 170's box is on number 15 (Mahomes) at 524, 532, 540, 556,
+572 and 600 (on a lineman at 500); 164's box is on him at 516 and drifts onto number 52 (Humphrey) by 556; 139 is
+Thuney (62) throughout. So 170's endzone track becomes Mahomes at about 516 -- the "chimera" of the last entry is
+an endzone track switch, not a sideline one -- and the fix is a range fold: `08z --keep 79 --drop 170 --frames
+516 634` (both cameras; 170's sideline rows on frames where 79 has its own are the lineman twin and are dropped,
+where 79 has none they are his). Running as chain_v76.sh: the fold, 09a, 08y --from-film, 08x, the dump, 07l, 05q
+overlays of 520-580 on both cameras (diag/pocket_v76/), then v76 with its sideline blend. The check: 79's endzone
+skeleton on number 15 at 540 with the depth the endzone gives, and the rulers not worse than v73's (steps 5, hops
+0, census 1.25).
