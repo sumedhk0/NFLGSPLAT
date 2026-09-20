@@ -1058,12 +1058,15 @@ STAND_OCCLUDED_COVER: float = 0.5       # other boxes covering less of the last 
 # frames when the lock speed was slow_m, census 1.0 -> 1.36).
 STAND_LOCK_IOU: float = 0.5
 STAND_LOCK_MAX: int = 90
-STAND_LOCK_SLOW_M: float = 1.0          # the opponent moving farther than this over 10 frames has broken free (0.5 cut the
-                                        # centre's driven block at 523 and BAL 1's hold to 5 frames)
-STAND_LOCK_HISTORY: int = 8             # a lock needs an ENGAGEMENT: on at least this many of the man's last 15 boxed frames an
-STAND_LOCK_HIST_IOU: float = 0.4        # other-team box overlapped his at this IoU. The centre: a Raven (13, then 84) at 0.41-0.96
-                                        # on 483-499; BAL 1: at most 0.23 before his end, Noah Gray's 0.77 came AFTER it (a
-                                        # walk-over, not a block -- the lock followed Gray 83 frames without this test)
+STAND_LOCK_SLOW_M: float = 0.5          # the opponent moving farther than this over 10 frames is not blocking: at the lock's first
+                                        # frame it refuses the lock (the static hold applies), later it ends it. Measured on play 1
+                                        # (2026-09-20): the Raven on the centre moves 0.26-0.48 m/10 frames through 527 and 0.62+
+                                        # from 530 (driven, then free); Noah Gray after his contact with BAL 1 moves 0.53-0.79 from
+                                        # the first frame (a jog past, and the lock at 1.0 followed him 83 frames). The box-overlap
+                                        # engagement history that once told these apart was an artefact -- a wrong-team twin box on
+                                        # the centre (id 13); with honest boxes both pairs only touch on their last 4 frames.
+STAND_LOCK_HISTORY: int = 0             # the engagement history gate, off (0): on at least this many of the man's last 15 boxed
+STAND_LOCK_HIST_IOU: float = 0.4        # frames an other-team box overlapped his at STAND_LOCK_HIST_IOU
 # A hole longer than this is not an occlusion but a track that ended and came back: on play 1 id 166's 135-frame
 # hole (406-542) bridged 116 body-frames of a ghost beside the centre (census 0.92 -> 1.19); the real pocket holes
 # are 5-45 frames.
@@ -1144,6 +1147,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
 
     def engaged(cam, pid, team, f_last):
         """On at least ``lock_history`` of the man's last 15 boxed frames an other-team box overlapped his at ``lock_hist_iou``."""
+        if int(lock_history) <= 0:
+            return True
         n = 0
         for g in range(f_last - 14, f_last + 1):
             b0 = per_frame.get(cam, {}).get(g, {}).get(pid)

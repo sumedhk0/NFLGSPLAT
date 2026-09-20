@@ -865,7 +865,7 @@ def test_stand_still_locked_with_an_opponent_follows_him_and_stops_when_he_break
         boxes["sideline"][(f, 84)] = (95 + max(0, f - 439) // 2, 110, 165 + max(0, f - 439) // 2, 270)   # the block creeps in the image
     teams = {204: "KC", 84: "BAL"}
     rep = tlm.stand_still(tl, teams, lo=395, hi=499, bridge_m=1.5, clear_m=0.6, hold=True, hold_max=25, boxes=boxes,
-                          successor_iou=0.45, occluded_cover=0.5, lock_iou=0.5, lock_max=90, lock_slow_m=1.0, lock_history=8, lock_hist_iou=0.4)
+                          successor_iou=0.45, occluded_cover=0.5, lock_iou=0.5, lock_max=90, lock_slow_m=0.5, lock_history=0, lock_hist_iou=0.4)
     held = sorted(f for f in range(440, 500) if any(s.pid == 204 for s in tl.states[f]))
     assert held[0] == 440 and 465 <= held[-1] < 480                       # follows past the static cap of 25, stops once the Raven runs
     assert rep["locked"] == len(held) == rep["held"]
@@ -884,11 +884,11 @@ def test_stand_still_locked_with_an_opponent_follows_him_and_stops_when_he_break
     for f in range(450, 470):
         tl2.states[f].append(_st_(170, 0.2, 0.1)); boxes2["sideline"][(f, 170)] = (700, 108, 760, 268)
     rep2 = tlm.stand_still(tl2, {204: "KC", 84: "BAL", 170: "KC", 139: "KC"}, lo=395, hi=469, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes2,
-                           lock_iou=0.5, lock_max=90, lock_slow_m=1.0, lock_history=8, lock_hist_iou=0.4)
+                           lock_iou=0.5, lock_max=90, lock_slow_m=0.5, lock_history=0, lock_hist_iou=0.4)
     assert rep2["ids"].get(204) == 10 and not any(s.pid == 204 for s in tl2.states[450])
 
 
-def test_stand_still_lock_needs_an_engagement_a_walk_over_gets_the_static_hold():
+def test_stand_still_lock_refuses_a_jogging_opponent_a_walk_over_gets_the_static_hold():
     from nfl_gsplat.render import timeline as tlm
 
     tl = tlm.Timeline(frames=list(range(400, 470)), states={f: [] for f in range(400, 470)})
@@ -897,10 +897,10 @@ def test_stand_still_lock_needs_an_engagement_a_walk_over_gets_the_static_hold()
         tl.states[f].append(_st_(1, 9.0, 9.0)); boxes["sideline"][(f, 1)] = (900, 100, 960, 260)   # a Raven, ends at 439, nobody on him before
     for f in range(400, 470):
         x = 400 + 12 * (f - 400)                                                                    # a tight end jogging across his spot ...
-        tl.states[f].append(_st_(74, 9.0 + 0.05 * (f - 440), 9.3)); boxes["sideline"][(f, 74)] = (x, 105, x + 60, 265)
+        tl.states[f].append(_st_(74, 9.0 + 0.07 * (f - 440), 9.3)); boxes["sideline"][(f, 74)] = (x, 105, x + 60, 265)
     rep = tlm.stand_still(tl, {1: "BAL", 74: "KC"}, lo=395, hi=469, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes,
-                          lock_iou=0.5, lock_max=90, lock_slow_m=1.0, lock_history=8, lock_hist_iou=0.4)
-    assert rep["locked"] == 0                                                                       # ... is no block: no lock
+                          lock_iou=0.5, lock_max=90, lock_slow_m=0.5, lock_history=0, lock_hist_iou=0.4)
+    assert rep["locked"] == 0                                                                       # ... moves 0.7 m per 10 frames: no block, no lock
     assert 0 < rep["ids"].get(1, 0) < 25                                                            # the static hold, ended by open turf
 
 
