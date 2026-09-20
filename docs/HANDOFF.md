@@ -5426,3 +5426,29 @@ detector merging two engaged men into one box (the centre after 499, Thuney's bo
 rides the pair 524-567 and is dropped as a rider); (2) the endzone camera's play-time depth wander (166's 1.3 m seam,
 and what stopped the centre's endzone rows from carrying him); (3) the endzone pairing's three ids for one man
 (174/166/164); (4) the pile's synthesised lying poses.
+
+## 2026-09-19 (night): the endzone camera's depth is a BIAS, not a wander -- taken out of endzone-only placements (v85)
+
+**Measured** (scratchpad/probe_ez_common_mode.py, a wrapper on play_timeline.ground_positions recording the raw per-camera
+ground points; the play window 395-607): the median sideline-minus-endzone offset over each frame's two-view bodies is
++0.45 m along the field on EVERY frame (p10 +0.31, p50 +0.45, p90 +0.63; 80 of 213 frames above 0.5 m), its spread
+(p75 of the residuals) 0.2-0.5 m before the catch and 0.5-1.1 m after; the across offset drifts from 0 to -0.9 m over
+the last 60 frames as the camera pans. So what the 09-18 entry called a 1.4 m "wander" is mostly a constant bias of the
+endzone camera's ground points along the field plus a pan-time drift across; a two-view body never shows it (the
+sideline's point overrides), a body the endzone alone places carries it whole. That is the 1.29 m seam between the
+centre's followed spot at 540 and his endzone id 166 at 542, and the reason the film-true fold of his endzone ids
+slid (the 16th rejected correction): the endzone rows were placed 0.45 m short.
+
+**The correction** (pair_rule.common_mode_shift, EZ_COMMON_MODE on, EZ_COMMON_MODE_MIN_PAIRS 4): every endzone-only
+point in the merged ground moves by its frame's median sideline-minus-endzone vector over the ids both cameras place
+(the play-wide median where a frame has fewer than 4 pairs), in the loader after the sideline's points override the
+merged ground and before the hole hold. The same common mode MISPAIR_FRAME_M measured (and lost with, as a per-frame
+veto: flips = steps), used as a correction: nothing flips.
+
+**A/B on play 1** (probe_cm_ab.py, v81's tables, the stand-still rule on): the seam 1.29 -> 0.91 m; steps 5, hops 0;
+census 1.014 -> 1.009; vanish hole frames 97 -> 87, end frames 646 -> 667; 6705 endzone-only body-frames shifted over
+the whole clip, 503 frames with their own offset (the play-wide one is +0.23, +0.03 m over all 647 frames). The
+sideline blend is the ruler for a shift along the field: `diag/pocket/centre_v85_check.png` against
+`centre_v84b_check.png` (542-568) -- the endzone-drawn body moves toward the film's pair at every frame, the residual
+being 166's own drift onto the Raven. Adopted; commit 4166c74; suite 1251 passed, 3 skipped. v85 chain launched
+(render + both blends) -- numbers in the next entry.
