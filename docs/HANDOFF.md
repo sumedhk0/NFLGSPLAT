@@ -5542,3 +5542,12 @@ tables: the centre locked 500-528, BAL 1 static 14, steps 5, hops 0, vanish end 
 1.146 -- the honest number: the ghost had stood in for BAL 1, whose 173-frame absence now shows in the count.
 The seventeenth lesson of the corrections file, in a new form: a gate tuned on the data can be tuned on an artefact of
 the data; when a film-true fix breaks a rule, suspect the rule's evidence, not the fix.
+
+**v87 rendered (03:40 machine clock): `diag/play_001_v87_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.
+CURRENT BEST.** 07l on 395-607: steps 5, hops 0, census 1.15 (KC 11.19 / BAL 10.58 -- the honest count with the 13 ghost
+gone and BAL 1 still unboxed after 434). Tables and pose caches snapshotted as `*.v87`. Commits 29b5427 (the lock's pace
+gate), e2599a4 (HANDOFF). Open, in value order: (1) the sideline detector's holes -- BAL 1 after 434 (173 frames, no box
+in either camera), the centre after 528 (his box merged into Thuney's; 164's endzone rows are him but sit 1.0-1.3 m off
+and beyond his sideline span); (2) the endzone pairing's several ids for one man (174/166/164 on the centre) -- a runtime
+handover with a blended seam; (3) the pile's synthesised lying poses; (4) the 12th KC man on 75 frames is down to the
+37/211 and 205/211 twins.
