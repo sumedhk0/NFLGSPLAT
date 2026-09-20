@@ -5452,3 +5452,12 @@ sideline blend is the ruler for a shift along the field: `diag/pocket/centre_v85
 `centre_v84b_check.png` (542-568) -- the endzone-drawn body moves toward the film's pair at every frame, the residual
 being 166's own drift onto the Raven. Adopted; commit 4166c74; suite 1251 passed, 3 skipped. v85 chain launched
 (render + both blends) -- numbers in the next entry.
+
+**v85 rendered (23:20 machine clock): `diag/play_001_v85_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.
+CURRENT BEST.** 07l on 395-607: steps 5, hops 0, census 1.01 (KC 11.37 / BAL 11.05); 6705 endzone-only body-frames shifted.
+Also checked on the film tonight: id 37's 43-frame hole (531-573) is NOT a vanishing -- the man is drawn as his twin id
+211 throughout (`diag/pocket/sl_37_hole.png`), and 37's endzone point at 530 sits 3.5 m across from his sideline point
+at 574 (a mispaired endzone row), which is why the vanishings ruler's straight line misses 211; the ruler's worst list
+is contaminated by re-identifications (1 -> ?, 6 -> 78, 40 -> 198, 198 -> 206) whose successor bodies stand more than
+0.6 m off the old spot. A successor-aware ruler is the next small step; the real remaining vanishing on the film is the
+centre after 568 (his endzone id 164 carries him 547-634 but is beyond its own sideline span, join 330 frames back).
