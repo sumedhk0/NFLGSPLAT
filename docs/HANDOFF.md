@@ -5503,3 +5503,11 @@ RETRACTION of my first reading: he is NOT BAL 1 re-identified; 1 is another Rave
 two bodies on one man) leaves, and with BAL 1 still missing the count drops to 10 there: the census cannot judge a ghost's
 removal while a real man is missing, the film can. v86 chain relaunched on these tables (the first launch was stopped at
 its first stage to fold first, so the render and the blends share one state).
+
+**v86 rendered and film-checked (01:50 machine clock): `diag/play_001_v86_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` /
+`_endzone_blend`. CURRENT BEST.** 07l on 395-607: steps 5, hops 0, census 0.95 (KC 11.25 / BAL 10.85; v85 1.01 with KC 11.37).
+Film vs render on the right of the line (`diag/pocket/right_v86_check.png`, 440-590): jerseys 65 and 74 and the Raven on them
+drawn as one body each at every checked frame, no double on 65 (the 49/76 twin) and one Raven (40) through 592. Tables
+snapshotted as `*.v86` (tracks, keypoints, identity, poses_refit, poses_sideline). Lead for BAL 1 (unboxed after 434): the
+wide strip `diag/pocket/sl_1_wide.png` shows a fragment id 153 near him at 434 and 460 -- one of the short fragments the rider
+rule drops as riding another body (Noah Gray's, who blocks him); if 153's boxes are his, a fold 153 -> 1 draws him on.
