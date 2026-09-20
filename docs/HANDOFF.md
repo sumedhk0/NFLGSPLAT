@@ -5511,3 +5511,10 @@ drawn as one body each at every checked frame, no double on 65 (the 49/76 twin) 
 snapshotted as `*.v86` (tracks, keypoints, identity, poses_refit, poses_sideline). Lead for BAL 1 (unboxed after 434): the
 wide strip `diag/pocket/sl_1_wide.png` shows a fragment id 153 near him at 434 and 460 -- one of the short fragments the rider
 rule drops as riding another body (Noah Gray's, who blocks him); if 153's boxes are his, a fold 153 -> 1 draws him on.
+
+**BAL 1's lead is dead (02:05).** Fragment 153 is six sideline boxes (433-434, 457-460) on team T1 with an unreadable kit, not
+the Raven; BAL 1 has no box in either camera after 434 (endzone 376-384 only). A detection hole -- the sideline detector
+losing a man Noah Gray blocks, then nothing on him for 173 frames -- open item (1). Pose rulers v81 -> v86 (07l, live):
+root jitter p90 0.0261 -> 0.0261, joints jitter p90 0.1095 -> 0.1126, p99 0.364 -> 0.380 (37 ids from 41 after the
+folds); the catch strip (review_v86/strips/render_ball_f556.png) reads as v81: the ball to the receiver at 560-562, the
+tacklers on him from 564.
