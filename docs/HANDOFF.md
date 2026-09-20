@@ -5492,3 +5492,14 @@ hopping between two men, and 38 is 76's earlier name.
   and the ruler read a 121-frame false vanishing). Result on the play window: census 1.009 -> 0.887, steps 5, hops 0,
   vanish holes 5/87 -> 4/82, end frames 301 unchanged; 76 drawn 395-637, 12 395-620, 49 only after the play.
   08v carried 50 fused and 17 sideline posed frames to 76. v86 chain launched; film check of the right side next.
+
+**The Raven on the right side of the line: one man under three ids (01:15).** Jersey crops (`diag/pocket/jersey_1_40_198_206.png`)
+and the box strip after BAL 1's last box (`sl_1_after.png`): the Raven engaged with jerseys 74/65 from ~445 is id 40, then
+198 from 483 (two boxes on him 483-484, 40 going on by endzone rows alone to 526) and 206 from 555/571 -- one man. A
+RETRACTION of my first reading: he is NOT BAL 1 re-identified; 1 is another Raven (blocked by Noah Gray at the line at
+412-420) who is genuinely unboxed after 434 -- a real vanishing still open. Folds on the film's say-so (backups .pre_fold.17/18):
+198 into 40 on 483-660, 206 into 40 on 555-660. 40 drawn 414-592 as one id; steps 5, hops 0; vanish end frames 301 -> 256
+(the false ends of 40/198/206 gone); census 0.887 -> 0.948 -- the 483-526 ghost (40 by the endzone plus 198 by the sideline,
+two bodies on one man) leaves, and with BAL 1 still missing the count drops to 10 there: the census cannot judge a ghost's
+removal while a real man is missing, the film can. v86 chain relaunched on these tables (the first launch was stopped at
+its first stage to fold first, so the render and the blends share one state).
