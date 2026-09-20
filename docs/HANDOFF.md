@@ -5394,3 +5394,35 @@ endzone pairing's three ids for one man.
 
 **Tools:** `scratchpad/probe_end_boxes.py` (box coverage after every end), `hold_sheet.py` (film sheet per hold),
 `zoom_strip.py` (a zoomed strip around a fixed image box, ZR/ZZ env for radius/zoom), `steps_by_id.py`.
+
+**v83 rendered and film-checked (20:40 machine clock): `diag/play_001_v83_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` /
+`_endzone_blend`.** 07l on 395-607: steps 5, hops 0, census 1.00 (KC 11.31 / BAL 11.06; v81 0.92). Film vs render at the
+centre's spot (`diag/pocket/centre_v83_check.png`, 499-548): 499-524 the render matches the film frame for frame (the
+Raven plus two red men); at 532 the film still has the centre locked with that Raven and the render has one red man
+(the hold ended at 524); by 547 the pair has travelled a box-width. Note for the chain: 08y needs `--qb 80 --down 607
+--snap 395` with `--from-film` (the first v83 chain ran it bare, wrote down None, and was killed before the render).
+
+**The locked mode (v84).** The Raven the centre blocks (BAL 84) is tracked to 587, so the block carries him:
+timeline.stand_still's hold gets a locked mode -- a man whose track ends while ENGAGED (an other-team box on his at
+IoU >= 0.4 on 8 of his last 15 boxed frames), with one other-team box covering his last box at IoU >= 0.5 on the first
+held frame and that opponent drawn and slow, follows the opponent's displacement for up to 90 frames until the opponent
+moves more than 1.0 m over 10 frames (broke free), leaves, or a same-team body stands within 0.6 m of the followed spot.
+The engagement history separates the cases: the centre had a Raven (13, then 84 -- the same man under two ids) on his
+box at 0.41-0.96 over 483-499; BAL 1 had at most 0.23 before his end, Noah Gray's 0.77 came AFTER it (a walk-over).
+On v81's tables: the centre 395-540 (locked 500-540, moving 1.1 m back with 84 as the film shows), then 166 542-568;
+BAL 1 still 14; steps 5, hops 0, census 1.005 -> 1.014, vanishing end frames 661 -> 646. Rejected on the way: the lock
+without the engagement test (BAL 1 followed Gray 83 frames, census 1.36); bounded by the stale box's cover (26 frames);
+the cover on a box moved with the opponent's plus a 0.5 m block speed (24, and BAL 1 cut to 5); a box-successor test
+inside the lock (Thuney's box drifting onto the centre's Raven at 0.41-0.46 ended it at 524 with his body 1.3 m off);
+the moved-box cover inside the lock (the Raven's own box shrinking ended it at 526). Known seam: the followed spot at
+540 and 166's endzone placement at 542 lie 1.29 m apart -- the endzone camera's depth wander, open item (3).
+**v84 rendered and film-checked (21:35 machine clock): `diag/play_001_v84_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` /
+`_endzone_blend`. CURRENT BEST.** 07l on 395-607: steps 5, hops 0, census 1.01 (KC 11.38 / BAL 11.06). Film vs render at the
+centre's spot (`diag/pocket/centre_v84_check.png`, 516-568): 516-540 the render matches the film frame for frame -- the
+Raven plus two red men, the pair moving together as the block is driven back; from 542 his endzone id 166 draws him,
+1.3 m off the followed spot (the endzone depth wander), to 568; the rest of the pocket reads the same as v83. Commits
+44e94e9 (the rule + the ruler), 181dff4 (HANDOFF), aa671dd (the locked mode). Open, in value order: (1) the sideline
+detector merging two engaged men into one box (the centre after 499, Thuney's box on the pair from 524; a fragment 186
+rides the pair 524-567 and is dropped as a rider); (2) the endzone camera's play-time depth wander (166's 1.3 m seam,
+and what stopped the centre's endzone rows from carrying him); (3) the endzone pairing's three ids for one man
+(174/166/164); (4) the pile's synthesised lying poses.
