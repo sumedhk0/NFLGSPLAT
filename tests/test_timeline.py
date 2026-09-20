@@ -902,3 +902,17 @@ def test_stand_still_lock_needs_an_engagement_a_walk_over_gets_the_static_hold()
                           lock_iou=0.5, lock_max=90, lock_slow_m=1.0, lock_history=8, lock_hist_iou=0.4)
     assert rep["locked"] == 0                                                                       # ... is no block: no lock
     assert 0 < rep["ids"].get(1, 0) < 25                                                            # the static hold, ended by open turf
+
+
+def test_vanishings_does_not_count_a_man_re_identified_under_a_newborn_id_nearby():
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in range(400, 430):
+        tl.states[f].append(_st_(40, 5.0, 5.0))                            # ends at 429 ...
+    for f in range(431, 460):
+        tl.states[f].append(_st_(198, 5.9, 5.4))                           # ... goes on as 198, born two frames later 1.0 m off
+    for f in range(400, 430):
+        tl.states[f].append(_st_(1, 9.0, 9.0))                             # ends at 429, nobody takes over
+    v = tlm.vanishings(tl, {40: "BAL", 198: "BAL", 1: "BAL"}, lo=395, hi=459, clear_m=0.6, successor_reach=3, successor_m=1.5)
+    assert v["successions"] == 1 and v["end_frames"] == 30 and v["worst"] == [(1, 430, 459, 30)]

@@ -1237,16 +1237,25 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
     return out
 
 
-def vanishings(tl: "Timeline", teams: dict, *, lo: int, hi: int, clear_m: float = STAND_CLEAR_M) -> dict:
+VANISH_SUCCESSOR_REACH: int = 5         # a same-team id born within this many frames of an end (9 -> 77 overlapped 4 frames) ...
+VANISH_SUCCESSOR_M: float = 2.0         # ... whose first body stands within this of the last spot is the man re-identified (198 -> 206: the two cameras place them 1.5-2 m apart)
+
+
+def vanishings(tl: "Timeline", teams: dict, *, lo: int, hi: int, clear_m: float = STAND_CLEAR_M,
+               successor_reach: int = VANISH_SUCCESSOR_REACH, successor_m: float = VANISH_SUCCESSOR_M) -> dict:
     """The ruler for the rule above: over ``lo..hi``, the holes inside an id and the frames after an id's
     last drawn frame, counted only where no same-team body is drawn within ``clear_m`` of the man's spot
-    (the straight line across a hole, the last spot after an end). ``{"holes": n, "hole_frames": n,
-    "end_frames": n, "worst": [(pid, first, last, n)]}``."""
+    (the straight line across a hole, the last spot after an end). An end followed by a same-team id born
+    within ``successor_reach`` frames of it whose first body stands within ``successor_m`` of the last spot
+    is the man re-identified, not a vanishing (play 1: 6 -> 78, 40 -> 198, 198 -> 206 stood 0.6-1.5 m off
+    and read as 114, 44 and 22 uncovered frames). ``{"holes": n, "hole_frames": n, "end_frames": n,
+    "successions": n, "worst": [(pid, first, last, n)]}``."""
     by_id: dict = {}
     for f, sts in tl.states.items():
         for s in sts:
             by_id.setdefault(int(s.pid), {})[int(f)] = np.asarray(s.xy[:2], float)
-    holes = 0; hole_frames = 0; end_frames = 0; worst = []
+    born = {q: min(byq) for q, byq in by_id.items()}
+    holes = 0; hole_frames = 0; end_frames = 0; successions = 0; worst = []
     for pid, byf in by_id.items():
         team = teams.get(pid)
         if team is None:
@@ -1267,6 +1276,11 @@ def vanishings(tl: "Timeline", teams: dict, *, lo: int, hi: int, clear_m: float 
                 holes += 1; hole_frames += n; worst.append((pid, a + 1, b - 1, n))
         f_last = fs[-1]
         if f_last < hi:
+            succ = any(q != pid and teams.get(q) == team and abs(born[q] - f_last) <= int(successor_reach)
+                       and float(np.hypot(*(by_id[q][born[q]] - byf[f_last]))) <= successor_m for q in by_id)
+            if succ:
+                successions += 1
+                continue
             n = 0
             for f in range(f_last + 1, hi + 1):
                 if _same_team_near(tl.states.get(f, ()), pid, team, byf[f_last], teams, clear_m):
@@ -1275,4 +1289,4 @@ def vanishings(tl: "Timeline", teams: dict, *, lo: int, hi: int, clear_m: float 
             if n:
                 end_frames += n; worst.append((pid, f_last + 1, f_last + n, n))
     worst.sort(key=lambda w: -w[3])
-    return {"holes": holes, "hole_frames": hole_frames, "end_frames": end_frames, "worst": worst[:12]}
+    return {"holes": holes, "hole_frames": hole_frames, "end_frames": end_frames, "successions": successions, "worst": worst[:12]}
