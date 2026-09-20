@@ -929,10 +929,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                               hold=tlm.STAND_HOLD, hold_max=tlm.STAND_HOLD_MAX, boxes=_boxes_by_cam(df),
                               successor_iou=tlm.STAND_SUCCESSOR_IOU, occluded_cover=tlm.STAND_OCCLUDED_COVER,
                               bridge_max_frames=tlm.STAND_BRIDGE_MAX_FRAMES, newborn_iou=tlm.STAND_NEWBORN_IOU,
-                              newborn_reach=tlm.STAND_NEWBORN_REACH)
+                              newborn_reach=tlm.STAND_NEWBORN_REACH, lock_iou=tlm.STAND_LOCK_IOU, lock_max=tlm.STAND_LOCK_MAX,
+                              lock_slow_m=tlm.STAND_LOCK_SLOW_M, lock_history=tlm.STAND_LOCK_HISTORY,
+                              lock_hist_iou=tlm.STAND_LOCK_HIST_IOU)
         if rep["bridged"] or rep["held"]:
-            print(f"stands still: {rep['bridged']} hole body-frames bridged, {rep['held']} held after a track's end, on "
-                  f"{len(rep['ids'])} ids " + str(dict(sorted(rep["ids"].items()))))
+            print(f"stands still: {rep['bridged']} hole body-frames bridged, {rep['held']} held after a track's end "
+                  f"({rep['locked']} of them locked with an opponent), on {len(rep['ids'])} ids " + str(dict(sorted(rep["ids"].items()))))
     return tl, tracks, df, frames_all, poses
 
 

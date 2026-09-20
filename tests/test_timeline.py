@@ -824,7 +824,7 @@ def test_stand_still_hold_reads_the_boxes_pile_holds_new_id_on_the_spot_stops_op
         boxes["sideline"][(f, 80)] = (2025, 112, 2085, 272)
     teams = {204: "KC", 139: "KC", 84: "BAL", 40: "BAL", 198: "BAL", 1: "BAL", 74: "KC", 206: "BAL", 166: "KC", 80: "KC"}
     rep = tlm.stand_still(tl, teams, lo=395, hi=459, bridge_m=1.5, clear_m=0.6, hold=True, hold_max=40, boxes=boxes,
-                          successor_iou=0.45, occluded_cover=0.5, newborn_iou=0.35, newborn_reach=3)
+                          successor_iou=0.45, occluded_cover=0.5, newborn_iou=0.35, newborn_reach=3, lock_iou=None)
     assert rep["ids"].get(204) == 20                                       # the pile covers his box to the window's end
     assert all(any(s.pid == 204 for s in tl.states[f]) for f in range(440, 460))
     assert 40 not in rep["ids"]                                            # 198's box sits on his: the man re-identified
@@ -847,3 +847,58 @@ def test_stand_still_hold_reads_the_boxes_pile_holds_new_id_on_the_spot_stops_op
         tl3.states[f].append(_st_(166, 5.0, 5.0))
     rep3 = tlm.stand_still(tl3, {166: "KC"}, lo=395, hi=459, bridge_m=1.5, hold=False, bridge_max_frames=50)
     assert rep3["bridged"] == 0 and not any(s.pid == 166 for s in tl3.states[430])
+
+
+def test_stand_still_locked_with_an_opponent_follows_him_and_stops_when_he_breaks_free():
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 500)), states={f: [] for f in range(400, 500)})
+    boxes = {"sideline": {}}
+    for f in range(400, 440):
+        tl.states[f].append(_st_(204, 0.0, 0.0))                           # the centre, ends at 439
+        boxes["sideline"][(f, 204)] = (100, 100, 160, 260)
+    for f in range(400, 500):
+        x = -0.5 + 0.02 * max(0, f - 439)                                  # the Raven on him, driven back 0.02 m/frame ...
+        if f >= 470:
+            x = -0.5 + 0.02 * 30 + 0.3 * (f - 469)                         # ... then breaks free at 470 (0.3 m/frame)
+        tl.states[f].append(_st_(84, x, 0.4))
+        boxes["sideline"][(f, 84)] = (95 + max(0, f - 439) // 2, 110, 165 + max(0, f - 439) // 2, 270)   # the block creeps in the image
+    teams = {204: "KC", 84: "BAL"}
+    rep = tlm.stand_still(tl, teams, lo=395, hi=499, bridge_m=1.5, clear_m=0.6, hold=True, hold_max=25, boxes=boxes,
+                          successor_iou=0.45, occluded_cover=0.5, lock_iou=0.5, lock_max=90, lock_slow_m=1.0, lock_history=8, lock_hist_iou=0.4)
+    held = sorted(f for f in range(440, 500) if any(s.pid == 204 for s in tl.states[f]))
+    assert held[0] == 440 and 465 <= held[-1] < 480                       # follows past the static cap of 25, stops once the Raven runs
+    assert rep["locked"] == len(held) == rep["held"]
+    xy = [s.xy[:2] for s in tl.states[460] if s.pid == 204][0]
+    assert abs(float(xy[0]) - 0.02 * 21) < 1e-6 and abs(float(xy[1])) < 1e-6   # moved with the opponent, offset kept
+
+    # a same-team BODY on the spot: the man under a new id, the lock ends (a neighbour's box drifting onto the pair
+    # with his body 1.3 m off, Thuney on the centre's Raven, does not end it)
+    tl2 = tlm.Timeline(frames=list(range(400, 470)), states={f: [] for f in range(400, 470)})
+    boxes2 = {"sideline": {}}
+    for f in range(400, 440):
+        tl2.states[f].append(_st_(204, 0.0, 0.0)); boxes2["sideline"][(f, 204)] = (100, 100, 160, 260)
+    for f in range(400, 470):
+        tl2.states[f].append(_st_(84, -0.5, 0.4)); boxes2["sideline"][(f, 84)] = (95, 110, 165, 270)
+        tl2.states[f].append(_st_(139, 1.3, 0.0)); boxes2["sideline"][(f, 139)] = (98, 108, 168, 268)
+    for f in range(450, 470):
+        tl2.states[f].append(_st_(170, 0.2, 0.1)); boxes2["sideline"][(f, 170)] = (700, 108, 760, 268)
+    rep2 = tlm.stand_still(tl2, {204: "KC", 84: "BAL", 170: "KC", 139: "KC"}, lo=395, hi=469, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes2,
+                           lock_iou=0.5, lock_max=90, lock_slow_m=1.0, lock_history=8, lock_hist_iou=0.4)
+    assert rep2["ids"].get(204) == 10 and not any(s.pid == 204 for s in tl2.states[450])
+
+
+def test_stand_still_lock_needs_an_engagement_a_walk_over_gets_the_static_hold():
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 470)), states={f: [] for f in range(400, 470)})
+    boxes = {"sideline": {}}
+    for f in range(400, 440):
+        tl.states[f].append(_st_(1, 9.0, 9.0)); boxes["sideline"][(f, 1)] = (900, 100, 960, 260)   # a Raven, ends at 439, nobody on him before
+    for f in range(400, 470):
+        x = 400 + 12 * (f - 400)                                                                    # a tight end jogging across his spot ...
+        tl.states[f].append(_st_(74, 9.0 + 0.05 * (f - 440), 9.3)); boxes["sideline"][(f, 74)] = (x, 105, x + 60, 265)
+    rep = tlm.stand_still(tl, {1: "BAL", 74: "KC"}, lo=395, hi=469, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes,
+                          lock_iou=0.5, lock_max=90, lock_slow_m=1.0, lock_history=8, lock_hist_iou=0.4)
+    assert rep["locked"] == 0                                                                       # ... is no block: no lock
+    assert 0 < rep["ids"].get(1, 0) < 25                                                            # the static hold, ended by open turf

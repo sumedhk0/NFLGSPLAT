@@ -1049,6 +1049,21 @@ STAND_NEWBORN_IOU: float = 0.35         # ... or at this, for a same-team id bor
 STAND_NEWBORN_REACH: int = 3            # end (198 -> 206: born two frames after, IoU 0.41; 204 -> 211: born one frame
                                         # after 1.3 m away, IoU 0.08; Mahomes behind the centre, an old id, 0.29-0.42)
 STAND_OCCLUDED_COVER: float = 0.5       # other boxes covering less of the last box than this: open turf, he left
+# Locked mode: when ONE other-team box covers the last box at IoU >= STAND_LOCK_IOU on the first held frame and that
+# opponent is drawn and slow, the held man is locked with him (the centre with BAL 84 on play 1, IoU 0.6-0.75 from
+# 500 to 511, the pair moving together on the film through 587) and follows the opponent's displacement for up to
+# STAND_LOCK_MAX frames; the opponent breaking free (> slow_m over 10 frames), leaving the timeline, or the block
+# leaving the timeline, or moving faster than STAND_LOCK_SLOW_M ends it; the cover test runs on the last box moved with
+# the opponent's box (a lock on a man who merely walked over the spot -- BAL 1 under Noah Gray's box -- followed him 83
+# frames when the lock speed was slow_m, census 1.0 -> 1.36).
+STAND_LOCK_IOU: float = 0.5
+STAND_LOCK_MAX: int = 90
+STAND_LOCK_SLOW_M: float = 1.0          # the opponent moving farther than this over 10 frames has broken free (0.5 cut the
+                                        # centre's driven block at 523 and BAL 1's hold to 5 frames)
+STAND_LOCK_HISTORY: int = 8             # a lock needs an ENGAGEMENT: on at least this many of the man's last 15 boxed frames an
+STAND_LOCK_HIST_IOU: float = 0.4        # other-team box overlapped his at this IoU. The centre: a Raven (13, then 84) at 0.41-0.96
+                                        # on 483-499; BAL 1: at most 0.23 before his end, Noah Gray's 0.77 came AFTER it (a
+                                        # walk-over, not a block -- the lock followed Gray 83 frames without this test)
 # A hole longer than this is not an occlusion but a track that ended and came back: on play 1 id 166's 135-frame
 # hole (406-542) bridged 116 body-frames of a ghost beside the centre (census 0.92 -> 1.19); the real pocket holes
 # are 5-45 frames.
@@ -1070,17 +1085,23 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 hold: bool = STAND_HOLD, hold_max: int = STAND_HOLD_MAX, boxes: dict | None = None,
                 successor_iou: float = STAND_SUCCESSOR_IOU, occluded_cover: float = STAND_OCCLUDED_COVER,
                 bridge_max_frames: int = STAND_BRIDGE_MAX_FRAMES, newborn_iou: float = STAND_NEWBORN_IOU,
-                newborn_reach: int = STAND_NEWBORN_REACH) -> dict:
+                newborn_reach: int = STAND_NEWBORN_REACH, lock_iou: float | None = STAND_LOCK_IOU,
+                lock_max: int = STAND_LOCK_MAX, lock_slow_m: float = STAND_LOCK_SLOW_M,
+                lock_history: int = STAND_LOCK_HISTORY, lock_hist_iou: float = STAND_LOCK_HIST_IOU) -> dict:
     """Bridge an id's holes of at most ``bridge_max_frames`` whose ends lie within ``bridge_m``, and hold an id
     whose track ends while slow, on frames ``lo..hi`` where no same-team body is drawn within ``clear_m`` of the
     point. A hold runs at most ``hold_max`` frames and, given ``boxes`` (``{cam: {(frame, pid): box}}``), stops at
     the first frame a same-team box lies on his last box at IoU ``successor_iou`` or more (the man under a new id;
     ``newborn_iou`` for an id born within ``newborn_reach`` frames of the end) or other boxes cover less than
-    ``occluded_cover`` of it (open turf: he left); without boxes only the clearance and the cap stop it.
-    Returns ``{"bridged": n, "held": n, "ids": {pid: n}}``."""
+    ``occluded_cover`` of it (open turf: he left); without boxes only the clearance and the cap stop it. Locked mode
+    (``lock_iou`` not None): when the man was engaged (an other-team box on his at ``lock_hist_iou`` on ``lock_history``
+    of his last 15 boxed frames), one other-team box covers the last box at IoU ``lock_iou`` on the first held frame
+    and that opponent is drawn and slow, the man follows the opponent's displacement for up to ``lock_max`` frames,
+    until the opponent breaks free, leaves, a twin stands on the spot, or a same-team box sits on the opponent's box.
+    Returns ``{"bridged": n, "held": n, "locked": n, "ids": {pid: n}}``."""
     import dataclasses
 
-    out = {"bridged": 0, "held": 0, "ids": {}}
+    out = {"bridged": 0, "held": 0, "locked": 0, "ids": {}}
     if bridge_m is None:
         return out
     by_id: dict = {}
@@ -1102,6 +1123,36 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 if b is not None:
                     return cam, b
         return None
+
+    def opponent_on(cam, b0, f, pid, team):
+        """The one other-team id whose box on frame ``f`` covers ``b0`` at IoU >= lock_iou, else None."""
+        best = (0.0, None)
+        for q, b in per_frame.get(cam, {}).get(f, {}).items():
+            if q != pid and teams.get(q) is not None and teams.get(q) != team:
+                v = _box_iou(b0, b)
+                if v > best[0]:
+                    best = (v, q)
+        return best[1] if lock_iou is not None and best[0] >= lock_iou else None
+
+    def slow_at(q, f, limit):
+        """``q`` is drawn on frame ``f`` and moved <= ``limit`` over its last ``window`` frames."""
+        byq = by_id.get(q, {})
+        if f not in byq:
+            return False
+        back = [g for g in byq if f - window <= g <= f]
+        return float(np.hypot(*(np.asarray(byq[f].xy[:2], float) - np.asarray(byq[min(back)].xy[:2], float)))) <= limit
+
+    def engaged(cam, pid, team, f_last):
+        """On at least ``lock_history`` of the man's last 15 boxed frames an other-team box overlapped his at ``lock_hist_iou``."""
+        n = 0
+        for g in range(f_last - 14, f_last + 1):
+            b0 = per_frame.get(cam, {}).get(g, {}).get(pid)
+            if b0 is None:
+                continue
+            if any(q != pid and teams.get(q) not in (None, team) and _box_iou(b0, b) >= lock_hist_iou
+                   for q, b in per_frame[cam][g].items()):
+                n += 1
+        return n >= int(lock_history)
 
     def on_last_box(cam, b0, f, pid, team, f_end):
         """(a same-team successor sits on ``b0``, cover) from the other boxes on frame ``f``."""
@@ -1152,8 +1203,28 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
             continue
         s = byf[f_last]
         lb = last_box(pid, f_last) if per_frame else None
-        for f in range(f_last + 1, min(hi, f_last + int(hold_max)) + 1):
+        # locked with an opponent: his box covers the last box on the first held frame and he is drawn and slow
+        opp = None
+        if lb is not None and f_last + 1 in tl.states and engaged(lb[0], pid, team, f_last):
+            q = opponent_on(lb[0], lb[1], f_last + 1, pid, team)
+            if q is not None and f_last in by_id.get(q, {}) and slow_at(q, f_last + 1, lock_slow_m):
+                opp = q
+        cap = int(lock_max) if opp is not None else int(hold_max)
+        for f in range(f_last + 1, min(hi, f_last + cap) + 1):
             if f not in tl.states:
+                continue
+            if opp is not None:
+                if not slow_at(opp, f, lock_slow_m):
+                    break                                   # the opponent broke free or left: the block is over
+                xy = np.asarray(s.xy[:2], float) + (np.asarray(by_id[opp][f].xy[:2], float) - np.asarray(by_id[opp][f_last].xy[:2], float))
+                if _same_team_near(tl.states[f], pid, team, xy, teams, clear_m):
+                    break                                   # a twin on the spot: the man drawn under another id
+                # (no box tests here: the opponent drawn and slow IS the evidence of the block; a neighbour's box
+                # drifting onto the pair is not the man -- Thuney's box sat on the centre's Raven at IoU 0.41-0.46
+                # from 524 while his BODY stood 1.3 m off -- and the Raven's own box shrinking in the pile ended the
+                # lock at 526 under a cover test; the twin test above is the successor test a locked man needs)
+                tl.states[f].append(dataclasses.replace(s, xy=np.array([xy[0], xy[1]], float)))
+                out["held"] += 1; out["locked"] += 1; out["ids"][pid] = out["ids"].get(pid, 0) + 1
                 continue
             if _same_team_near(tl.states[f], pid, team, s.xy[:2], teams, clear_m):
                 break                                       # a twin on the spot
