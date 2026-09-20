@@ -5518,3 +5518,27 @@ losing a man Noah Gray blocks, then nothing on him for 173 frames -- open item (
 root jitter p90 0.0261 -> 0.0261, joints jitter p90 0.1095 -> 0.1126, p99 0.364 -> 0.380 (37 ids from 41 after the
 folds); the catch strip (review_v86/strips/render_ball_f556.png) reads as v81: the ball to the receiver at 560-562, the
 tacklers on him from 564.
+
+## 2026-09-20 (03:00): a white ghost on the centre -- the nose tackle's second id -- and the lock's gate made honest (v87)
+
+**The ghost.** BAL after 434 read 10 on 75 frames, 11 on 78 and 12 on 20; the closest same-team pair on the over-full frames
+was 13/84 at 0.2-1.6 m. The film (`diag/pocket/sl_13_early.png`, `sl_13_84.png`): 13 is the nose tackle on the centre from
+the snap to 436; at 437 the detector re-detects that Raven as 84 and 13's box drifts onto the CENTRE (a KC man) and rides
+him to 492. The v86 blend (`ghost13_v86_check.png`, 450-492) shows it plainly: two white bodies at the centre's spot, the
+film has one Raven there. Folds (backups .pre_fold.19/20): 13 into 84 on 1-436 (one Raven, 84 now 395-587), 13 into 204
+on 437-660 (39 of its boxes dropped where the centre had his own, the rest on his gap frames). 08v carried 198 fused and
+70 sideline posed frames to 84.
+
+**What it broke, and why that was right.** The centre's lock fell from 500-540 to 500-524 (the static hold): the lock's
+"engagement history" (an other-team box on his at IoU >= 0.4 on 8 of his last 15 boxed frames) had been satisfied by
+13's BAL-labelled box on the centre himself. With honest boxes the centre and 84 overlap only on their last four frames
+(0.67-0.96 at 494-499, 0.05-0.11 before) -- the same as BAL 1 and Noah Gray (0.14-0.25 on 405-408): before the detector
+merges them, a block and a walk-over look alike in the boxes, and both pairs CONVERGE to contact at the end (204-84
+1.22 -> 0.36 m over 485-499; 1-74 1.84 -> 0.74 over 406-420). What tells them apart is the opponent's pace after: the
+Raven on the centre moves 0.26-0.48 m per 10 frames through 527 and 0.62+ from 530; Gray 0.53-0.79 from the first
+frame. STAND_LOCK_SLOW_M 1.0 -> 0.5 (an opponent faster than that at the first frame refuses the lock and the static
+hold applies; later it ends the lock); STAND_LOCK_HISTORY 0 (the box gate off, code kept). Measured on the folded
+tables: the centre locked 500-528, BAL 1 static 14, steps 5, hops 0, vanish end frames 256 -> 262; census 0.948 ->
+1.146 -- the honest number: the ghost had stood in for BAL 1, whose 173-frame absence now shows in the count.
+The seventeenth lesson of the corrections file, in a new form: a gate tuned on the data can be tuned on an artefact of
+the data; when a film-true fix breaks a rule, suspect the rule's evidence, not the fix.
