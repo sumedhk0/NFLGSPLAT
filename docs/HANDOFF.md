@@ -5461,3 +5461,11 @@ at 574 (a mispaired endzone row), which is why the vanishings ruler's straight l
 is contaminated by re-identifications (1 -> ?, 6 -> 78, 40 -> 198, 198 -> 206) whose successor bodies stand more than
 0.6 m off the old spot. A successor-aware ruler is the next small step; the real remaining vanishing on the film is the
 centre after 568 (his endzone id 164 carries him 547-634 but is beyond its own sideline span, join 330 frames back).
+
+**Could the centre's endzone id 164 carry him past 568? Measured, parked (23:45).** probe_164_handover.py: 164's raw endzone
+points with the frame's common mode sit 1.0-1.3 m from the lock's last spot (540) and ~1.0 m from 166's drawn points over
+545-557, then walk off along the field (+x, Humphrey jogging after the catch: 2.0 m at 565, 3.1 m at 593). 164 is not in
+the timeline at all on the play (its own sideline span ended at 216, so every endzone row is beyond-span and dropped). A
+runtime handover (an endzone-only same-team id appearing within ~1.3 m of a lost man's last spot continues him, the seam
+blended over a few frames) is the mechanism that would draw him to 607; it is the fold's seam problem in another coat and
+needs the beyond-span join test to accept a join against the LOCKED spot, not the sideline's last box. Not tonight.
