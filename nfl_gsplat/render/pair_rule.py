@@ -74,3 +74,50 @@ def mispaired_ids(ground_side, ground_end, *, max_median_dist: float = MAX_MEDIA
                 by_pid.setdefault(int(pid), []).append(float(np.hypot(*(np.asarray(xy, float) - np.asarray(e[pid], float)))))
     return {pid: float(np.median(v)) for pid, v in by_pid.items()
             if len(v) >= min_overlap and float(np.median(v)) > max_median_dist}
+
+
+# The same common mode as a CORRECTION rather than a veto. Measured on play 1 (2026-09-19 22:10, the play window
+# 395-607, scratchpad/probe_ez_common_mode.py): the median sideline-minus-endzone offset over the frame's two-view
+# bodies is +0.45 m along the field on every frame (p10 +0.31, p90 +0.63; 80 of 213 frames above 0.5 m) with the
+# across offset drifting from 0 to -0.9 m after the catch as the endzone camera pans -- a bias of the endzone
+# camera's ground points, not noise. A body the endzone alone places (an endzone-only frame, a beyond-span stretch)
+# carries it whole; a two-view body does not (the sideline's point overrides). Shifting endzone-only points by the
+# frame's common mode puts them where the sideline would have.
+EZ_COMMON_MODE: bool = True           # adopted 2026-09-19 (v85): the seam 1.29 -> 0.91 m, the sideline blend closer at every checked frame
+EZ_COMMON_MODE_MIN_PAIRS: int = 4      # fewer two-view bodies on a frame: the play-wide median offset is used
+
+
+def common_mode_offsets(ground_side, ground_end, *, min_pairs: int = EZ_COMMON_MODE_MIN_PAIRS):
+    """``({frame: offset}, global)``: per frame the median sideline-minus-endzone vector over the ids both cameras
+    place (frames with fewer than ``min_pairs`` get the median over all frames' offsets, ``global``)."""
+    per: dict = {}
+    for f, d in ground_side.items():
+        e = ground_end.get(f)
+        if not e:
+            continue
+        v = [np.asarray(xy, float)[:2] - np.asarray(e[pid], float)[:2] for pid, xy in d.items() if pid in e]
+        if len(v) >= min_pairs:
+            per[int(f)] = np.median(np.stack(v), axis=0)
+    glob = np.median(np.stack(list(per.values())), axis=0) if per else np.zeros(2)
+    return per, glob
+
+
+def common_mode_shift(ground, views, ground_side, ground_end, *, min_pairs: int = EZ_COMMON_MODE_MIN_PAIRS,
+                      endzone: str = "endzone") -> dict:
+    """Move every endzone-only point in ``ground`` (``views[f][pid] == (endzone,)``) by its frame's common-mode
+    offset (``common_mode_offsets``; the global median where the frame has too few pairs). In place; returns
+    ``{"moved": n, "frames_own": n, "global": (dx, dy)}``."""
+    per, glob = common_mode_offsets(ground_side, ground_end, min_pairs=min_pairs)
+    moved = 0; own = set()
+    for f, d in ground.items():
+        vf = views.get(f, {})
+        off = per.get(int(f))
+        for pid in list(d):
+            if tuple(vf.get(pid, ())) != (endzone,):
+                continue
+            o = off if off is not None else glob
+            d[pid] = np.asarray(d[pid], float) + np.array([o[0], o[1]] + [0.0] * (len(np.asarray(d[pid]).ravel()) - 2), float)[:len(np.asarray(d[pid]).ravel())]
+            moved += 1
+            if off is not None:
+                own.add(int(f))
+    return {"moved": moved, "frames_own": len(own), "global": (float(glob[0]), float(glob[1]))}

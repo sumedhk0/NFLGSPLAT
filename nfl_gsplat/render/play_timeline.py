@@ -563,6 +563,14 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         for f, d in side_ground.items():
             for pid, xy in d.items():
                 ground.setdefault(f, {})[pid] = xy
+        # a point the endzone alone places carries the endzone camera's common-mode offset (+0.45 m along the
+        # field on play 1); the frame's two-view bodies measure it and it is taken out (pair_rule.common_mode_shift)
+        if _pair_rule.EZ_COMMON_MODE and "endzone" in tracks:
+            cm_end = ground_positions(df[df["cam"] == "endzone"], tracks, ankles=ankles, frame_shift=shift)
+            cm_rep = _pair_rule.common_mode_shift(ground, views, side_ground, cm_end, min_pairs=_pair_rule.EZ_COMMON_MODE_MIN_PAIRS)
+            print(f"endzone-only points shifted by the frame's common mode: {cm_rep['moved']} body-frames "
+                  f"({cm_rep['frames_own']} frames with their own offset; the play-wide offset is "
+                  f"{cm_rep['global'][0]:+.2f}, {cm_rep['global'][1]:+.2f} m)")
         # a short hole in a sideline track filled from the endzone follows the sideline's own line
         # through it when the endzone's point is a stride off (endzone_only_rule.hold_holes)
         from nfl_gsplat.render.endzone_only_rule import hold_holes

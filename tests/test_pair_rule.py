@@ -42,3 +42,20 @@ def test_place_from_refit_skips_vetoed_frames():
     refit = {10: {7: {"transl": [0.5, 0.0, 0.0]}, 8: {"transl": [5.5, 0.0, 0.0]}}}
     out, shifts = place_from_refit(ground, refit, skip={(10, 7)})
     assert np.allclose(out[10][7], [0.0, 0.0]) and np.allclose(out[10][8], [5.5, 0.0]) and len(shifts) == 1
+
+
+def test_common_mode_shift_moves_endzone_only_points_by_the_frames_offset_and_the_global_one_where_pairs_are_few():
+    import numpy as np
+    from nfl_gsplat.render import pair_rule as pr
+
+    side = {1: {p: np.array([10.0 + p, 0.0]) for p in range(5)}, 2: {p: np.array([10.0 + p, 0.0]) for p in range(2)}}
+    end = {1: {p: np.array([10.0 + p - 0.5, 0.2]) for p in range(5)}, 2: {p: np.array([10.0 + p - 0.5, 0.2]) for p in range(2)}}
+    end[1][9] = np.array([3.0, 3.0]); end[2][9] = np.array([4.0, 4.0])                  # endzone-only id 9
+    ground = {f: {**{p: side[f][p] for p in side[f]}, 9: end[f][9].copy()} for f in (1, 2)}
+    views = {f: {**{p: ("endzone", "sideline") for p in side[f]}, 9: ("endzone",)} for f in (1, 2)}
+    per, glob = pr.common_mode_offsets(side, end, min_pairs=4)
+    assert set(per) == {1} and np.allclose(per[1], [0.5, -0.2]) and np.allclose(glob, [0.5, -0.2])
+    rep = pr.common_mode_shift(ground, views, side, end, min_pairs=4)
+    assert rep["moved"] == 2 and rep["frames_own"] == 1
+    assert np.allclose(ground[1][9], [3.5, 2.8]) and np.allclose(ground[2][9], [4.5, 3.8])   # frame 2 takes the global offset
+    assert np.allclose(ground[1][0], [10.0, 0.0])                                             # two-view points untouched
