@@ -5469,3 +5469,26 @@ the timeline at all on the play (its own sideline span ended at 216, so every en
 runtime handover (an endzone-only same-team id appearing within ~1.3 m of a lost man's last spot continues him, the seam
 blended over a few frames) is the mechanism that would draw him to 607; it is the fold's seam problem in another coat and
 needs the beyond-span join test to accept a join against the LOCKED spot, not the sideline's last box. Not tonight.
+
+## 2026-09-20 (00:30): the KC 12th man on the right of the line -- three ids on two men, folded on the film (v86)
+
+**The ruler, made honest first.** timeline.vanishings counted every frame after a track's end with no same-team body
+within 0.6 m of the last spot; most were re-identifications (6 -> 78, 15 -> 168, 9 -> 77 overlapping 4 frames,
+198 -> 206 placed 1.5-2 m apart by the two cameras). A same-team id born within 5 frames of the end whose first body
+stands within 2.0 m of the last spot is now a succession (VANISH_SUCCESSOR_REACH / _M): end frames on v85 667 -> 301.
+The worst list now leads with BAL 1 (walks off, nobody takes over), 40 (goes on as the OLD id 198 -- no birth test sees
+it) and the centre's 166 after 568 (real). Commit bcb5f43.
+
+**KC over 11 on 75 of the 213 play frames (v85).** On those frames the closest same-team pairs are 49/76 (0.1-0.5 m),
+38/76, 38/49, 12/49, 205/211, 157/211. The film (`diag/pocket/sl_right_cluster.png`, `sl_38_early.png`): jersey 65
+(Trey Smith, RG) is drawn as 38 (375-479 on the sideline, 125-471 on the endzone), then 76 (480-647) AND 49 (551-563);
+jersey 74 (the right tackle) is 12 (505-577) and then 49 (569-620, box IoU 0.69 with 12's). So 49 is a third id
+hopping between two men, and 38 is 76's earlier name.
+- The sideline box-twin gate (BOX_TWIN_IOU 0.6 -> 0.45 / 0.35, probe_boxtwin_ab2.py): never touches 49 (its overlap
+  with 76 hovers at 0.34-0.40 while 76 is absent 563-575, so no run of 8), and at 0.35 it starts eating engaged
+  neighbours (139 at 475-485, 84 at 577-587): census 1.009 -> 0.986, 49 untouched. Rejected.
+- Folds on the film's say-so (08z; backups .pre_fold.14/15/16): 38 and 49 into 76 on 480-563, 49 into 12 on 564-620,
+  then all of 38 into 76 (its 375-479 sideline rows are jersey 65 too -- the first partial fold left 38 ending at 486
+  and the ruler read a 121-frame false vanishing). Result on the play window: census 1.009 -> 0.887, steps 5, hops 0,
+  vanish holes 5/87 -> 4/82, end frames 301 unchanged; 76 drawn 395-637, 12 395-620, 49 only after the play.
+  08v carried 50 fused and 17 sideline posed frames to 76. v86 chain launched; film check of the right side next.
