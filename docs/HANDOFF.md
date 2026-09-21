@@ -5589,3 +5589,12 @@ endzone_only_rule.short_team_vouch (off) was written for the missing Raven and f
 **Measured on play 1 (395-607):** the centre drawn 395-556 as one id (locked 500-528, walked onto his re-detected
 boxes, two-view from 540), steps 5, hops 0, census 1.155 -> 1.023, vanishing holes 4/96 -> 3/61 (the ruler shares
 STAND_CLEAR_M, so its end-frame count is not comparable across the change). v88 chain launched.
+
+**v88 rendered and film-checked (2026-09-21, 00:40 machine clock): `diag/play_001_v88_hifi_720.mp4` + `_sideline_blend` /
+`_sideline_sbs` / `_endzone_blend`. CURRENT BEST.** 07l on 395-607: steps 5, hops 0, census 1.02 (KC 11.24 / BAL 10.60).
+Film vs render at the centre's spot (`diag/pocket/centre_v88_check.png`, 508-556): the Raven plus two red men at every
+checked frame, the render matching frame for frame -- the centre is one body from the snap to 556 (locked 500-528, walked
+onto his re-detected boxes, two-view from 540). Tables and pose caches snapshotted as `*.v88`. Commits 5779113 (03e, the
+hole-lock, the seam, the clearance), 5f9ffed (HANDOFF), 1d7347f (the viewer). Open: BAL 1 after 434 (no box in either
+camera; the count's deficit otherwise is the twin rules id by id), the pile's synthesised lying poses, the endzone
+pairing's several ids per man (a fold per man on the film, as done for the centre).
