@@ -5655,3 +5655,43 @@ pose caches snapshotted as `*.v89`; the Film Room republished on v89 (Version 4)
 `diag/pocket/left_v89_check.png` (500-600).
 Read: the left of the line matches the film at every strip frame 500-600 (man A engaged with his rusher through 600, man B
 drawn from 547, BAL 14 / 21 and the right-edge pair in place). Remaining honest gaps: man B 501-546, BAL id 1 after 434.
+
+### 2026-09-21 evening -- the two missing Ravens after 434 were in the tables (v90 in progress)
+
+**Read off the film with 09b (both cameras, 400-600):**
+- **id 15 = id 168** (the rusher on KC id 37): 168 is born at 470 as the taller of two boxes on one body, the twin rule
+  dropped it 470-481, and 15's own track ended at 485 (so the census read 10 there). Folded 15 <- 168: one body 395-637.
+- **id 4 (the rusher on KC 65, jersey 92 Madubuike by the endzone film)** is hidden behind 65 from the sideline camera
+  from 448 (65 is between the camera and him; at 24 deg elevation a man 1 m behind another is three-quarters hidden), and
+  the endzone camera -- BEHIND the offence, the OL's backs to it -- boxes him under three endzone-only ids in turn:
+  198 (to 478; ground points agree with 4's sideline to 0.5 m on 400-442, id 40 stands 3 m away), 136 (479-507, going
+  down beside 65), 112 (524-607, up again, between 65 and the right tackle). Folded all three into 4 --cam endzone.
+- **id 1 (chip-blocked by the tight end 400-424)** is boxed by NO camera after 428: hidden behind id 40's man / the right
+  tackle from the sideline, unboxed in the endzone (03e at 2560 px on the endzone 420-520: 36 candidates, no run of 12).
+  Honest gap, like man B (157, 501-546).
+- **id 194** was a second box on id 40's man 467-504 and four frames on 4's man 505-509; removed (08za). Folding its
+  505-509 into 4 extended 4's sideline span to 509 and turned his REAL endzone stretch 444-503 into a hole the hole
+  rule extrapolated to a 5 m hump (steps 2 -> 14): a fold that adds frames at the END of a span changes what the span
+  rules see in between.
+- **id 4's one stray sideline box at 465** (the tracker re-associated another man's detection 22 frames after the loss)
+  was the join the beyond-span rule measured (2.73 m) and dropped his 38 real endzone frames with; `08za_drop_rows`
+  (new) removes a row, keypoints follow. Corrections must beat what they correct: the 198 fold measured WORSE (steps
+  2 -> 7) until this box was found.
+- **id 212 = id 40's track pair continuing (sideline 45, endzone 45)** but its boxes are merged with 65 in the sideline
+  and overlap 4's in the endzone: folding it in made the same-body test drop 4 again (census 0.728 -> 0.779). Reverted;
+  40 still vanishes 593-607.
+
+**Rules changed (all A/B'd through the real loader, knobs passed at call time; commits fd6a5a1, 9f57a98):**
+- `beyond_sideline_span`: the same-body test asks the endzone's boxes -- a sideline man within 1.2 m is the same man
+  unless he has his own endzone box apart from this body's (SAME_BODY_APART_IOU 0.3). Census 0.770 -> 0.728.
+- `stand_still`: STAND_BRIDGE_MAX_FRAMES 50 -> 60 (4's hole is 51 frames; 0.728 -> 0.61); a hold inside a hole runs to
+  the hole's far end (STAND_HOLE_HOLD_TO_END; 0.61 -> 0.498); the seam's length follows the distance and eases in/out
+  (STAND_SEAM_STEP_M 0.15; steps 8 -> 2, hops 1 -> 0). A latent KeyError in the hole-lock's fallback fixed (test).
+- **Rejected:** a fragment-box rule (drop sideline boxes far shorter than the track's height; 40's 571-592 boxes are
+  35-49 px of a 100 px man with bottoms 2-3 m off): whole-track median 0.5 -> steps 0 but census 0.54 + a hop;
+  recent median + rising bottom 0.6 -> steps 5, census 0.549. The fragments are the anchors the holds and same-body
+  tests use. 40's 2.5 m swing at 568-592 stays (not a step, not a vanish).
+
+**Rulers 395-607: v89 steps 2 / hops 0 / census 0.944 -> now 2 / 0 / 0.498** (KC and BAL each ~0.25 off eleven).
+Remaining vanishings: 1 (435-607) and 157 (501-546), both unboxed by both cameras; 40 (593-607); 139 (596-603).
+Tables snapshotted `*.v90`; the v90 render chain launched ~19:40.
