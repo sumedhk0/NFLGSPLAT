@@ -5653,3 +5653,5 @@ BAL 1's; the honest count stands.
 CURRENT BEST by the rulers.** 07l on 395-607: live steps 2 (from 5), hops 0, census 0.94 (KC 11.12 / BAL 10.60). Tables and
 pose caches snapshotted as `*.v89`; the Film Room republished on v89 (Version 4). Film check of the left of the line in
 `diag/pocket/left_v89_check.png` (500-600).
+Read: the left of the line matches the film at every strip frame 500-600 (man A engaged with his rusher through 600, man B
+drawn from 547, BAL 14 / 21 and the right-edge pair in place). Remaining honest gaps: man B 501-546, BAL id 1 after 434.
