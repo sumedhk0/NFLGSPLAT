@@ -5551,3 +5551,41 @@ in either camera), the centre after 528 (his box merged into Thuney's; 164's end
 and beyond his sideline span); (2) the endzone pairing's several ids for one man (174/166/164 on the centre) -- a runtime
 handover with a blended seam; (3) the pile's synthesised lying poses; (4) the 12th KC man on 75 frames is down to the
 37/211 and 205/211 twins.
+
+## 2026-09-20 (morning): the viewer, and the detector holes measured -- one new track, no missing Raven
+
+**The viewer.** The user asked to see the play from any angle. 05k --export-joints / --no-render writes every drawn
+body's 22 world joints per frame (the same poses, gait, throw, catch, carry and fall the render draws) plus the team,
+the ball and the joint tree as JSON; viewer/play_room.html (three.js from cdnjs, no other dependency) draws capsule
+bodies on the SMPL-X tree in team colours on a rulebook field with the line of scrimmage, camera presets (sideline,
+endzone, overhead, pocket, follow ball), a free orbit, a scrubber with the snap/release/catch/down marks, and click-to-id.
+Published as an artifact with the joints file beside it (data stays out of the repo): the "Play 001 Film Room".
+Commit 1d7347f.
+
+**The detector holes, measured (scratchpad/probe_redetect.py, then scripts/03e_redetect_missing.py).** YOLOv8x at
+2560 px, conf 0.35, on the sideline play frames, a box counted new when no tracked box overlaps it (IoU < 0.15, centre
+outside every box), its foot on the field through the camera (|x| < 57, |y| < 25.5 m -- without this gate the
+benches and the crowd at the top edge gave 14-28 "new" men a frame), player height, linked over gaps of 3, runs of
+15+: ONE new track on 395-607 -- the centre, 533-556, after his box merged into his neighbour's at 528
+(`diag/pocket/redetect_new_tracks.png`). BAL 1 after 434 has no box in either camera. The Raven who read as
+"missing" is nobody: every endzone-only Raven the timeline drops stands 0.2-0.9 m from a DRAWN Raven
+(probe_ez_only_bal.py: 146 by 171/55, 112 by 40/212, 21 by 28, 187 by 180 -- the endzone camera's second ids), and
+85, named a Raven by the OCR, is the referee (`diag/pocket/ez_full_470_605.jpg`). The tracks table boxes eleven
+Ravens on the sideline frames I checked; the count's deficit is the twin rules and the loader's exclusions, id by
+id, not a man no camera saw. So the "second detection pass" is additive and small: 03e adds new tracks from 900,
+05m --ids/--append and 05c --ids (per-track resume) pose them alone, and nothing existing is renumbered.
+
+**Applied.** 900 (the centre 533-556) -> keypoints -> sideline poses -> folded into 204; 166's Humphrey rows folded
+into 204 too (507-539 and 540-562; the film had 166 on him from ~507). The loader's hole rule then filled the long
+hole's ends by extrapolation and dropped its middle (514-524), and the bridge refused that 0.68 m gap because Thuney
+stands 0.47-0.55 m off its line: STAND_CLEAR_M 0.6 -> 0.45 (twins stand 0.1-0.4 m). Tried and reverted first: a
+"neighbour" exemption for the bridge (a teammate within 1.0 m at the hole's start) -- it re-admitted the twins the
+twin rule had cut (bridged 38 -> 106, census 1.02 -> 1.20), because the twin IS a teammate within 1.0 m at the hole's
+start. Also new in stand_still: a hole the bridge cannot take gets the hold/lock from its start (hold_or_lock, one
+closure for holes and ends) with the tail slid onto the far end over STAND_SEAM_FRAMES (6; a 4-frame walk made a
+0.29 m step, ten frames make 0.12), and a lock that ends early inside a hole falls back to the static hold.
+endzone_only_rule.short_team_vouch (off) was written for the missing Raven and found nothing to vouch.
+
+**Measured on play 1 (395-607):** the centre drawn 395-556 as one id (locked 500-528, walked onto his re-detected
+boxes, two-view from 540), steps 5, hops 0, census 1.155 -> 1.023, vanishing holes 4/96 -> 3/61 (the ruler shares
+STAND_CLEAR_M, so its end-frame count is not comparable across the change). v88 chain launched.
