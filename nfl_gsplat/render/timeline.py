@@ -1070,8 +1070,12 @@ STAND_LOCK_HIST_IOU: float = 0.4        # frames an other-team box overlapped hi
 # A hole longer than this is not an occlusion but a track that ended and came back: on play 1 id 166's 135-frame
 # hole (406-542) bridged 116 body-frames of a ghost beside the centre (census 0.92 -> 1.19); the real pocket holes
 # are 5-45 frames.
-STAND_BRIDGE_MAX_FRAMES: int = 50
+STAND_BRIDGE_MAX_FRAMES: int = 60   # (50 -> 60, 2026-09-21: id 4's 51-frame hole on the turf beside KC 65; census 0.73 -> 0.61)
 STAND_SEAM_FRAMES: int = 6              # a hold or lock that reaches a hole's far end slides onto it over this many frames
+STAND_HOLE_HOLD_TO_END: bool = True     # a hold inside a hole the bridge cannot take runs to the hole's far end (the hole is
+                                        # short enough to bridge; only its ends are too far for a line), not to STAND_HOLD_MAX
+STAND_SEAM_STEP_M: float = 0.15         # the seam walks at most this far a frame (smoothstep: the peak step is 1.5x the mean,
+                                        # 0.22 m under the 0.25 m/frame ruler), so its length grows with the distance
 STAND_NEIGHBOUR_M: float = 1.0          # a teammate this close on the man's last frame is his neighbour on the line, not a
                                         # twin to stop the hold for (the guard 0.5-1.0 m from the centre once the endzone
                                         # rows place them; the hole-lock stopped after 5 frames on him, 2026-09-20)
@@ -1181,7 +1185,7 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                     successor = True
         return successor, (cover / a0 if a0 > 0 else 0.0)
 
-    def hold_or_lock(pid, team, byf, f_last, f_stop, *, seam_to):
+    def hold_or_lock(pid, team, byf, f_last, f_stop, *, seam_to, hold_cap=None):
         """Hold (or, locked with his opponent, follow) the man from his last drawn frame ``f_last`` over
         ``f_last+1 .. f_stop``; with ``seam_to=(fb, xb)`` the last STAND_SEAM_FRAMES placed frames slide onto
         ``xb`` so the far end of a hole is no step. Returns the body-frames added (counted into out)."""
@@ -1203,7 +1207,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
             q = opponent_on(lb[0], lb[1], f_last + 1, pid, team)
             if q is not None and f_last in by_id.get(q, {}) and slow_at(q, f_last + 1, lock_slow_m):
                 opp = q
-        cap = int(lock_max) if opp is not None else int(hold_max)
+        cap_hold = int(hold_max) if hold_cap is None else int(hold_cap)
+        cap = int(lock_max) if opp is not None else cap_hold
         placed = []                                         # (frame, state, locked), appended to the timeline below
         for f in range(f_last + 1, min(f_stop, f_last + cap) + 1):
             if f not in tl.states:
@@ -1215,10 +1220,11 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                     # inside a hole: the far end is coming, so the man stands where the lock left him from here
                     opp = None
                     s = placed[-1][1]
-                    cap = int(hold_max)
+                    cap = cap_hold
                     lb = None                               # no box to test against at a locked spot: the twin test and the cap
                     if f > f_last + cap:
                         break
+            if opp is not None:                             # (a second test: the fallback above drops the opponent)
                 xy = np.asarray(s.xy[:2], float) + (np.asarray(by_id[opp][f].xy[:2], float) - np.asarray(by_id[opp][f_last].xy[:2], float))
                 if _same_team_near([t for t in tl.states[f] if int(t.pid) not in neighbours], pid, team, xy, teams, clear_m):
                     break                                   # a twin on the spot: the man drawn under another id
@@ -1228,6 +1234,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 # lock at 526 under a cover test; the twin test above is the successor test a locked man needs)
                 placed.append((f, dataclasses.replace(s, xy=np.array([xy[0], xy[1]], float)), True))
                 continue
+            if f > f_last + cap:
+                break                                       # the static hold's cap, after a lock fell back to it
             if _same_team_near([t for t in tl.states[f] if int(t.pid) not in neighbours], pid, team, s.xy[:2], teams, clear_m):
                 break                                       # a twin on the spot
             if lb is not None:
@@ -1239,7 +1247,9 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
             fb, xb = seam_to
             gap = fb - placed[-1][0] - 1
             if gap <= int(STAND_SEAM_FRAMES):               # at, or a few frames short of, the far end: one walk onto it
-                k = min(int(STAND_SEAM_FRAMES), len(placed))
+                dist = float(np.hypot(*(np.asarray(xb, float) - np.asarray(placed[-1][1].xy[:2], float))))
+                n_seam = max(int(STAND_SEAM_FRAMES), int(np.ceil(dist / float(STAND_SEAM_STEP_M))))
+                k = min(n_seam, len(placed))
                 anchor_i = len(placed) - k                  # the walk starts k placed frames back ...
                 f_a, st_a, locked_a = placed[anchor_i]
                 x_a = np.asarray(st_a.xy[:2], float) if anchor_i == 0 else np.asarray(placed[anchor_i - 1][1].xy[:2], float)
@@ -1250,6 +1260,7 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                     if f not in tl.states:
                         continue
                     w = (i + 1) / float(span)
+                    w = w * w * (3.0 - 2.0 * w)             # ease in and out: no step at either end of the walk
                     xy = (1.0 - w) * x_a + w * np.asarray(xb, float)
                     tail.append((f, dataclasses.replace(st_a, xy=np.array([xy[0], xy[1]], float)), locked_a))
                 placed = placed[:anchor_i] + tail
@@ -1278,7 +1289,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 # boxes resume at 533) -- hold or lock him from the hole's start as at a track's end, and blend the
                 # last STAND_SEAM_FRAMES of that onto the far end so the far end is no step
                 if hold:
-                    n_h = hold_or_lock(pid, team, byf, a, min(b - 1, hi), seam_to=(b, xb))
+                    n_h = hold_or_lock(pid, team, byf, a, min(b - 1, hi), seam_to=(b, xb),
+                                       hold_cap=(b - a - 1) if STAND_HOLE_HOLD_TO_END else None)
                     if n_h:
                         out["ids"][pid] = out["ids"].get(pid, 0) + n_h
                 continue

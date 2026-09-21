@@ -963,3 +963,52 @@ def test_short_team_vouch_keeps_only_a_short_teams_clear_endzone_only_body():
     keep, counts = ezr.short_team_vouch(ground, views, lo=400, hi=409, teams=teams, clear_m=2.0)
     assert counts == {50: 10} and all(keep[f] == {50} for f in range(400, 410))
     assert ezr.short_team_vouch(ground, views, lo=400, hi=409, teams=teams, clear_m=None) == ({}, {})
+
+
+def test_stand_still_hole_lock_falls_back_to_the_static_hold_when_the_opponent_breaks_free():
+    """Inside a hole a locked man whose opponent speeds up stands where the lock left him (no KeyError on the
+    dropped opponent), and the seam still walks him onto the far end."""
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 500)), states={f: [] for f in range(400, 500)})
+    boxes = {"sideline": {}}
+    for f in list(range(400, 440)) + list(range(470, 500)):                 # a 30-frame hole, ends 3 m apart
+        x = 0.0 if f < 440 else 3.0
+        tl.states[f].append(_st_(204, x, 0.0)); boxes["sideline"][(f, 204)] = (100 + int(x * 20), 100, 160 + int(x * 20), 260)
+    for f in range(400, 500):                                              # the Raven on him: slow to 450, then he sprints off
+        x = -0.5 + 0.03 * max(0, f - 439) if f <= 450 else -0.5 + 0.33 + 0.4 * (f - 450)
+        tl.states[f].append(_st_(84, x, 0.4)); boxes["sideline"][(f, 84)] = (95 + int(x * 20), 110, 165 + int(x * 20), 270)
+    rep = tlm.stand_still(tl, {204: "KC", 84: "BAL"}, lo=395, hi=499, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes,
+                          lock_iou=0.5, lock_max=90, lock_slow_m=0.5, lock_history=0)
+    filled = sorted(f for f in range(440, 470) if any(s.pid == 204 for s in tl.states[f]))
+    assert filled == list(range(440, 470))                                 # locked, then held, then the seam: no gap
+    assert 0 < rep["locked"] < 30 and rep["held"] == 30
+    xs = {f: float([s.xy[0] for s in tl.states[f] if s.pid == 204][0]) for f in range(440, 470)}
+    assert max(abs(xs[f] - xs[f - 1]) for f in range(441, 470)) <= 0.25    # no step anywhere in the hole
+    assert xs[458] < 2.0                                                   # after the break he is not sprinting with the Raven (at 3.5)
+    last = [s.xy[:2] for s in tl.states[469] if s.pid == 204][0]
+    assert abs(float(last[0]) - 3.0) < 0.5                                 # the seam onto the far end
+
+
+def test_stand_still_static_hold_inside_a_hole_runs_to_its_far_end():
+    """A hole the bridge cannot take (ends 3 m apart) with no opponent to lock to: the static hold fills the whole
+    hole (40 frames > STAND_HOLD_MAX 25) and the seam walks the man onto the far end."""
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 500)), states={f: [] for f in range(400, 500)})
+    boxes = {"sideline": {}}
+    for f in list(range(400, 440)) + list(range(480, 500)):                 # a 40-frame hole, ends 3 m apart
+        x = 0.0 if f < 440 else 3.0
+        tl.states[f].append(_st_(204, x, 0.0)); boxes["sideline"][(f, 204)] = (100 + int(x * 20), 100, 160 + int(x * 20), 260)
+    for f in range(400, 500):                                              # a teammate's box covers his last box (occluded, no lock)
+        tl.states[f].append(_st_(37, 0.0, 1.2)); boxes["sideline"][(f, 37)] = (90, 90, 170, 270)
+    rep = tlm.stand_still(tl, {204: "KC", 37: "KC"}, lo=395, hi=499, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes,
+                          successor_iou=0.9, lock_iou=0.5, lock_max=90, lock_slow_m=0.5, lock_history=0)
+    filled = sorted(f for f in range(440, 480) if any(s.pid == 204 for s in tl.states[f]))
+    assert filled == list(range(440, 480)) and rep["locked"] == 0     # held to the far end, not 25 frames
+    last = [s.xy[:2] for s in tl.states[479] if s.pid == 204][0]
+    assert abs(float(last[0]) - 3.0) < 0.5                                 # the seam onto the far end
+    stood = [s.xy[:2] for s in tl.states[452] if s.pid == 204][0]
+    assert abs(float(stood[0])) < 0.1                                      # before the seam he stands where he was lost
+    xs = {f: float([s.xy[0] for s in tl.states[f] if s.pid == 204][0]) for f in range(440, 480)}
+    assert max(abs(xs[f] - xs[f - 1]) for f in range(441, 480)) <= 0.25    # the 3 m seam is a jog, not a step
