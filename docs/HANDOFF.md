@@ -5622,3 +5622,24 @@ page has "Sideline cam" / "Endzone cam" presets that put the viewer's eye where 
 vertical field of view from fy -- the sideline lens is ~11.7 degrees). Use them next to the blends: what the blend
 shows on one frame, the viewer shows from the same eye with orbit available a drag away. Commit: see git log
 ("viewer: the broadcast cameras as presets").
+
+## 2026-09-21 (02:40): the left of the KC line -- two men, four crossed ids, and a fold per camera (v89)
+
+KC read 12 on 54 play frames of v88; the closest pairs were 205/211, 37/211, 211/157, 139/204 (the lock's projection
+beside Thuney) and 80/204. The film (`diag/pocket/sl_37_early.png`, `sl_37_hole.png`, `sl_211_205.png`): two linemen on
+the left of the line carry four ids that CROSS at 523 -- man A is 37 to 523, then 211, then 205 from 574; man B is 211
+to 522, then 157 from 529, then 37 from 574. First attempt, four whole-id folds (157 <- 37 from 574, 157 <- 211 to 522,
+37 <- 211 from 523, 37 <- 205 from 574): steps 5 -> 2, census 1.02 -> 0.94, A one id -- but man B vanished 501-547: a
+global id is one sideline track joined to one endzone track, and 211's endzone track (25) had stayed on B from 500 to
+610 while its sideline track walked onto A at 523, so "211 from 523 into 37" dragged B's endzone rows onto A, and B's
+own sideline boxes there are six. Restored to before the second fold (backups .pre_fold.25 / .pre08v.14 / .18) and
+08z got --cam / --track-id (fold_ids: one camera's rows, or one camera track's rows, of the dropped ids; keypoints and
+poses follow through the (cam, frame, track_id) join): 157 <- 37 --cam endzone --track-id 25 (B's endzone track back
+to B), 157 <- 211 (B's early sideline rows). Commit 8d46c64.
+
+**Result on the play window:** A (37) drawn 395-637 as one id; live steps 5 -> 2 (157's three steps at 553-556 were the
+crossed ids), hops 0, census 1.023 -> 0.944. Man B is drawn 500 and 547-637 and NOT 501-546: the sideline has six boxes
+on him there, his endzone track starts at 532 and the loader's hole rule drops the middle of a 46-frame hole. Before
+today he read as drawn on those frames only because 211's sideline track had walked onto A -- a ghost twin of A, not
+B. The honest count shows the gap; the fix is the same as the centre's (a re-detection at 2560 px on those frames
+with 03e, then a fold) and is the next step for this man. v89 chain launched.
