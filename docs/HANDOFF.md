@@ -5705,3 +5705,20 @@ jerseys in the ENDZONE camera (they face it) before pairing two men 1 m apart. A
 tackle on the tight end; 60 a second box; 55's box on Hamilton from 600), 6 -> 78 (the far-side corner), 84 -> 83 (the
 nose tackle), 30 -> 180 (the same track pair). Fold script `$S/folds_v91.sh`, names `fix_names_v91.py`; applied after
 the v90 chain ends (the blends re-read the tables).
+
+**v91 (render launched ~19:55):** the film-true untangling of Madubuike (4) and Ojabo (40) from 528 measured WORSE
+(steps 12, hops 6, census 0.911): giving id 4 the sideline track-45 rows 528-660 extended his sideline span past his real
+endzone stretch 444-527, which the hole rule then treated as a long hole and deleted beyond HOLE_REACH of either end
+(452-519 gone) -- the same trap as 194's four frames an hour earlier. Reverted; v91 = v90 + the span-safe folds only:
+171 <- 55, 60 (Roquan's tackle; 171's pile fragments 550-570 and 55's rows on Hamilton 600+ dropped first), 6 <- 78,
+84 <- 83, 30 <- 180, and the names (4 Madubuike 92, 40 Ojabo 90, 28 Hamilton 14, 15 Oweh 99, 171 Roquan 0, 2 Marcus
+Williams 32). Rulers: steps 2 / hops 0 / census 0.465. CAVEAT: after 528 the body drawn as 4 is Ojabo and the body
+drawn as 40 is Madubuike (the census and the render are unaffected; the click-to-id names are swapped for those two).
+
+**Candidate for tomorrow, measured on a scratch copy with the film-true folds applied (`$S/probe_holes.py`):** a hold_holes
+variant that keeps an endzone track inside a LONG hole where it forms a continuous chain from the hole's near end
+(first point within HOLD_M of the sideline's, then <= 0.6 m x gap per step, gaps <= 5): census 0.911 -> 0.714 at steps 2 /
+hops 0 (0.3 m / gap 3 kept only 6 frames: the endzone's depth jitter breaks a tight chain). Two more things stand in the
+way of the film-true ids: the beyond-span TAIL join is measured against a fragment box (40's 522-526, 70 px of a 100 px
+man) and reports lead-in and tail as one entry, so Ojabo's 112 rows die with the pre-snap lead-in; and a hold whose
+last box is an ended endzone track dies on the cover test at once (4's 494-519).
