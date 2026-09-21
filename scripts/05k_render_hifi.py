@@ -506,8 +506,26 @@ def main() -> None:
         for bf in sorted(ball):
             xyz = hands_at.get(bf, ball[bf][0])
             ball_out[int(bf)] = np.round(np.asarray(xyz, float), 3).tolist()
+        cams_out: dict = {}
+        try:
+            from nfl_gsplat.render.play_timeline import clip_offset as _clip_offset
+            off = {"sideline": 0, "endzone": int(_clip_offset(P))}
+            for cam_name, trk in tracks.items():
+                cams_out[cam_name] = {}
+                for f in frames:
+                    fc = int(f) + off.get(cam_name, 0)
+                    if fc < 0 or fc >= len(trk.conf) or trk.conf[fc] <= 0:
+                        continue
+                    intr_, pose_ = trk.at(fc)
+                    K_ = np.asarray(intr_.K(), float)
+                    cams_out[cam_name][str(int(f))] = {"K": [float(K_[0, 0]), float(K_[1, 1]), float(K_[0, 2]), float(K_[1, 2])],
+                                                       "R": np.round(np.asarray(pose_.R, float), 6).ravel().tolist(),
+                                                       "t": np.round(np.asarray(pose_.t, float), 4).ravel().tolist(),
+                                                       "wh": [int(getattr(trk, "width", 1920)), int(getattr(trk, "height", 1080))]}
+        except Exception as exc:  # noqa: BLE001
+            print(f"cameras not exported: {exc}")
         doc = {"play": str(P.name), "fps": float(args.fps) / max(1, args.stride), "stride": int(args.stride),
-               "frames": [int(f) for f in frames if int(f) in export],
+               "frames": [int(f) for f in frames if int(f) in export], "cameras": cams_out,
                "parents": [int(v) for v in SMPLX_BODY_PARENTS[:22]],
                "teams": {str(k): v for k, v in export_ids.items()},
                "los": los, "bodies": {str(k): v for k, v in export.items()}, "ball": {str(k): v for k, v in ball_out.items()}}

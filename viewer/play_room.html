@@ -86,13 +86,15 @@
     <button data-cam="overhead" aria-pressed="false">Overhead</button>
     <button data-cam="pocket" aria-pressed="false">Pocket</button>
     <button data-cam="ball" aria-pressed="false">Follow ball</button>
+    <button data-cam="real:sideline" aria-pressed="false" title="the broadcast sideline camera's solved pose, frame by frame">Sideline cam</button>
+    <button data-cam="real:endzone" aria-pressed="false" title="the broadcast endzone camera's solved pose, frame by frame">Endzone cam</button>
   </div>
 </div>
 
 <div id="hud">
   <span class="legend"><span class="swatch" style="background: var(--kc)"></span>Kansas City</span>
   <span class="legend"><span class="swatch" style="background: var(--bal); outline: 1px solid var(--bal-trim)"></span>Baltimore</span><br>
-  Drag to orbit · wheel to zoom · right-drag or shift-drag to pan · click a body for its id<br>
+  Drag to orbit · wheel to zoom · right-drag or shift-drag to pan · click a body for its id · the two cam presets are the broadcast cameras' solved poses<br>
   <span id="pick">—</span>
 </div>
 
@@ -259,11 +261,37 @@
     pocket:   { theta: -2.2, phi: 1.2, r: 16, target: [LOS_X + 3, -0.5, 1] },
     ball:     { theta: -1.9, phi: 1.1, r: 20, follow: true },
   };
+  // ---- the real broadcast cameras: OpenCV world-to-camera (R, t), x right, y down, z forward ----
+  let realCam = null;                // "sideline" | "endzone" | null
+  const _R = new THREE.Matrix4(), _flip = new THREE.Matrix4().makeScale(1, -1, -1);
+  function applyRealCam(f) {
+    const c = data && data.cameras && data.cameras[realCam] && data.cameras[realCam][String(f)];
+    if (!c) return false;
+    const [fx, fy, cx, cy] = c.K; const R = c.R, t = c.t; const H = (c.wh && c.wh[1]) || 1080;
+    // camera centre C = -R^T t; the camera's world rotation is R^T with three.js's axes (looks down -z, +y up)
+    _R.set(R[0], R[1], R[2], 0, R[3], R[4], R[5], 0, R[6], R[7], R[8], 0, 0, 0, 0, 1);
+    const Rt = _R.clone().transpose();
+    const C = new THREE.Vector3(t[0], t[1], t[2]).applyMatrix4(Rt).multiplyScalar(-1);
+    const M = Rt.multiply(_flip); M.setPosition(C);
+    camera.matrixAutoUpdate = false; camera.matrix.copy(M); camera.matrixWorld.copy(M); camera.matrixWorldNeedsUpdate = true;
+    camera.fov = 2 * Math.atan(H / (2 * fy)) * 180 / Math.PI; camera.updateProjectionMatrix();
+    return true;
+  }
+  function leaveRealCam() {
+    if (!realCam) return;
+    realCam = null; camera.matrixAutoUpdate = true; camera.fov = 50; camera.updateProjectionMatrix();
+  }
   function setPreset(name) {
+    document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cam === name)));
+    if (name.startsWith("real:")) {
+      realCam = name.slice(5); orbit.follow = false;
+      if (!applyRealCam(frames[idx])) { document.getElementById("pick").textContent = `no solved ${realCam} camera on this frame`; }
+      return;
+    }
+    leaveRealCam();
     const p = PRESETS[name]; orbit.follow = !!p.follow;
     orbit.theta = p.theta; orbit.phi = p.phi; orbit.r = p.r;
     if (p.target) orbit.target.set(...p.target);
-    document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cam === name)));
     applyOrbit();
   }
   document.querySelectorAll("[data-cam]").forEach(b => b.addEventListener("click", () => setPreset(b.dataset.cam)));
@@ -274,6 +302,7 @@
   el.addEventListener("pointermove", e => {
     if (!drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
+    if (realCam && drag.moved > 4) { leaveRealCam(); applyOrbit(); }
     if (drag.b === 2 || drag.shift) {
       const right = new THREE.Vector3(Math.sin(orbit.theta), -Math.cos(orbit.theta), 0);
       const fwd = new THREE.Vector3(-Math.cos(orbit.theta), -Math.sin(orbit.theta), 0);
@@ -290,7 +319,7 @@
     drag = null;
   });
   el.addEventListener("contextmenu", e => e.preventDefault());
-  el.addEventListener("wheel", e => { e.preventDefault(); orbit.r = Math.min(160, Math.max(4, orbit.r * (1 + Math.sign(e.deltaY) * 0.08))); applyOrbit(); }, { passive: false });
+  el.addEventListener("wheel", e => { e.preventDefault(); if (realCam) { leaveRealCam(); } orbit.r = Math.min(160, Math.max(4, orbit.r * (1 + Math.sign(e.deltaY) * 0.08))); applyOrbit(); }, { passive: false });
   // pinch
   let pinch = null;
   el.addEventListener("touchstart", e => { if (e.touches.length === 2) pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }, { passive: true });
@@ -332,6 +361,7 @@
     const bp = data.ball[String(f)];
     if (bp) { ball.visible = true; ball.position.set(bp[0], bp[1], bp[2]); if (orbit.follow) { orbit.target.set(bp[0], bp[1], 1.0); applyOrbit(); } }
     else ball.visible = false;
+    if (realCam) applyRealCam(f);
   }
   scrub.addEventListener("input", () => showFrame(parseInt(scrub.value, 10)));
   function setPlaying(p) { playing = p; playBtn.textContent = p ? "Pause" : "Play"; playBtn.setAttribute("aria-pressed", String(p)); last = performance.now(); acc = 0; }
