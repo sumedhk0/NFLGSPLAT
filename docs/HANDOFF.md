@@ -5695,3 +5695,13 @@ drawn from 547, BAL 14 / 21 and the right-edge pair in place). Remaining honest 
 **Rulers 395-607: v89 steps 2 / hops 0 / census 0.944 -> now 2 / 0 / 0.498** (KC and BAL each ~0.25 off eleven).
 Remaining vanishings: 1 (435-607) and 157 (501-546), both unboxed by both cameras; 40 (593-607); 139 (596-603).
 Tables snapshotted `*.v90`; the v90 render chain launched ~19:40.
+
+**Correction (same evening, before v91):** the endzone-only id 112 (524-607) is NOT id 4's man. Its own identity votes
+read jersey 90 (David Ojabo) and the endzone frame at 600 shows the 90 on the man right of the right tackle; the man
+on KC 65 from 528 wears 92 (Madubuike = id 4's man; the votes on track 45 read 92, which is why v86 named 198 and 212
+"Madubuike"). So from 528 id 40's tracks (sideline 45, endzone 45, and 212 after the cut) are id 4's man, and 112 is
+id 40's (Ojabo) -- 40's own tracks (to 526/538) were Ojabo all along, not "Kyle Hamilton": the 14 is id 28. Read the
+jerseys in the ENDZONE camera (they face it) before pairing two men 1 m apart. Also on the film: 171 -> 55 (Roquan's
+tackle on the tight end; 60 a second box; 55's box on Hamilton from 600), 6 -> 78 (the far-side corner), 84 -> 83 (the
+nose tackle), 30 -> 180 (the same track pair). Fold script `$S/folds_v91.sh`, names `fix_names_v91.py`; applied after
+the v90 chain ends (the blends re-read the tables).
