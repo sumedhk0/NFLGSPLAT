@@ -53,3 +53,22 @@ def test_fold_only_a_frame_range_of_the_dropped_id():
     assert ("endzone", 4) in set(zip(got.cam, got.frame)) and ("sideline", 4) in set(zip(got.cam, got.frame))
     left = out[out.global_player_id == 75]
     assert list(zip(left.cam, left.frame)) == [("endzone", 1)]              # the row before the range keeps its id
+
+
+def test_fold_ids_one_camera_track_only():
+    import pandas as pd
+    from nfl_gsplat.tracking.fold import fold_ids
+
+    rows = []
+    for f in range(500, 510):
+        rows.append(dict(frame=f, cam="sideline", track_id=25, global_player_id=37, bbox_x1=0, bbox_y1=0, bbox_x2=10, bbox_y2=20, conf=1.0))
+        rows.append(dict(frame=f, cam="endzone", track_id=25, global_player_id=37, bbox_x1=0, bbox_y1=0, bbox_x2=10, bbox_y2=20, conf=1.0))   # the other man's
+        rows.append(dict(frame=f, cam="endzone", track_id=37, global_player_id=37, bbox_x1=50, bbox_y1=0, bbox_x2=60, bbox_y2=20, conf=1.0))  # his own
+        rows.append(dict(frame=f, cam="sideline", track_id=9, global_player_id=157, bbox_x1=80, bbox_y1=0, bbox_x2=90, bbox_y2=20, conf=1.0))
+    df = pd.DataFrame(rows)
+    out, n = fold_ids(df, 157, [37], cam="endzone", track_id=25, frames=(500, 509))
+    ez25 = out[(out.cam == "endzone") & (out.track_id == 25)]
+    assert set(ez25.global_player_id) == {157} and len(ez25) == 10                        # that camera track moved
+    assert set(out[(out.cam == "endzone") & (out.track_id == 37)].global_player_id) == {37}   # his own endzone rows stayed
+    assert set(out[(out.cam == "sideline") & (out.track_id == 25)].global_player_id) == {37}  # the sideline untouched
+    assert n == 0

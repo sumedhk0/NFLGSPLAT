@@ -42,6 +42,8 @@ def main() -> None:
     ap.add_argument("--drop", type=int, nargs="+", required=True, help="ids the footage shows to be the same man")
     ap.add_argument("--frames", type=int, nargs=2, default=None, metavar=("LO", "HI"),
                     help="fold only the dropped ids' rows on these frames (inclusive); the rest keep their id")
+    ap.add_argument("--cam", default=None, help="fold only this camera's rows of the dropped ids")
+    ap.add_argument("--track-id", type=int, default=None, help="... and only this camera track's rows (with --cam)")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
     P = args.play_dir
@@ -51,7 +53,8 @@ def main() -> None:
     for pid in [args.keep, *args.drop]:
         if pid not in ids:
             raise SetupError(f"08z: id {pid} has no rows in tracks.parquet")
-    out, n_rows = fold_ids(df, args.keep, args.drop, frames=tuple(args.frames) if args.frames else None)
+    out, n_rows = fold_ids(df, args.keep, args.drop, frames=tuple(args.frames) if args.frames else None,
+                           cam=args.cam, track_id=args.track_id)
     for pid in [args.keep, *args.drop]:
         for cam, g in df[df["global_player_id"] == pid].groupby("cam"):
             print(f"before: id {pid} {cam} frames {int(g.frame.min())}-{int(g.frame.max())} ({len(g)} boxes)")
