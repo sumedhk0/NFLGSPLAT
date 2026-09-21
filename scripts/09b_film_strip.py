@@ -84,8 +84,10 @@ def main():
         p1 = (int((bx[0] - x0) * Z), int((bx[1] - y0) * Z)); p2 = (int((bx[2] - x0) * Z), int((bx[3] - y0) * Z))
         cv2.rectangle(crop, p1, p2, (0, 0, 255), 2)
         cv2.putText(crop, f"{a.cam} f{f}", (6, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        pad = np.zeros((int(2 * R * Z), int(2 * R * Z), 3), np.uint8)
-        pad[:crop.shape[0], :crop.shape[1]] = crop
+        T = int(round(2 * R * Z))                        # cv2.resize rounds its own size: pad to one fixed tile
+        pad = np.zeros((T, T, 3), np.uint8)
+        h, w = min(T, crop.shape[0]), min(T, crop.shape[1])
+        pad[:h, :w] = crop[:h, :w]
         tiles.append(pad)
     if not tiles:
         raise SystemExit("no tiles")

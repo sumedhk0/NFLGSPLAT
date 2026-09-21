@@ -47,6 +47,17 @@ def fold_ids(df: pd.DataFrame, keep: int, drop: list[int], *, frames: tuple[int,
     return out, int(len(dropped))
 
 
+def drop_rows(df: pd.DataFrame, pid: int, *, cam: str, frames: tuple[int, int]) -> tuple[pd.DataFrame, int]:
+    """``(df without id ``pid``'s rows of camera ``cam`` on frames lo..hi, rows removed)``. For a stray box the
+    tracker re-associated to a track after a loss (play 1 id 4: one sideline box at 465, 22 frames after his
+    track ended hidden behind KC 65, on another man): that box is the span's edge the beyond-span rule joins
+    the endzone's stretch to, and a wrong edge drops the whole stretch. Keypoints follow through keypoint_map."""
+    lo, hi = int(frames[0]), int(frames[1])
+    m = ((df["global_player_id"].astype(int) == int(pid)) & (df["cam"].astype(str) == str(cam))
+         & df["frame"].astype(int).between(lo, hi))
+    return df.loc[~m].copy(), int(m.sum())
+
+
 def keypoint_map(before: pd.DataFrame, after: pd.DataFrame) -> dict:
     """``{(cam, frame, old global id): new global id}`` for every row of ``before`` (-1 where the row
     was dropped), joined on the detection's (cam, frame, track_id)."""

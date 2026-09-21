@@ -72,3 +72,26 @@ def test_fold_ids_one_camera_track_only():
     assert set(out[(out.cam == "endzone") & (out.track_id == 37)].global_player_id) == {37}   # his own endzone rows stayed
     assert set(out[(out.cam == "sideline") & (out.track_id == 25)].global_player_id) == {37}  # the sideline untouched
     assert n == 0
+
+
+def test_drop_rows_one_camera_frames():
+    import pandas as pd
+    from nfl_gsplat.tracking.fold import drop_rows, keypoint_map
+    from nfl_gsplat.tracking.relabel import relabel_keypoints
+
+    rows = []
+    for f in range(440, 470):
+        rows.append(dict(frame=f, cam="endzone", track_id=45, global_player_id=4, bbox_x1=0, bbox_y1=0, bbox_x2=10, bbox_y2=20, conf=1.0))
+    rows.append(dict(frame=443, cam="sideline", track_id=4, global_player_id=4, bbox_x1=0, bbox_y1=0, bbox_x2=10, bbox_y2=20, conf=1.0))
+    rows.append(dict(frame=465, cam="sideline", track_id=4, global_player_id=4, bbox_x1=50, bbox_y1=0, bbox_x2=60, bbox_y2=20, conf=1.0))  # the stray
+    rows.append(dict(frame=465, cam="sideline", track_id=9, global_player_id=40, bbox_x1=80, bbox_y1=0, bbox_x2=90, bbox_y2=20, conf=1.0))
+    df = pd.DataFrame(rows)
+    out, n = drop_rows(df, 4, cam="sideline", frames=(460, 470))
+    assert n == 1 and len(out) == len(df) - 1
+    assert set(out[(out.cam == "sideline") & (out.global_player_id == 4)].frame) == {443}      # his real box stays
+    assert len(out[(out.cam == "endzone") & (out.global_player_id == 4)]) == 30                # the other camera untouched
+    assert set(out[out.frame == 465].global_player_id) == {4, 40}                                # 4's endzone row on 465 and 40 stay
+    kdf = pd.DataFrame([dict(cam="sideline", frame=465, global_player_id=4, joint=0, x=1.0, y=1.0, conf=1.0),
+                        dict(cam="sideline", frame=443, global_player_id=4, joint=0, x=1.0, y=1.0, conf=1.0)])
+    kout, kdrop = relabel_keypoints(kdf, keypoint_map(df, out))
+    assert kdrop == 1 and set(kout.frame) == {443}                                               # the keypoints follow
