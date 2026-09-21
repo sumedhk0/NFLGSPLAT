@@ -5616,3 +5616,9 @@ Ravens on the field (probe_bal_count.py projects every box bottom through the ca
 So the tenth-to-eleventh gap is BAL 1's man, an edge rusher blocked by Noah Gray at 412-420, with NO box in either camera
 from 435 to the end and nothing at 2560 px either: hidden in the pile from both angles. No rule can draw a man no camera
 saw; the census stays at BAL 10.6 on this play and that is the honest number.
+
+**The Film Room, version 3 (01:50):** the joints file now carries both broadcast cameras' solved poses per frame and the
+page has "Sideline cam" / "Endzone cam" presets that put the viewer's eye where the film's camera was (frame by frame; the
+vertical field of view from fy -- the sideline lens is ~11.7 degrees). Use them next to the blends: what the blend
+shows on one frame, the viewer shows from the same eye with orbit available a drag away. Commit: see git log
+("viewer: the broadcast cameras as presets").
