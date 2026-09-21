@@ -48,6 +48,8 @@ SAME_BODY_GAP_M: float | None = 0.8    # ... and inside the 30-frame gap, this c
 PRESNAP_JOIN_MAX: int = 10       # the pre-snap per-frame test applies when the join is within this many frames of the snap
 PRESNAP: str = "drop"            # a pre-snap beyond frame farther than HOLD_M from the join point: "drop" it, or "hold" the
                                  # man AT the join point (a set man has not moved; the join is where the sideline first has him)
+SAME_BODY_APART_IOU: float | None = 0.3   # ... unless the endzone boxes both men on the frame, overlapping below this: two men
+                                          # (play 1 ids 4 and 40 beside KC 65 from 524, 1.0-1.5 m apart, one sideline box)
 HOLD_M: float | None = 0.8       # a beyond-span stretch whose join jumps farther than this from where the sideline first (or
                                  # last) has the man is the endzone's depth error, not the man: dropped
 
@@ -56,7 +58,7 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                          margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M,
                          hold_m: float | None = HOLD_M, report: dict | None = None, snap: int | None = None,
                          presnap: str = PRESNAP, presnap_join_max: int = PRESNAP_JOIN_MAX,
-                         same_body_gap_m: float | None = SAME_BODY_GAP_M):
+                         same_body_gap_m: float | None = SAME_BODY_GAP_M, apart_iou: float | None = SAME_BODY_APART_IOU):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -86,6 +88,21 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     frames). Without ``snap`` the join test alone applies.
     ``report`` (optional dict) gets ``{pid: (beyond_frames, jump_m_at_join, dropped, jump_lead_in, jump_tail)}``."""
     sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
+    # the endzone's boxes per frame, for the same-body test: two boxes apart on the frame are two men
+    ez_boxes: dict = {}
+    if apart_iou is not None and {"bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"}.issubset(df.columns) and "endzone" in set(df["cam"].astype(str)):
+        for r in df[df["cam"] == "endzone"].itertuples():
+            ez_boxes.setdefault(int(r.frame), {})[int(r.global_player_id)] = (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
+
+    def boxes_apart(f, pid, j):
+        """Both ``pid`` and ``j`` have an endzone box on ``f`` and the two overlap below ``apart_iou``."""
+        a, b = ez_boxes.get(f, {}).get(pid), ez_boxes.get(f, {}).get(j)
+        if a is None or b is None:
+            return False
+        w = max(0.0, min(a[2], b[2]) - max(a[0], b[0])); h = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        inter = w * h
+        union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+        return union > 0 and inter / union < apart_iou
     # Keyed by the PLAYER, because `ground` is: ground_positions keys by global_player_id, and the two
     # ids are equal only until a track is relabelled onto another player (08s). Grouping by track_id
     # here would silently stop span-limiting exactly the relabelled ids -- the same confusion that made
@@ -147,9 +164,9 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                     if side_at is None:
                         dropped += 1                      # without the sideline's bodies, the old rule stands
                         continue
-                    near = min((float(np.linalg.norm(np.asarray(xy, float) - q))
-                                for j, q in side_at.get(f, {}).items() if j != pid), default=np.inf)
-                    if near <= same_body_m:
+                    near, near_j = min(((float(np.linalg.norm(np.asarray(xy, float) - q)), j)
+                                        for j, q in side_at.get(f, {}).items() if j != pid), default=(np.inf, None))
+                    if near <= same_body_m and not boxes_apart(f, pid, near_j):
                         dropped += 1
                         continue
                     kept_gap += 1

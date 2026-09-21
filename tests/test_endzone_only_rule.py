@@ -359,3 +359,32 @@ def test_pocket_vouch_admits_the_rusher_the_sideline_cannot_see_and_not_a_ghost(
     assert counts == {3: 30}
     assert all(keep[f] == {3} for f in range(400, 430))
     assert ezr.pocket_vouch(ground, views, side, snap=400, end=429, teams=teams, los_x=los_x, sign=sign, across_m=None) == ({}, {})
+
+
+def test_beyond_the_span_two_endzone_boxes_apart_are_two_men():
+    """A sideline man within SAME_BODY_M is the same man -- unless the endzone boxes both, apart, on the frame."""
+    import numpy as np
+    import pandas as pd
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    class _Side:
+        K = [np.array([[1000.0, 0, 960.0], [0, 1000.0, 540.0], [0, 0, 1.0]])] * 400
+        R = [np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])] * 400
+        t = [np.zeros(3)] * 400
+        conf = np.ones(400)
+        width, height = 1920, 1080
+
+    def frame(cam, f, tid, gid, x1, x2):
+        return dict(cam=cam, frame=f, track_id=tid, global_player_id=gid, bbox_x1=x1, bbox_y1=100.0, bbox_x2=x2, bbox_y2=300.0)
+    ground = {300: {1: np.array([0.5, 40.0])}}                  # id 1, long past its sideline span (10-12)
+    side = {300: {2: np.array([0.6, 40.1])}}                    # the sideline draws a man 0.14 m away as id 2
+    apart = pd.DataFrame([frame("sideline", 10, 1, 1, 0, 10), frame("sideline", 11, 1, 1, 0, 10), frame("sideline", 12, 1, 1, 0, 10),
+                          frame("endzone", 300, 7, 1, 500.0, 600.0), frame("endzone", 300, 8, 2, 650.0, 750.0)])   # two boxes, no overlap
+    out, dropped = beyond_sideline_span(ground, apart, _Side(), gap=30, side_ground=side, apart_iou=0.3)
+    assert dropped == 0 and 1 in out[300]
+    same = pd.DataFrame([frame("sideline", 10, 1, 1, 0, 10), frame("sideline", 11, 1, 1, 0, 10), frame("sideline", 12, 1, 1, 0, 10),
+                         frame("endzone", 300, 7, 1, 500.0, 600.0), frame("endzone", 300, 8, 2, 510.0, 610.0)])    # one man, two boxes
+    out, dropped = beyond_sideline_span(ground, same, _Side(), gap=30, side_ground=side, apart_iou=0.3)
+    assert dropped == 1 and out[300] == {}
+    out, dropped = beyond_sideline_span(ground, apart, _Side(), gap=30, side_ground=side, apart_iou=None)   # the test off: the old rule
+    assert dropped == 1 and out[300] == {}
