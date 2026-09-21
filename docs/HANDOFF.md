@@ -5648,3 +5648,8 @@ with 03e, then a fold) and is the next step for this man. v89 chain launched.
 the duplicate test at IoU 0.15, 6 single-frame candidates at IoU 0.45, no run of 8. YOLO does not separate him from the
 pile there either (his six existing boxes on those frames are what it sees). A detection hole in both cameras, like
 BAL 1's; the honest count stands.
+
+**v89 rendered (03:40 machine clock): `diag/play_001_v89_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.
+CURRENT BEST by the rulers.** 07l on 395-607: live steps 2 (from 5), hops 0, census 0.94 (KC 11.12 / BAL 10.60). Tables and
+pose caches snapshotted as `*.v89`; the Film Room republished on v89 (Version 4). Film check of the left of the line in
+`diag/pocket/left_v89_check.png` (500-600).
