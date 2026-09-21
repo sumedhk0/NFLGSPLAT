@@ -5643,3 +5643,8 @@ on him there, his endzone track starts at 532 and the loader's hole rule drops t
 today he read as drawn on those frames only because 211's sideline track had walked onto A -- a ghost twin of A, not
 B. The honest count shows the gap; the fix is the same as the centre's (a re-detection at 2560 px on those frames
 with 03e, then a fold) and is the next step for this man. v89 chain launched.
+
+**Man B's gap re-detected, nothing found (03:05).** 03e on the sideline 496-550 at 2560 px, conf 0.25: 0 candidates with
+the duplicate test at IoU 0.15, 6 single-frame candidates at IoU 0.45, no run of 8. YOLO does not separate him from the
+pile there either (his six existing boxes on those frames are what it sees). A detection hole in both cameras, like
+BAL 1's; the honest count stands.
