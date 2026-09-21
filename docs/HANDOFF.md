@@ -5598,3 +5598,21 @@ onto his re-detected boxes, two-view from 540). Tables and pose caches snapshott
 hole-lock, the seam, the clearance), 5f9ffed (HANDOFF), 1d7347f (the viewer). Open: BAL 1 after 434 (no box in either
 camera; the count's deficit otherwise is the twin rules id by id), the pile's synthesised lying poses, the endzone
 pairing's several ids per man (a fold per man on the film, as done for the centre).
+
+## 2026-09-21 (01:30): the Ravens' count -- every candidate for the eleventh man, checked and named
+
+BAL draws 10 on 117 play frames of v88 (448-560), 11 on 64, 12 on 32. Per frame the sideline boxes those same ten
+Ravens on the field (probe_bal_count.py projects every box bottom through the camera). The candidates for the eleventh:
+- 36 (BAL, boxed 435-607, never drawn): stands at (-23.6, +24.8) for the whole clip -- the far sideline at the line of
+  scrimmage, not moving: an official (the dweller rule is right). 44/46/52/53: 1.5-2 m beyond the far sideline, still: bench.
+- 146 (endzone-only 468-624): jersey 0, Roquan Smith -- 171's endzone second id (171 is drawn 395-529, then 55 from 529,
+  born the frame 171 ends). 202/210, OCR-named Roquan Smith: his third and fourth endzone ids.
+- 112 (endzone-only 524-634): jersey 90, the Raven on the right tackle -- 40's endzone second id (40's own endzone rows end
+  at 538; the sideline film shows one Raven on the 65/74 pair).
+- 89 (endzone-only 480-539): jersey 40 at the endzone frame's right edge; his ground point projects onto id 7's sideline box.
+- 85: the referee. 87, 110, 116: the crowd at the endzone's top edge.
+- The 12-frames (416-440): BAL 1's static hold beside 40 (1.1-1.5 m), and 60/55 (0.6-0.7 m, 568+: 60 goes on as 55, IoU
+  0.80 -- the twin rule's stretch drop leaves a few frames).
+So the tenth-to-eleventh gap is BAL 1's man, an edge rusher blocked by Noah Gray at 412-420, with NO box in either camera
+from 435 to the end and nothing at 2560 px either: hidden in the pile from both angles. No rule can draw a man no camera
+saw; the census stays at BAL 10.6 on this play and that is the honest number.
