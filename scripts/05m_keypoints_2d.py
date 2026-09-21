@@ -70,6 +70,9 @@ def main() -> None:
     ap.add_argument("--imgsz", type=int, default=1920)
     ap.add_argument("--out", type=Path, default=None, help="default <play-dir>/keypoints_2d.parquet")
     ap.add_argument("--limit", type=int, default=0, help="frames per camera (0 = all)")
+    ap.add_argument("--ids", type=int, nargs="*", default=None,
+                    help="only these global ids (03e's new tracks); with --append their rows replace the old ones in the output")
+    ap.add_argument("--append", action="store_true", help="merge into the existing output instead of rewriting it")
     args = ap.parse_args()
 
     import cv2
@@ -78,6 +81,8 @@ def main() -> None:
     P = args.play_dir
     df = pd.read_parquet(P / "tracks.parquet")
     df = df[df["track_id"] >= 0]
+    if args.ids:
+        df = df[df["global_player_id"].isin([int(v) for v in args.ids])]
     model = YOLO(str(args.weights))
     rows = []
     t0 = time.time()
@@ -123,6 +128,12 @@ def main() -> None:
                   time.time() - t0)
     out = args.out or P / "keypoints_2d.parquet"
     kdf = pd.DataFrame(rows, columns=["frame", "cam", "global_player_id", "joint", "x", "y", "conf"])
+    if args.append and Path(out).exists():
+        old_df = pd.read_parquet(out)
+        drop = set(int(v) for v in kdf["global_player_id"].unique())
+        kept = old_df[~old_df["global_player_id"].isin(drop)]
+        kdf = pd.concat([kept, kdf], ignore_index=True)
+        print(f"appended: {len(old_df) - len(kept)} old rows of {len(drop)} ids replaced")
     kdf.to_parquet(out, index=False)
     print(f"keypoints: {len(kdf) // COCO_JOINTS} person-frames over {kdf.frame.nunique()} frames -> {out} "
           f"({time.time() - t0:.0f} s)")

@@ -1,0 +1,383 @@
+<title>Play 001 Film Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #14161a;
+    --panel: #1d2126;
+    --panel-2: #262b31;
+    --line: #353b42;
+    --chalk: #e9e4d6;
+    --chalk-dim: #a9a397;
+    --accent: #f2c14e;
+    --kc: #e31837;
+    --bal: #f5f3ee;
+    --bal-trim: #2a1a6e;
+    --turf: #2d6a35;
+    --display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
+    --body: "Barlow", "Helvetica Neue", Arial, sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--chalk);
+    font-family: var(--body); font-size: 14px; overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  #stage { position: absolute; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  .bar {
+    position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 14px;
+    padding: 8px 16px; background: color-mix(in srgb, var(--panel) 88%, transparent);
+    backdrop-filter: blur(6px); border-color: var(--line); border-style: solid; border-width: 0;
+    flex-wrap: wrap;
+  }
+  #top { top: 0; padding-top: calc(8px + env(safe-area-inset-top, 0px)); border-bottom-width: 1px; }
+  #bottom { bottom: 0; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); border-top-width: 1px; }
+  h1 {
+    font-family: var(--display); font-weight: 700; font-size: 22px; letter-spacing: 0.02em;
+    margin: 0; text-transform: uppercase; line-height: 1;
+  }
+  h1 small { font-family: var(--body); font-weight: 500; font-size: 12px; color: var(--chalk-dim); letter-spacing: 0.08em; text-transform: uppercase; margin-left: 10px; }
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  button {
+    font: 600 12px var(--body); letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--chalk); background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px;
+    padding: 6px 10px; cursor: pointer;
+  }
+  button:hover { border-color: var(--chalk-dim); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[aria-pressed="true"] { background: var(--accent); color: #1a1408; border-color: var(--accent); }
+  #play { min-width: 74px; }
+  .counter { font-family: var(--display); font-size: 26px; font-weight: 600; min-width: 92px; line-height: 1; }
+  .counter span { font-size: 12px; color: var(--chalk-dim); font-family: var(--body); font-weight: 500; letter-spacing: 0.08em; display: block; text-transform: uppercase; }
+  .scrub { flex: 1 1 260px; position: relative; height: 34px; display: flex; align-items: center; }
+  .scrub input[type=range] { width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
+  .marks { position: absolute; left: 0; right: 0; top: 0; height: 12px; pointer-events: none; }
+  .mark { position: absolute; top: 0; transform: translateX(-50%); font: 500 10px var(--body); letter-spacing: 0.06em; text-transform: uppercase; color: var(--chalk-dim); white-space: nowrap; }
+  .mark::after { content: ""; display: block; width: 1px; height: 6px; background: var(--chalk-dim); margin: 1px auto 0; }
+  .speed { display: flex; gap: 4px; }
+  #hud {
+    position: absolute; left: 16px; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); padding: 8px 10px;
+    background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 3px;
+    font-size: 12px; color: var(--chalk-dim); max-width: 260px; line-height: 1.45;
+  }
+  #hud b { color: var(--chalk); font-weight: 600; }
+  #pick { color: var(--accent); font-weight: 600; }
+  .legend { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  #status { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--display); font-size: 28px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--chalk-dim); pointer-events: none; }
+  @media (max-width: 640px) {
+    h1 small { display: none; }
+    .counter { font-size: 20px; min-width: 70px; }
+    #hud { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .bar { backdrop-filter: none; } }
+</style>
+
+<div id="stage"></div>
+<div id="status">Loading the play…</div>
+
+<div id="top" class="bar">
+  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v87</small></h1>
+  <div class="presets" role="group" aria-label="Camera">
+    <button data-cam="sideline" aria-pressed="true">Sideline</button>
+    <button data-cam="endzone" aria-pressed="false">Endzone</button>
+    <button data-cam="overhead" aria-pressed="false">Overhead</button>
+    <button data-cam="pocket" aria-pressed="false">Pocket</button>
+    <button data-cam="ball" aria-pressed="false">Follow ball</button>
+  </div>
+</div>
+
+<div id="hud">
+  <span class="legend"><span class="swatch" style="background: var(--kc)"></span>Kansas City</span>
+  <span class="legend"><span class="swatch" style="background: var(--bal); outline: 1px solid var(--bal-trim)"></span>Baltimore</span><br>
+  Drag to orbit · wheel to zoom · right-drag or shift-drag to pan · click a body for its id<br>
+  <span id="pick">—</span>
+</div>
+
+<div id="bottom" class="bar">
+  <button id="play" aria-pressed="false">Play</button>
+  <div class="counter"><span>frame</span><span id="frame" style="font-size: inherit; color: inherit; font-family: inherit; display: inline">—</span></div>
+  <div class="scrub">
+    <div class="marks" id="marks"></div>
+    <input id="scrub" type="range" min="0" max="1" step="1" value="0" aria-label="Frame">
+  </div>
+  <div class="speed" role="group" aria-label="Speed">
+    <button data-speed="0.25" aria-pressed="false">¼×</button>
+    <button data-speed="0.5" aria-pressed="false">½×</button>
+    <button data-speed="1" aria-pressed="true">1×</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  // ---- the play's marks (read off the film, ball.json) ----
+  const EVENTS = { snap: 395, release: 530, catch: 562, down: 607 };
+  const LOS_X = -24.11;            // line of scrimmage, metres along the field (x), Kansas City's side is x > LOS
+  const GOAL = 45.72, HALF_W = 24.38, ENDZONE = 9.144;
+
+  const stage = document.getElementById("stage");
+  const status = document.getElementById("status");
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  stage.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x14161a);
+  scene.fog = new THREE.Fog(0x14161a, 120, 260);
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 600);
+  camera.up.set(0, 0, 1);            // the field frame: x along, y across, z up
+
+  // ---- light ----
+  scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x1e3a22, 0.9));
+  const sun = new THREE.DirectionalLight(0xfff4e0, 0.9);
+  sun.position.set(-40, 60, 80);
+  scene.add(sun);
+
+  // ---- the field ----
+  function fieldTexture() {
+    const W = 2048, H = 1024;                 // 140 yd x 70 yd of canvas: the field plus a border
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    const mx = W / (2 * (GOAL + ENDZONE + 6.0)), my = H / (2 * (HALF_W + 6.0));   // px per metre
+    const X = x => W / 2 + x * mx, Y = y => H / 2 - y * my;
+    g.fillStyle = "#245a2c"; g.fillRect(0, 0, W, H);
+    // the turf, 5 yd stripes
+    for (let i = -12; i < 12; i++) {
+      g.fillStyle = i % 2 ? "#2d6a35" : "#31723a";
+      g.fillRect(X(i * 4.572), Y(HALF_W), 4.572 * mx, 2 * HALF_W * my);
+    }
+    g.fillStyle = "#274f2b";                 // end zones
+    g.fillRect(X(-GOAL - ENDZONE), Y(HALF_W), ENDZONE * mx, 2 * HALF_W * my);
+    g.fillRect(X(GOAL), Y(HALF_W), ENDZONE * mx, 2 * HALF_W * my);
+    g.strokeStyle = "#f3efe4"; g.lineWidth = 3;
+    g.strokeRect(X(-GOAL - ENDZONE), Y(HALF_W), 2 * (GOAL + ENDZONE) * mx, 2 * HALF_W * my);
+    for (let yd = -50; yd <= 50; yd += 5) {  // yard lines, goal lines heavier
+      const x = yd * 0.9144;
+      g.lineWidth = Math.abs(yd) === 50 ? 5 : 2;
+      g.beginPath(); g.moveTo(X(x), Y(HALF_W)); g.lineTo(X(x), Y(-HALF_W)); g.stroke();
+    }
+    g.lineWidth = 2;                         // hash marks: 60 cm ticks 3.124 m either side of midfield, every yard
+    for (let yd = -49; yd <= 49; yd++) {
+      const x = yd * 0.9144;
+      for (const s of [-1, 1]) {
+        const y0 = s * 3.124;
+        g.beginPath(); g.moveTo(X(x), Y(y0 - 0.3)); g.lineTo(X(x), Y(y0 + 0.3)); g.stroke();
+        g.beginPath(); g.moveTo(X(x), Y(s * (HALF_W - 0.6))); g.lineTo(X(x), Y(s * HALF_W)); g.stroke();
+      }
+    }
+    g.fillStyle = "#f3efe4"; g.font = `700 ${Math.round(2.0 * my)}px "Barlow Condensed", Impact, sans-serif`;
+    g.textAlign = "center"; g.textBaseline = "middle";
+    for (let yd = -40; yd <= 40; yd += 10) {   // the numerals, 12.5 m from midfield, read from each sideline
+      const n = String(50 - Math.abs(yd)).padStart(2, "0");
+      for (const s of [-1, 1]) {
+        g.save(); g.translate(X(yd * 0.9144), Y(s * 12.5)); g.rotate(s < 0 ? 0 : Math.PI); g.fillText(n, 0, 0); g.restore();
+      }
+    }
+    g.strokeStyle = "#f2c14e"; g.lineWidth = 4;   // the line of scrimmage
+    g.beginPath(); g.moveTo(X(LOS_X), Y(HALF_W)); g.lineTo(X(LOS_X), Y(-HALF_W)); g.stroke();
+    const t = new THREE.CanvasTexture(c); t.anisotropy = 8; t.encoding = THREE.sRGBEncoding;
+    return { t, w: W / mx, h: H / my };
+  }
+  const ft = fieldTexture();
+  const field = new THREE.Mesh(new THREE.PlaneGeometry(ft.w, ft.h), new THREE.MeshLambertMaterial({ map: ft.t }));
+  scene.add(field);
+
+  // ---- bodies as capsules on the SMPL-X body tree ----
+  const KC = new THREE.MeshLambertMaterial({ color: 0xe31837 });
+  const BAL = new THREE.MeshLambertMaterial({ color: 0xf5f3ee });
+  const UNK = new THREE.MeshLambertMaterial({ color: 0x8a8f96 });
+  const HELMET = { KC: new THREE.MeshLambertMaterial({ color: 0xc8102e }), BAL: new THREE.MeshLambertMaterial({ color: 0x1b1b1f }) };
+  const TRIM = { BAL: new THREE.MeshLambertMaterial({ color: 0x2a1a6e }) };
+  const RADIUS = { torso: 0.13, thigh: 0.085, shin: 0.065, arm: 0.055, fore: 0.045, foot: 0.05, neck: 0.06 };
+  const boneR = (child) => {
+    if ([3, 6, 9, 12, 13, 14].includes(child)) return RADIUS.torso;
+    if ([1, 2, 4, 5].includes(child)) return RADIUS.thigh;
+    if ([7, 8].includes(child)) return RADIUS.shin;
+    if ([10, 11].includes(child)) return RADIUS.foot;
+    if ([16, 17, 18, 19].includes(child)) return RADIUS.arm;
+    if ([20, 21].includes(child)) return RADIUS.fore;
+    return RADIUS.neck;
+  };
+  const cyl = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
+  cyl.rotateX(Math.PI / 2);                  // along +z, so lookAt aligns it
+  const sph = new THREE.SphereGeometry(1, 14, 10);
+  const bodies = new Map();                  // pid -> {group, bones:[mesh], joints:[sphere], head, parents}
+  let parents = null;
+
+  function makeBody(pid, team) {
+    const mat = team === "KC" ? KC : team === "BAL" ? BAL : UNK;
+    const group = new THREE.Group();
+    const bones = [];
+    for (let j = 1; j < 22; j++) {
+      const m = new THREE.Mesh(cyl, j === 3 || j === 6 || j === 9 ? (TRIM[team] && j === 9 ? TRIM[team] : mat) : mat);
+      m.userData.pid = pid; group.add(m); bones.push(m);
+    }
+    const joints = [];
+    for (let j = 0; j < 22; j++) {
+      const s = new THREE.Mesh(sph, mat); s.userData.pid = pid; group.add(s); joints.push(s);
+    }
+    const head = new THREE.Mesh(sph, HELMET[team] || UNK); head.userData.pid = pid; group.add(head);
+    scene.add(group);
+    return { group, bones, joints, head, team };
+  }
+  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _m = new THREE.Vector3();
+  function poseBody(b, J) {
+    for (let j = 1; j < 22; j++) {
+      const p = parents[j];
+      _a.set(J[p][0], J[p][1], J[p][2]); _b.set(J[j][0], J[j][1], J[j][2]);
+      const m = b.bones[j - 1]; const len = _a.distanceTo(_b); const r = boneR(j);
+      _m.addVectors(_a, _b).multiplyScalar(0.5);
+      m.position.copy(_m); m.lookAt(_b); m.scale.set(r, r, Math.max(0.02, len + r * 0.6));
+    }
+    for (let j = 0; j < 22; j++) {
+      const s = b.joints[j]; s.position.set(J[j][0], J[j][1], J[j][2]);
+      const r = j === 15 ? 0.0 : boneR(j || 3) * 1.05; s.scale.set(r, r, r); s.visible = r > 0;
+    }
+    b.head.position.set(J[15][0], J[15][1], J[15][2] + 0.06); b.head.scale.set(0.13, 0.13, 0.14);
+  }
+
+  // ---- the ball ----
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshLambertMaterial({ color: 0x7a3f1d }));
+  ball.scale.set(0.14, 0.09, 0.09); ball.visible = false; scene.add(ball);
+
+  // ---- camera: presets and a simple orbit ----
+  const orbit = { target: new THREE.Vector3(LOS_X, 0, 1.0), r: 34, theta: -Math.PI / 2, phi: 0.98, follow: false };
+  function applyOrbit() {
+    const t = orbit.target;
+    camera.position.set(t.x + orbit.r * Math.sin(orbit.phi) * Math.cos(orbit.theta),
+                        t.y + orbit.r * Math.sin(orbit.phi) * Math.sin(orbit.theta),
+                        t.z + orbit.r * Math.cos(orbit.phi));
+    camera.lookAt(t);
+  }
+  const PRESETS = {
+    sideline: { theta: -Math.PI / 2, phi: 1.05, r: 42, target: [LOS_X + 4, 0, 1] },   // the broadcast side, y < 0
+    endzone:  { theta: Math.PI, phi: 1.15, r: 40, target: [LOS_X + 2, 0, 1] },        // from behind the defence
+    overhead: { theta: -Math.PI / 2, phi: 0.05, r: 52, target: [LOS_X + 4, 0, 0] },
+    pocket:   { theta: -2.2, phi: 1.2, r: 16, target: [LOS_X + 3, -0.5, 1] },
+    ball:     { theta: -1.9, phi: 1.1, r: 20, follow: true },
+  };
+  function setPreset(name) {
+    const p = PRESETS[name]; orbit.follow = !!p.follow;
+    orbit.theta = p.theta; orbit.phi = p.phi; orbit.r = p.r;
+    if (p.target) orbit.target.set(...p.target);
+    document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cam === name)));
+    applyOrbit();
+  }
+  document.querySelectorAll("[data-cam]").forEach(b => b.addEventListener("click", () => setPreset(b.dataset.cam)));
+
+  const el = renderer.domElement;
+  let drag = null;
+  el.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, b: e.button, shift: e.shiftKey, moved: 0 }; el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointermove", e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
+    if (drag.b === 2 || drag.shift) {
+      const right = new THREE.Vector3(Math.sin(orbit.theta), -Math.cos(orbit.theta), 0);
+      const fwd = new THREE.Vector3(-Math.cos(orbit.theta), -Math.sin(orbit.theta), 0);
+      const k = orbit.r * 0.0016;
+      orbit.target.addScaledVector(right, -dx * k).addScaledVector(fwd, -dy * k); orbit.follow = false;
+    } else {
+      orbit.theta -= dx * 0.006; orbit.phi = Math.min(1.52, Math.max(0.05, orbit.phi - dy * 0.006));
+    }
+    document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", "false"));
+    applyOrbit();
+  });
+  el.addEventListener("pointerup", e => {
+    if (drag && drag.moved < 4) pick(e);
+    drag = null;
+  });
+  el.addEventListener("contextmenu", e => e.preventDefault());
+  el.addEventListener("wheel", e => { e.preventDefault(); orbit.r = Math.min(160, Math.max(4, orbit.r * (1 + Math.sign(e.deltaY) * 0.08))); applyOrbit(); }, { passive: false });
+  // pinch
+  let pinch = null;
+  el.addEventListener("touchstart", e => { if (e.touches.length === 2) pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }, { passive: true });
+  el.addEventListener("touchmove", e => {
+    if (e.touches.length === 2 && pinch) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      orbit.r = Math.min(160, Math.max(4, orbit.r * pinch / d)); pinch = d; applyOrbit();
+    }
+  }, { passive: true });
+  el.addEventListener("touchend", () => { pinch = null; }, { passive: true });
+
+  const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2();
+  function pick(e) {
+    const rect = el.getBoundingClientRect();
+    ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hits = ray.intersectObjects([...bodies.values()].filter(b => b.group.visible).flatMap(b => [b.head, ...b.bones]), false);
+    const out = document.getElementById("pick");
+    if (hits.length) {
+      const pid = hits[0].object.userData.pid; const team = bodies.get(pid).team;
+      out.textContent = `id ${pid} · ${team === "KC" ? "Kansas City" : team === "BAL" ? "Baltimore" : "team unknown"}`;
+    } else out.textContent = "—";
+  }
+
+  // ---- time ----
+  let data = null, frames = [], idx = 0, playing = false, speed = 1, acc = 0, last = 0;
+  const scrub = document.getElementById("scrub"), frameEl = document.getElementById("frame"), playBtn = document.getElementById("play");
+  function showFrame(i) {
+    idx = Math.max(0, Math.min(frames.length - 1, i));
+    const f = frames[idx]; scrub.value = String(idx); frameEl.textContent = String(f);
+    const rows = data.bodies[String(f)] || [];
+    const seen = new Set();
+    for (const [pid, team, J] of rows) {
+      let b = bodies.get(pid);
+      if (!b) { b = makeBody(pid, team); bodies.set(pid, b); }
+      b.group.visible = true; poseBody(b, J); seen.add(pid);
+    }
+    for (const [pid, b] of bodies) if (!seen.has(pid)) b.group.visible = false;
+    const bp = data.ball[String(f)];
+    if (bp) { ball.visible = true; ball.position.set(bp[0], bp[1], bp[2]); if (orbit.follow) { orbit.target.set(bp[0], bp[1], 1.0); applyOrbit(); } }
+    else ball.visible = false;
+  }
+  scrub.addEventListener("input", () => showFrame(parseInt(scrub.value, 10)));
+  function setPlaying(p) { playing = p; playBtn.textContent = p ? "Pause" : "Play"; playBtn.setAttribute("aria-pressed", String(p)); last = performance.now(); acc = 0; }
+  playBtn.addEventListener("click", () => setPlaying(!playing));
+  document.querySelectorAll("[data-speed]").forEach(b => b.addEventListener("click", () => {
+    speed = parseFloat(b.dataset.speed);
+    document.querySelectorAll("[data-speed]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  }));
+  window.addEventListener("keydown", e => {
+    if (e.target.tagName === "INPUT") return;
+    if (e.code === "Space") { e.preventDefault(); setPlaying(!playing); }
+    else if (e.code === "ArrowRight") showFrame(idx + 1);
+    else if (e.code === "ArrowLeft") showFrame(idx - 1);
+    else if (e.code === "Home") showFrame(0);
+    else if (e.code === "End") showFrame(frames.length - 1);
+  });
+
+  function resize() {
+    const w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize); resize();
+
+  function tick(now) {
+    requestAnimationFrame(tick);
+    if (playing && data) {
+      const dt = (now - last) / 1000; last = now; acc += dt * speed * data.fps;
+      while (acc >= 1) { acc -= 1; showFrame(idx + 1 >= frames.length ? 0 : idx + 1); }
+    }
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(tick);
+
+  // ---- load ----
+  fetch("play_001_joints.json").then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then(d => {
+    data = d; parents = d.parents; frames = d.frames;
+    scrub.max = String(frames.length - 1);
+    const marks = document.getElementById("marks");
+    for (const [name, f] of Object.entries(EVENTS)) {
+      const i = frames.findIndex(x => x >= f); if (i < 0) continue;
+      const m = document.createElement("span"); m.className = "mark"; m.textContent = name;
+      m.style.left = `${(i / (frames.length - 1)) * 100}%`; marks.appendChild(m);
+    }
+    status.hidden = true;
+    setPreset("sideline");
+    showFrame(frames.findIndex(x => x >= EVENTS.snap - 20));
+  }).catch(err => { status.textContent = `Could not load the play: ${err.message}`; });
+})();
+</script>

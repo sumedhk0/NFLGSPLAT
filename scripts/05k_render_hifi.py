@@ -100,6 +100,10 @@ def main() -> None:
                     metavar=("DX", "DY", "DZ"),
                     help="virtual camera eye relative to its target, metres "
                          "(x along the field, y across, z up)")
+    ap.add_argument("--export-joints", type=Path, default=None,
+                    help="write every drawn body's 22 world joints per frame (JSON) for the interactive viewer")
+    ap.add_argument("--no-render", action="store_true",
+                    help="build the bodies (poses, gait, throw, catch, carry, fall) but do not rasterise: for --export-joints")
     ap.add_argument("--fov", type=float, default=55.0, help="horizontal field of view, degrees")
     ap.add_argument("--splat-sigma", type=float, default=1.0,
                     help="multiplier on every splat's in-plane extent (bodies and field)")
@@ -340,6 +344,9 @@ def main() -> None:
     if stance_w:
         print(f"stance: the quarterback under centre on {len(stance_w)} held frames of {len(held_by_pid)} ids")
 
+    export: dict | None = {} if args.export_joints else None
+    export_ids: dict = {}
+
     def body_batch(s, f):
         sw = stance_w.get((int(s.pid), f))
         if sw:                                    # the quarterback held under centre: his stance, not a copied crouch
@@ -372,6 +379,9 @@ def main() -> None:
                      s.pid if s.pid in fitted else None)
         team = next((team_of[m] for m in tl.members.get(s.pid, [s.pid]) if m in team_of),
                     team_of.get(s.pid, ""))
+        if export is not None:
+            export.setdefault(int(f), []).append([int(s.pid), team, np.round(np.asarray(joints[:22], float), 3).tolist()])
+            export_ids[int(s.pid)] = team
         if args.uniforms:
             colour = kit_colours.get(team, kit_colours[""])
         elif owner is not None:
@@ -458,6 +468,10 @@ def main() -> None:
             written.append(out)                      # a stalled or interrupted run resumes here
             continue
         states = tl.states.get(f, [])
+        if args.no_render:
+            for s in states:
+                body_batch(s, f)                          # fills the export and the holder's hands
+            continue
         scene = merge([field] + [body_batch(s, f) for s in states] + ([ball_batch(f)] if f in ball else []))
         sp = st.SceneParams.from_batch(scene, device=args.device)
         if path is not None and f in path:
@@ -477,6 +491,32 @@ def main() -> None:
         if i % 20 == 0:
             _LOG.info("rendered %d/%d (%d bodies, %.2f s/frame)", i + 1, len(frames), len(states),
                       (time.time() - t0) / (i + 1))
+    if export is not None:
+        import json
+
+        from nfl_gsplat.render.foot_lock import SMPLX_BODY_PARENTS
+
+        los = None
+        try:
+            from nfl_gsplat.render.play_timeline import _los
+            los = _los(P)
+        except Exception:  # noqa: BLE001
+            los = None
+        ball_out = {}
+        for bf in sorted(ball):
+            xyz = hands_at.get(bf, ball[bf][0])
+            ball_out[int(bf)] = np.round(np.asarray(xyz, float), 3).tolist()
+        doc = {"play": str(P.name), "fps": float(args.fps) / max(1, args.stride), "stride": int(args.stride),
+               "frames": [int(f) for f in frames if int(f) in export],
+               "parents": [int(v) for v in SMPLX_BODY_PARENTS[:22]],
+               "teams": {str(k): v for k, v in export_ids.items()},
+               "los": los, "bodies": {str(k): v for k, v in export.items()}, "ball": {str(k): v for k, v in ball_out.items()}}
+        args.export_joints.parent.mkdir(parents=True, exist_ok=True)
+        args.export_joints.write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
+        print(f"exported joints: {sum(len(v) for v in export.values())} body-frames on {len(export)} frames, "
+              f"{len(ball_out)} ball frames -> {args.export_joints}")
+    if args.no_render:
+        return
     mp4 = args.out_dir / "play.mp4"
     with imageio.get_writer(mp4, fps=args.fps / max(1, args.stride), codec="libx264",
                             quality=8, macro_block_size=None) as w:

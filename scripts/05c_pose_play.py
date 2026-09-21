@@ -48,6 +48,8 @@ def main() -> None:
                     help="restrict to frames already present in another pose "
                          "cache, so the two cameras can be fused")
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--ids", type=int, nargs="*", default=None,
+                    help="only these track ids (03e's new tracks): frames already cached are re-visited for them")
     ap.add_argument("--no-resume", dest="resume", action="store_false",
                     help="ignore an existing checkpoint and pose every frame "
                          "again (default: resume from it)")
@@ -89,6 +91,9 @@ def main() -> None:
     df = pd.read_parquet(play / "tracks.parquet")
     df = df[(df["cam"] == args.cam) & (df["track_id"] >= 0)
             & (df["frame"].isin(wanted))]
+    if args.ids:
+        df = df[df["track_id"].isin([int(v) for v in args.ids])]
+        wanted = wanted & set(int(f) for f in df["frame"].unique())
 
     cfg = SMPLestXConfig()
     cache: dict[int, dict[int, dict]] = {}
@@ -111,7 +116,12 @@ def main() -> None:
             prior = None
         if prior and prior.get("cam") == args.cam:
             cache = {int(f): v for f, v in prior.get("frames", {}).items()}
-            done = set(cache) & wanted
+            if args.ids:
+                # per (frame, track) for a subset: a cached frame is done only where every asked track is in it
+                ids_ = set(int(v) for v in args.ids)
+                done = {f for f in wanted if f in cache and all(t in cache[f] for t in set(df[df["frame"] == f]["track_id"].astype(int)) & ids_)}
+            else:
+                done = set(cache) & wanted
             wanted = wanted - done
             _LOG.info("resuming: %d frames already cached, %d still to pose",
                       len(done), len(wanted))
