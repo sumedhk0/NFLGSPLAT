@@ -480,6 +480,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     qb_held: set = set()         # (pid, frame) of the quarterback's held pre-snap frames (05k draws his stance there)
     lv_frames: dict = {}         # pid -> the pre-snap frames line_vouch admitted him on (a pure endzone-only id is drawn there only)
     pv_frames: dict = {}         # pid -> the play frames pocket_vouch admitted him on (its own revival threshold)
+    sv_frames: dict = {}         # pid -> the play frames short_team_vouch admitted him on (the eleventh man)
     if hole_hold_m is not None and hole_hold_m < 0:
         from nfl_gsplat.render import endzone_only_rule as _ezr
 
@@ -718,6 +719,19 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                     pv_frames.setdefault(int(pid_), set()).add(int(f_))
             print(f"pocket rushers vouched for on the play: {sum(pv_counts.values())} body-frames on {len(pv_counts)} ids "
                   + str(dict(sorted(pv_counts.items()))))
+        # the eleventh man the sideline never boxed (endzone_only_rule.short_team_vouch): on play frames where a team's
+        # sideline-backed bodies count short, an endzone-only body of that team standing clear of every drawn teammate
+        sv_end = play_end(P)
+        if _ezr.SHORT_TEAM_VOUCH_CLEAR_M is not None and snap_f is not None and sv_end is not None:
+            sv_keep, sv_counts = _ezr.short_team_vouch(ground, views, lo=int(snap_f), hi=int(sv_end), teams=_teams(P),
+                                                       clear_m=float(_ezr.SHORT_TEAM_VOUCH_CLEAR_M))
+            for f_, pids_ in sv_keep.items():
+                qb_keep.setdefault(int(f_), set()).update(pids_)
+                for pid_ in pids_:
+                    lv_frames.setdefault(int(pid_), set()).add(int(f_))
+                    sv_frames.setdefault(int(pid_), set()).add(int(f_))
+            print(f"short-team vouch on the play: {sum(sv_counts.values())} body-frames on {len(sv_counts)} ids "
+                  + str(dict(sorted(sv_counts.items()))))
             # a set man's holes before the snap (endzone_only_rule.fill_presnap_holes): a vouched id between its
             # vouched frames (the filled frames vouched too), then every id where the line point is empty
             mode = presnap_fill if presnap_fill is not None else _ezr.PRESNAP_FILL
@@ -795,6 +809,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     revived = ({p for p in lv_frames if p in ghosts and len(lv_frames[p]) >= _ezr.LINE_VOUCH_REVIVE_MIN}
                if _ezr.LINE_VOUCH_REVIVE_MIN is not None else set())
     revived |= {p for p in pv_frames if p in ghosts and len(pv_frames[p]) >= _ezr.POCKET_VOUCH_REVIVE_MIN}
+    revived |= {p for p in sv_frames if p in clipped and len(sv_frames[p]) >= _ezr.SHORT_TEAM_VOUCH_REVIVE_MIN}
     if revived:
         clipped -= revived
         n_cut = 0

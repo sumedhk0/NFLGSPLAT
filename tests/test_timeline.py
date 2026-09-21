@@ -916,3 +916,50 @@ def test_vanishings_does_not_count_a_man_re_identified_under_a_newborn_id_nearby
         tl.states[f].append(_st_(1, 9.0, 9.0))                             # ends at 429, nobody takes over
     v = tlm.vanishings(tl, {40: "BAL", 198: "BAL", 1: "BAL"}, lo=395, hi=459, clear_m=0.6, successor_reach=3, successor_m=1.5)
     assert v["successions"] == 1 and v["end_frames"] == 30 and v["worst"] == [(1, 430, 459, 30)]
+
+
+def test_stand_still_locks_through_a_hole_the_bridge_cannot_take_and_blends_onto_its_far_end():
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 500)), states={f: [] for f in range(400, 500)})
+    boxes = {"sideline": {}}
+    for f in list(range(400, 440)) + list(range(470, 500)):                 # the centre: a 30-frame hole, ends 3 m apart
+        x = 0.0 if f < 440 else 3.0
+        tl.states[f].append(_st_(204, x, 0.0)); boxes["sideline"][(f, 204)] = (100 + int(x * 20), 100, 160 + int(x * 20), 260)
+    for f in range(400, 500):                                              # the Raven on him, driven back 0.03 m/frame (slow)
+        x = -0.5 + 0.03 * max(0, f - 439)
+        tl.states[f].append(_st_(84, x, 0.4)); boxes["sideline"][(f, 84)] = (95 + int(x * 20), 110, 165 + int(x * 20), 270)
+    rep = tlm.stand_still(tl, {204: "KC", 84: "BAL"}, lo=395, hi=499, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes,
+                          lock_iou=0.5, lock_max=90, lock_slow_m=0.5, lock_history=0)
+    filled = sorted(f for f in range(440, 470) if any(s.pid == 204 for s in tl.states[f]))
+    assert filled == list(range(440, 470))                                 # the hole is filled by the lock
+    assert rep["locked"] == 30 and rep["bridged"] == 0
+    last = [s.xy[:2] for s in tl.states[469] if s.pid == 204][0]
+    assert abs(float(last[0]) - 3.0) < 0.5                                 # the tail slid onto the far end (no step at 470)
+    mid = [s.xy[:2] for s in tl.states[455] if s.pid == 204][0]
+    assert 0.2 < float(mid[0]) < 1.5                                       # in between he followed the Raven, not the line
+
+
+def test_short_team_vouch_keeps_only_a_short_teams_clear_endzone_only_body():
+    import numpy as np
+    from nfl_gsplat.render import endzone_only_rule as ezr
+
+    ground = {f: {} for f in range(400, 410)}
+    views = {f: {} for f in range(400, 410)}
+    teams = {}
+    for i in range(10):                                                    # ten Ravens the sideline sees
+        teams[i] = "BAL"
+        for f in range(400, 410):
+            ground[f][i] = np.array([-30.0 + i, 0.0]); views[f][i] = ("endzone", "sideline")
+    for i in range(20, 31):                                                # eleven Chiefs
+        teams[i] = "KC"
+        for f in range(400, 410):
+            ground[f][i] = np.array([-30.0 + i, 5.0]); views[f][i] = ("sideline",)
+    teams[50] = "BAL"; teams[51] = "BAL"; teams[60] = "KC"
+    for f in range(400, 410):
+        ground[f][50] = np.array([-10.0, -6.0]); views[f][50] = ("endzone",)          # an endzone-only Raven, clear: the eleventh
+        ground[f][51] = np.array([-25.3, 0.4]); views[f][51] = ("endzone",)           # an endzone-only Raven on a drawn one: a copy
+        ground[f][60] = np.array([-40.0, 5.0]); views[f][60] = ("endzone",)           # an endzone-only Chief: KC is full
+    keep, counts = ezr.short_team_vouch(ground, views, lo=400, hi=409, teams=teams, clear_m=2.0)
+    assert counts == {50: 10} and all(keep[f] == {50} for f in range(400, 410))
+    assert ezr.short_team_vouch(ground, views, lo=400, hi=409, teams=teams, clear_m=None) == ({}, {})

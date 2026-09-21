@@ -603,3 +603,53 @@ def fill_presnap_holes(ground, *, start: int, snap: int, teams: dict, margin: in
             d[pid] = pt
             added[pid] = added.get(pid, 0) + 1
     return out, added
+
+
+# The eleventh man the sideline never boxed. On play 1 (2026-09-20) Baltimore read ten on 119 of the 213 play frames while
+# two Ravens had endzone boxes and no sideline ones at all: 146 in coverage downfield (out of the sideline's frame from
+# 468) and 112 (jersey 90, a rusher) in the pile from 524. The endzone-only rule drops them whole because a body the
+# sideline could have seen is, nine times in ten, the sideline's own player unpaired. The count is the tenth time: a
+# team drawn short on a frame has a man missing, and an endzone-only body of that team standing clear of every drawn
+# teammate is him. The pocket vouch (rejected 09-19: KC copies revived) had no such gate: KC read eleven or twelve,
+# so nothing of KC's is vouched here. Off (None) until measured on the census, the rulers and the endzone blend.
+SHORT_TEAM_VOUCH_CLEAR_M: float | None = None   # the endzone-only body must stand this far from every drawn teammate
+SHORT_TEAM_VOUCH_REVIVE_MIN: int = 10           # frames vouched before the id is drawn at all
+SHORT_TEAM_FULL: int = 11
+
+
+def short_team_vouch(ground, views, *, lo: int, hi: int, teams: dict, clear_m: float | None = SHORT_TEAM_VOUCH_CLEAR_M,
+                     full: int = SHORT_TEAM_FULL, endzone: str = "endzone", exclude=None):
+    """``({frame: {pid}}, {pid: n_frames})``: on frames ``lo..hi`` where a team's bodies that are NOT endzone-only
+    number fewer than ``full``, its endzone-only bodies (``views[f][pid] == (endzone,)``) standing at least
+    ``clear_m`` from every non-endzone-only teammate. ``exclude``: ids never vouched (officials, staff)."""
+    keep: dict = {}
+    counts: dict = {}
+    if clear_m is None:
+        return keep, counts
+    exclude = set(int(p) for p in (exclude or ()))
+    for f in range(int(lo), int(hi) + 1):
+        g = ground.get(f)
+        if not g:
+            continue
+        vf = views.get(f, {})
+        drawn: dict = {}
+        ez: dict = {}
+        for pid, xy in g.items():
+            pid = int(pid)
+            tm = teams.get(pid)
+            if tm is None:
+                continue
+            if tuple(vf.get(pid, ())) == (endzone,):
+                if pid not in exclude:
+                    ez.setdefault(tm, []).append((pid, np.asarray(xy, float)[:2]))
+            else:
+                drawn.setdefault(tm, []).append(np.asarray(xy, float)[:2])
+        for tm, cands in ez.items():
+            if len(drawn.get(tm, [])) >= full:
+                continue
+            for pid, xy in cands:
+                near = min((float(np.hypot(*(q - xy))) for q in drawn.get(tm, [])), default=np.inf)
+                if near >= clear_m:
+                    keep.setdefault(f, set()).add(pid)
+                    counts[pid] = counts.get(pid, 0) + 1
+    return keep, counts

@@ -1031,7 +1031,7 @@ def hold_to_end(tl: "Timeline", end: int, last_frame: int, *, reach: int = HOLD_
 STAND_BRIDGE_M: float | None = 1.5      # None = off
 STAND_SLOW_M: float = 1.0
 STAND_WINDOW: int = 10
-STAND_CLEAR_M: float = 0.6
+STAND_CLEAR_M: float = 0.45           # 0.6 refused the centre's 0.68 m hole 514-524 for the guard 0.47-0.55 m off its line; twins stand 0.1-0.4 m
 # The hold after a track's end. Measured on play 1 (2026-09-19, the play window, v81's data): held with the same
 # 0.6 m clearance it added 501 body-frames on 11 ids (census 0.92 -> 2.62); stopped by any teammate within 1.5 m it
 # never held the centre (Thuney stands 1.3 m from him); stopped by a teammate BORN within 8 frames it held BAL 40
@@ -1071,6 +1071,13 @@ STAND_LOCK_HIST_IOU: float = 0.4        # frames an other-team box overlapped hi
 # hole (406-542) bridged 116 body-frames of a ghost beside the centre (census 0.92 -> 1.19); the real pocket holes
 # are 5-45 frames.
 STAND_BRIDGE_MAX_FRAMES: int = 50
+STAND_SEAM_FRAMES: int = 6              # a hold or lock that reaches a hole's far end slides onto it over this many frames
+STAND_NEIGHBOUR_M: float = 1.0          # a teammate this close on the man's last frame is his neighbour on the line, not a
+                                        # twin to stop the hold for (the guard 0.5-1.0 m from the centre once the endzone
+                                        # rows place them; the hole-lock stopped after 5 frames on him, 2026-09-20)
+STAND_BRIDGE_SHORT_FRAMES: int = 12     # a hole this short takes the straight line up to STAND_BRIDGE_SHORT_M: 2.5 m over 12
+STAND_BRIDGE_SHORT_M: float = 2.5       # frames is 0.21 m/frame, under the step ruler (the centre 514-524 once his endzone
+                                        # rows beyond 513 were dropped as far from the join, 2026-09-20)
 
 
 def _same_team_near(states, pid: int, team, xy, teams: dict, clear_m: float) -> bool:
@@ -1174,6 +1181,85 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                     successor = True
         return successor, (cover / a0 if a0 > 0 else 0.0)
 
+    def hold_or_lock(pid, team, byf, f_last, f_stop, *, seam_to):
+        """Hold (or, locked with his opponent, follow) the man from his last drawn frame ``f_last`` over
+        ``f_last+1 .. f_stop``; with ``seam_to=(fb, xb)`` the last STAND_SEAM_FRAMES placed frames slide onto
+        ``xb`` so the far end of a hole is no step. Returns the body-frames added (counted into out)."""
+        fs_ = sorted(f for f in byf if f <= f_last)
+        back = [f for f in fs_ if f_last - window <= f <= f_last]
+        moved = float(np.hypot(*(np.asarray(byf[f_last].xy[:2], float) - np.asarray(byf[back[0]].xy[:2], float)))) if len(back) > 1 else 0.0
+        if moved > slow_m:
+            return 0
+        s = byf[f_last]
+        lb = last_box(pid, f_last) if per_frame else None
+        # a teammate already standing within STAND_NEIGHBOUR_M of him on his last frame is his neighbour on the line
+        # (the guard beside the centre), not a twin: the twin test below ignores him
+        x_last = np.asarray(s.xy[:2], float)
+        neighbours = {int(t.pid) for t in tl.states.get(f_last, []) if int(t.pid) != pid and teams.get(int(t.pid)) == team
+                      and float(np.hypot(*(np.asarray(t.xy[:2], float) - x_last))) <= STAND_NEIGHBOUR_M}
+        # locked with an opponent: his box covers the last box on the first held frame and he is drawn and slow
+        opp = None
+        if lb is not None and f_last + 1 in tl.states and engaged(lb[0], pid, team, f_last):
+            q = opponent_on(lb[0], lb[1], f_last + 1, pid, team)
+            if q is not None and f_last in by_id.get(q, {}) and slow_at(q, f_last + 1, lock_slow_m):
+                opp = q
+        cap = int(lock_max) if opp is not None else int(hold_max)
+        placed = []                                         # (frame, state, locked), appended to the timeline below
+        for f in range(f_last + 1, min(f_stop, f_last + cap) + 1):
+            if f not in tl.states:
+                continue
+            if opp is not None:
+                if not slow_at(opp, f, lock_slow_m):
+                    if seam_to is None or not placed:
+                        break                               # the opponent broke free or left: the block is over
+                    # inside a hole: the far end is coming, so the man stands where the lock left him from here
+                    opp = None
+                    s = placed[-1][1]
+                    cap = int(hold_max)
+                    lb = None                               # no box to test against at a locked spot: the twin test and the cap
+                    if f > f_last + cap:
+                        break
+                xy = np.asarray(s.xy[:2], float) + (np.asarray(by_id[opp][f].xy[:2], float) - np.asarray(by_id[opp][f_last].xy[:2], float))
+                if _same_team_near([t for t in tl.states[f] if int(t.pid) not in neighbours], pid, team, xy, teams, clear_m):
+                    break                                   # a twin on the spot: the man drawn under another id
+                # (no box tests here: the opponent drawn and slow IS the evidence of the block; a neighbour's box
+                # drifting onto the pair is not the man -- Thuney's box sat on the centre's Raven at IoU 0.41-0.46
+                # from 524 while his BODY stood 1.3 m off -- and the Raven's own box shrinking in the pile ended the
+                # lock at 526 under a cover test; the twin test above is the successor test a locked man needs)
+                placed.append((f, dataclasses.replace(s, xy=np.array([xy[0], xy[1]], float)), True))
+                continue
+            if _same_team_near([t for t in tl.states[f] if int(t.pid) not in neighbours], pid, team, s.xy[:2], teams, clear_m):
+                break                                       # a twin on the spot
+            if lb is not None:
+                successor, cover = on_last_box(lb[0], lb[1], f, pid, team, f_last)
+                if successor or cover < occluded_cover:
+                    break                                   # the man under a new id, or open turf: he left
+            placed.append((f, dataclasses.replace(s), False))
+        if seam_to is not None and placed:
+            fb, xb = seam_to
+            gap = fb - placed[-1][0] - 1
+            if gap <= int(STAND_SEAM_FRAMES):               # at, or a few frames short of, the far end: one walk onto it
+                k = min(int(STAND_SEAM_FRAMES), len(placed))
+                anchor_i = len(placed) - k                  # the walk starts k placed frames back ...
+                f_a, st_a, locked_a = placed[anchor_i]
+                x_a = np.asarray(st_a.xy[:2], float) if anchor_i == 0 else np.asarray(placed[anchor_i - 1][1].xy[:2], float)
+                f_start = f_a if anchor_i == 0 else placed[anchor_i - 1][0] + 1
+                span = fb - f_start                         # ... and spans to the far end: seam / span per frame
+                tail = []
+                for i, f in enumerate(range(f_start, fb)):
+                    if f not in tl.states:
+                        continue
+                    w = (i + 1) / float(span)
+                    xy = (1.0 - w) * x_a + w * np.asarray(xb, float)
+                    tail.append((f, dataclasses.replace(st_a, xy=np.array([xy[0], xy[1]], float)), locked_a))
+                placed = placed[:anchor_i] + tail
+        for f, st, locked in placed:
+            tl.states[f].append(st)
+            out["held"] += 1
+            if locked:
+                out["locked"] += 1
+        return len(placed)
+
     for pid, byf in by_id.items():
         team = teams.get(pid)
         if team is None:
@@ -1186,7 +1272,15 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
             if b - a <= 1 or b - a - 1 > int(bridge_max_frames):
                 continue
             xa = np.asarray(byf[a].xy[:2], float); xb = np.asarray(byf[b].xy[:2], float)
-            if float(np.hypot(*(xb - xa))) > bridge_m:
+            reach = max(bridge_m, STAND_BRIDGE_SHORT_M) if (b - a - 1) <= int(STAND_BRIDGE_SHORT_FRAMES) else bridge_m
+            if float(np.hypot(*(xb - xa))) > reach:
+                # too far for the straight line: the man was lost mid-block (the centre 500-532 once his re-detected
+                # boxes resume at 533) -- hold or lock him from the hole's start as at a track's end, and blend the
+                # last STAND_SEAM_FRAMES of that onto the far end so the far end is no step
+                if hold:
+                    n_h = hold_or_lock(pid, team, byf, a, min(b - 1, hi), seam_to=(b, xb))
+                    if n_h:
+                        out["ids"][pid] = out["ids"].get(pid, 0) + n_h
                 continue
             for f in range(a + 1, b):
                 if f not in tl.states:
@@ -1202,43 +1296,9 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
         f_last = fs[-1]
         if f_last >= hi or not hold:
             continue
-        back = [f for f in fs if f_last - window <= f <= f_last]
-        moved = float(np.hypot(*(np.asarray(byf[f_last].xy[:2], float) - np.asarray(byf[back[0]].xy[:2], float)))) if len(back) > 1 else 0.0
-        if moved > slow_m:
-            continue
-        s = byf[f_last]
-        lb = last_box(pid, f_last) if per_frame else None
-        # locked with an opponent: his box covers the last box on the first held frame and he is drawn and slow
-        opp = None
-        if lb is not None and f_last + 1 in tl.states and engaged(lb[0], pid, team, f_last):
-            q = opponent_on(lb[0], lb[1], f_last + 1, pid, team)
-            if q is not None and f_last in by_id.get(q, {}) and slow_at(q, f_last + 1, lock_slow_m):
-                opp = q
-        cap = int(lock_max) if opp is not None else int(hold_max)
-        for f in range(f_last + 1, min(hi, f_last + cap) + 1):
-            if f not in tl.states:
-                continue
-            if opp is not None:
-                if not slow_at(opp, f, lock_slow_m):
-                    break                                   # the opponent broke free or left: the block is over
-                xy = np.asarray(s.xy[:2], float) + (np.asarray(by_id[opp][f].xy[:2], float) - np.asarray(by_id[opp][f_last].xy[:2], float))
-                if _same_team_near(tl.states[f], pid, team, xy, teams, clear_m):
-                    break                                   # a twin on the spot: the man drawn under another id
-                # (no box tests here: the opponent drawn and slow IS the evidence of the block; a neighbour's box
-                # drifting onto the pair is not the man -- Thuney's box sat on the centre's Raven at IoU 0.41-0.46
-                # from 524 while his BODY stood 1.3 m off -- and the Raven's own box shrinking in the pile ended the
-                # lock at 526 under a cover test; the twin test above is the successor test a locked man needs)
-                tl.states[f].append(dataclasses.replace(s, xy=np.array([xy[0], xy[1]], float)))
-                out["held"] += 1; out["locked"] += 1; out["ids"][pid] = out["ids"].get(pid, 0) + 1
-                continue
-            if _same_team_near(tl.states[f], pid, team, s.xy[:2], teams, clear_m):
-                break                                       # a twin on the spot
-            if lb is not None:
-                successor, cover = on_last_box(lb[0], lb[1], f, pid, team, f_last)
-                if successor or cover < occluded_cover:
-                    break                                   # the man under a new id, or open turf: he left
-            tl.states[f].append(dataclasses.replace(s))
-            out["held"] += 1; out["ids"][pid] = out["ids"].get(pid, 0) + 1
+        n_e = hold_or_lock(pid, team, byf, f_last, hi, seam_to=None)
+        if n_e:
+            out["ids"][pid] = out["ids"].get(pid, 0) + n_e
     return out
 
 
