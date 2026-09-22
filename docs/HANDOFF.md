@@ -6052,3 +6052,26 @@ skating in flight -- the candidate default if the planted share holds near 14 %.
 jerk events 50 -> 7 for 22.6 -> 14 % planted; nothing measured moves both the right way, and the jerk is what the user
 sees as odd angles. v96 chain launched (~19:15): v96 tables (snapshotted *.v96) + the gait defaults + the gear
 (--pads on, facemask/collar/cuffs/stripe/cleats) + KC names; gate off.
+Suite 1280 passed / 3 skipped with the final defaults; gait committed 162c500 (gear 3b9ca6f, gate 2d5e494, gaze d5ec371).
+Next unit while v96 renders: scripts/09e_contact_links.py -- a link finder for track deaths/births through contact
+(team kit, OCR votes, kinematics, box-overlap history, the other camera), validated on a v95 copy where the 9 -> 77
+switch still exists (data/.../play_v95copy).
+
+**RESUME HERE (power-off ~20:00, 2026-09-22).** Running when the machine went off: the v96 render chain
+(`$S/chain_v96.sh`, log `$S/chain_v96.log`; relaunch with `nohup bash "$S/chain_v96.sh" > "$S/chain_v96.log" 2>&1 &`
+-- Git Bash has no setsid; 08y/08x/dump/07l re-run, the render skips existing PNGs in render_hifi_v96). Then review:
+catch_check strips, both blends, the 09d rulers on the render's own joints, the viewer (Version 13 already has the v96
+joints). Then snapshot: MEMORY.md index still says v95 = current best.
+The link finder (scripts/09e_contact_links.py, tracking/contact_links.py, tests) is committed. On the live tables it
+proposes 4 links; the film says: 19 <- 162 = fragments of the snap pile, NOT a man (do not fold); 167 <- 139/153 = the
+KC lineman on the pile, unverified; 1 <- 4 (track 45 from 528) = ONE man but the finder's DIRECTION is backwards --
+the white Raven engaged with KC 65 (id 76) is id 4 at 412-442 and from 528 (sideline t45, endzone t45/t136 440-506
+at the same spot), while id 1's sideline rows 500-526 (t45 <= 520, t40 522-526, h 70-116, y 3.7-4.9 = a metre across
+from 4's y 2.5) are on him too; id 1's own track 40 runs 440-494 upfield (y 5-6.6) and the endzone's t112 (524-536,
+y 2.4) sits on 4's spot. Likely fix (measure on a copy first, `data/.../play_copy` has the finder's own 1 <- 4 fold
+applied -- rerun the copy from live before trying the reverse): give id 1's sideline rows 500-527 to id 4
+(`08z --keep 4 --drop 1 --cam sideline --track-id 45 --frames 500 520`, `... --track-id 40 --frames 522 527`) and
+the endzone t112 to 4, then look at where the real Ojabo (1) is after 494 on the film. Finder improvement to make:
+when the born id has older rows or an other-camera presence at the spot, fold the dying id's TAIL into the born id
+instead (a `direction` field), and never propose pairs whose death box is a merged pile box (h > 1.4x the track's
+median height).
