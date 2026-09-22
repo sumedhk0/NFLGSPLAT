@@ -5810,3 +5810,15 @@ kept him. A span-length gate on the same-body test measured worse (0.671). LIVE 
 stays, the centre stays); the folded state is on `$S/play_copy2` for the next step: the gap-branch test needs the id's
 OWN last sideline point against the neighbour's -- the sideline had the centre and the QB 0.5-1.1 m apart at 556, two
 men -- before it calls the endzone tail a copy. Also 204's stored name is a wrong vote (he is the centre, not Suamataia).
+
+**08:30 -- the centre's tail is a MERGED BOX, and it moves the quarterback.** On v93 the centre (204) has no box in either
+camera after 556 (hidden behind Mahomes for the endzone camera) and his hold dies at once on the twin veto: from 557 the
+sideline detector boxes the quarterback and the centre as ONE box (IoU 0.95 with the centre's last box), the
+quarterback is placed at that box (his sideline point jumps from (-18.2,-1.0) at 555 to (-20.0, 0.0) at 560 while the
+endzone camera keeps him at (-17.5,-0.5) -> (-16.9,-0.4)), so the drawn QB stands 0.34 m from the centre's last spot and
+the centre reads as his twin. Two errors from one box: the centre vanishes 557-607 and the QB is drawn ~2-3 m forward
+of where the endzone camera has him. Also measured and reverted: a successor-history rule for the hold (a same-team box
+that was not on the man's box before his loss is a neighbour, not his new id) -- no effect on any arm (the veto, not the
+successor test, is what stops the hold) and it broke the box-twin unit test. Next: read the QB against the film at
+556-600 (`diag/pocket/qb_v93_check.png`); if the endzone is right, the sideline override needs a merged-box guard (a
+box whose width/height jumps and that another sideline id's last box sits inside at IoU > 0.9 is two men).
