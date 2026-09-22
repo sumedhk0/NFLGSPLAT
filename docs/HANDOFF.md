@@ -5886,3 +5886,11 @@ film's 15 is, the centre is back beside Thuney against 98, no red body missing. 
 11 Kelce 87) -- they feed the rendered numbers from the next render on. Remaining on the window: 166 (407-420, the
 centre's other id at the snap, 14 frames), Roquan's tackle 600-607 (moving, by design). The 41 grown-box events are the
 next data-step candidate; every id in a pile deserves the per-camera x-over-time table before it is trusted.
+
+**v95 rendered (2026-09-22, machine clock ~09:00): `diag/play_001_v95_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` /
+`_endzone_blend`. CURRENT BEST, film-checked.** v94 + two row drops read off the 09c audit: id 166's sideline rows 395-435
+(a second box on the centre at the snap -- KC read 12 at 396-406) and Roquan's fragment boxes 520-528 (61-68 px of a
+100 px man, 2 m across; his hole now bridges to his tackle rows). 07l on 395-607: live steps 2, hops 0, census 0.18
+(KC 11.05 / BAL 11.06). Film checks: the snap pocket 398-428 (`diag/pocket/snap_v95_check.png`) and the tackle 510-560
+(`tackle_v95_check.png`) both match. The vanish list on the window is empty but for Roquan's tackle 600-607 (moving,
+by design). Tables `*.v95`; the Film Room on v95 (Version 9).
