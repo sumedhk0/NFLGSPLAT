@@ -959,7 +959,13 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             pe_path = P / "play_end.json"
             if pe_path.exists():
                 st_lo = min(st_lo, int(json.loads(pe_path.read_text()).get("start", st_lo)))
-        rep = tlm.stand_still(tl, teams_now, lo=st_lo, hi=int(st_end), bridge_m=tlm.STAND_BRIDGE_M,
+        st_hi = int(st_end)
+        if tlm.STAND_TO_CLIP_END:                        # the clip runs a few frames past the down: hold the men to its end
+            pe_path = P / "play_end.json"
+            if pe_path.exists():
+                pe_doc = json.loads(pe_path.read_text())
+                st_hi = max(st_hi, int(pe_doc.get("end", st_hi)) + int(pe_doc.get("tail", 0)))
+        rep = tlm.stand_still(tl, teams_now, lo=st_lo, hi=st_hi, bridge_m=tlm.STAND_BRIDGE_M,
                               slow_m=tlm.STAND_SLOW_M, window=tlm.STAND_WINDOW, clear_m=tlm.STAND_CLEAR_M,
                               hold=tlm.STAND_HOLD, hold_max=tlm.STAND_HOLD_MAX, boxes=_boxes_by_cam(df),
                               successor_iou=tlm.STAND_SUCCESSOR_IOU, occluded_cover=tlm.STAND_OCCLUDED_COVER,

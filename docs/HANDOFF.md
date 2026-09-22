@@ -5932,3 +5932,6 @@ Cause: the loader's quarterback-under-centre rule holds 80 at the spot he steps 
 "centre" it then removed from the QB's spot was the real centre. The pre-snap ids are load-bearing for that rule.
 Leave the pre-snap as v95 (107 of 180 frames exactly eleven); if it is ever revisited, read the film per id AND the
 qb-under-centre rule's inputs first. Copy discarded. v95 stands.
+**STAND_TO_CLIP_END (on):** stand_still runs to the clip's end (down + tail, 615) instead of the down. Play window unchanged
+(2 / 0 / 0.183); the tail 608-615 goes from (KC 9, BAL 10) x6, (9, 11) x2 to (9, 11) x6, (10, 12) x2 -- one more Raven on
+six frames, a held twin on the last two. Not worth a render on its own; the next render carries it.

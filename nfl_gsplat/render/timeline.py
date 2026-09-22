@@ -1091,6 +1091,8 @@ STAND_NEIGHBOUR_NOT_TWIN: bool = True       # a teammate inside clear_m at the l
 STAND_DEBUG_IDS: set = set()            # ids whose hold/bridge decisions are logged into the report's 'debug' (why a hold stops)
 STAND_FROM_CLIP_START: bool = False     # stand_still from the clip's start (play_end.json 'start') instead of the snap: the
                                         # user's clip shows the pre-snap stretch, where holes and track ends vanish men too
+STAND_TO_CLIP_END: bool = True          # stand_still to the clip's end (play_end.json end + tail) instead of the down: tracks
+                                        # end after the whistle and the last third of a second of the clip loses bodies
 STAND_NEIGHBOUR_M: float = 1.0          # a teammate this close on the man's last frame is his neighbour on the line, not a
                                         # twin to stop the hold for (the guard 0.5-1.0 m from the centre once the endzone
                                         # rows place them; the hole-lock stopped after 5 frames on him, 2026-09-20)
