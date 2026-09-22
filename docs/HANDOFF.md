@@ -5758,3 +5758,11 @@ eleven operations on the live tables: **steps 2 / hops 0 / census 0.441** (v91: 
   fragment spot while the sideline already boxed him as 40).
 - Recipe that worked: play the fold sequence on a copy of the play dir (08z/08za take --play-dir), read the loader's
   rulers there, then port. Remaining: 157 (KC man B) 501-546, 4 494-519, 171 600-607 (Roquan under the pile), 139.
+
+**v92 rendered (2026-09-22 00:35, after a GPU pause for the user's own tests): `diag/play_001_v92_hifi_720.mp4` +
+`_sideline_blend` / `_sideline_sbs` / `_endzone_blend`. CURRENT BEST, film-checked.** 07l on 395-607: live steps 2, hops
+0, census 0.44 (KC 11.12 / BAL 10.89). The pile checked at 420-570 (`diag/pocket/pile_v92_check.png`): two bodies drawn
+beside KC 65 and the right tackle where the film shows one man visible and one hidden behind him, the left pile
+(98, 99, the nose tackle) matches, Ojabo one body from the snap. Tables `*.v92`; the Film Room republished on v92
+(Version 6). Next patch, drafted in `$S/patch_uncovered.py`: the static hold ends only after STAND_UNCOVERED_FRAMES
+(3) consecutive uncovered frames (id 4 dies at 494 on a detector dropout of the covering box).
