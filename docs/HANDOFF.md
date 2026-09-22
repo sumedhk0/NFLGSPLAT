@@ -5963,3 +5963,92 @@ the SMPL-X body (jersey with the number front/back, pants, socks, cleats, gloves
 capsules; real meshes there are a later, heavier step (SMPL-X vertices per frame = 10k x 3 x 200 frames).
 Trap (fixed in 05k): `--export-joints --no-render` into an out-dir whose PNGs exist wrote an EMPTY joints file -- the
 export is filled inside the frame loop and resume skipped every frame. The export now forces --no-resume.
+
+### 2026-09-22 (machine clock ~13:00-15:00) -- first-person gaze, the receiver's id, the motion rulers' first two mechanisms, gear
+
+**The user's report on the first-person view:** the quarterback in the pocket "faces the sideline". Measured on the v95
+joints: the fitted shoulder line's yaw at 400/440/480/500/520/540 = -68/26/83/97/45/176 deg (0 = +x, downfield for KC =
+180) -- the single-camera fit's yaw is off by up to a right angle where the body faces the camera, and the neck-to-head
+vector agrees with the shoulders (no independent gaze). Fixed in the VIEWER (artifact Version 11, d5ec371): the gaze
+comes from the play -- moving > 1.5 m/s looks along the run; within 3 m of the line at the snap looks across it; the
+carrier standing looks his team's way; everyone else looks at the ball. Fit-side (endzone keypoints in the refit, a
+yaw prior from the run direction) not started.
+
+**The user's report on the motion receiver "spawning a new player":** id 9 (KC, in motion) meets the Ravens defender id 6
+at 480-493. The 09c track table + the sideline film strip (diag/wr_9_77_sideline.png): at 485-488 the detector merged
+the two men into one box under id 9; at 489-493 id 9's box (cx 1089, bottom 262, h 94) sits on the WHITE defender while
+6's own track ends 488 and his track 78 resumes 494 at the same box; at 494 track 77 is born on the red receiver. Fixed
+on the tables (backups .pre_fold.64/65, .pre_drop.11): 77 folded into 9 (steps 2, hops 0, census 0.18 -> 0.16); then
+on a copy of the play dir 9's 489-493 sideline rows folded into 6 (08z --cam sideline --track-id 9 --frames 489 493)
+and 485-488 dropped (08za) -- rulers unchanged (2 / 0 / 0.16), film-true, ported. presence 9 = 395-628, 6 = 395-637.
+Live tables = v96 (not yet snapshotted). Viewer Version 12 carries the v96 joints.
+
+**Which models are ours (the user asked):** everything in play 1's loop is pretrained (YOLOv8x at 2560 px, BoT-SORT,
+yolov8x-pose, SMPLest-X init, easyocr, SMPL-X, nerfstudio splatfacto) plus our geometry and rules; the models WE trained
+(`data/weights/`: jersey CNN 25 %, ResNet18 jersey reader 42 %, ReID ResNet-18 below the ImageNet trunk at the linking
+question) all lost their measurement and none is wired in; the landmark detector has scripts, no training run.
+
+**Motion, mechanism 1 -- the confidence-gated joints (built, measured, NO effect):** timeline.gate_low_confidence SLERPs a
+rotation across keyframes whose driving keypoint (elbow for the shoulder, wrist for the elbow, knee for the hip, ankle
+for the knee) scores under CONF_GATE_MIN 0.3 in runs up to CONF_GATE_MAX_RUN 30 frames; play_timeline.keypoint_confidence
+builds the per-row confidence from keypoints_2d.parquet and every knob is passed at call time. The first arm was a
+no-op: the loader filtered the keypoints on the refit's cam, which is "fused", not "sideline" -- 0 records, identical
+arms (the log's count line is the tell; probe-monkeypatch memory, 3rd case). Wired (both cameras, best per keypoint):
+15,261 (frame, id) records, 1,956 keyframe-joints slerped -- and 09d unmoved: jerk 57 -> 57, sideways R arm 11.0 -> 11.1 %,
+L arm 5.7 -> 5.9 %, legs identical; 07l joint jitter p50 0.0231 -> 0.0229, skating 0.725 -> 0.727. The sideways bends
+are not where the keypoints are unseen (or the SLERP lands in the same plane). Stays in the code, default to be set 0
+unless a CONF_GATE_MIN 0.5 arm moves something.
+
+**Motion, mechanism 2 -- the knee snaps are the GAIT's:** the same play exported with --gait off: leg jerk events 50 -> 2
+(arms 7 either way). A synthetic run found one mechanism (constant speed: knee jerk max 16; speed flickering +-0.006
+about RUN_M: 49, 10 of 58 samples over 25) and hysteresis + a minimum run (gait.on_flags, OFF_SHARE 0.75 / MIN_RUN 12)
+fixed it there (49 -> 22) -- but on the PLAY it LOST: leg jerk 50 -> 51 and the legs bent sideways on 11.8 % of frames
+against 7.9 % (the 3.6 m/s off-threshold re-admits the jogging band, where men shuffle and the gait's legs swing in the
+motion plane across the body). Defaults reverted to the plain threshold (1.0 / 1); the code stays for the synthetic case.
+The play's own mechanism, read off joints_v96a: 41 of the 50 leg events sit within 8 frames of a 4.8 m/s crossing --
+the gait's switch-on / switch-off ramp (6 frames, linear, from the fit's legs to the gait's phase-zero legs). Arms in
+flight: BLEND 16 linear, BLEND 16 smoothstep (gait.BLEND_SHAPE "smooth", C1 at both ends), BLEND 6 smoothstep.
+
+**Gear (built, unit-tested, one close render checked from behind):** uniform.regions now carves a collar (jersey top,
+front and sides), sleeve cuffs (the 7 cm of jersey before the elbow) and a pant stripe (the outer seam: |x| > 0.13 m,
+|z| < 0.045 m) out of the jersey/pants, and Kit carries their colours plus the cleats (KC white collar/cuffs, red stripe
+and cleats; BAL purple trim, black cleats); helmet.facemask_mask + wear_facemask push the lower front of the face 3 cm
+proud of the shell in the team's cage colour (KC white, BAL black), applied by 05k under --helmets; --pads (existing,
+shoulders out 3.5 cm and up 2 cm) goes into the v96 launch. Frontal check render pending.
+
+**Mechanism 2 resolved -- the gait's blend (2026-09-22 ~16:30):** the first BLEND arm measured two identical arms because
+gait_sequence bound BLEND as a default argument (probe-monkeypatch memory, 4th case; every gait knob is read at call time
+now, with a monkeypatch test that the output changes). Wired, on play 1 v96 (09d, live play, gate off): BLEND 6 -> 57
+jerk events (legs 50); BLEND 16 -> 11 (legs 4); BLEND 30 -> 11 (legs 4); BLEND 16 smoothstep -> 13. Sideways legs fell
+with it (L 7.9 -> 7.0 %, R 5.0 -> 3.5 %); the 7 arm events are the fit's (the throw, 80 at 532; 84 at 430; 15 at 484).
+BLEND 16 is the default (30 buys nothing and is 0.5 s of half-gait per edge). The synthetic flicker case is cured by 16
+alone too (49 -> 18), so OFF_SHARE / MIN_RUN stay at the plain threshold. 07l's skating ratio with BLEND 16 pending.
+
+**The gate's verdict and the blend's cost (~17:00):** CONF_GATE_MIN 0.5 (2,161 keyframe-joints, BLEND 16): arm jerk 7 -> 5,
+sideways R arm 11.0 -> 10.8 %, L 7.0 -> 7.0 % -- noise; the gate is OFF by default (CONF_GATE_MAX_RUN 0), code and
+loader wiring kept. 07l with BLEND 16: joint jitter p90 0.126 -> 0.066 and p99 1.06 -> 0.20 (the snaps), but the
+skating ruler gives back half of what the gait bought: planted share of moving frames 22.6 % -> 6.7 %, ratio p50
+0.725 -> 0.822 (the ramp is half-gait time). Arms in flight to keep both: BLEND 6 + MIN_RUN 12 (no brief crossings),
+BLEND 10, and BLEND 6 + a sigma-3 Gaussian over the gait's own rows where it is on (gait.GAIT_SMOOTH_SIGMA, new).
+Arms measured (~17:30): BLEND 6 + MIN_RUN 12 (no hysteresis) -> 56 events (legs 49), sideways legs 10.9 / 8.0 % -- filling the
+off-gaps puts the gait on shufflers, rejected; BLEND 10 -> 22 (legs 15), sideways 7.1 / 4.0 %. The trade is blend
+length against skating; the Gaussian-over-the-gait-rows arm (BLEND 6, sigma 3) is the attempt to have both.
+BLEND 6 + GAIT_SMOOTH_SIGMA 3 (09d): 7 events, ALL the fit's arms (legs 50 -> 0), sideways legs 6.7 / 4.1 %; 07l skating
+for it pending. 07l so far: BLEND 6 planted 22.6 % / jitter p99 1.06; BLEND 10 14 % / 0.26; BLEND 16 6.7 % / 0.20.
+BLEND 6 + sigma 3 on 07l: planted 4 % (ratio 0.85), jitter p99 0.13 -- the Gaussian rounds the stance sweep that plants
+the foot; REJECTED. Every ramp knob trades jerk against planting, so the next two attack the gap itself: MIN_ON (drop
+on-runs shorter than 12 frames, no gap filling) and PHASE_MATCH (start each on-run at the phase whose hip flexions match
+the fit's at the switch-on frame; gait.fit_hip_flexion / phase_match).
+Gap arms (09d, BLEND 6, gate off, ~18:30): MIN_ON 12 alone -> 17 events (legs 10), sideways legs 7.3 / 5.3 %; PHASE_MATCH
+alone -> 48 (legs 41): the hips matched, the knees not, and the fit's legs at a crossing are not gait-like; both -> 21
+(legs 14). So the short crossings (nothing but ramp) were most of the play's leg jerk. In flight: 07l skating for
+MIN_ON 12; MIN_ON 18; MIN_ON 12 + BLEND 10.
+07l for MIN_ON 12 (BLEND 6): planted 14 %, ratio p50 0.89 (worse than 6's 0.725 -- the dropped short runs were planting
+frames), jitter p99 0.23. The frontier so far (leg jerk events / planted %): BLEND 6 50 / 22.6; BLEND 10 15 / 14;
+MIN_ON 12 10 / 14; BLEND 16 4 / 6.7; sigma 3 0 / 4. Nothing yet moves both the right way.
+MIN_ON 18 (BLEND 6) -> 15 events (legs 8), sideways 7.2 / 4.7 %; BLEND 10 + MIN_ON 12 -> 14 (legs 7), 6.9 / 4.5 %, its 07l
+skating in flight -- the candidate default if the planted share holds near 14 %.
+07l for BLEND 10 + MIN_ON 12: planted 14 %, ratio p50 0.89, jitter p99 0.21 -- DEFAULT (gait.BLEND 10, MIN_ON 12): leg
+jerk events 50 -> 7 for 22.6 -> 14 % planted; nothing measured moves both the right way, and the jerk is what the user
+sees as odd angles. v96 chain launched (~19:15): v96 tables (snapshotted *.v96) + the gait defaults + the gear
+(--pads on, facemask/collar/cuffs/stripe/cleats) + KC names; gate off.

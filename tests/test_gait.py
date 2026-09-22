@@ -37,7 +37,7 @@ def test_stance_sweep_plants_the_foot_to_first_order():
 def test_phase_follows_forward_travel_and_holds_when_slow():
     speed = np.array([0.0, 0.1, 0.1, 0.1, 0.0, 0.0])
     adv = np.array([0.0, 0.1, 0.1, -0.1, 0.0, 0.0])            # forward, forward, then a step backwards
-    phi, on = gait.phases(adv, speed)
+    phi, on = gait.phases(adv, speed, off_share=1.0, min_run=1, min_on=1)      # the plain threshold: this test is about the phase
     assert on.tolist() == [False, True, True, True, False, False]
     L = gait.stride_length(0.1)
     assert abs(phi[2] - 2 * np.pi * 0.2 / L) < 1e-9 and abs(phi[3] - 2 * np.pi * 0.1 / L) < 1e-9
@@ -161,3 +161,129 @@ def test_arms_swing_opposite_their_own_leg_and_hang_down_with_the_elbow_bent():
         assert np.allclose(out3[:, 15:19], 0.0)                     # off: the arms stay the fit's
     finally:
         gait.ARMS = was
+
+
+def test_on_flags_hysteresis_and_minimum_run_kill_the_flicker():
+    from nfl_gsplat.render import gait as _g
+    t = np.arange(120)
+    flicker = np.full(120, 0.08) + 0.006 * np.sin(t * 1.3)          # a jogger about the threshold
+    plain = _g.on_flags(flicker, run_m=0.08, off_share=1.0, min_run=1, min_on=1)
+    assert 5 < plain.sum() < 115 and np.count_nonzero(np.diff(plain)) > 10     # the plain threshold flickers
+    on = _g.on_flags(flicker, run_m=0.08, off_share=0.75, min_run=12)
+    first = int(np.argmax(flicker > 0.08))
+    assert on[first:].all() and not on[:first].any()                 # one run from the first crossing
+    stop = np.concatenate([np.full(40, 0.12), np.full(30, 0.02), np.full(40, 0.12)])   # a real stop
+    on = _g.on_flags(stop, run_m=0.08, off_share=0.75, min_run=12)
+    assert on[:40].all() and not on[40:70].any() and on[70:].all()
+    dip = np.concatenate([np.full(40, 0.12), np.full(5, 0.02), np.full(40, 0.12)])     # a five-frame dip
+    assert _g.on_flags(dip, run_m=0.08, off_share=0.75, min_run=12).all()
+    spike = np.concatenate([np.full(40, 0.02), np.full(5, 0.12), np.full(40, 0.02)])   # a five-frame spike
+    assert not _g.on_flags(spike, run_m=0.08, off_share=0.75, min_run=12).any()
+
+
+def test_gait_sequence_knee_jerk_stays_low_on_a_flickering_speed():
+    from nfl_gsplat.render import gait as _g, timeline as _tl
+    speeds = np.full(120, 0.08) + 0.006 * np.sin(np.arange(120) * 1.3)
+    xy = np.zeros((120, 2)); xy[:, 0] = np.cumsum(speeds)
+    up = _tl.upright_from_yaw(0.0)
+    seq = [(xy[i], np.zeros((21, 3)), up) for i in range(120)]
+    def jerk(**kw):
+        out, _ = _g.gait_sequence(seq, **kw)
+        knee = np.degrees(out[::2, _g.KNEE_ROW["L"], 0])              # stride-2 sampling, as rendered
+        return np.abs(np.diff(knee, 2)).max()
+    assert jerk(off_share=1.0, min_run=1, min_on=1, blend=6) > 25     # the plain threshold snaps on the old 6-frame blend
+    assert jerk(off_share=0.75, min_run=12, min_on=1, blend=6) < 25    # 49 -> 22: what is left is the switch-on ramp
+    assert jerk(off_share=1.0, min_run=1) < 25                        # BLEND 16 alone cures the synthetic flicker too
+
+
+def test_smooth_blend_meets_both_ends_without_a_corner():
+    on = np.array([False] * 4 + [True] * 30 + [False] * 4)
+    lin = gait.blend_weights(on, blend=8, shape="linear")
+    sm = gait.blend_weights(on, blend=8, shape="smooth")
+    assert np.allclose(sm[:4], 0) and np.allclose(sm[-4:], 0) and np.allclose(sm[12:26], 1)
+    assert (np.diff(sm[3:13]) >= -1e-12).all() and (np.diff(sm[25:35]) <= 1e-12).all()      # monotone ramps
+    assert sm[4] < lin[4] and sm[10] > lin[10]                                                # eased at both ends
+    assert abs(sm[7] - 0.5) < 0.2 and np.allclose(sm, lin * lin * (3 - 2 * lin))
+    import pytest
+    with pytest.raises(ValueError):
+        gait.blend_weights(on, blend=8, shape="bezier")
+
+
+def test_gait_sequence_reads_blend_and_run_m_at_call_time(monkeypatch):
+    from nfl_gsplat.render import timeline as _tl
+    speeds = np.concatenate([np.full(20, 0.02), np.full(40, 0.12), np.full(20, 0.02)])
+    xy = np.zeros((80, 2)); xy[:, 0] = np.cumsum(speeds)
+    up = _tl.upright_from_yaw(0.0)
+    seq = [(xy[i], np.zeros((21, 3)), up) for i in range(80)]
+    monkeypatch.setattr(gait, "BLEND", 2)
+    short, _ = gait.gait_sequence(seq)
+    monkeypatch.setattr(gait, "BLEND", 16)
+    long, _ = gait.gait_sequence(seq)
+    knee_s = np.abs(short[:, gait.KNEE_ROW["L"], 0]); knee_l = np.abs(long[:, gait.KNEE_ROW["L"], 0])
+    assert knee_s[21] > knee_l[21] and not np.allclose(short, long)          # the longer ramp is still low at frame 21
+    monkeypatch.setattr(gait, "RUN_M", 0.5)                                  # nobody runs this fast: the gait stays off
+    off, rep = gait.gait_sequence(seq)
+    assert rep["on"] == 0 and np.allclose(off, 0.0)
+
+
+def test_gait_smoothing_rounds_the_ramp_and_leaves_the_fit_alone():
+    from nfl_gsplat.render import timeline as _tl
+    speeds = np.concatenate([np.full(30, 0.02), np.full(40, 0.12), np.full(30, 0.02)])
+    xy = np.zeros((100, 2)); xy[:, 0] = np.cumsum(speeds)
+    up = _tl.upright_from_yaw(0.0)
+    fit = np.zeros((21, 3)); fit[gait.KNEE_ROW["L"]] = [0.9, 0, 0]; fit[gait.ELBOW_ROW["L"]] = [0, -1.0, 0]
+    seq = [(xy[i], fit, up) for i in range(100)]
+    raw, _ = gait.gait_sequence(seq, blend=6, smooth_sigma=0.0)
+    sm, _ = gait.gait_sequence(seq, blend=6, smooth_sigma=3.0)
+    knee_r = raw[::2, gait.KNEE_ROW["L"], 0]; knee_s = sm[::2, gait.KNEE_ROW["L"], 0]
+    assert np.abs(np.diff(knee_s, 2)).max() < np.abs(np.diff(knee_r, 2)).max()     # the corners are rounder
+    assert np.allclose(sm[:, gait.ELBOW_ROW["L"]], fit[gait.ELBOW_ROW["L"]])         # arms untouched
+    assert np.allclose(sm[:10, gait.KNEE_ROW["L"]], fit[gait.KNEE_ROW["L"]])         # the fit's legs far from the gait untouched
+    assert np.allclose(sm[-10:, gait.KNEE_ROW["L"]], fit[gait.KNEE_ROW["L"]])
+
+
+def test_gait_smoothing_survives_a_sequence_shorter_than_its_reach():
+    from nfl_gsplat.render import timeline as _tl
+    xy = np.zeros((10, 2)); xy[:, 0] = np.cumsum(np.full(10, 0.12))
+    seq = [(xy[i], np.zeros((21, 3)), _tl.upright_from_yaw(0.0)) for i in range(10)]
+    out, rep = gait.gait_sequence(seq, blend=6, smooth_sigma=3.0)
+    assert out.shape == (10, 21, 3) and rep["on"] == 10
+
+
+def test_min_on_drops_short_on_runs_and_never_fills_off_gaps():
+    stop = np.concatenate([np.full(40, 0.12), np.full(5, 0.02), np.full(40, 0.12)])     # a five-frame dip
+    on = gait.on_flags(stop, run_m=0.08, off_share=1.0, min_run=1, min_on=12)
+    assert on[:40].all() and not on[40:45].any() and on[45:].all()                    # the gap stays a gap
+    spike = np.concatenate([np.full(40, 0.02), np.full(5, 0.12), np.full(40, 0.02)])   # a five-frame crossing
+    assert not gait.on_flags(spike, run_m=0.08, off_share=1.0, min_run=1, min_on=12).any()
+    assert gait.on_flags(spike, run_m=0.08, off_share=1.0, min_run=1, min_on=1)[40:45].all()
+    edge = np.concatenate([np.full(5, 0.12), np.full(40, 0.02)])                        # a short run at the edge stays
+    assert gait.on_flags(edge, run_m=0.08, off_share=1.0, min_run=1, min_on=12)[:5].all()
+
+
+def test_phase_match_finds_the_phase_whose_legs_match():
+    amp, d = 0.5, 0.4
+    for target in (0.3, 1.7, 3.1, 4.6, 5.9):
+        hl, _ = gait.leg_angles(target, amp, duty=d)
+        hr, _ = gait.leg_angles(target + np.pi, amp, duty=d)
+        p = gait.phase_match(hl, hr, amp, duty=d, grid=96)
+        assert abs(((p - target + np.pi) % (2 * np.pi)) - np.pi) < 2 * np.pi / 96 + 1e-9
+    hip = gait.hip_rotvec(0.4, 0.0)                                                      # the gait's own hip at 0.4 rad forward
+    assert abs(gait.fit_hip_flexion(hip) - 0.4) < 1e-6
+
+
+def test_phase_matching_starts_the_gait_at_the_fits_legs():
+    from nfl_gsplat.render import timeline as _tl
+    speeds = np.concatenate([np.full(30, 0.02), np.full(50, 0.12)])
+    xy = np.zeros((80, 2)); xy[:, 0] = np.cumsum(speeds)
+    up = _tl.upright_from_yaw(0.0)
+    fit = np.zeros((21, 3))
+    fit[gait.HIP_ROW["L"]] = gait.hip_rotvec(-0.45, 0.0)                                # left thigh BACK, right forward: far from phase 0
+    fit[gait.HIP_ROW["R"]] = gait.hip_rotvec(0.45, 0.0)
+    seq = [(xy[i], fit, up) for i in range(80)]
+    plain, _ = gait.gait_sequence(seq, blend=1, phase_match_on=False)
+    matched, _ = gait.gait_sequence(seq, blend=1, phase_match_on=True)
+    t0 = 30
+    def gap(out):
+        return sum(abs(gait.fit_hip_flexion(out[t0, gait.HIP_ROW[s]]) - gait.fit_hip_flexion(fit[gait.HIP_ROW[s]])) for s in ("L", "R"))
+    assert gap(matched) < 0.5 * gap(plain) and gap(matched) < 0.3

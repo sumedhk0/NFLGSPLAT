@@ -29,7 +29,51 @@ from __future__ import annotations
 import numpy as np
 
 RUN_M: float = 0.08            # pelvis speed (m per timeline frame) above which the legs run; 0.08 = 4.8 m/s at 60 fps
-BLEND: int = 6                 # frames to cross-fade the gait in or out
+# Frames to cross-fade the gait in or out. 6 for its first four days; measured 2026-09-22 on play 1 v96 (09d over the
+# live play, stride-2 sampling as rendered, the confidence gate off): hinge-angle jerk events over 25 deg/frame^2 --
+# BLEND 6: 57 (legs 50); 16: 11 (legs 4); 30: 11 (legs 4); 16 with a smoothstep ramp: 13. The legs' sideways-bend share
+# fell with it (L 7.9 -> 7.0 %, R 5.0 -> 3.5 %); the arms' 7 events are the fit's (the throw, 80 at 532). But the ramp
+# is time the feet still skate (07l, planted share of moving frames: BLEND 6 22.6 %, 10 14 %, 16 6.7 %), so the default
+# is 10 with MIN_ON 12 below (leg events 7, planted 14 %, joint jitter p99 1.06 -> 0.21). The first A/B of this knob
+# measured two identical arms: it was bound as a default argument of gait_sequence -- every knob here is read at call
+# time now.
+BLEND: int = 10
+# The on/off decision flickers where a runner's speed sits about RUN_M (the jogging band, 4-6 m/s, is where
+# most of a pass play's men run), and every flicker freezes the phase and ramps the blend down and up again:
+# the knees SNAP -- on a SYNTHETIC run. Measured 2026-09-22 (09d, stride-2 sampling as rendered): a synthetic
+# run at a constant speed peaks at 16 deg/frame^2 of knee-angle jerk, the same run with the speed flickering
+# +-0.006 about RUN_M peaks at 49 with 10 of 58 frames over 25; on play 1 v96 the live play counts 50 leg
+# jerk events with the gait and 2 without. Hysteresis (off only below RUN_M * OFF_SHARE) and a minimum run
+# (a run of either state shorter than MIN_RUN frames between longer runs takes its neighbours' state, the
+# off gaps first) are here for that mechanism -- but on the PLAY OFF_SHARE 0.75 + MIN_RUN 12 measured leg
+# jerk 50 -> 51 and the legs bent SIDEWAYS on 11.8 % of frames against 7.9 % (09d): a 3.6 m/s off-threshold
+# re-admits the jogging band, where men shuffle and backpedal and the gait's legs swing in the motion plane
+# across the body. So the defaults are the plain threshold (1.0 / 1); the play's flicker is not its jerk.
+OFF_SHARE: float = 1.0
+MIN_RUN: int = 1
+# Where the play's leg jerk really is (2026-09-22, joints_v96a, 09d): 41 of the 50 events over 25 deg/frame^2
+# sit within 8 frames of a 4.8 m/s crossing -- a man accelerates through RUN_M, the gait blends in from the
+# fit's legs to its own phase-zero legs, he slows and it blends out again. A linear ramp over BLEND frames
+# has a corner at each end whose jerk is the leg gap over the ramp's samples (a 60 deg knee gap over 3
+# rendered samples = 20 deg/sample^2). BLEND_SHAPE "smooth" = a smoothstep ramp (C1 at both ends, 1.5x the
+# slope mid-ramp); "linear" = the ramp as before. Read at call time by gait_sequence.
+BLEND_SHAPE: str = "linear"
+# A Gaussian over the gait's own rows (hips, knees, ankles) where the gait is on or blending, this many frames of
+# sigma (0 = off): rounds the ramps' corners and the stance/swing joins without lengthening the ramp, which is time
+# the feet still skate (BLEND 6 -> 16 halved the planted share, 07l). Read at call time by gait_sequence.
+GAIT_SMOOTH_SIGMA: float = 0.0
+# The ramp's jerk is the GAP between the fit's legs and the gait's at the switch (measured 2026-09-22: stretching the
+# ramp (BLEND 16) or blurring it (GAIT_SMOOTH_SIGMA 3) removes the jerk and hands back the planting, 22.6 % -> 6.7 / 4 %).
+# Two knobs on the gap itself, read at call time: MIN_ON drops an on-run shorter than this many frames (a crossing
+# that is nothing but ramp), and only on-runs -- filling OFF gaps (MIN_RUN) put the gait on shufflers and lost;
+# PHASE_MATCH starts every on-run at the phase whose hip flexions are nearest the fit's at the switch-on frame.
+# Measured (09d leg events / 07l planted %): MIN_ON 12 at BLEND 6 -> 10 / 14; 18 -> 8 / --; with BLEND 10 -> 7 / 14, the
+# default. PHASE_MATCH alone 41 (the hips match, the knees do not; the fit's legs at a crossing are not gait-like) and
+# 14 with MIN_ON 12: off. A Gaussian over the gait rows (GAIT_SMOOTH_SIGMA 3) took the leg events to 0 and the planted
+# share to 4 %: it rounds the stance sweep that plants the foot -- off.
+MIN_ON: int = 12
+PHASE_MATCH: bool = False
+PHASE_GRID: int = 48
 DUTY: float = 0.38             # a fixed duty for leg_angles' tests; gait_sequence uses duty_share(v)
 LEG_M: float = 0.88            # hip-to-ankle, metres, for the stance sweep (a mean SMPL-X leg)
 KNEE_STANCE: float = 0.30      # rad, the knee's flexion through stance
@@ -94,20 +138,103 @@ def leg_angles(phase: float, amp: float, *, duty: float = DUTY, knee_stance: flo
     return float(hip), float(knee)
 
 
-def phases(forward_advance, speed, *, run_m: float = RUN_M):
+def drop_short_on_runs(on, min_on: int):
+    """``on`` with every run of True shorter than ``min_on`` frames, bounded by False on both sides, set False."""
+    on = np.array(on, bool, copy=True)
+    if min_on <= 1 or len(on) < 3:
+        return on
+    t = 0
+    while t < len(on):
+        if not on[t]:
+            t += 1
+            continue
+        a = t
+        while t < len(on) and on[t]:
+            t += 1
+        if t - a < min_on and a > 0 and t < len(on):
+            on[a:t] = False
+    return on
+
+
+def on_flags(speed, *, run_m: float = RUN_M, off_share=None, min_run=None, min_on=None):
+    """``on [T]``: the body runs. On above ``run_m``, off only below ``run_m * off_share`` (hysteresis), and a
+    run of either state shorter than ``min_run`` frames with longer runs either side takes their state. None
+    = the module's OFF_SHARE / MIN_RUN at call time; ``off_share`` 1 and ``min_run`` 1 = the plain threshold."""
+    off_share = OFF_SHARE if off_share is None else float(off_share)
+    min_run = MIN_RUN if min_run is None else int(min_run)
+    spd = np.asarray(speed, float)
+    on = np.zeros(len(spd), bool)
+    cur = False
+    lo = run_m * off_share
+    for t in range(len(spd)):
+        cur = (spd[t] > run_m) if not cur else (spd[t] > lo)
+        on[t] = cur
+    if min_run > 1 and len(on) > 2:
+        for target in (False, True):
+            t = 0
+            while t < len(on):
+                if on[t] != target:
+                    t += 1
+                    continue
+                a = t
+                while t < len(on) and on[t] == target:
+                    t += 1
+                if t - a < min_run and a > 0 and t < len(on):
+                    on[a:t] = not target
+    min_on = MIN_ON if min_on is None else int(min_on)
+    return drop_short_on_runs(on, min_on)
+
+
+def phases(forward_advance, speed, *, run_m: float = RUN_M, off_share=None, min_run=None, min_on=None, on=None,
+           phi0=None):
     """``(phi [T], on [T])``: the gait phase per frame, advancing by 2 pi per stride of forward
-    travel while the body runs (``speed > run_m``); held where it does not."""
+    travel while the body runs (on_flags, or ``on`` given); held where it does not. ``phi0``: {frame: phase} --
+    an on-run starting at that frame starts at that phase (phase matching) instead of carrying the held one."""
     adv = np.asarray(forward_advance, float)
     spd = np.asarray(speed, float)
-    on = spd > run_m
+    if on is None:
+        on = on_flags(spd, run_m=run_m, off_share=off_share, min_run=min_run, min_on=min_on)
+    on = np.asarray(on, bool)
+    phi0 = phi0 or {}
     phi = np.zeros(len(adv))
+    if on[0] and 0 in phi0:
+        phi[0] = phi0[0]
     for t in range(1, len(adv)):
-        phi[t] = phi[t - 1] + (2 * np.pi * adv[t] / stride_length(spd[t]) if on[t] else 0.0)
+        if on[t] and not on[t - 1] and t in phi0:
+            phi[t] = phi0[t]
+        else:
+            phi[t] = phi[t - 1] + (2 * np.pi * adv[t] / stride_length(spd[t]) if on[t] else 0.0)
     return phi, on
 
 
-def blend_weights(on, *, blend: int = BLEND):
-    """``w [T]`` in 0..1: 1 where the gait is on, ramping linearly over ``blend`` frames at each edge."""
+def fit_hip_flexion(hip_rotvec) -> float:
+    """The fit's hip flexion, radians, positive forward: the thigh's rest direction (-y) rotated by the hip's
+    axis-angle, its forward (+z) component against its down component. The gait's hip_rotvec puts flexion
+    about -x in the plane of the motion; a fitted hip may also abduct and twist, which this ignores."""
+    from scipy.spatial.transform import Rotation
+    d = Rotation.from_rotvec(np.asarray(hip_rotvec, float)).apply([0.0, -1.0, 0.0])
+    return float(np.arctan2(d[2], -d[1]))
+
+
+def phase_match(flex_l: float, flex_r: float, amp: float, *, duty: float, grid: int = None) -> float:
+    """The phase in [0, 2 pi) whose leg_angles hip flexions (left at phase, right at phase + pi) are nearest
+    the fit's ``(flex_l, flex_r)`` in the least-squares sense over a grid of ``grid`` phases."""
+    grid = PHASE_GRID if grid is None else int(grid)
+    best, best_err = 0.0, None
+    for k in range(grid):
+        p = 2 * np.pi * k / grid
+        hl, _ = leg_angles(p, amp, duty=duty)
+        hr, _ = leg_angles(p + np.pi, amp, duty=duty)
+        err = (hl - flex_l) ** 2 + (hr - flex_r) ** 2
+        if best_err is None or err < best_err:
+            best, best_err = p, err
+    return best
+
+
+def blend_weights(on, *, blend: int = BLEND, shape=None):
+    """``w [T]`` in 0..1: 1 where the gait is on, ramping over ``blend`` frames at each edge -- linearly, or
+    (``shape`` "smooth") along a smoothstep so the ramp meets 0 and 1 without a corner. None = BLEND_SHAPE."""
+    shape = BLEND_SHAPE if shape is None else str(shape)
     on = np.asarray(on, bool)
     w = on.astype(float)
     if blend <= 1 or len(on) < 2:
@@ -121,6 +248,10 @@ def blend_weights(on, *, blend: int = BLEND):
             for k in range(blend):
                 if t - 1 - k >= 0 and on[t - 1 - k]:
                     w[t - 1 - k] = min(w[t - 1 - k], (k + 1) / blend)
+    if shape == "smooth":
+        w = w * w * (3.0 - 2.0 * w)
+    elif shape != "linear":
+        raise ValueError(f"blend shape {shape!r}: linear or smooth")
     return w
 
 
@@ -162,11 +293,18 @@ def hip_rotvec(hip_flex: float, yaw: float):
     return r.as_rotvec()
 
 
-def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, leg_m: float = LEG_M,
-                  knee_stance: float = KNEE_STANCE, knee_swing: float = KNEE_SWING):
+def gait_sequence(seq, *, run_m=None, blend=None, duty=None, leg_m: float = LEG_M,
+                  knee_stance: float = KNEE_STANCE, knee_swing: float = KNEE_SWING, off_share=None, min_run=None,
+                  blend_shape=None, smooth_sigma=None, min_on=None, phase_match_on=None):
     """``(body_poses [T, 21, 3], report)`` for one id's consecutive ``(xy, body_pose, global_orient)``
     frames: the hip and knee rows replaced by the gait where the body runs, blended at the edges.
-    ``report``: frames on, the phase advanced, the stride length range."""
+    ``report``: frames on, the phase advanced, the stride length range. ``run_m`` / ``blend`` None = the
+    module's RUN_M / BLEND read HERE, at call time (a default argument binds the value at import, and a
+    2026-09-22 A/B that set gait.BLEND measured two identical arms because of it)."""
+    run_m = RUN_M if run_m is None else float(run_m)
+    blend = BLEND if blend is None else int(blend)
+    smooth_sigma = GAIT_SMOOTH_SIGMA if smooth_sigma is None else float(smooth_sigma)
+    phase_match_on = PHASE_MATCH if phase_match_on is None else bool(phase_match_on)
     T = len(seq)
     xy = np.array([np.asarray(s[0], float) for s in seq])
     out = np.array([np.asarray(s[1], float).reshape(21, 3).copy() for s in seq])
@@ -184,8 +322,18 @@ def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, l
             adv[t] = speed[t]
         else:
             yaw[t], adv[t] = leg_yaw(f, vel[t])
-    phi, on = phases(adv, speed, run_m=run_m)
-    w = blend_weights(on, blend=blend)
+    on = on_flags(speed, run_m=run_m, off_share=off_share, min_run=min_run, min_on=min_on)
+    phi0 = {}
+    if phase_match_on:
+        for t in range(T):
+            if on[t] and (t == 0 or not on[t - 1]):
+                L = stride_length(speed[t])
+                d = duty_share(speed[t]) if duty is None else duty
+                amp = float(np.arcsin(np.clip(d * L / (2.0 * leg_m), 0.0, 0.95)))
+                phi0[t] = phase_match(fit_hip_flexion(out[t, HIP_ROW["L"]]), fit_hip_flexion(out[t, HIP_ROW["R"]]),
+                                      amp, duty=d)
+    phi, on = phases(adv, speed, run_m=run_m, on=on, phi0=phi0)
+    w = blend_weights(on, blend=blend, shape=blend_shape)
     for t in range(T):
         if w[t] <= 0:
             continue
@@ -207,6 +355,13 @@ def gait_sequence(seq, *, run_m: float = RUN_M, blend: int = BLEND, duty=None, l
                 g_sh, g_el = arm_rotvecs(phi[t] + off, side)
                 out[t, SHOULDER_ROW[side]] = (1 - w[t]) * out[t, SHOULDER_ROW[side]] + w[t] * g_sh
                 out[t, ELBOW_ROW[side]] = (1 - w[t]) * out[t, ELBOW_ROW[side]] + w[t] * g_el
+    if smooth_sigma > 0 and (w > 0).any() and T >= 3:
+        from scipy.ndimage import binary_dilation, gaussian_filter1d
+        reach = int(np.ceil(2 * smooth_sigma))
+        touched = binary_dilation(w > 0, iterations=reach)          # (np.convolve "same" grows past a short sequence)
+        rows = [r for s_ in ("L", "R") for r in (HIP_ROW[s_], KNEE_ROW[s_], ANKLE_ROW[s_])]
+        sm = gaussian_filter1d(out[:, rows], smooth_sigma, axis=0, mode="nearest")
+        out[np.ix_(touched, rows)] = sm[touched]
     return out, {"on": int(on.sum()), "cycles": float(abs(phi[-1] - phi[0]) / (2 * np.pi)),
                  "stride_m": (float(stride_length(speed[on].min())) if on.any() else 0.0,
                               float(stride_length(speed[on].max())) if on.any() else 0.0)}
