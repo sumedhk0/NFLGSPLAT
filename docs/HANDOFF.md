@@ -5860,3 +5860,20 @@ RG absorbing Madubuike at 557/599/603, Roquan absorbing Hamilton at 591, the cen
 spans both men; the absorbed man's box is the part not covered by the grower's LAST box (his own size, at the far
 side); the grower's box bottom moved to the nearer man's feet, so the grower's placement jumps too (the QB's 1.8 m at
 555-560 -- yet the film puts him at x -20, so check each case on the film before trusting either bottom).
+
+**10:50 -- not a merge: an id SWAP at 557 between the quarterback and the centre.** Sideline boxes: 80's track 79 sits
+on the QB at 550-556 (x 1505-1513); at 558 80's OTHER sideline track (54) lands on the centre (x 1424, where 204's track
+900 ended at 556) and from 570 track 79 continues on the centre (1465 -> 1563 by 607); the real QB runs on under 157's
+track 37 (x 1503 -> 1609, 548-607, a second box on him at 548-556). The endzone's 80 (track 54) stays on the QB. So in
+v93 the body drawn as 80 from 558 IS the centre (that is why "the QB at x -20" matched the film -- I matched the
+centre), the QB is the body drawn as 157, and the centre "vanishes" only by id. Recipe (testing on a fresh copy,
+`$S/play_copy3`): 204 <- 80 sideline track 54 (558-566) and track 79 (570-660); 80 <- 157 sideline track 37 (548-660);
+37 <- 157 endzone track 25. The ball (08y --qb 80) then follows the right man after the throw. The 41-event "merge"
+census still stands for the other cases (the RB's box over the QB at 450, Gray over Roquan at 516).
+Measured on the copy: census 0.291 -> 0.235, steps 2 / hops 0, the QB (80) drawn 395-637 on the right man, the centre
+(204) 395-634, id 157 gone; vanishings on the window down to 166 (407-420, pre-existing under the successor rule) and
+Roquan's tackle (600-607). Ported to the live tables as v94 (render launched ~11:00). Lesson: the "phantom" 157 was two
+different men's boxes (the tackle's in the endzone, the quarterback's in the sideline), and the sideline id 80 carried
+two tracks that both slid onto the centre after the throw -- a same-camera SWITCH the 08t pass did not cut because the
+switch happens where two men stand 0.4 m apart. Read per-camera tracks with x over time (a table, six lines) before
+believing any body's id after an engagement.
