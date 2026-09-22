@@ -5877,3 +5877,12 @@ different men's boxes (the tackle's in the endzone, the quarterback's in the sid
 two tracks that both slid onto the centre after the throw -- a same-camera SWITCH the 08t pass did not cut because the
 switch happens where two men stand 0.4 m apart. Read per-camera tracks with x over time (a table, six lines) before
 believing any body's id after an engagement.
+
+**v94 rendered (machine clock ~07:30, 2026-09-22): `diag/play_001_v94_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` /
+`_endzone_blend`. CURRENT BEST, film-checked.** 07l on 395-607: live steps 2, hops 0, census 0.23 (KC 11.10 / BAL 11.06).
+Pocket check 550-600 (`diag/pocket/pocket_v94_check.png`): the quarterback's body stands behind the line where the
+film's 15 is, the centre is back beside Thuney against 98, no red body missing. Tables `*.v94`; the Film Room on v94
+(Version 8). KC names set from the endzone jerseys (204 Humphrey 52, 37 Suamataia 76, 76 Trey Smith 65, 12 Taylor 74,
+11 Kelce 87) -- they feed the rendered numbers from the next render on. Remaining on the window: 166 (407-420, the
+centre's other id at the snap, 14 frames), Roquan's tackle 600-607 (moving, by design). The 41 grown-box events are the
+next data-step candidate; every id in a pile deserves the per-camera x-over-time table before it is trusted.
