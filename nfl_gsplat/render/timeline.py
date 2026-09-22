@@ -1079,6 +1079,9 @@ STAND_SEAM_STEP_M: float = 0.15         # the seam walks at most this far a fram
 STAND_LONG_HOLE_HOLD: bool = False      # a hole longer than STAND_BRIDGE_MAX_FRAMES: hold or lock from its start for
                                         # STAND_HOLD_MAX / STAND_LOCK_MAX, as at a track's end (id 1's 14 frames at 421 were
                                         # lost the moment his track gained rows at 524 and 421-523 became a hole)
+STAND_UNCOVERED_FRAMES: int = 6         # the static hold ends after this many CONSECUTIVE frames with the last box uncovered
+                                        # (1 = the first such frame; a covering box that drops out for a frame or two is a
+                                        # detector dropout, not the man leaving: id 4 at 496-498 beside KC 65)
 STAND_NEIGHBOUR_M: float = 1.0          # a teammate this close on the man's last frame is his neighbour on the line, not a
                                         # twin to stop the hold for (the guard 0.5-1.0 m from the centre once the endzone
                                         # rows place them; the hole-lock stopped after 5 frames on him, 2026-09-20)
@@ -1210,6 +1213,7 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
             q = opponent_on(lb[0], lb[1], f_last + 1, pid, team)
             if q is not None and f_last in by_id.get(q, {}) and slow_at(q, f_last + 1, lock_slow_m):
                 opp = q
+        uncovered = 0                                       # consecutive frames the last box stood uncovered
         cap_hold = int(hold_max) if hold_cap is None else int(hold_cap)
         cap = int(lock_max) if opp is not None else cap_hold
         placed = []                                         # (frame, state, locked), appended to the timeline below
@@ -1243,8 +1247,11 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 break                                       # a twin on the spot
             if lb is not None:
                 successor, cover = on_last_box(lb[0], lb[1], f, pid, team, f_last)
-                if successor or cover < occluded_cover:
-                    break                                   # the man under a new id, or open turf: he left
+                if successor:
+                    break                                   # the man under a new id
+                uncovered = uncovered + 1 if cover < occluded_cover else 0
+                if uncovered >= int(STAND_UNCOVERED_FRAMES):
+                    break                                   # open turf for that many frames running: he left
             placed.append((f, dataclasses.replace(s), False))
         if seam_to is not None and placed:
             fb, xb = seam_to
