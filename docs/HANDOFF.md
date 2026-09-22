@@ -5914,3 +5914,21 @@ men (twins), 19 a box on the man below, and 204's pre-snap track 25 is the stand
 formation is drawn 11/11 on 107 of 180 frames by the formation hold; the rest is this twin soup. Worth one film session
 with 09c + 08z --cam --track-id before the snap (fold 139 <- 82, drop 166/191/19 where they double), then re-measure
 STAND_FROM_CLIP_START. Low priority against the play itself.
+
+**Pre-snap KC line, read from one table (every KC sideline id near the line 215-394: span, median ground, box h/w):**
+by across-position y: 11 Kelce at -5.4 (33 a 5-frame twin), 19 = the left tackle at -3.6 (127 x 108 crouched; 37 takes
+him from 370; 166 a second box on him 291-394), 82 = Thuney at -0.8 (69 x 87 crouched; 139 takes him only from 435, so
+he VANISHES 308-434 before the snap), 17 = the centre at +0.5 on the ball (82 x 88 crouched), 204's pre-snap track 25 =
+the QUARTERBACK standing behind him (160 tall, x -22.5; 80's own box starts at 377), 31 = the right guard's fragment
+218-233 (76's own box from 375, his pre-snap body from the endzone), 12 = the right tackle (137 x 121, the guard merged
+in), 3 = the right receiver/tight end at +5.0, 5 Pacheco 7 m deep. Fold set under test on `$S/play_copy4`: 80 <- 204's
+pre-snap track 25; 204 <- 17; 37 <- 19; 139 <- 82; drop 166's sideline rows to 435, 33, 31. Ships only if the play
+window stays 2 / 0 / 0.18 and the pre-snap exactly-eleven count rises.
+**Pre-snap fold set REJECTED (measured on the copy):** whole-id folds: play census 0.183 -> 0.286; restricted to 215-394:
+0.211 with post-snap stubs of 17/19 drawn as a twelfth Chief 395-440; stubs dropped: 0.286 again, and the pre-snap
+stretch collapsed (exactly eleven on 43 of 180 frames, KC 10 on 122; Thuney's 139 now vanishing 223-263 and 308-354).
+Cause: the loader's quarterback-under-centre rule holds 80 at the spot he steps back from and names the CENTRE by id
+(17); moving 17's rows to 204 and 204's pre-snap track to 80 pulled that rule's anchors out from under it, and the
+"centre" it then removed from the QB's spot was the real centre. The pre-snap ids are load-bearing for that rule.
+Leave the pre-snap as v95 (107 of 180 frames exactly eleven); if it is ever revisited, read the film per id AND the
+qb-under-centre rule's inputs first. Copy discarded. v95 stands.
