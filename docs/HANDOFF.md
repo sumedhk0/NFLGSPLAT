@@ -5798,3 +5798,15 @@ Thuney (the centre) and 157 on the man engaged with Oweh (99); the timeline puts
 at -1.0 and 204 at -0.5. So 37 and 157 may be one man (the tackle) under a sideline id and an endzone id, and 204's
 stored name "Suamataia 76" is a wrong jersey vote (it is the centre). Same recipe as the Ravens: per-camera tracks,
 jerseys in the endzone film, fold per camera, measure on a copy first. Not done.
+
+**07:45 -- man B was man A.** Per-camera tracks at 538-562: id 37 = sideline track 25 (y -4.5) + endzone track 37 (y -4.1);
+id 157 = endzone track 25 on the SAME spot (y -3.6) + sideline track 37 whose boxes are fragments (72-111 px of a 150 px
+man) with bottoms that put him at y -1.0. One man, the left tackle (76 Suamataia, boxed 157 in the endzone frame at 550);
+the second body between the guard and the centre from 547 was a phantom, and his 501-546 "hole" a phantom too. Folded
+37 <- 157: vanishings on the window drop to 171 (8) and 139 (1), but the census goes 0.305 -> 0.498 because the centre
+(204) then loses 557-607: hidden behind Mahomes for the endzone camera, his nearest sideline body becomes the QB 0.5 m
+away and the gap-branch same-body test (same_body_gap_m) drops his endzone tail. 157 was, by accident, the body that
+kept him. A span-length gate on the same-body test measured worse (0.671). LIVE TABLES RESTORED TO v93 (the phantom
+stays, the centre stays); the folded state is on `$S/play_copy2` for the next step: the gap-branch test needs the id's
+OWN last sideline point against the neighbour's -- the sideline had the centre and the QB 0.5-1.1 m apart at 556, two
+men -- before it calls the endzone tail a copy. Also 204's stored name is a wrong vote (he is the centre, not Suamataia).
