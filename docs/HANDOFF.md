@@ -5774,3 +5774,12 @@ loader on 395-607: N=1 census 0.441, N=3 0.413, N=6 0.305 (id 4 drawn 395-609 co
 6 adopted; a man who really left costs at most six held frames at his last spot. v93 = the v92 tables + this constant;
 render launched 00:55, tables snapshotted `*.v93`. Remaining vanishings on the play window: 157 (KC man B, 501-546),
 171 (Roquan under the tackle pile 600-607), 139 (601-604).
+
+**v93 rendered (2026-09-22 ~06:00): `diag/play_001_v93_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.
+CURRENT BEST, film-checked.** 07l on 395-607: live steps 2, hops 0, census 0.31 (KC 11.15 / BAL 11.02). Film check at
+490-540 (`diag/pocket/pile_v93_check.png`): id 4 held beside KC 65 through his turf frames where the film has him hidden
+behind 65, nothing else moved from v92. Tables `*.v93` (= v92's), the Film Room on v93 (Version 7). Remaining
+vanishings on the play window: 157 (KC man B 501-546: his row at 500 sits on Thuney's spot, so a hold there would be a
+twin), 171 (Roquan under the tackle pile 600-607), 139 (601-604). A "successor must be newborn" rule for the hold was
+tried and left OFF: it disarms the box-twin protection (unit test: id 40 held 20 frames on 198's spot). The film-true
+scratch copy (`$S/play_copy`) deleted after porting.
