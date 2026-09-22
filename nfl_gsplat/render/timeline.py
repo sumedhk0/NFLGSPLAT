@@ -1076,6 +1076,9 @@ STAND_HOLE_HOLD_TO_END: bool = True     # a hold inside a hole the bridge cannot
                                         # short enough to bridge; only its ends are too far for a line), not to STAND_HOLD_MAX
 STAND_SEAM_STEP_M: float = 0.15         # the seam walks at most this far a frame (smoothstep: the peak step is 1.5x the mean,
                                         # 0.22 m under the 0.25 m/frame ruler), so its length grows with the distance
+STAND_LONG_HOLE_HOLD: bool = False      # a hole longer than STAND_BRIDGE_MAX_FRAMES: hold or lock from its start for
+                                        # STAND_HOLD_MAX / STAND_LOCK_MAX, as at a track's end (id 1's 14 frames at 421 were
+                                        # lost the moment his track gained rows at 524 and 421-523 became a hole)
 STAND_NEIGHBOUR_M: float = 1.0          # a teammate this close on the man's last frame is his neighbour on the line, not a
                                         # twin to stop the hold for (the guard 0.5-1.0 m from the centre once the endzone
                                         # rows place them; the hole-lock stopped after 5 frames on him, 2026-09-20)
@@ -1280,7 +1283,15 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
             continue
         # holes
         for a, b in zip(fs, fs[1:]):
-            if b - a <= 1 or b - a - 1 > int(bridge_max_frames):
+            if b - a <= 1:
+                continue
+            if b - a - 1 > int(bridge_max_frames):
+                # too long to bridge or to hold to its far end: the man was lost here as at a track's end, and is
+                # held (or locked) from the hole's start for the track-end cap, nothing more
+                if hold and STAND_LONG_HOLE_HOLD:
+                    n_l = hold_or_lock(pid, team, byf, a, min(b - 1, hi), seam_to=None)
+                    if n_l:
+                        out["ids"][pid] = out["ids"].get(pid, 0) + n_l
                 continue
             xa = np.asarray(byf[a].xy[:2], float); xb = np.asarray(byf[b].xy[:2], float)
             reach = max(bridge_m, STAND_BRIDGE_SHORT_M) if (b - a - 1) <= int(STAND_BRIDGE_SHORT_FRAMES) else bridge_m

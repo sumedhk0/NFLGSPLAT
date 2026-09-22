@@ -388,3 +388,58 @@ def test_beyond_the_span_two_endzone_boxes_apart_are_two_men():
     assert dropped == 1 and out[300] == {}
     out, dropped = beyond_sideline_span(ground, apart, _Side(), gap=30, side_ground=side, apart_iou=None)   # the test off: the old rule
     assert dropped == 1 and out[300] == {}
+
+
+def test_beyond_the_span_same_body_is_same_team():
+    """An endzone-only Raven 0.14 m from a KC sideline man is not that man's copy when teams are given."""
+    import numpy as np
+    import pandas as pd
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    class _Side:
+        K = [np.array([[1000.0, 0, 960.0], [0, 1000.0, 540.0], [0, 0, 1.0]])] * 400
+        R = [np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])] * 400
+        t = [np.zeros(3)] * 400
+        conf = np.ones(400)
+        width, height = 1920, 1080
+
+    df = pd.DataFrame({"cam": ["sideline"] * 3, "frame": [10, 11, 12], "track_id": [1, 1, 1], "global_player_id": [1, 1, 1]})
+    ground = {300: {1: np.array([0.5, 40.0])}}
+    side = {300: {2: np.array([0.6, 40.1])}}
+    import nfl_gsplat.render.endzone_only_rule as ezr
+    was = ezr.SAME_BODY_SAME_TEAM
+    ezr.SAME_BODY_SAME_TEAM = True
+    try:
+        out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side, teams={1: "BAL", 2: "KC"})
+        assert dropped == 0 and 1 in out[300]                                        # the other team: two men
+    finally:
+        ezr.SAME_BODY_SAME_TEAM = was
+    ezr.SAME_BODY_SAME_TEAM = True
+    try:
+        out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side, teams={1: "BAL", 2: "BAL"})
+        assert dropped == 1 and out[300] == {}                                       # the same team: a copy
+        out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side, teams={1: "BAL"})
+        assert dropped == 1 and out[300] == {}                                       # team unknown: the old rule
+    finally:
+        ezr.SAME_BODY_SAME_TEAM = was
+    out, dropped = beyond_sideline_span(ground, df, _Side(), gap=30, side_ground=side, teams={1: "BAL", 2: "KC"})
+    assert dropped == (0 if ezr.SAME_BODY_SAME_TEAM else 1)                          # the module default decides
+
+
+def test_hold_holes_keeps_a_continuous_endzone_chain_inside_a_long_hole():
+    """Inside a 40-frame hole the endzone's own points (a walk of 0.1 m a frame from the near end) are kept; a lone
+    point 3 m off the chain is still removed as beyond reach."""
+    import numpy as np
+    from nfl_gsplat.render.endzone_only_rule import hold_holes
+
+    side = {f: {7: np.array([0.0 + 0.0 * f, 0.0])} for f in list(range(100, 110)) + list(range(150, 160))}
+    ground = {f: dict(d) for f, d in side.items()}
+    for f in range(110, 135):                                                        # the chain from the near end
+        ground[f] = {7: np.array([0.1 * (f - 109), 0.0])}
+    ground[140] = {7: np.array([3.0, 5.0])}                                           # a stray point, off the chain
+    out, moved = hold_holes(ground, side, hold_m=0.8, max_hole=17, reach=8, vel_frames=4, chain_step_m=0.6, chain_gap=5)
+    assert all(7 in out[f] for f in range(110, 135))                                  # kept as they are
+    assert abs(float(out[130][7][0]) - 2.1) < 1e-9
+    assert 7 not in out[140]                                                          # beyond reach, not on the chain
+    out2, _ = hold_holes(ground, side, hold_m=0.8, max_hole=17, reach=8, vel_frames=4, chain_step_m=None)
+    assert 7 not in out2[125]                                                         # the chain off: the old rule

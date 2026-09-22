@@ -1012,3 +1012,25 @@ def test_stand_still_static_hold_inside_a_hole_runs_to_its_far_end():
     assert abs(float(stood[0])) < 0.1                                      # before the seam he stands where he was lost
     xs = {f: float([s.xy[0] for s in tl.states[f] if s.pid == 204][0]) for f in range(440, 480)}
     assert max(abs(xs[f] - xs[f - 1]) for f in range(441, 480)) <= 0.25    # the 3 m seam is a jog, not a step
+
+
+def test_stand_still_holds_the_start_of_a_hole_too_long_to_bridge():
+    """A 100-frame hole (over the cap): the man is held STAND_HOLD_MAX frames from its start, like a track's end."""
+    from nfl_gsplat.render import timeline as tlm
+
+    tl = tlm.Timeline(frames=list(range(400, 600)), states={f: [] for f in range(400, 600)})
+    boxes = {"sideline": {}}
+    for f in list(range(400, 440)) + list(range(540, 600)):
+        x = 0.0 if f < 440 else 3.0
+        tl.states[f].append(_st_(204, x, 0.0)); boxes["sideline"][(f, 204)] = (100 + int(x * 20), 100, 160 + int(x * 20), 260)
+    for f in range(400, 600):                                                        # a teammate's box covers his last box
+        tl.states[f].append(_st_(37, 0.0, 1.2)); boxes["sideline"][(f, 37)] = (90, 90, 170, 270)
+    was = tlm.STAND_LONG_HOLE_HOLD
+    tlm.STAND_LONG_HOLE_HOLD = True                   # measured neutral on play 1 (2026-09-21), kept off by default
+    try:
+        rep = tlm.stand_still(tl, {204: "KC", 37: "KC"}, lo=395, hi=599, bridge_m=1.5, hold=True, hold_max=25, boxes=boxes,
+                              successor_iou=0.9, bridge_max_frames=60, lock_iou=0.5, lock_max=90, lock_slow_m=0.5, lock_history=0)
+    finally:
+        tlm.STAND_LONG_HOLE_HOLD = was
+    held = sorted(f for f in range(440, 540) if any(s.pid == 204 for s in tl.states[f]))
+    assert held == list(range(440, 465)) and rep["held"] == 25

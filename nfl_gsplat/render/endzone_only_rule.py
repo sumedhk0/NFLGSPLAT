@@ -48,6 +48,8 @@ SAME_BODY_GAP_M: float | None = 0.8    # ... and inside the 30-frame gap, this c
 PRESNAP_JOIN_MAX: int = 10       # the pre-snap per-frame test applies when the join is within this many frames of the snap
 PRESNAP: str = "drop"            # a pre-snap beyond frame farther than HOLD_M from the join point: "drop" it, or "hold" the
                                  # man AT the join point (a set man has not moved; the join is where the sideline first has him)
+SAME_BODY_SAME_TEAM: bool = False         # ... and only a sideline man of the SAME team can be the copy (a Raven 1 m from a KC
+                                          # tackle is not the tackle's second copy: id 1's 112 rows beside KC 12 and 76, 2026-09-21)
 SAME_BODY_APART_IOU: float | None = 0.3   # ... unless the endzone boxes both men on the frame, overlapping below this: two men
                                           # (play 1 ids 4 and 40 beside KC 65 from 524, 1.0-1.5 m apart, one sideline box)
 HOLD_M: float | None = 0.8       # a beyond-span stretch whose join jumps farther than this from where the sideline first (or
@@ -58,7 +60,8 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                          margin: float = MARGIN_PX, side_ground=None, same_body_m: float = SAME_BODY_M,
                          hold_m: float | None = HOLD_M, report: dict | None = None, snap: int | None = None,
                          presnap: str = PRESNAP, presnap_join_max: int = PRESNAP_JOIN_MAX,
-                         same_body_gap_m: float | None = SAME_BODY_GAP_M, apart_iou: float | None = SAME_BODY_APART_IOU):
+                         same_body_gap_m: float | None = SAME_BODY_GAP_M, apart_iou: float | None = SAME_BODY_APART_IOU,
+                         teams: dict | None = None):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -93,6 +96,13 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     if apart_iou is not None and {"bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"}.issubset(df.columns) and "endzone" in set(df["cam"].astype(str)):
         for r in df[df["cam"] == "endzone"].itertuples():
             ez_boxes.setdefault(int(r.frame), {})[int(r.global_player_id)] = (float(r.bbox_x1), float(r.bbox_y1), float(r.bbox_x2), float(r.bbox_y2))
+
+    def same_team(pid, j):
+        """``j`` can be ``pid``'s second copy: the same team, or either team unknown (``teams`` None = the old rule)."""
+        if teams is None or not SAME_BODY_SAME_TEAM:
+            return True
+        a, b = teams.get(int(pid)), teams.get(int(j))
+        return a is None or b is None or a == b
 
     def boxes_apart(f, pid, j):
         """Both ``pid`` and ``j`` have an endzone box on ``f`` and the two overlap below ``apart_iou``."""
@@ -165,7 +175,7 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                         dropped += 1                      # without the sideline's bodies, the old rule stands
                         continue
                     near, near_j = min(((float(np.linalg.norm(np.asarray(xy, float) - q)), j)
-                                        for j, q in side_at.get(f, {}).items() if j != pid), default=(np.inf, None))
+                                        for j, q in side_at.get(f, {}).items() if j != pid and same_team(pid, j)), default=(np.inf, None))
                     if near <= same_body_m and not boxes_apart(f, pid, near_j):
                         dropped += 1
                         continue
@@ -174,7 +184,7 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                 # already draws him under that id; the endzone's lead-in is his second copy)
                 if same_body_gap_m is not None and side_at is not None and (lo[pid] <= f <= hi[pid]):
                     near_gap = min((float(np.linalg.norm(np.asarray(xy, float) - q))
-                                    for j, q in side_at.get(f, {}).items() if j != pid), default=np.inf)
+                                    for j, q in side_at.get(f, {}).items() if j != pid and same_team(pid, j)), default=np.inf)
                     if near_gap <= same_body_gap_m:
                         st = stats.setdefault(pid, [0, float("nan"), 0])
                         st[0] += 1
@@ -259,10 +269,43 @@ HOLE_HOLD_M: float | None = 0.8     # an endzone-filled hole frame farther than 
 HOLE_MAX: int = 17                  # holes up to this long (2 * HOLE_REACH + 1) take the line between their ends;
 HOLE_REACH: int = 8                 # longer ones extrapolate from the nearer end (the sideline's own velocity over
 HOLE_VEL_FRAMES: int = 4            # HOLE_VEL_FRAMES) for the frames within HOLE_REACH of it, the ones the hole rule draws
+HOLE_CHAIN_STEP_M: float | None = 0.6   # inside a LONG hole the endzone's own points are kept on a continuous chain from the
+                                        # hole's near end: first point within HOLE_HOLD_M of the sideline's there, then this far
+                                        # per frame of gap (the endzone's depth jitter breaks a 0.3 m chain); None = off
+HOLE_CHAIN_GAP: int = 5                 # ... across gaps of at most this many frames
+
+
+def hole_chain(ground, side_ground, pid, fa, fb, *, hold_m: float, step_m: float, gap: int) -> set:
+    """Frames strictly inside the hole (fa, fb) of ``pid`` whose endzone points form a continuous chain from either end:
+    the first point (within ``gap`` frames of the end) within ``hold_m`` of the sideline's point at that end, then each
+    next point within ``gap`` frames and ``step_m`` per frame of gap of the previous. The chain is the man's own track."""
+    keep: set = set()
+    for edge, step in ((int(fa), +1), (int(fb), -1)):
+        sp = side_ground.get(edge, {}).get(pid)
+        if sp is None:
+            continue
+        prev_f, prev_x, first = edge, np.asarray(sp, float), True
+        f = edge + step
+        while fa < f < fb:
+            q = ground.get(f, {}).get(pid)
+            if q is None:
+                f += step
+                if abs(f - prev_f) > gap + 1:
+                    break
+                continue
+            q = np.asarray(q, float)
+            limit = hold_m if first else step_m * abs(f - prev_f)
+            if float(np.linalg.norm(q - prev_x)) > limit:
+                break
+            keep.add(f)
+            prev_f, prev_x, first = f, q, False
+            f += step
+    return keep
 
 
 def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_hole: int = HOLE_MAX,
-               reach: int = HOLE_REACH, vel_frames: int = HOLE_VEL_FRAMES):
+               reach: int = HOLE_REACH, vel_frames: int = HOLE_VEL_FRAMES, chain_step_m: float | None = HOLE_CHAIN_STEP_M,
+               chain_gap: int = HOLE_CHAIN_GAP):
     """``ground`` (frame -> {pid: xy}) with every endzone-filled HOLE frame -- inside a sideline span,
     the sideline has no point that frame, the merged ground has the endzone's -- moved onto the
     sideline's own straight line between its points either side of the hole when it stands farther
@@ -284,10 +327,19 @@ def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_h
     moved = []
     if hold_m is None:
         return out, moved
+    chained: dict = {}                                   # pid -> frames on an endzone chain inside a long hole: kept as they are
+    if chain_step_m is not None:
+        for pid, fs in side_frames.items():
+            for fa, fb in zip(fs, fs[1:]):
+                if fb - fa - 1 > max_hole:
+                    chained.setdefault(pid, set()).update(
+                        hole_chain(ground, side_ground, pid, fa, fb, hold_m=hold_m, step_m=chain_step_m, gap=chain_gap))
     for pid, fs in side_frames.items():
         arr = np.asarray(fs)
         for f in range(fs[0], fs[-1] + 1):
             if pid in side_ground.get(f, {}) or pid not in out.get(f, {}):
+                continue
+            if f in chained.get(pid, ()):
                 continue
             i = int(np.searchsorted(arr, f))
             fa, fb = int(arr[i - 1]), int(arr[i])

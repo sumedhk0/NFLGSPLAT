@@ -576,7 +576,9 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         # through it when the endzone's point is a stride off (endzone_only_rule.hold_holes)
         from nfl_gsplat.render.endzone_only_rule import hold_holes
 
-        ground, hole_moves = hold_holes(ground, side_ground, hold_m=hole_hold_m)
+        from nfl_gsplat.render import endzone_only_rule as _ezr_h
+        ground, hole_moves = hold_holes(ground, side_ground, hold_m=hole_hold_m, chain_step_m=_ezr_h.HOLE_CHAIN_STEP_M,
+                                        chain_gap=_ezr_h.HOLE_CHAIN_GAP)
         # a set man keeps his spot from the clip start to the snap (endzone_only_rule.formation_hold)
         from nfl_gsplat.render import endzone_only_rule as _ezr
 
@@ -637,7 +639,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                                                 report=span_report, snap=snap,
                                                 presnap=ezr.PRESNAP if span_presnap is None else span_presnap,
                                                 same_body_gap_m=ezr.SAME_BODY_GAP_M if (same_body_gap_m is not None and same_body_gap_m < 0) else same_body_gap_m,
-                                                apart_iou=ezr.SAME_BODY_APART_IOU)
+                                                apart_iou=ezr.SAME_BODY_APART_IOU, teams=_teams(P))
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
         if span_report:
