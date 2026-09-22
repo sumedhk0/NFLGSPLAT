@@ -6075,3 +6075,6 @@ the endzone t112 to 4, then look at where the real Ojabo (1) is after 494 on the
 when the born id has older rows or an other-camera presence at the spot, fold the dying id's TAIL into the born id
 instead (a `direction` field), and never propose pairs whose death box is a merged pile box (h > 1.4x the track's
 median height).
+The copy trial of the finder's 1 <- 4 (track 45 from 528) measured: census 0.16 -> 0.43, id 4 vanishes 502-607 (106
+frames), steps 2 / hops 0 -- REJECTED by the ruler as by the film (28th correction that lost). v96 chain reached the
+render (loader rulers on v96: steps 2, hops 0, census 0.16; 1 frame rendered) when the machine went off.
