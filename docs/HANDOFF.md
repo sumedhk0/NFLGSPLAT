@@ -5831,3 +5831,8 @@ QB's box on the centre's last box at IoU 0.95, same team, so the hold reads "the
 box, the other camera blind to the centre: unless a successor test can tell a merge from a re-identification, this is an
 honest gap. Trying the successor-history rule at IoU 0.9 (a true box twin overlapped his box at 0.9 before the loss; a
 quarterback stepping up did not).
+The 0.9-history successor rule: no effect either (204 still ends 556) and three unit tests fail; reverted. So the branch
+that stops the centre's hold at 556 is STILL UNIDENTIFIED -- not the twin radius (0.30 tested), not the successor test
+(history 0.3 and 0.9 tested). NEXT STEP, before any more rules: instrument `stand_still.hold_or_lock` with a per-id
+stop reason (moved / no last box / twin veto: who / successor: who / uncovered / cap) printed by the loader for the
+ids in a STAND_DEBUG_IDS set, and read it for 204 at 556. Then design. v93 stays CURRENT BEST.
