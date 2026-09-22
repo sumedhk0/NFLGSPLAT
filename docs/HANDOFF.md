@@ -5742,3 +5742,19 @@ on the live tables and on the film-true scratch copy (`$S/play_copy`, 2.6 GB).
   to 493 instead of 451). ADOPTED (default on); a fold that lengthens a span across a real endzone stretch no longer
   deletes it. The film-true Madubuike/Ojabo assignment still measures 0.629 against v91's 0.465: the beyond-span
   tail join on 40's fragment boxes (522-526) and id 4's dead hold after 493 (an ended endzone track has no cover) remain.
+
+### 2026-09-21 21:40 -- v92: the film-true ids, measured first on a scratch copy, then ported (render launched)
+
+With the hole chain in place (879e8fe) the film-true assignment that lost at 20:00 wins. Measured on the scratch copy
+first (`$S/play_copy`, 2.6 GB): 0.826 -> 0.629 (chain) -> 0.545 (Ojabo one id) -> 0.451 (id 40 emptied); then the same
+eleven operations on the live tables: **steps 2 / hops 0 / census 0.441** (v91: 0.465), Ojabo's 173-frame vanish gone.
+- **id 1 = David Ojabo (90)**: his own sideline track to 413 (the fragment boxes 414-420 dropped), id 40's sideline
+  track 40 (405-526) and sideline track-45 rows 485-527, the endzone track 40 to 416 (it wore 90), and the endzone-only
+  112 (524-634, the 90 vote) -- drawn 395-565, 572-575, 595-605.
+- **id 4 = Nnamdi Madubuike (92)**: as before plus the sideline track-45 rows 528-660 and endzone track 45 (539-577) that
+  were id 40's, and 212 -- drawn 395-493, 520-609; his 494-519 (down beside 65, no box in either camera) remains.
+- **id 7 = Malik Harrison (40)**: his own tracks all along; id 40's endzone rows 417-538 (they wore 40) were his second
+  copy and are dropped. **id 40 no longer exists.** The twelfth Raven at 414-434 was Ojabo drawn twice (id 1 held at his
+  fragment spot while the sideline already boxed him as 40).
+- Recipe that worked: play the fold sequence on a copy of the play dir (08z/08za take --play-dir), read the loader's
+  rulers there, then port. Remaining: 157 (KC man B) 501-546, 4 494-519, 171 600-607 (Roquan under the pile), 139.
