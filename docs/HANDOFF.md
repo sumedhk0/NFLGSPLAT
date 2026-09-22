@@ -5836,3 +5836,27 @@ that stops the centre's hold at 556 is STILL UNIDENTIFIED -- not the twin radius
 (history 0.3 and 0.9 tested). NEXT STEP, before any more rules: instrument `stand_still.hold_or_lock` with a per-id
 stop reason (moved / no last box / twin veto: who / successor: who / uncovered / cap) printed by the loader for the
 ids in a STAND_DEBUG_IDS set, and read it for 204 at 556. Then design. v93 stays CURRENT BEST.
+**09:40 -- the stopper found by instrumenting, not guessing:** `STAND_DEBUG_IDS` (timeline.stand_still) logs every hold
+decision; for 204 at 556: "hold_or_lock start, last box sideline (1382,602,1456,697); neighbours []; 557: hold stops,
+twin veto by [(80, 0.34)]". The QB, placed at the merged box, stands 0.34 m from the centre's spot. And the radius A/B
+was VOID: the loader never passed clear_m (nor slow_m, window) at call time -- bound as defaults -- so both arms ran at
+0.45; identical arms were the tell (probe-monkeypatch-default-args, second time). The call now passes them; a real
+0.30 / 0.35 A/B is running. For 171 at 599: "no hold, moved 1.45 m over the window" -- Roquan was making the tackle;
+by design, honest.
+Real A/B (clear_m passed at call time): 0.30 census 0.305, 0.35 0.291, 0.45 0.305 -- steps 2 / hops 0 in all; 0.35
+adopted (three body-frames; not worth a render, v93 stays the rendered best, tables unchanged). The centre still stops at
+557 at every radius: past the veto, the successor test fires on the QB's merged box (IoU 0.95 on his last box). A
+"successor must have overlapped his box before the loss" rule cannot tell a merge from a re-identification: the unit
+fixture's id 198 jumps 10 m onto 40's spot with no prior overlap and IS his new id, and the QB's placement also jumps
+(1.8 m over 555-560) when his box merges. So the centre 557-607 is honest at the rules level. Candidate for a data step:
+a DE-MERGE -- a sideline box that grows by a third while another id's last box lies inside it at IoU > 0.9 is two men;
+split it with the two ids' last box sizes (03e-style, --apply with backups), then the centre keeps a box and the QB
+keeps his place. Roquan 600-607: "moved 1.45 m over the window", the tackle -- by design.
+**Merge census (10:15, read-only probe):** on 395-607 the sideline has 41 events where a box grows by a third or more
+while another id's last box (seen within 6 frames, absent now) lies inside it: the QB absorbing the centre at 557
+(1.66x), the RB absorbing the QB at 450 (4.7x, the h 184 box), Gray absorbing Roquan at 516/519/556 (the tackle), the
+RG absorbing Madubuike at 557/599/603, Roquan absorbing Hamilton at 591, the centre absorbing the nose tackle at 414
+(2.7x) -- engagements and tackles, both teams. A de-merge data step has plenty of targets. Design notes: the grown box
+spans both men; the absorbed man's box is the part not covered by the grower's LAST box (his own size, at the far
+side); the grower's box bottom moved to the nearer man's feet, so the grower's placement jumps too (the QB's 1.8 m at
+555-560 -- yet the film puts him at x -20, so check each case on the film before trusting either bottom).

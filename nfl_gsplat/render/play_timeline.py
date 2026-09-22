@@ -953,12 +953,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     st_snap, st_end = play_snap(P), play_end(P)
     if tlm.STAND_BRIDGE_M is not None and st_snap is not None and st_end is not None:
         rep = tlm.stand_still(tl, teams_now, lo=int(st_snap), hi=int(st_end), bridge_m=tlm.STAND_BRIDGE_M,
+                              slow_m=tlm.STAND_SLOW_M, window=tlm.STAND_WINDOW, clear_m=tlm.STAND_CLEAR_M,
                               hold=tlm.STAND_HOLD, hold_max=tlm.STAND_HOLD_MAX, boxes=_boxes_by_cam(df),
                               successor_iou=tlm.STAND_SUCCESSOR_IOU, occluded_cover=tlm.STAND_OCCLUDED_COVER,
                               bridge_max_frames=tlm.STAND_BRIDGE_MAX_FRAMES, newborn_iou=tlm.STAND_NEWBORN_IOU,
                               newborn_reach=tlm.STAND_NEWBORN_REACH, lock_iou=tlm.STAND_LOCK_IOU, lock_max=tlm.STAND_LOCK_MAX,
                               lock_slow_m=tlm.STAND_LOCK_SLOW_M, lock_history=tlm.STAND_LOCK_HISTORY,
                               lock_hist_iou=tlm.STAND_LOCK_HIST_IOU)
+        for dpid, lines in sorted(rep.get("debug", {}).items()):
+            print(f"stand_still debug {dpid}: " + " | ".join(lines))
         if rep["bridged"] or rep["held"]:
             print(f"stands still: {rep['bridged']} hole body-frames bridged, {rep['held']} held after a track's end "
                   f"({rep['locked']} of them locked with an opponent), on {len(rep['ids'])} ids " + str(dict(sorted(rep["ids"].items()))))
