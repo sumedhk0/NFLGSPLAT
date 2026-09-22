@@ -5822,3 +5822,12 @@ that was not on the man's box before his loss is a neighbour, not his new id) --
 successor test, is what stops the hold) and it broke the box-twin unit test. Next: read the QB against the film at
 556-600 (`diag/pocket/qb_v93_check.png`); if the endzone is right, the sideline override needs a merged-box guard (a
 box whose width/height jumps and that another sideline id's last box sits inside at IoU > 0.9 is two men).
+Read (`qb_v93_check.png`, 552-596): the drawn quarterback at x -20 is RIGHT -- the film has him standing a metre behind
+the line after the throw; the endzone camera's (-17, -0.4) is its depth error, not his position. So the merged box
+places the QB about right and the only loss is the centre, blocked by the twin veto (STAND_CLEAR_M 0.45) on a real
+0.34 m gap. A/B of 0.30 / 0.35 running.
+STAND_CLEAR_M 0.30 / 0.35: no change (204 still ends 556) -- the stopper is the successor test: the merged box is the
+QB's box on the centre's last box at IoU 0.95, same team, so the hold reads "the centre under a new id". Two men, one
+box, the other camera blind to the centre: unless a successor test can tell a merge from a re-identification, this is an
+honest gap. Trying the successor-history rule at IoU 0.9 (a true box twin overlapped his box at 0.9 before the loss; a
+quarterback stepping up did not).
