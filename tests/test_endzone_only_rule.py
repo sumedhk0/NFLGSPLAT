@@ -443,3 +443,28 @@ def test_hold_holes_keeps_a_continuous_endzone_chain_inside_a_long_hole():
     assert 7 not in out[140]                                                          # beyond reach, not on the chain
     out2, _ = hold_holes(ground, side, hold_m=0.8, max_hole=17, reach=8, vel_frames=4, chain_step_m=None)
     assert 7 not in out2[125]                                                         # the chain off: the old rule
+
+
+def test_beyond_the_span_same_body_test_is_for_short_spans():
+    """A long-lived sideline id's endzone tail beside another sideline man is his own; a 3-frame fragment's is a copy."""
+    import numpy as np
+    import pandas as pd
+    from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span
+
+    class _Side:
+        K = [np.array([[1000.0, 0, 960.0], [0, 1000.0, 540.0], [0, 0, 1.0]])] * 400
+        R = [np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])] * 400
+        t = [np.zeros(3)] * 400
+        conf = np.ones(400)
+        width, height = 1920, 1080
+
+    ground = {300: {1: np.array([0.5, 40.0])}}
+    side = {300: {2: np.array([0.6, 40.1])}}
+    short = pd.DataFrame({"cam": ["sideline"] * 3, "frame": [10, 11, 12], "track_id": [1] * 3, "global_player_id": [1] * 3})
+    long = pd.DataFrame({"cam": ["sideline"] * 200, "frame": list(range(10, 210)), "track_id": [1] * 200, "global_player_id": [1] * 200})
+    out, dropped = beyond_sideline_span(ground, short, _Side(), gap=30, side_ground=side, same_body_max_span=60)
+    assert dropped == 1 and out[300] == {}                                           # a fragment: the copy
+    out, dropped = beyond_sideline_span(ground, long, _Side(), gap=30, side_ground=side, same_body_max_span=60)
+    assert dropped == 0 and 1 in out[300]                                            # 200 sideline frames: his own man
+    out, dropped = beyond_sideline_span(ground, long, _Side(), gap=30, side_ground=side, same_body_max_span=None)
+    assert dropped == 1 and out[300] == {}                                           # off: the old rule

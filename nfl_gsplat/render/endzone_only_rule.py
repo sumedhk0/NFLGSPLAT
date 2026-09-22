@@ -48,6 +48,9 @@ SAME_BODY_GAP_M: float | None = 0.8    # ... and inside the 30-frame gap, this c
 PRESNAP_JOIN_MAX: int = 10       # the pre-snap per-frame test applies when the join is within this many frames of the snap
 PRESNAP: str = "drop"            # a pre-snap beyond frame farther than HOLD_M from the join point: "drop" it, or "hold" the
                                  # man AT the join point (a set man has not moved; the join is where the sideline first has him)
+SAME_BODY_MAX_SPAN: int | None = None      # OFF (measured worse, 2026-09-22: 0.498 -> 0.671). With a value: the same-body test only for an id whose sideline span is at most this many frames: the copy
+                                          # case is a short sideline fragment paired to a long endzone track (v16: 18 frames);
+                                          # a long-lived sideline id's endzone tail is his own man (the centre behind the QB, 557+)
 SAME_BODY_SAME_TEAM: bool = False         # ... and only a sideline man of the SAME team can be the copy (a Raven 1 m from a KC
                                           # tackle is not the tackle's second copy: id 1's 112 rows beside KC 12 and 76, 2026-09-21)
 SAME_BODY_APART_IOU: float | None = 0.3   # ... unless the endzone boxes both men on the frame, overlapping below this: two men
@@ -61,7 +64,7 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                          hold_m: float | None = HOLD_M, report: dict | None = None, snap: int | None = None,
                          presnap: str = PRESNAP, presnap_join_max: int = PRESNAP_JOIN_MAX,
                          same_body_gap_m: float | None = SAME_BODY_GAP_M, apart_iou: float | None = SAME_BODY_APART_IOU,
-                         teams: dict | None = None):
+                         teams: dict | None = None, same_body_max_span: int | None = SAME_BODY_MAX_SPAN):
     """``ground`` (frame -> {pid: xy}) without the frames of an id that lie
     beyond its sideline detections by more than ``gap`` frames, where the
     sideline could see the spot. Returns ``(ground, dropped)``.
@@ -121,6 +124,11 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
     span = sub.groupby("global_player_id")["frame"].agg(["min", "max"])
     lo = {int(pid): int(r["min"]) - gap for pid, r in span.iterrows()}
     hi = {int(pid): int(r["max"]) + gap for pid, r in span.iterrows()}
+    span_len = {int(pid): int(r["max"]) - int(r["min"]) + 1 for pid, r in span.iterrows()}
+
+    def same_body_applies(pid):
+        """The same-body test is for a short sideline span (a fragment pairing); a long one is trusted."""
+        return same_body_max_span is None or span_len.get(int(pid), 0) <= int(same_body_max_span)
     side_at = None
     if side_ground is not None:
         side_at = {int(f): {int(p): np.asarray(v, float) for p, v in d.items()} for f, d in side_ground.items()}
@@ -176,7 +184,7 @@ def beyond_sideline_span(ground, df, sideline, *, gap: int = 30, cam: str = "sid
                         continue
                     near, near_j = min(((float(np.linalg.norm(np.asarray(xy, float) - q)), j)
                                         for j, q in side_at.get(f, {}).items() if j != pid and same_team(pid, j)), default=(np.inf, None))
-                    if near <= same_body_m and not boxes_apart(f, pid, near_j):
+                    if near <= same_body_m and same_body_applies(pid) and not boxes_apart(f, pid, near_j):
                         dropped += 1
                         continue
                     kept_gap += 1

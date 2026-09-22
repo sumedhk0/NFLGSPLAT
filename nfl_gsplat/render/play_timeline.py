@@ -639,7 +639,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                                                 report=span_report, snap=snap,
                                                 presnap=ezr.PRESNAP if span_presnap is None else span_presnap,
                                                 same_body_gap_m=ezr.SAME_BODY_GAP_M if (same_body_gap_m is not None and same_body_gap_m < 0) else same_body_gap_m,
-                                                apart_iou=ezr.SAME_BODY_APART_IOU, teams=_teams(P))
+                                                apart_iou=ezr.SAME_BODY_APART_IOU, teams=_teams(P),
+                                                same_body_max_span=ezr.SAME_BODY_MAX_SPAN)
         if n_beyond:
             print(f"frames beyond an id's sideline span left out: {n_beyond}")
         if span_report:
