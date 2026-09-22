@@ -24,6 +24,14 @@ HELMET_RGB: dict[str, tuple[float, float, float]] = {
     "BAL": (0.08, 0.08, 0.10),     # black shell
 }
 DEFAULT_HELMET_RGB = (0.85, 0.85, 0.85)
+# The facemask: the front lower half of the face, pushed out from the head's centre beyond the shell and
+# coloured the team's cage (KC white, BAL black). Without it a coloured, inflated head reads as a bald
+# painted man, not a helmet (the user's ask, 2026-09-22).
+FACEMASK_RGB: dict[str, tuple[float, float, float]] = {"KC": (0.88, 0.88, 0.88), "BAL": (0.12, 0.12, 0.14)}
+DEFAULT_FACEMASK_RGB = (0.35, 0.35, 0.35)
+FACEMASK_FRONT_M: float = 0.04         # in front of the head's centre (template z, the face looks along +z)
+FACEMASK_TOP_M: float = 0.02           # below the head's centre height plus this: the eyes and up stay shell
+FACEMASK_OUT_M: float = 0.03           # beyond the shell's inflate
 
 
 # Shoulder pads: the vertices within this radius of either shoulder joint,
@@ -67,6 +75,38 @@ def head_mask(v_template, joints_template) -> np.ndarray:
     vt = np.asarray(v_template, float)
     neck_y = float(np.asarray(joints_template, float)[NECK_JOINT, 1])
     return vt[:, 1] > neck_y + HEAD_ABOVE_NECK_M
+
+
+def facemask_mask(v_template, joints_template, *, front_m: float = FACEMASK_FRONT_M,
+                  top_m: float = FACEMASK_TOP_M) -> np.ndarray:
+    """Boolean ``[V]`` mask of the face's lower front from the template geometry (y up, z forward):
+    head vertices more than ``front_m`` in front of the head's centre and below its height + ``top_m``."""
+    vt = np.asarray(v_template, float)
+    head = head_mask(vt, joints_template)
+    if not head.any():
+        return head
+    c = vt[head].mean(axis=0)
+    return head & (vt[:, 2] > c[2] + front_m) & (vt[:, 1] < c[1] + top_m)
+
+
+def wear_facemask(vertices, colours, head, face, rgb, *, out_m: float = FACEMASK_OUT_M):
+    """Copies of ``vertices`` and ``colours`` with the ``face`` vertices pushed ``out_m`` further from the
+    HEAD's centre (the mean of the ``head`` vertices, in whatever frame they are in) and coloured ``rgb``;
+    applied after wear_helmet so the cage sits proud of the shell."""
+    v = np.array(vertices, float, copy=True)
+    c = np.array(colours, float, copy=True)
+    if c.ndim == 1:
+        c = np.broadcast_to(c, v.shape).copy()
+    h = np.asarray(head, bool)
+    m = np.asarray(face, bool)
+    if not m.any() or not h.any():
+        return v, c
+    centre = v[h].mean(axis=0)
+    r = v[m] - centre
+    n = np.linalg.norm(r, axis=1, keepdims=True)
+    v[m] = v[m] + out_m * r / np.maximum(n, 1e-9)
+    c[m] = np.asarray(rgb, float)
+    return v, c
 
 
 def wear_helmet(vertices, colours, mask, rgb, *, inflate_m: float = HELMET_INFLATE_M):

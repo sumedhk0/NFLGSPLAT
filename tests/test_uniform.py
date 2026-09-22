@@ -134,3 +134,20 @@ def test_digits_read_from_outside_the_body():
     assert xyz[lower & ~back_pts, 0].mean() > 0.005                    # front: stem right of centre (+x)
     assert xyz[lower & back_pts, 0].mean() < -0.005                    # back: stem at -x
 
+
+
+def test_trim_regions_sit_where_the_trim_is_and_take_the_kit_colours():
+    vt, J = _template()
+    m = un.regions(vt, J)
+    assert m["collar"].any() and m["sleeve"].any() and m["stripe"].any()
+    neck_y = J[un.NECK_JOINT, 1]
+    assert (vt[m["collar"], 1] > neck_y - un.COLLAR_DEPTH_M - 1e-9).all() and (vt[m["collar"], 2] > un.COLLAR_BACK_Z_M).all()
+    elbow_x = float(np.mean([abs(J[j, 0]) for j in un.ELBOW_JOINTS]))
+    assert (np.abs(vt[m["sleeve"], 0]) > elbow_x - un.CUFF_WIDTH_M - 1e-9).all() and (np.abs(vt[m["sleeve"], 0]) <= elbow_x).all()
+    assert (np.abs(vt[m["stripe"], 0]) > un.STRIPE_MIN_X_M).all() and (np.abs(vt[m["stripe"], 2]) < un.STRIPE_HALF_Z_M).all()
+    assert not (m["stripe"] & m["pants"]).any() and not (m["collar"] & m["jersey"]).any()
+    kc = un.dress(m, un.KITS["KC"])
+    assert np.allclose(kc[m["collar"]], un.KITS["KC"].collar) and np.allclose(kc[m["stripe"]], un.KITS["KC"].stripe)
+    assert np.allclose(kc[m["shoes"]], un.KITS["KC"].shoes) and np.allclose(kc[m["sleeve"]], un.KITS["KC"].sleeve)
+    plain = un.dress(m, un.DEFAULT_KIT)
+    assert np.allclose(plain[m["shoes"]], un.SHOE_RGB)

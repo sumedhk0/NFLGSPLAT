@@ -61,3 +61,22 @@ def test_pads_mask_is_the_shoulders_and_they_broaden():
     assert np.allclose(v2[~m], world[~m])
     assert (v2[m, 2] - world[m, 2]).min() > 0.019
 
+
+
+def test_facemask_is_the_lower_front_of_the_face_and_sits_proud_of_the_shell():
+    vt, joints = _template()
+    head = hm.head_mask(vt, joints)
+    face = hm.facemask_mask(vt, joints)
+    assert face.any() and (face & ~head).sum() == 0 and face.sum() < head.sum()
+    c = vt[head].mean(axis=0)
+    assert (vt[face, 2] > c[2] + hm.FACEMASK_FRONT_M).all() and (vt[face, 1] < c[1] + hm.FACEMASK_TOP_M).all()
+    v1, c1 = hm.wear_helmet(vt, np.full((len(vt), 3), 0.5), head, (0.9, 0.1, 0.2))
+    v2, c2 = hm.wear_facemask(v1, c1, head, face, (0.88, 0.88, 0.88))
+    centre = v1[head].mean(axis=0)
+    d1 = np.linalg.norm(v1[face] - centre, axis=1)
+    d2 = np.linalg.norm(v2[face] - centre, axis=1)
+    assert np.allclose(d2 - d1, hm.FACEMASK_OUT_M, atol=1e-6)         # pushed out from the HEAD's centre
+    assert np.allclose(v2[~face], v1[~face]) and np.allclose(c2[~face], c1[~face])
+    assert np.allclose(c2[face], (0.88, 0.88, 0.88))
+    v3, c3 = hm.wear_facemask(vt, np.full(3, 0.5), head, np.zeros(len(vt), bool), (0.1, 0.1, 0.1))
+    assert np.allclose(v3, vt) and c3.shape == (len(vt), 3)

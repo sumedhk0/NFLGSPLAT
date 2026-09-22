@@ -128,7 +128,8 @@ def main() -> None:
     ap.add_argument("--pads", action="store_true",
                     help="shoulder vertices pushed out and up (render.helmet.wear_pads)")
     ap.add_argument("--helmets", action="store_true",
-                    help="head vertices wear the team's helmet colour, inflated 2 cm (render.helmet)")
+                    help="head vertices wear the team's helmet colour, inflated 2 cm, with the team's facemask "
+                         "on the lower face (render.helmet)")
     ap.add_argument("--stitch", action="store_true",
                     help="join the linker's fragments into players (tracking.stitch) so a "
                          "player keeps one id and one texture across breaks")
@@ -308,6 +309,7 @@ def main() -> None:
     v_t = model.v_template.detach().cpu().numpy()
     j_t = (model.J_regressor @ model.v_template).detach().cpu().numpy()
     head = hm.head_mask(v_t, j_t)
+    face = hm.facemask_mask(v_t, j_t)
     pads = hm.pads_mask(v_t, j_t)
     kit_colours: dict[str, np.ndarray] = {}
     numbered: dict[int, int] = {}
@@ -397,6 +399,7 @@ def main() -> None:
         if args.helmets:
             shell = hm.HELMET_RGB.get(team, hm.DEFAULT_HELMET_RGB)
             verts, colour = hm.wear_helmet(verts, colour, head, shell)
+            verts, colour = hm.wear_facemask(verts, colour, head, face, hm.FACEMASK_RGB.get(team, hm.DEFAULT_FACEMASK_RGB))
         body = tune(mesh_to_gaussians(verts, faces, colour=colour))
         if args.uniforms and s.pid in decal_of:
             decal, num_rgb = decal_of[s.pid]

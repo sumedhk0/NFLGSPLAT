@@ -40,17 +40,37 @@ class Kit:
     helmet: tuple
     gloves: tuple
     number: tuple            # the numeral colour on the jersey
+    # the trim (2026-09-22, the user asked for gear): the collar band, the sleeve cuffs, the stripe down
+    # the outer seam of the pants, and the cleats; each its own region so a kit can colour it
+    collar: tuple = (0.8, 0.8, 0.8)
+    sleeve: tuple = (0.8, 0.8, 0.8)
+    stripe: tuple = (0.8, 0.8, 0.8)
+    shoes: tuple = SHOE_RGB
 
 
-# BAL @ KC 2024 week 1: KC in red over white, BAL in white over black.
+# BAL @ KC 2024 week 1: KC in red over white (white collar and cuffs, a red stripe on the pants, red
+# cleats), BAL in white over black (purple collar, cuffs and stripe, black cleats).
 KITS: dict[str, Kit] = {
     "KC": Kit(jersey=(0.89, 0.09, 0.22), pants=(0.94, 0.94, 0.94), socks=(0.89, 0.09, 0.22),
-              helmet=(0.89, 0.09, 0.22), gloves=(0.94, 0.94, 0.94), number=(0.98, 0.98, 0.98)),
+              helmet=(0.89, 0.09, 0.22), gloves=(0.94, 0.94, 0.94), number=(0.98, 0.98, 0.98),
+              collar=(0.96, 0.96, 0.96), sleeve=(0.96, 0.96, 0.96), stripe=(0.89, 0.09, 0.22),
+              shoes=(0.70, 0.08, 0.16)),
     "BAL": Kit(jersey=(0.95, 0.95, 0.95), pants=(0.09, 0.09, 0.11), socks=(0.09, 0.09, 0.11),
-               helmet=(0.08, 0.08, 0.10), gloves=(0.09, 0.09, 0.11), number=(0.16, 0.10, 0.35)),
+               helmet=(0.08, 0.08, 0.10), gloves=(0.09, 0.09, 0.11), number=(0.16, 0.10, 0.35),
+               collar=(0.16, 0.10, 0.35), sleeve=(0.16, 0.10, 0.35), stripe=(0.16, 0.10, 0.35),
+               shoes=(0.08, 0.08, 0.10)),
 }
 DEFAULT_KIT = Kit(jersey=(0.75, 0.75, 0.75), pants=(0.85, 0.85, 0.85), socks=(0.75, 0.75, 0.75),
                   helmet=(0.85, 0.85, 0.85), gloves=(0.85, 0.85, 0.85), number=(0.1, 0.1, 0.1))
+
+# The trim's geometry in the template (y up, x across the shoulders, z forward): the collar is the top of
+# the jersey from the front round to the sides, the cuff the last of the jersey before the elbow, the
+# stripe the outermost vertices of the pants near the sagittal plane (the outer seam).
+COLLAR_DEPTH_M: float = 0.035
+COLLAR_BACK_Z_M: float = -0.02
+CUFF_WIDTH_M: float = 0.07
+STRIPE_MIN_X_M: float = 0.13
+STRIPE_HALF_Z_M: float = 0.045
 
 
 def regions(v_template, joints_template) -> dict[str, np.ndarray]:
@@ -74,8 +94,14 @@ def regions(v_template, joints_template) -> dict[str, np.ndarray]:
     shoes = below & (y < ankle_y + 0.02)
     socks = below & (~shoes) & (y < knee_y)
     pants = below & (~shoes) & (~socks)
-    return {"helmet": helmet, "jersey": jersey, "skin": skin, "gloves": gloves,
-            "pants": pants, "socks": socks, "shoes": shoes}
+    z = vt[:, 2]
+    collar = jersey & (y > neck_y - COLLAR_DEPTH_M) & (z > COLLAR_BACK_Z_M)
+    sleeve = jersey & (~collar) & (x > elbow_x - CUFF_WIDTH_M)
+    jersey = jersey & (~collar) & (~sleeve)
+    stripe = pants & (x > STRIPE_MIN_X_M) & (np.abs(z) < STRIPE_HALF_Z_M)
+    pants = pants & (~stripe)
+    return {"helmet": helmet, "jersey": jersey, "collar": collar, "sleeve": sleeve, "skin": skin, "gloves": gloves,
+            "pants": pants, "stripe": stripe, "socks": socks, "shoes": shoes}
 
 
 NUMBER_HEIGHT_M: float = 0.24      # NFL back numerals are 10 in; the front 8 in, drawn the same here
@@ -248,8 +274,9 @@ def dress(masks: dict[str, np.ndarray], kit: Kit) -> np.ndarray:
     """``[V, 3]`` colours for the regions under ``kit``."""
     n = len(next(iter(masks.values())))
     out = np.zeros((n, 3), np.float32)
-    paint = {"helmet": kit.helmet, "jersey": kit.jersey, "skin": SKIN_RGB, "gloves": kit.gloves,
-             "pants": kit.pants, "socks": kit.socks, "shoes": SHOE_RGB}
+    paint = {"helmet": kit.helmet, "jersey": kit.jersey, "collar": kit.collar, "sleeve": kit.sleeve,
+             "skin": SKIN_RGB, "gloves": kit.gloves, "pants": kit.pants, "stripe": kit.stripe,
+             "socks": kit.socks, "shoes": kit.shoes}
     for name, m in masks.items():
         out[m] = np.asarray(paint[name], np.float32)
     return out
