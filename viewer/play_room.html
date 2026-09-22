@@ -79,7 +79,7 @@
 <div id="status">Loading the play…</div>
 
 <div id="top" class="bar">
-  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v89</small></h1>
+  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v95</small></h1>
   <div class="presets" role="group" aria-label="Camera">
     <button data-cam="sideline" aria-pressed="true">Sideline</button>
     <button data-cam="endzone" aria-pressed="false">Endzone</button>
@@ -88,13 +88,14 @@
     <button data-cam="ball" aria-pressed="false">Follow ball</button>
     <button data-cam="real:sideline" aria-pressed="false" title="the broadcast sideline camera's solved pose, frame by frame">Sideline cam</button>
     <button data-cam="real:endzone" aria-pressed="false" title="the broadcast endzone camera's solved pose, frame by frame">Endzone cam</button>
+    <button data-cam="fpv" aria-pressed="false" title="click a body first: the play through his eyes">First person</button>
   </div>
 </div>
 
 <div id="hud">
   <span class="legend"><span class="swatch" style="background: var(--kc)"></span>Kansas City</span>
   <span class="legend"><span class="swatch" style="background: var(--bal); outline: 1px solid var(--bal-trim)"></span>Baltimore</span><br>
-  Drag to orbit · wheel to zoom · right-drag or shift-drag to pan · click a body for its id · the two cam presets are the broadcast cameras' solved poses<br>
+  Drag to orbit · wheel to zoom · right-drag or shift-drag to pan · click a body for its id, then First person to watch through his eyes · the two cam presets are the broadcast cameras' solved poses<br>
   <span id="pick">—</span>
 </div>
 
@@ -281,7 +282,49 @@
     if (!realCam) return;
     realCam = null; camera.matrixAutoUpdate = true; camera.fov = 50; camera.updateProjectionMatrix();
   }
+  // ---- first person: the eyes of a picked body ----
+  let picked = null, fpv = null;
+  const fpvFwd = new THREE.Vector3(), _eye = new THREE.Vector3(), _right = new THREE.Vector3(), _fwd = new THREE.Vector3(), _look = new THREE.Vector3();
+  const UP = new THREE.Vector3(0, 0, 1);
+  function nameOf(pid) {
+    const n = data && data.names && data.names[String(pid)];
+    const team = bodies.get(pid) ? bodies.get(pid).team : null;
+    return (n ? n + " · " : "") + (team === "KC" ? "Kansas City" : team === "BAL" ? "Baltimore" : "team unknown");
+  }
+  function applyFpv(f) {
+    const rows = data.bodies[String(f)] || [];
+    const row = rows.find(r => r[0] === fpv);
+    const out = document.getElementById("pick");
+    if (!row) { out.textContent = `First person · id ${fpv} · ${nameOf(fpv)} · not drawn on this frame`; return false; }
+    const J = row[2];
+    _right.set(J[17][0] - J[16][0], J[17][1] - J[16][1], J[17][2] - J[16][2]); _right.z = 0;
+    if (_right.lengthSq() < 1e-6) _right.set(1, 0, 0); _right.normalize();
+    _fwd.crossVectors(UP, _right).normalize();                       // forward = up x right (a body facing +x has its right hand at -y)
+    if (fpvFwd.lengthSq() < 1e-6) fpvFwd.copy(_fwd); else fpvFwd.lerp(_fwd, 0.25).normalize();
+    _eye.set(J[15][0], J[15][1], J[15][2]).addScaledVector(UP, 0.10).addScaledVector(fpvFwd, 0.08);
+    camera.position.copy(_eye);
+    _look.copy(_eye).addScaledVector(fpvFwd, 10).addScaledVector(UP, -1.2);   // a slight downward gaze
+    camera.up.copy(UP); camera.lookAt(_look);
+    out.textContent = `First person · id ${fpv} · ${nameOf(fpv)}`;
+    return true;
+  }
+  function enterFpv(pid) {
+    leaveRealCam(); orbit.follow = false; fpv = pid; fpvFwd.set(0, 0, 0);
+    camera.near = 0.12; camera.fov = 80; camera.updateProjectionMatrix();
+    document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cam === "fpv")));
+    showFrame(idx);
+  }
+  function leaveFpv() {
+    if (fpv === null) return;
+    const b = bodies.get(fpv); if (b) b.group.visible = true;
+    fpv = null; camera.near = 0.1; camera.fov = 50; camera.up.set(0, 0, 1); camera.updateProjectionMatrix();
+  }
   function setPreset(name) {
+    if (name === "fpv") {
+      if (picked === null) { document.getElementById("pick").textContent = "click a body first, then First person"; return; }
+      enterFpv(picked); return;
+    }
+    leaveFpv();
     document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cam === name)));
     if (name.startsWith("real:")) {
       realCam = name.slice(5); orbit.follow = false;
@@ -303,6 +346,7 @@
     if (!drag) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
     if (realCam && drag.moved > 4) { leaveRealCam(); applyOrbit(); }
+    if (fpv !== null && drag.moved > 4) { leaveFpv(); applyOrbit(); }
     if (drag.b === 2 || drag.shift) {
       const right = new THREE.Vector3(Math.sin(orbit.theta), -Math.cos(orbit.theta), 0);
       const fwd = new THREE.Vector3(-Math.cos(orbit.theta), -Math.sin(orbit.theta), 0);
@@ -319,7 +363,7 @@
     drag = null;
   });
   el.addEventListener("contextmenu", e => e.preventDefault());
-  el.addEventListener("wheel", e => { e.preventDefault(); if (realCam) { leaveRealCam(); } orbit.r = Math.min(160, Math.max(4, orbit.r * (1 + Math.sign(e.deltaY) * 0.08))); applyOrbit(); }, { passive: false });
+  el.addEventListener("wheel", e => { e.preventDefault(); if (realCam) { leaveRealCam(); } if (fpv !== null) { leaveFpv(); } orbit.r = Math.min(160, Math.max(4, orbit.r * (1 + Math.sign(e.deltaY) * 0.08))); applyOrbit(); }, { passive: false });
   // pinch
   let pinch = null;
   el.addEventListener("touchstart", e => { if (e.touches.length === 2) pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }, { passive: true });
@@ -339,8 +383,10 @@
     const hits = ray.intersectObjects([...bodies.values()].filter(b => b.group.visible).flatMap(b => [b.head, ...b.bones]), false);
     const out = document.getElementById("pick");
     if (hits.length) {
-      const pid = hits[0].object.userData.pid; const team = bodies.get(pid).team;
-      out.textContent = `id ${pid} · ${team === "KC" ? "Kansas City" : team === "BAL" ? "Baltimore" : "team unknown"}`;
+      const pid = hits[0].object.userData.pid;
+      picked = pid;
+      if (fpv !== null) { enterFpv(pid); return; }
+      out.textContent = `id ${pid} · ${nameOf(pid)} · First person to watch through his eyes`;
     } else out.textContent = "—";
   }
 
@@ -362,6 +408,7 @@
     if (bp) { ball.visible = true; ball.position.set(bp[0], bp[1], bp[2]); if (orbit.follow) { orbit.target.set(bp[0], bp[1], 1.0); applyOrbit(); } }
     else ball.visible = false;
     if (realCam) applyRealCam(f);
+    if (fpv !== null) { const b = bodies.get(fpv); if (b) b.group.visible = false; applyFpv(f); }
   }
   scrub.addEventListener("input", () => showFrame(parseInt(scrub.value, 10)));
   function setPlaying(p) { playing = p; playBtn.textContent = p ? "Pause" : "Play"; playBtn.setAttribute("aria-pressed", String(p)); last = performance.now(); acc = 0; }

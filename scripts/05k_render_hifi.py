@@ -139,6 +139,10 @@ def main() -> None:
     ap.add_argument("--no-resume", dest="resume", action="store_false",
                     help="re-render frames whose PNG already exists (default: skip them)")
     args = ap.parse_args()
+    if args.export_joints is not None and args.no_render and args.resume:
+        # the export is filled inside the frame loop; resume would skip every frame whose PNG exists and
+        # write an empty file over the last good one (2026-09-22, the v95 joints)
+        args.resume = False
 
     import imageio.v2 as imageio
     import smplx
@@ -528,6 +532,9 @@ def main() -> None:
                "frames": [int(f) for f in frames if int(f) in export], "cameras": cams_out,
                "parents": [int(v) for v in SMPLX_BODY_PARENTS[:22]],
                "teams": {str(k): v for k, v in export_ids.items()},
+               "names": {str(k): (f"{int(getattr(merged[k], 'jersey', 0))} {merged[k].player}".strip()
+                                   if int(getattr(merged[k], 'jersey', 0) or 0) > 0 else str(merged[k].player))
+                         for k in export_ids if k in merged and not str(getattr(merged[k], 'player', '')).startswith('P')},
                "los": los, "bodies": {str(k): v for k, v in export.items()}, "ball": {str(k): v for k, v in ball_out.items()}}
         args.export_joints.parent.mkdir(parents=True, exist_ok=True)
         args.export_joints.write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")

@@ -5935,3 +5935,31 @@ qb-under-centre rule's inputs first. Copy discarded. v95 stands.
 **STAND_TO_CLIP_END (on):** stand_still runs to the clip's end (down + tail, 615) instead of the down. Play window unchanged
 (2 / 0 / 0.183); the tail 608-615 goes from (KC 9, BAL 10) x6, (9, 11) x2 to (9, 11) x6, (10, 12) x2 -- one more Raven on
 six frames, a held twin on the last two. Not worth a render on its own; the next render carries it.
+
+### 2026-09-22 -- the user's next three asks: natural motion, gear/textures, first-person view
+
+**First-person view (done, viewer):** click a body, "First person": the camera sits at his head joint (+0.10 m up, +0.08 m
+forward), looks where his shoulders face (forward = up x (right shoulder - left shoulder), smoothed 0.25/frame), a
+slight downward gaze, fov 80, near 0.12, his own body hidden; clicking another body switches eyes; drag/wheel leaves.
+05k --export-joints now writes `names` ({pid: "15 Patrick Mahomes"} for named ids) and the pick line shows them.
+
+**Motion naturalness -- two rulers over the exported joints (v95, 4396 body-frames per hinge):**
+- hinge FLEXION is fine: elbows/knees over-bent (< 35 deg) or locked (> 178) on 2 body-frames in 17,584 (the hard
+  hinge bounds work);
+- knee-angle JERK > 25 deg/frame^2 on 55 body-frames (knees 24 + 31, elbows 7): snaps at speed changes (9 at 252-258
+  pre-snap, 204 at 578, 30 at 494, 1 at 472-498) -- the gait blend and leg flips;
+- the bend PLANE (|n . right|, 1 = swings forward-back, 0 = bends sideways): arms bent sideways (< 0.4) on 4% of left-arm
+  and 11% of RIGHT-arm bent frames -- an asymmetry, the camera-far arm fitted into the frontal plane when occluded;
+  legs 5-6%. Worst ids: 11 R arm (38), 5 L leg (33), 9 L leg (27), 80 R arm (25, the throw -- real), 74 R arm (21).
+Plan, in order: (1) confidence-gated joint angles -- a joint whose 2D keypoint confidence is low is interpolated (slerp)
+between its nearest confident frames instead of fitted; score on the two rulers here plus reprojection; (2) the endzone
+camera's keypoints in the fit where it sees the man (the depth ambiguity behind sideways elbows); (3) a temporal 3D
+lifter (MotionBERT-class) per track, SMPL-X fitted to the lifted joints; (4) a pose prior (VPoser or football joint
+statistics) in the fit; (5) contacts (feet on turf, no interpenetration in piles).
+
+**Gear and textures (plan):** the hifi render is flat colour + numbers + helmet spheres. Steps: a per-team UV texture on
+the SMPL-X body (jersey with the number front/back, pants, socks, cleats, gloves), a helmet mesh with a facemask
+(replaces the sphere), shoulder-pad silhouette via a small displacement on the shoulder vertices. The viewer draws
+capsules; real meshes there are a later, heavier step (SMPL-X vertices per frame = 10k x 3 x 200 frames).
+Trap (fixed in 05k): `--export-joints --no-render` into an out-dir whose PNGs exist wrote an EMPTY joints file -- the
+export is filled inside the frame loop and resume skipped every frame. The export now forces --no-resume.
