@@ -164,6 +164,28 @@ def ankle_ground(kdf, tracks, *, z: float = ANKLE_Z_M, min_conf: float = ANKLE_M
     return out
 
 
+def keypoint_confidence(kdf, *, cam=None, keypoint_of=None) -> dict:
+    """``{pid: {frame: conf[21]}}``: per body_pose row the confidence of the COCO keypoint that vouches for
+    that rotation (timeline.CONF_GATE_KEYPOINT), nan where none does. ``cam`` = one camera's records (a
+    one-view fit), None = every camera with the best confidence per keypoint kept (the fused fit sees a
+    keypoint if either camera does; the endzone rows must already sit on their sideline frames)."""
+    keypoint_of = tlm.CONF_GATE_KEYPOINT if keypoint_of is None else keypoint_of
+    k = kdf if cam is None else kdf[kdf["cam"] == cam]
+    out: dict = {}
+    if k.empty:
+        return out
+    piv = k.pivot_table(index=["global_player_id", "frame"], columns="joint", values="conf", aggfunc="max")
+    cols = {int(c): i for i, c in enumerate(piv.columns)}
+    arr = piv.to_numpy(float)
+    for (pid, f), row in zip(piv.index, arr):
+        c = np.full(21, np.nan)
+        for j, kp in keypoint_of.items():
+            if kp in cols:
+                c[j] = row[cols[kp]]
+        out.setdefault(int(pid), {})[int(f)] = c
+    return out
+
+
 def box_ground(df, tracks, *, margin_frac: float = BOX_MARGIN_FRAC, frame_shift=None) -> dict:
     """``{(cam, frame, pid): xy}``: every row's box-bottom point on the turf -- ground_positions'
     fallback, keyed like ankle_ground so the two can be joined per (camera, frame, player)."""
@@ -492,7 +514,9 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     df = df[df["track_id"] >= 0]
     refit_path = Path(poses_refit) if poses_refit else P / "poses_refit.json"
     side_path = Path(poses_sideline) if poses_sideline else P / "poses_sideline.json"
-    refit = pickle.load(open(refit_path, "rb"))["frames"] if refit_path.exists() else {}
+    refit_blob = pickle.load(open(refit_path, "rb")) if refit_path.exists() else {}
+    refit = refit_blob.get("frames", {})
+    refit_cam = str(refit_blob.get("cam", "sideline"))
     side_blob = pickle.load(open(side_path, "rb")) if side_path.exists() else None
     if not refit and side_blob is None:
         raise SetupError("no pose cache: need poses_refit.json (05f) or poses_sideline.json (05c)")
@@ -507,6 +531,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         df.loc[df["cam"] == "endzone", "frame"] = df.loc[df["cam"] == "endzone", "frame"].astype(int) - offset
         print(f"endzone rows moved to their sideline frames (clip offset {offset:+d})")
     ankles = None
+    conf_by_pid = None
     if (P / "keypoints_2d.parquet").exists():
         kdf = pd.read_parquet(P / "keypoints_2d.parquet")
         if offset:
@@ -519,6 +544,10 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         ankles, n_anchored = anchor_boxes_to_ankles(box_ground(df, tracks, frame_shift=shift), ankles)
         print(f"ground from the ankle keypoints on {n_ankle} (camera, frame, id); {n_anchored} box points "
               f"anchored to them; the raw box point elsewhere")
+        conf_cam = None if refit_cam in ("fused", "both", "world") else refit_cam
+        conf_by_pid = keypoint_confidence(kdf, cam=conf_cam)
+        print(f"keypoint confidence for the joint gate: {sum(len(v) for v in conf_by_pid.values())} "
+              f"(frame, id) records from {conf_cam or 'both cameras'} (the fit is {refit_cam})")
     # A pair whose two tracks are not one player: the sideline alone draws it
     # (pair_rule; the pairing's median-distance gate catches it upstream now).
     vetoed: dict = {}
@@ -888,9 +917,13 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
               f"ids {sorted({p for _f, p in lying})[:12]}")
     tl = tlm.build_timeline(frames_all, ground, poses, default_pose=default_pose,
                             default_betas=default_betas, views_by_frame=views,
+                            conf_by_pid=conf_by_pid, conf_min=tlm.CONF_GATE_MIN, conf_max_run=tlm.CONF_GATE_MAX_RUN,
                             exclude=clipped if not stitch_ids else None, lying=lying, keep=qb_keep or None,
                             despike_m=tlm.DESPIKE_M if (despike_m is not None and despike_m < 0) else despike_m)
     tl.members = members
+    if tl.n_gated:
+        print(f"joint gate: {tl.n_gated} keyframe-joints under confidence {tlm.CONF_GATE_MIN:g} SLERPed across "
+              f"(runs up to {tlm.CONF_GATE_MAX_RUN} frames)")
     tl.held = {(p, f) for p, f in qb_held if any(int(s.pid) == p for s in tl.states.get(f, []))}
     # (the aftermath hold -- timeline.hold_to_end -- is the renderer's: 05k applies it after loading, so the ball
     # path (08y) and the play end (08x) see the tracks as they are and do not chase a held body)

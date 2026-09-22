@@ -126,6 +126,26 @@ POSE_SMOOTH_SIGMA: float = 2.0
 # and +1.1 px on the endzone's (p50s unchanged, steps and census unchanged); sigma 2 buys 0.062 / 0.41
 # at +0.6 / +0.8 px. The tail is where the twitching lives, so sigma 4. 0 = the median as before.
 ORIENT_SMOOTH_SIGMA: float = 4.0
+# A joint the detector did not see is a joint the fit invented: the 2D refit has no data term on a limb whose
+# keypoint sits under its min_conf (0.3), only the prior, the init and the temporal term, and that is where
+# the odd angles come from (play 1 v95, 09d: the camera-far arm bent SIDEWAYS on 11 % of its bent frames
+# against 4 % for the near arm). Measured on play 1's sideline keypoints over the live play (395-607): wrists
+# under 0.3 on 13-18 % of records, elbows 4-7 %, hips/knees/ankles/shoulders ~0. The gate: a rotation whose
+# driving keypoint (the joint it moves: the elbow for the shoulder, the wrist for the elbow, the knee for the
+# hip, the ankle for the knee) is under CONF_GATE_MIN over a run of keyframes spanning at most
+# CONF_GATE_MAX_RUN frames, with confident keyframes either side, is SLERPed between those two; longer runs
+# and runs at a span's edge keep the fit (a limb held still for 100 frames is its own artefact). 0 = off.
+# MEASURED 2026-09-22 on play 1 v96 (09d over the live play, both cameras' confidences, 15,261 records): at 0.3 the
+# gate SLERPed 1,956 keyframe-joints and moved nothing -- hinge jerk 57 -> 57, sideways R arm 11.0 -> 11.1 %, L arm
+# 5.7 -> 5.9 %, legs identical, 07l joint jitter p50 0.0231 -> 0.0229; at 0.5 (2,161 joints, BLEND 16): arm jerk 7 -> 5,
+# sideways R 11.0 -> 10.8 %, L 7.0 -> 7.0 % -- noise. The odd arm angles are not where the keypoints are unseen (or the
+# SLERP lands in the same plane). OFF by default (max run 0); the code stays for a play where the wrists are unseen
+# longer. Pass conf_max_run at call time to try it.
+CONF_GATE_MIN: float = 0.3
+CONF_GATE_MAX_RUN: int = 0
+# body_pose row (joint - 1) -> the COCO-17 keypoint whose confidence vouches for that rotation
+CONF_GATE_KEYPOINT: dict = {0: 13, 1: 14, 3: 15, 4: 16, 6: 15, 7: 16,        # hips <- knees, knees <- ankles, ankles <- ankles
+                            15: 7, 16: 8, 17: 9, 18: 10, 19: 9, 20: 10}      # shoulders <- elbows, elbows <- wrists, wrists <- wrists
 # Joint limits on the four hinges, applied to the interpolated axis-angles BEFORE the Gaussian so
 # the smoother rounds the kinks. body_pose rows (joint - 1), the hinge axis, and the sign that makes
 # flexion positive in SMPL-X's rest pose: knees flex about +x; elbows about y, right +, left -.
@@ -162,6 +182,7 @@ class Timeline:
     n_clamped: int = 0
     n_default: int = 0
     n_duplicates: int = 0
+    n_gated: int = 0                              # keyframe-joints SLERPed across for want of a confident keypoint
     members: dict = field(default_factory=dict)   # player id -> member ids (after stitching)
     held: set = field(default_factory=set)        # (pid, frame) drawn at a held spot with no fit of its own (the quarterback under centre)
 
@@ -227,6 +248,40 @@ def interp_axis_angle(frames_known, values_known, frames_out):
     for j in range(vk.shape[1]):
         out[:, j] = Slerp(fk, Rotation.from_rotvec(vk[:, j]))(fo_c).as_rotvec()
     return out
+
+
+def gate_low_confidence(frames_known, values_known, conf_known, *, min_conf: float = CONF_GATE_MIN,
+                        max_run: int = CONF_GATE_MAX_RUN):
+    """``values_known [K, J, 3]`` axis-angles at the sorted keyframes ``frames_known``; ``conf_known [K, J]``
+    the confidence vouching for each rotation (nan = never gated). Every run of keyframes whose confidence
+    sits under ``min_conf`` at joint j, bounded by confident keyframes on both sides and spanning at most
+    ``max_run`` frames bound to bound, is replaced by the SLERP between its two bounding keyframes; other
+    runs keep the fit. Returns (values [K, J, 3], keyframe-joints replaced). ``max_run`` <= 0 = off."""
+    v = np.array(values_known, float, copy=True)
+    if max_run is None or max_run <= 0 or len(v) < 3:
+        return v, 0
+    fk = np.asarray(frames_known, float)
+    c = np.asarray(conf_known, float)
+    if c.shape != v.shape[:2]:
+        raise ValueError(f"gate_low_confidence: conf {c.shape} does not match values {v.shape[:2]}")
+    n = 0
+    for j in range(v.shape[1]):
+        low = np.isfinite(c[:, j]) & (c[:, j] < min_conf)
+        i = 0
+        while i < len(low):
+            if not low[i]:
+                i += 1
+                continue
+            a = i
+            while i < len(low) and low[i]:
+                i += 1
+            b = i                                       # the run is keyframes a..b-1, its bounds a-1 and b
+            if a == 0 or b >= len(low) or fk[b] - fk[a - 1] > max_run:
+                continue
+            key = Rotation.from_rotvec(np.stack([v[a - 1, j], v[b, j]]))
+            v[a:b, j] = Slerp([fk[a - 1], fk[b]], key)(fk[a:b]).as_rotvec()
+            n += b - a
+    return v, n
 
 
 def smooth_xy(xy, *, window: int = 9):
@@ -861,12 +916,14 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    pose_smooth: int = POSE_SMOOTH_FRAMES, pose_sigma: float = POSE_SMOOTH_SIGMA,
                    clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
                    unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None,
-                   despike_m: float | None = DESPIKE_M, lying_sigma_mult: float | None = None, keep=None) -> Timeline:
+                   despike_m: float | None = DESPIKE_M, lying_sigma_mult: float | None = None, keep=None,
+                   conf_by_pid=None, conf_min: float = CONF_GATE_MIN, conf_max_run: int = CONF_GATE_MAX_RUN) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
     subset). ``lying``: ``{(frame, pid)}`` on the ground (lying_frames), where
-    the tilt is not clamped. Returns a Timeline with a state per player per frame."""
+    the tilt is not clamped. ``conf_by_pid``: pid -> {frame: conf[21]} per body_pose row (keypoint_confidence),
+    for gate_low_confidence at the keyframes. Returns a Timeline with a state per player per frame."""
     lying = lying or set()
     if lying_sigma_mult is None:
         lying_sigma_mult = LYING_SIGMA_MULT
@@ -889,7 +946,13 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         posed = poses_by_pid.get(pid, {})
         pf = sorted(f for f in posed if f in f_index)
         if pf:
-            bp = interp_axis_angle(pf, [posed[f][0] for f in pf], frames)
+            vals = [posed[f][0] for f in pf]
+            if conf_by_pid and conf_max_run and pid in conf_by_pid:
+                cf = conf_by_pid[pid]
+                conf = np.array([cf.get(f, np.full(21, np.nan)) for f in pf], float)
+                vals, n_gated = gate_low_confidence(pf, vals, conf, min_conf=conf_min, max_run=conf_max_run)
+                tl.n_gated += n_gated
+            bp = interp_axis_angle(pf, vals, frames)
             go = interp_axis_angle(pf, [np.asarray(posed[f][1]).reshape(1, 3) for f in pf], frames)[:, 0]
             # the limbs: hinge limits first (a backwards knee is the fit, not the man), then a
             # Gaussian, because their noise is on every frame (POSE_SMOOTH_SIGMA) and it rounds the

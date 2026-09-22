@@ -1098,3 +1098,51 @@ def test_stand_still_a_drawn_neighbour_is_not_a_successor_and_a_twin_is_not_a_ne
         assert build((0.7, 0.0), False) == 0              # the old rule: the neighbour's box reads as his successor
     finally:
         tlm.STAND_SUCCESSOR_NEWBORN_ONLY, tlm.STAND_NEIGHBOUR_NOT_TWIN = was
+
+
+def test_gate_low_confidence_slerps_a_bounded_low_run():
+    fk = [0, 2, 4, 6, 8]
+    vals = np.zeros((5, 21, 3))
+    vals[4, 5] = [0.0, 0.0, 1.0]                                  # row 5 turns 0 -> 1 rad about z over the span
+    vals[1, 5] = [0.9, 0, 0]; vals[2, 5] = [0, 0.9, 0]; vals[3, 5] = [0, 0, -0.9]   # the fit's garbage in between
+    conf = np.full((5, 21), np.nan)
+    conf[:, 5] = [0.9, 0.1, 0.1, 0.1, 0.9]
+    out, n = tl.gate_low_confidence(fk, vals, conf, min_conf=0.3, max_run=30)
+    assert n == 3
+    assert np.allclose(out[2, 5], [0, 0, 0.5], atol=1e-6)         # the SLERP's midpoint
+    assert np.allclose(out[1, 5], [0, 0, 0.25], atol=1e-6)
+    assert np.allclose(out[:, 4], 0.0) and np.allclose(out[[0, 4], 5], vals[[0, 4], 5])
+
+
+def test_gate_low_confidence_keeps_long_runs_edges_and_unknowns():
+    fk = list(range(0, 20, 2))                                    # 10 keyframes
+    vals = np.zeros((10, 21, 3))
+    vals[:, 3] = [0.7, 0, 0]
+    conf = np.full((10, 21), np.nan)
+    conf[:, 3] = [0.9] + [0.1] * 8 + [0.9]                        # a 16-frame run bound to bound, cap 10
+    out, n = tl.gate_low_confidence(fk, vals, conf, min_conf=0.3, max_run=10)
+    assert n == 0 and np.allclose(out, vals)
+    conf[:, 3] = [0.1, 0.1, 0.9] + [0.9] * 5 + [0.1, 0.1]         # runs at both edges: no bound on one side
+    out, n = tl.gate_low_confidence(fk, vals, conf, min_conf=0.3, max_run=30)
+    assert n == 0 and np.allclose(out, vals)
+    conf[:] = np.nan                                              # confidence unknown: never gated
+    assert tl.gate_low_confidence(fk, vals, conf, min_conf=0.3, max_run=30)[1] == 0
+    assert tl.gate_low_confidence(fk, vals, np.zeros((10, 21)), min_conf=0.3, max_run=0)[1] == 0   # off
+
+
+def test_build_timeline_gates_low_confidence_keyframes():
+    frames = list(range(0, 12))
+    ground = {f: {1: np.array([0.0, 1.0])} for f in frames}
+    up = tl.upright_from_yaw(0.0)
+    bp = {f: np.zeros((21, 3)) for f in (0, 4, 8)}
+    bp[4][17] = [0.0, -1.2, 0.0]                                  # the left elbow snapped shut on an unseen wrist
+    poses = {1: {f: (bp[f], up, np.zeros(10), "fused") for f in (0, 4, 8)}}
+    conf = {1: {0: np.full(21, 0.9), 4: np.where(np.arange(21) == 17, 0.05, 0.9), 8: np.full(21, 0.9)}}
+    kw = dict(pose_smooth=0, pose_sigma=0, clamp_joints=False, orient_sigma=0)
+    one = lambda out, f: [x for x in out.states[f] if x.pid == 1][0]
+    raw = tl.build_timeline(frames, ground, poses, **kw)
+    assert abs(one(raw, 4).body_pose[17][1] + 1.2) < 1e-6
+    gated = tl.build_timeline(frames, ground, poses, conf_by_pid=conf, conf_min=0.3, conf_max_run=30, **kw)
+    assert np.allclose(one(gated, 4).body_pose[17], 0.0, atol=1e-6) and gated.n_gated == 1
+    off = tl.build_timeline(frames, ground, poses, conf_by_pid=conf, conf_min=0.3, conf_max_run=0, **kw)
+    assert abs(one(off, 4).body_pose[17][1] + 1.2) < 1e-6 and off.n_gated == 0
