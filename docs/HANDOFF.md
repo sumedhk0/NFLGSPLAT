@@ -5730,3 +5730,15 @@ them, the left pile (98, 99, the nose tackle) three white bodies for three white
 `*.v91`; the Film Room republished on v91 (Version 5). Next: the three rule refinements in `$S/patch_three_rules.py`
 (same-team same-body test, the hold at the start of an over-cap hole, the hole chain) -- A/B via `probe_ab_three.py`
 on the live tables and on the film-true scratch copy (`$S/play_copy`, 2.6 GB).
+
+**Three refinements measured alone, live tables (v91) and the film-true scratch copy, 21:10:**
+- same-team same-body test (a Raven next to a KC man is not his copy): live census 0.465 -> 0.789, copy 0.826 -> 0.972.
+  REJECTED on both: it re-admits endzone-only bodies beside the other team (KC 17's rows 441-471 drawn, id 4's 508-545
+  lost to the box-apart test against 40's Ojabo box). The old any-team distance test was doing real work; a principled
+  refinement lost twice (23rd case).
+- a hold at the start of a hole longer than the bridge cap: live unchanged (no such hole), copy 0.826 -> 0.836 (id 1's
+  14 frames at 421 back, nothing else): neutral, kept OFF (STAND_LONG_HOLE_HOLD False, test sets it).
+- the endzone chain inside a long hole (HOLE_CHAIN_STEP_M 0.6, gap 5): live unchanged, copy 0.826 -> 0.629 (id 4 drawn
+  to 493 instead of 451). ADOPTED (default on); a fold that lengthens a span across a real endzone stretch no longer
+  deletes it. The film-true Madubuike/Ojabo assignment still measures 0.629 against v91's 0.465: the beyond-span
+  tail join on 40's fragment boxes (522-526) and id 4's dead hold after 493 (an ended endzone track has no cover) remain.
