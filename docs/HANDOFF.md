@@ -5722,3 +5722,11 @@ hops 0 (0.3 m / gap 3 kept only 6 frames: the endzone's depth jitter breaks a ti
 way of the film-true ids: the beyond-span TAIL join is measured against a fragment box (40's 522-526, 70 px of a 100 px
 man) and reports lead-in and tail as one entry, so Ojabo's 112 rows die with the pre-snap lead-in; and a hold whose
 last box is an ended endzone track dies on the cover test at once (4's 494-519).
+
+**v91 rendered (20:40 machine clock): `diag/play_001_v91_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.
+CURRENT BEST, film-checked.** 07l on 395-607: live steps 2, hops 0, census 0.46 (KC 11.12 / BAL 11.18). The pile checked
+against the film at 440-607 (`diag/pocket/pile_v91_check.png`): the Ravens hidden behind KC 65 drawn where the film has
+them, the left pile (98, 99, the nose tackle) three white bodies for three white men, Roquan on the tackle. Tables
+`*.v91`; the Film Room republished on v91 (Version 5). Next: the three rule refinements in `$S/patch_three_rules.py`
+(same-team same-body test, the hold at the start of an over-cap hole, the hole chain) -- A/B via `probe_ab_three.py`
+on the live tables and on the film-true scratch copy (`$S/play_copy`, 2.6 GB).
