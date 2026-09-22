@@ -5766,3 +5766,11 @@ beside KC 65 and the right tackle where the film shows one man visible and one h
 (98, 99, the nose tackle) matches, Ojabo one body from the snap. Tables `*.v92`; the Film Room republished on v92
 (Version 6). Next patch, drafted in `$S/patch_uncovered.py`: the static hold ends only after STAND_UNCOVERED_FRAMES
 (3) consecutive uncovered frames (id 4 dies at 494 on a detector dropout of the covering box).
+
+**2026-09-22 00:55 -- the hold's cover-dropout tolerance (STAND_UNCOVERED_FRAMES), v93 launched.** The static hold ended on
+the first frame the last box stood uncovered; id 4's covering boxes come and go at 494-499 (a detector dropout, he is on
+the turf beside 65 on the film) and the hold died there. Ending only after N consecutive uncovered frames, A/B through the
+loader on 395-607: N=1 census 0.441, N=3 0.413, N=6 0.305 (id 4 drawn 395-609 continuous; steps 2 / hops 0 in every arm).
+6 adopted; a man who really left costs at most six held frames at his last spot. v93 = the v92 tables + this constant;
+render launched 00:55, tables snapshotted `*.v93`. Remaining vanishings on the play window: 157 (KC man B, 501-546),
+171 (Roquan under the tackle pile 600-607), 139 (601-604).
