@@ -1089,6 +1089,8 @@ STAND_SUCCESSOR_NEWBORN_ONLY: bool = False  # OFF: a same-team box on the last b
 STAND_NEIGHBOUR_NOT_TWIN: bool = True       # a teammate inside clear_m at the last frame is a twin, not an exempt neighbour
                                             # (id 157's row at 500 on Thuney's spot would otherwise be held as a second copy)
 STAND_DEBUG_IDS: set = set()            # ids whose hold/bridge decisions are logged into the report's 'debug' (why a hold stops)
+STAND_FROM_CLIP_START: bool = False     # stand_still from the clip's start (play_end.json 'start') instead of the snap: the
+                                        # user's clip shows the pre-snap stretch, where holes and track ends vanish men too
 STAND_NEIGHBOUR_M: float = 1.0          # a teammate this close on the man's last frame is his neighbour on the line, not a
                                         # twin to stop the hold for (the guard 0.5-1.0 m from the centre once the endzone
                                         # rows place them; the hole-lock stopped after 5 frames on him, 2026-09-20)

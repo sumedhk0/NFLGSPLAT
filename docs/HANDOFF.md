@@ -5894,3 +5894,23 @@ next data-step candidate; every id in a pile deserves the per-camera x-over-time
 (KC 11.05 / BAL 11.06). Film checks: the snap pocket 398-428 (`diag/pocket/snap_v95_check.png`) and the tackle 510-560
 (`tackle_v95_check.png`) both match. The vanish list on the window is empty but for Roquan's tackle 600-607 (moving,
 by design). Tables `*.v95`; the Film Room on v95 (Version 9).
+
+**Pre-snap stretch (215-394) and the tail, measured on v95 (the user's clip starts at 215; the rulers only score 395-607):**
+exactly 11/11 on 107 of 180 pre-snap frames; KC 10 on 39 (holes of 204 at 220-223/256-257, 76 at 225-230, and 234-250
+where id 31's man is gone), KC 12-13 on 28 (291-298 and 377-394: 204 within 0.2-0.4 m of the QB and of 17). The
+09c audit says: id 82 (264-307) is a WIDE SHORT box (88 x 66 px) -- the centre crouched over the ball -- while 204's
+pre-snap sideline track 25 is a standing 160 px man 60 px to its right, i.e. the quarterback under centre; so pre-snap
+204 is the QB's second body and the real centre is 82 (whose "vanish 308-393" is the centre disappearing before the
+snap). id 31 (222-228, 71 px) is the right guard's early fragment; 76 has no sideline box at 216-262. The tail 608-619
+runs KC 9 / BAL 10 (tracks end after the down). Trying STAND_FROM_CLIP_START (stand_still from the clip start, not the
+snap) for the pre-snap holes; the QB/centre pre-snap twin and 82 need the film (a crouched centre's box is half a man).
+STAND_FROM_CLIP_START measured: the play window unchanged (steps 2 / hops 0 / census 0.183); pre-snap exactly-eleven
+frames 107 -> 112 but KC-12 frames 24 -> 62 -- the holds re-draw the pre-snap twins (31 held 25 frames beside the
+guard, 204's standing box 73 frames beside the QB). OFF by default; fold the pre-snap twins first (82 = the crouched
+centre; 204's pre-snap track 25 = the QB's second body; 31 = the guard's fragment), then re-measure.
+Strip `diag/pocket/presnap_centre_qb.png` (sideline 240-370): the man in id 82's crouched box wears 62 -- Thuney, not
+the centre -- so 82 is Thuney's PRE-SNAP id (139 takes him from 435); 166 and 191 are further boxes on the same crouched
+men (twins), 19 a box on the man below, and 204's pre-snap track 25 is the standing man behind the line. The set
+formation is drawn 11/11 on 107 of 180 frames by the formation hold; the rest is this twin soup. Worth one film session
+with 09c + 08z --cam --track-id before the snap (fold 139 <- 82, drop 166/191/19 where they double), then re-measure
+STAND_FROM_CLIP_START. Low priority against the play itself.

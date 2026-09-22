@@ -6,6 +6,8 @@ live in render.timeline.
 """
 from __future__ import annotations
 
+import json
+
 import pickle
 from pathlib import Path
 
@@ -952,7 +954,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     # After every dedupe rule, so nothing it adds is deduped away; the knobs are read here, not bound as defaults.
     st_snap, st_end = play_snap(P), play_end(P)
     if tlm.STAND_BRIDGE_M is not None and st_snap is not None and st_end is not None:
-        rep = tlm.stand_still(tl, teams_now, lo=int(st_snap), hi=int(st_end), bridge_m=tlm.STAND_BRIDGE_M,
+        st_lo = int(st_snap)
+        if tlm.STAND_FROM_CLIP_START:                     # the user's clip starts before the snap: bridge and hold there too
+            pe_path = P / "play_end.json"
+            if pe_path.exists():
+                st_lo = min(st_lo, int(json.loads(pe_path.read_text()).get("start", st_lo)))
+        rep = tlm.stand_still(tl, teams_now, lo=st_lo, hi=int(st_end), bridge_m=tlm.STAND_BRIDGE_M,
                               slow_m=tlm.STAND_SLOW_M, window=tlm.STAND_WINDOW, clear_m=tlm.STAND_CLEAR_M,
                               hold=tlm.STAND_HOLD, hold_max=tlm.STAND_HOLD_MAX, boxes=_boxes_by_cam(df),
                               successor_iou=tlm.STAND_SUCCESSOR_IOU, occluded_cover=tlm.STAND_OCCLUDED_COVER,
