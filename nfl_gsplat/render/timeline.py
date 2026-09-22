@@ -1082,6 +1082,12 @@ STAND_LONG_HOLE_HOLD: bool = False      # a hole longer than STAND_BRIDGE_MAX_FR
 STAND_UNCOVERED_FRAMES: int = 6         # the static hold ends after this many CONSECUTIVE frames with the last box uncovered
                                         # (1 = the first such frame; a covering box that drops out for a frame or two is a
                                         # detector dropout, not the man leaving: id 4 at 496-498 beside KC 65)
+STAND_SUCCESSOR_NEWBORN_ONLY: bool = False  # OFF: a same-team box on the last box ends the hold only when its id was NOT already
+                                            # drawn beside him at his last frame (Roquan's hold at 600 died on Hamilton's box);
+                                            # measured 2026-09-22: it disarms the box-twin protection (id 40 held 20 frames on
+                                            # 198's spot in the unit test), and the target holes are 8 and 4 frames -- kept off
+STAND_NEIGHBOUR_NOT_TWIN: bool = True       # a teammate inside clear_m at the last frame is a twin, not an exempt neighbour
+                                            # (id 157's row at 500 on Thuney's spot would otherwise be held as a second copy)
 STAND_NEIGHBOUR_M: float = 1.0          # a teammate this close on the man's last frame is his neighbour on the line, not a
                                         # twin to stop the hold for (the guard 0.5-1.0 m from the centre once the endzone
                                         # rows place them; the hole-lock stopped after 5 frames on him, 2026-09-20)
@@ -1176,6 +1182,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 n += 1
         return n >= int(lock_history)
 
+    drawn_at = {int(f): {int(t.pid) for t in sts} for f, sts in tl.states.items()}   # who is drawn on each frame (before any hold)
+
     def on_last_box(cam, b0, f, pid, team, f_end):
         """(a same-team successor sits on ``b0``, cover) from the other boxes on frame ``f``."""
         successor = False; cover = 0.0
@@ -1187,6 +1195,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
             cover += w * h
             if teams.get(q) == team:
                 v = _box_iou(b0, b)
+                if STAND_SUCCESSOR_NEWBORN_ONLY and born.get(q, -10**9) <= f_end and q in drawn_at.get(f_end, ()):
+                    continue                                # already drawn beside him at his last frame: a neighbour, not his new id
                 if v >= successor_iou or (v >= newborn_iou and born.get(q, -10**9) >= f_end - int(newborn_reach)):
                     successor = True
         return successor, (cover / a0 if a0 > 0 else 0.0)
@@ -1206,7 +1216,7 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
         # (the guard beside the centre), not a twin: the twin test below ignores him
         x_last = np.asarray(s.xy[:2], float)
         neighbours = {int(t.pid) for t in tl.states.get(f_last, []) if int(t.pid) != pid and teams.get(int(t.pid)) == team
-                      and float(np.hypot(*(np.asarray(t.xy[:2], float) - x_last))) <= STAND_NEIGHBOUR_M}
+                      and (clear_m if STAND_NEIGHBOUR_NOT_TWIN else 0.0) < float(np.hypot(*(np.asarray(t.xy[:2], float) - x_last))) <= STAND_NEIGHBOUR_M}
         # locked with an opponent: his box covers the last box on the first held frame and he is drawn and slow
         opp = None
         if lb is not None and f_last + 1 in tl.states and engaged(lb[0], pid, team, f_last):

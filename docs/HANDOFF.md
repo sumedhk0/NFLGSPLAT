@@ -5783,3 +5783,18 @@ vanishings on the play window: 157 (KC man B 501-546: his row at 500 sits on Thu
 twin), 171 (Roquan under the tackle pile 600-607), 139 (601-604). A "successor must be newborn" rule for the hold was
 tried and left OFF: it disarms the box-twin protection (unit test: id 40 held 20 frames on 198's spot). The film-true
 scratch copy (`$S/play_copy`) deleted after porting.
+
+**KC's +0.15 on v93 (33 frames at 12-13 in six short runs, 06:40):** read on the film, not twins: the centre (204) and the
+quarterback 0.2-0.5 m apart at 547-556 are two men standing together after the throw; the centre and Thuney (139) 0.2 m
+apart at 436-440 are two men side by side on the nose tackle whose boxes overlap (the ground points coincide, the men are
+0.7 m apart along the camera's line of sight). The twelfth KC body at 547-556 is one of {3, 5, 11, 12, 37, 74, 76, 77, 80,
+139, 157, 204}: eleven roles (5 OL, 2 TE, 2 WR, RB, QB) and man B (157) -- so either 157 doubles one of the linemen or a
+WR id is a second box; needs the KC jerseys read in the endzone film at 547-556 the way the Ravens' were. Not done.
+A "successor must be newborn" hold rule tried and left off (it disarms the box-twin protection); "a teammate inside the
+twin radius is not an exempt neighbour" measured neutral on play 1 and kept on (principled, no cost).
+**Lead on the twelfth KC body at 547-556 (07:00):** the endzone frame at 550 boxes the LEFT TACKLE (76 Suamataia) as id
+157, and the centre (52 Humphrey) is hidden behind Mahomes there; the sideline frame draws 204 on the red man beside
+Thuney (the centre) and 157 on the man engaged with Oweh (99); the timeline puts 37 at y -3.6 (the tackle's spot), 157
+at -1.0 and 204 at -0.5. So 37 and 157 may be one man (the tackle) under a sideline id and an endzone id, and 204's
+stored name "Suamataia 76" is a wrong jersey vote (it is the centre). Same recipe as the Ravens: per-camera tracks,
+jerseys in the endzone film, fold per camera, measure on a copy first. Not done.

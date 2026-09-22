@@ -1069,3 +1069,32 @@ def test_stand_still_hold_survives_a_short_cover_dropout():
         assert build({446, 447}) == list(range(440, 446))                          # the old rule: the first uncovered frame ends it
     finally:
         tlm.STAND_UNCOVERED_FRAMES = was
+
+
+def test_stand_still_a_drawn_neighbour_is_not_a_successor_and_a_twin_is_not_a_neighbour():
+    from nfl_gsplat.render import timeline as tlm
+
+    def build(neighbour_xy, newborn):
+        tl = tlm.Timeline(frames=list(range(400, 470)), states={f: [] for f in range(400, 470)})
+        boxes = {"sideline": {}}
+        for f in range(400, 440):                                                # the man's track ends at 439
+            tl.states[f].append(_st_(171, 0.0, 0.0)); boxes["sideline"][(f, 171)] = (100, 100, 160, 260)
+        for f in range(400, 470):                                                # a teammate drawn all along, his box on the man's
+            tl.states[f].append(_st_(28, *neighbour_xy)); boxes["sideline"][(f, 28)] = (105, 100, 165, 260)
+        if newborn:
+            for f in range(441, 470):                                            # a NEW id born on his box after his track ends
+                tl.states[f].append(_st_(55, 0.05, 0.05)); boxes["sideline"][(f, 55)] = (100, 100, 160, 260)
+        rep = tlm.stand_still(tl, {171: "BAL", 28: "BAL", 55: "BAL"}, lo=395, hi=469, bridge_m=1.5, hold=True, hold_max=25,
+                              boxes=boxes, clear_m=0.45, lock_iou=None, lock_max=90, lock_slow_m=0.5, lock_history=0)
+        return rep["ids"].get(171, 0)
+
+    was = (tlm.STAND_SUCCESSOR_NEWBORN_ONLY, tlm.STAND_NEIGHBOUR_NOT_TWIN)
+    tlm.STAND_SUCCESSOR_NEWBORN_ONLY, tlm.STAND_NEIGHBOUR_NOT_TWIN = True, True
+    try:
+        assert build((0.7, 0.0), False) == 25             # the neighbour's box on his: not a successor, the hold runs (and he is exempt from the twin veto)
+        assert build((0.7, 0.0), True) == 1               # a newborn id on his box: his new id, the hold ends at once
+        assert build((0.02, 0.0), False) == 0             # a teammate 0.02 m away is a twin, not a neighbour: the hold is vetoed
+        tlm.STAND_SUCCESSOR_NEWBORN_ONLY = False
+        assert build((0.7, 0.0), False) == 0              # the old rule: the neighbour's box reads as his successor
+    finally:
+        tlm.STAND_SUCCESSOR_NEWBORN_ONLY, tlm.STAND_NEIGHBOUR_NOT_TWIN = was
