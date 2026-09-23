@@ -6149,3 +6149,9 @@ catch-side bodies at 574-576 as on the film. v98 = CURRENT BEST (reviewed on the
 the catch, the throw, the pre-snap formation via v97 and the tackle spot). Open on it: the second tackler (v99).
 Lost-tackler wiring measured on the joints: 171 held from 599 to the end, tacklers on the down frame [28, 171]; 09d jerk
 10, trunk 0 (unchanged). v99 chain launched ~00:20 (v98 + the second tackler in the pile).
+
+**RESUME HERE (power-off expected ~00:30, 2026-09-23).** The v99 chain is rendering (`$S/chain_v99.sh`, log
+`$S/chain_v99.log`); relaunch with `nohup bash "$S/chain_v99.sh" > "$S/chain_v99.log" 2>&1 &` (frames resume). Then review
+the tail 604-614 (both Ravens on the pile), record v99, snapshot the viewer. Then START THE IN-FILLER (the user's call):
+a self-supervised joint in-filler on play 1 with the hold-out ruler (mask sure joints, measure recovery vs the Gaussian
++ SLERP), design in the 2026-09-23 chat and the pipeline write-up artifact ("All-22 to Avatars", to be kept current).
