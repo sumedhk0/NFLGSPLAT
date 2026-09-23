@@ -901,6 +901,27 @@ def _nearest_views(views_by_frame, pid, f, frames_with_record):
     return best or ("sideline", "endzone")
 
 
+# No box, no fit. The pose caches are fitted once; the tables move on (rows dropped by 08za, folded by 08z), and a
+# record left behind was fitted to a box that is no longer his -- play 1 v96: the motion receiver (id 9) lay flat at
+# 486-496 (neck-pelvis tilt 90 deg, the film has him upright) between a regressor record at 488 on the box I had
+# dropped (two men merged) and a refit at 494. A record whose (frame, id) has no tracks row in any camera is dropped
+# before the timeline interpolates across it. Read at call time by the loader.
+DROP_UNBOXED_POSES: bool = True
+
+
+def drop_unboxed_poses(poses_by_pid: dict, boxed: set) -> tuple[dict, int]:
+    """``poses_by_pid`` (pid -> {frame: record}) with every record whose ``(frame, pid)`` is not in ``boxed`` (the
+    tracks' (frame, id) pairs across cameras, endzone rows on their sideline frames) removed; returns (poses, n)."""
+    n = 0
+    out: dict = {}
+    for pid, recs in poses_by_pid.items():
+        kept = {f: r for f, r in recs.items() if (int(f), int(pid)) in boxed}
+        n += len(recs) - len(kept)
+        if kept:
+            out[pid] = kept
+    return out, n
+
+
 def lying_frames(df, *, cam: str = "sideline", aspect: float = LYING_ASPECT) -> set:
     """``{(frame, pid)}`` whose ``cam`` box is wider than ``aspect`` times its height: on the ground."""
     sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]

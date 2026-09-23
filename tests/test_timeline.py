@@ -1146,3 +1146,12 @@ def test_build_timeline_gates_low_confidence_keyframes():
     assert np.allclose(one(gated, 4).body_pose[17], 0.0, atol=1e-6) and gated.n_gated == 1
     off = tl.build_timeline(frames, ground, poses, conf_by_pid=conf, conf_min=0.3, conf_max_run=0, **kw)
     assert abs(one(off, 4).body_pose[17][1] + 1.2) < 1e-6 and off.n_gated == 0
+
+
+def test_drop_unboxed_poses_removes_records_without_a_row():
+    rec = (np.zeros((21, 3)), np.zeros(3), np.zeros(10), "fused")
+    poses = {9: {480: rec, 488: rec, 494: rec}, 6: {488: rec}, 77: {494: rec}}
+    boxed = {(480, 9), (494, 9), (488, 6)}                      # 9's 488 row was dropped; 77 was folded away entirely
+    out, n = tl.drop_unboxed_poses(poses, boxed)
+    assert n == 2 and sorted(out[9]) == [480, 494] and sorted(out[6]) == [488] and 77 not in out
+    assert tl.drop_unboxed_poses({}, boxed) == ({}, 0)

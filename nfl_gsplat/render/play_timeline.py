@@ -869,6 +869,10 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         print(f"endzone-only ids revived on their vouched frames: {sorted(revived)} ({n_cut} unvouched body-frames cut, "
               f"{n_fold} sideline fragment body-frames folded into them)")
     poses = poses_from_caches(refit, side_blob, tracks, model)
+    if tlm.DROP_UNBOXED_POSES:
+        boxed = set(zip(df["frame"].astype(int).tolist(), df["global_player_id"].astype(int).tolist()))
+        poses, n_unboxed = tlm.drop_unboxed_poses(poses, boxed)
+        print(f"pose records with no box for that id on that frame in either camera: {n_unboxed} dropped (no box, no fit)")
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
     ident_path = P / "identity_resolved.pkl"
