@@ -59,6 +59,11 @@ FLEX_SIGMA: float = 1.5         # Gaussian (frames) on the fitted flexion before
 MIN_CYCLE: int = 8              # a strike-to-strike interval outside this range is not a leg cycle (no lock)
 MAX_CYCLE: int = 60
 MIN_SWEEP: float = 0.15         # rad: a flexion maximum must drop this far before the next maximum to be a strike
+STRIKE_SIGNAL: str = "reach"    # "reach": the strike is the maximum of the ankle's forward reach from the pelvis in the
+                                # plane of the motion (the foot's true forward extreme, the knee extended); "flexion":
+                                # the hip flexion maximum (2026-09-23 first form: the knee still bent there, so the
+                                # foot sat under or behind the hip on 16 of 37 stances)
+MIN_SWEEP_M: float = 0.15       # m: a reach maximum must drop this far before the next maximum to be a strike
 MAX_BACK_M: float = 0.45        # the pin farther than this behind the hip along the motion: the foot lets go
 MIN_REACH0: float = 0.0         # a strike whose foot is not at least this far AHEAD of the hip along the motion is no
                                 # strike (the fit's flexion maximum with the foot already behind the body: two of the
@@ -169,10 +174,19 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
         f = forward_on_ground(seq[t][2])
         if f is not None:
             yaw[t], _adv = leg_yaw(f, vel[t])
+    signal = STRIKE_SIGNAL
+    if signal not in ("reach", "flexion"):
+        raise ValueError(f"strike signal {signal!r}: reach or flexion")
+    udir = vel / np.maximum(np.linalg.norm(vel, axis=1, keepdims=True), 1e-9)
     out = []
     for li, side in enumerate(("L", "R")):
-        flex = [motion_flexion(np.asarray(seq[t][1], float).reshape(21, 3)[HIP_ROW[side]], yaw[t]) for t in range(T)]
-        st = strikes(flex, sigma=sigma, min_cycle=min_cycle, min_sweep=min_sweep)
+        if signal == "reach":
+            series = [float((ank[t, li] - pel[t]) @ udir[t]) for t in range(T)]
+            sweep = MIN_SWEEP_M if min_sweep is None else float(min_sweep)
+        else:
+            series = [motion_flexion(np.asarray(seq[t][1], float).reshape(21, 3)[HIP_ROW[side]], yaw[t]) for t in range(T)]
+            sweep = min_sweep
+        st = strikes(series, sigma=sigma, min_cycle=min_cycle, min_sweep=sweep)
         for t0, t1 in stance_windows(st, T, duty=duty, min_cycle=min_cycle, max_cycle=max_cycle):
             if engaged is not None and bool(np.asarray(engaged)[t0:t1 + 1].any()):
                 continue

@@ -6437,3 +6437,16 @@ fit's flexion maximum with the foot behind the body): no strike, and the release
 the released foot keeps its pelvis-relative offset from the stance's last frame and swings from there to the fit
 (never farther behind than at the stance's end); a strike needs the foot at least MIN_REACH0 (0.0 m) ahead of the
 hip. Arms MAX_BACK 0.35 / default control running for the record.
+Release2 arm (the release from the stance-end offset + MIN_REACH0 0.0; commit 68f28ed / 9893301): 21 stances / 279
+frames on 14 ids -- MIN_REACH0 refused 16 of 37 stances; band planted 14 % (A 9 %), ratio 0.74, ankle 6.4 / 19.3 px,
+jitter p90 0.0632 (A 0.0604, +5 %) / p99 0.185. Cheaper and smaller. WHY so many strikes with the foot behind the
+hip: the strike is the HIP FLEXION maximum, and at that moment the knee is still bent from the swing, so the ankle
+sits under or behind the hip; the foot's true forward extreme (the strike) comes as the knee extends. Next: the
+strike from the ANKLE's forward reach relative to the pelvis in the motion plane (ankle_world_xy, no flexion), the
+stance from there -- the foot lands ahead by construction and the back-reach at the stance's end shrinks.
+Reach-signal arm (the strike = the ankle's forward-reach maximum from the pelvis in the motion plane, MIN_SWEEP_M
+0.15; run on a patched COPY of the module while the v104 chain held the repo's -- `$S/jog_ab_mod.py` +
+FOOTLOCK_PATH): 28 stances / 421 frames on 12 ids (flexion + MIN_REACH0: 21 / 279); band planted 17 % (A 9 %), ratio
+0.74, ankle 6.8 / 18.6 px (the best p90 of any arm; A 6.0 / 17.3), knee 6.4 / 15.0; jitter p90 0.0644 (A 0.0604,
++7 %) / p99 0.188. The foot lands ahead of the hip by construction; the stances survive. v105 = this, after v104
+lands (module edits wait for the chain).

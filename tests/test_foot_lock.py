@@ -321,3 +321,38 @@ def test_a_strike_with_the_foot_behind_the_hip_is_no_strike(monkeypatch):
     assert len(fl.rhythm_stances(seq, rest, parents, sigma=0, min_reach0=-1.0)) == len(st)
     monkeypatch.setattr(fl, "MIN_REACH0", 1.0)
     assert fl.rhythm_stances(seq, rest, parents, sigma=0) == []
+
+
+@pytest.mark.skipif(not __import__("pathlib").Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists(),
+                    reason="SMPL-X model not present")
+def test_reach_strikes_land_the_foot_ahead_of_the_hip(monkeypatch):
+    """With the knee bent through the swing the hip-flexion maximum comes while the ankle is still under the hip;
+    the ankle's reach maximum is the foot's forward extreme. On a jogger whose knee bends with the swing the reach
+    strikes sit later than the flexion strikes and every one has the foot ahead of the hip."""
+    go = np.array([np.pi / 2, 0.0, 0.0])
+    seq = []
+    for t in range(72):
+        bp = np.zeros((21, 3)); ph = 2 * np.pi * t / 24
+        bp[0] = [-0.35 * np.sin(ph), 0.0, 0.0]; bp[1] = [0.35 * np.sin(ph), 0.0, 0.0]
+        bp[3] = [0.6 * max(0.0, np.sin(ph + 0.6)) + 0.1, 0.0, 0.0]          # left knee bends through the forward swing
+        bp[4] = [0.6 * max(0.0, np.sin(ph + np.pi + 0.6)) + 0.1, 0.0, 0.0]
+        seq.append((np.array([0.0, -0.06 * t]), bp, go))
+    rest, parents = fl.load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    monkeypatch.setattr(fl, "STRIKE_SIGNAL", "flexion")
+    flex_st = fl.rhythm_stances(seq, rest, parents, sigma=0, min_reach0=-9.0)
+    monkeypatch.setattr(fl, "STRIKE_SIGNAL", "reach")
+    reach_st = fl.rhythm_stances(seq, rest, parents, sigma=0, min_reach0=-9.0)
+    assert flex_st and reach_st
+    pel, ank = fl.ankle_world_xy(seq, rest, parents)
+    def reach_at(side, t0):
+        li = 0 if side == "L" else 1
+        return -(ank[t0, li][1] - pel[t0][1])                    # along the motion (-y)
+    assert all(reach_at(s_, t0) > 0.0 for s_, t0, _t1, _p in reach_st)       # ahead of the hip (the bent knee keeps it short)
+    # the reach strike of each leg comes after the flexion strike of the same cycle
+    for side in ("L", "R"):
+        f0 = [t0 for s_, t0, _t1, _p in flex_st if s_ == side]
+        r0 = [t0 for s_, t0, _t1, _p in reach_st if s_ == side]
+        assert f0 and r0 and min(r0) >= min(f0)
+    monkeypatch.setattr(fl, "STRIKE_SIGNAL", "elbow")
+    with pytest.raises(ValueError):
+        fl.rhythm_stances(seq, rest, parents, sigma=0)
