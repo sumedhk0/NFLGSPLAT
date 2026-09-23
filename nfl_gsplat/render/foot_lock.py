@@ -55,6 +55,9 @@ MIN_CYCLE: int = 8              # a strike-to-strike interval outside this range
 MAX_CYCLE: int = 60
 MIN_SWEEP: float = 0.15         # rad: a flexion maximum must drop this far before the next maximum to be a strike
 MAX_BACK_M: float = 0.45        # the pin farther than this behind the hip along the motion: the foot lets go
+BAND_RULE: str = "window"       # "window": every frame of a stance must be in the speed band; "strike": the strike frame
+                                # must be, and no frame of the stance may reach the gait's speed (a man slowing through
+                                # 2.5 m/s mid-stance still plants)
 
 
 def motion_flexion(hip_rotvec, yaw: float) -> float:
@@ -114,15 +117,19 @@ def stance_windows(strike_frames: list, T: int, *, duty=None, min_cycle=None, ma
 
 
 def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=None, duty=None, sigma=None,
-                   min_cycle=None, max_cycle=None, min_sweep=None, max_back_m=None) -> list:
+                   min_cycle=None, max_cycle=None, min_sweep=None, max_back_m=None, band_rule=None) -> list:
     """``[(side, t0, t1, pin_xy)]`` for a per-frame ``(xy, body_pose, global_orient)`` sequence: each jogging leg
     cycle's stance, read off the fit's own flexion rhythm in the plane of the motion, pinned to the ankle's world
-    xy at the strike. A window that leaves the speed band is dropped; one whose pin falls ``max_back_m`` behind the
-    hip along the motion ends there."""
+    xy at the strike. A window that leaves the speed band is dropped (``band_rule`` "window") or only one whose
+    strike is out of the band or that reaches the gait's speed ("strike"); one whose pin falls ``max_back_m``
+    behind the hip along the motion ends there."""
     from nfl_gsplat.render.gait import HIP_ROW, forward_on_ground, leg_yaw
     jog_m = JOG_M if jog_m is None else float(jog_m)
     run_m = RUN_M_LOCK if run_m is None else float(run_m)
     max_back_m = MAX_BACK_M if max_back_m is None else float(max_back_m)
+    band_rule = BAND_RULE if band_rule is None else str(band_rule)
+    if band_rule not in ("window", "strike"):
+        raise ValueError(f"band rule {band_rule!r}: window or strike")
     T = len(seq)
     if T < 3:
         return []
@@ -144,7 +151,9 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
         flex = [motion_flexion(np.asarray(seq[t][1], float).reshape(21, 3)[HIP_ROW[side]], yaw[t]) for t in range(T)]
         st = strikes(flex, sigma=sigma, min_cycle=min_cycle, min_sweep=min_sweep)
         for t0, t1 in stance_windows(st, T, duty=duty, min_cycle=min_cycle, max_cycle=max_cycle):
-            if not band[t0:t1 + 1].all():
+            if band_rule == "window" and not band[t0:t1 + 1].all():
+                continue
+            if band_rule == "strike" and (not band[t0] or (speed[t0:t1 + 1] >= run_m).any()):
                 continue
             pin = ank[t0, li].copy()
             end = t1

@@ -6340,3 +6340,15 @@ strike point for DUTY 0.40 of the cycle, the leg re-solved by the numpy-FK solve
 0.45 m behind the hip. A/B running (`$S/jog_ab.py`): band planted share / ratio, the leg keypoint residual (must stay
 near 6 px), joint jitter, then the film. The old dips mode's "no effect" (09-16) was the sprint band, where the legs
 do not cycle; the gait owns that band now.
+
+**Foot lock A/B, first arm (2026-09-23 ~12:00, `$S/jog_ab.py`, v100 as rendered, band 2.5-4.8 m/s = 1,798 body-frames
+on 395-607).** A (as drawn): slower-ankle/pelvis ratio p50 0.76, planted (< 0.3) 9 %, (< 0.5) 26 %; band ankle
+residual vs the sideline keypoints p50 6.0 / p90 17.3 px, knee 6.2 / 15.0; joint jitter p50 0.0170 / p90 0.0604 /
+p99 0.183. B (rhythm lock, defaults: DUTY 0.40, EDGE 3, MAX_BACK 0.45, BAND_RULE window): 39 stances on 263 frames
+of 16 ids, the foot moved p50 0.12 m / p90 0.31, solver miss p90 1 mm; ratio p50 0.75, planted 15 % (< 0.5 29 %);
+ankle 6.6 / 19.3 px, knee 6.3 / 15.1; jitter p90 0.0688 / p99 0.192. A gain where it acts, at +0.6 px p50 on the
+ankles and +14 % joint jitter p90 -- but it acts on 15 % of the band. Funnel (`$S/lock_funnel.py`): 376 strikes,
+374 windows, 171 dropped for a frame at the gait's speed, 159 for a frame under 2.5 m/s, 39 kept, and the release
+(0.45 m behind the hip) trimmed 271 of the kept 534 frames. BAND_RULE "strike" added (the strike in the band, no
+frame at the gait's speed; a man slowing through 2.5 mid-stance still plants); two arms running: strike, and strike
+with MAX_BACK 0.35.

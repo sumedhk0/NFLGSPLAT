@@ -150,3 +150,38 @@ def test_rhythm_knobs_are_read_at_call_time(monkeypatch):
     monkeypatch.setattr(fl, "MIN_SWEEP", 0.15)
     monkeypatch.setattr(fl, "DUTY", 0.25)
     assert fl.stance_windows([6, 30, 54], 96) == [(6, 12), (30, 36), (54, 60)]
+
+
+@pytest.mark.skipif(not __import__("pathlib").Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists(),
+                    reason="SMPL-X model not present")
+def test_band_rule_strike_keeps_a_stance_that_slows_through_the_band_edge(monkeypatch):
+    """A jogger whose pelvis speed dips under the jogging floor for a few frames inside a stance: the window rule
+    drops that stance, the strike rule keeps it; a stance that reaches the gait's speed is dropped by both."""
+    seq, go = _jogger(T=60)
+    rest, parents = fl.load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    base = fl.rhythm_stances(seq, rest, parents, sigma=0, band_rule="window")
+    assert base
+    side, t0, t1, _pin = base[0]
+    # slow the body to a walk on two middle frames of that stance (the strike frame stays in the band)
+    mid = (t0 + t1) // 2
+    slow = []
+    y = 0.0
+    for t in range(len(seq)):
+        step = 0.06 if not (mid <= t <= mid + 1) else 0.01
+        y -= step; slow.append((np.array([0.0, y]), seq[t][1], go))
+    win = fl.rhythm_stances(slow, rest, parents, sigma=0, band_rule="window")
+    strike = fl.rhythm_stances(slow, rest, parents, sigma=0, band_rule="strike")
+    assert not any(s[1] == t0 for s in win)
+    assert any(s[1] == t0 for s in strike)
+    # the knob is read at call time
+    monkeypatch.setattr(fl, "BAND_RULE", "strike")
+    assert any(s[1] == t0 for s in fl.rhythm_stances(slow, rest, parents, sigma=0))
+    with pytest.raises(ValueError):
+        fl.rhythm_stances(slow, rest, parents, sigma=0, band_rule="edges")
+    # a sprint inside the stance is the gait's: both rules drop it
+    fast = []
+    y = 0.0
+    for t in range(len(seq)):
+        step = 0.06 if not (mid <= t <= mid + 1) else 0.09
+        y -= step; fast.append((np.array([0.0, y]), seq[t][1], go))
+    assert not any(s[1] == t0 for s in fl.rhythm_stances(fast, rest, parents, sigma=0, band_rule="strike"))
