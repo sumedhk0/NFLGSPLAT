@@ -6123,3 +6123,19 @@ v96 tables + DROP_UNBOXED_POSES + DROP_MERGED_BOX_POSES. Film check at the recei
 488 and 494 (v96 lay flat); the defender 6 behind him still flat at 488-492 (the per-player tilt-limit case).
 TILT_LIMIT_PER_FRAME flipped ON after the chain; suite running for its commit; v98 chain launched ~23:05 (v96 tables +
 all three pose rules).
+09d on the WHOLE clip (v98 joints): pre-snap 215-394 has no hinge jerk at all and 276 trunk-past-70 body-frames that are
+the linemen's three-point stances (4, 11, 84, 12, 17 at 78-79 deg: real); the tail's 74 at 100 deg 608-614 is the
+tackle (real). The trunk ruler is clean only on the live play window, like the census. Viewer Version 15 = v98 joints.
+Finder on the ENDZONE camera (395-607): 73 candidate pairs, 15 LINK (top: 80 <- 186 track 22 at 511/512 on one spot,
+"jersey 7 agrees" = an OCR misread of 15; 156 <- 139 jersey 62; 7 <- 89; 192/202/210 on one BAL track 141 dying and
+reborn three times at the line), 15 DIRECTION?, 43 REJECT. The endzone ids are the pairing's fragments the loader
+already reconciles per frame; folding them by this table needs a film pass per pair -- not applied, kept as the
+map of where the endzone tracker breaks (the line at 395-400, the pocket at 511-545).
+v97 pre-snap (300 / 350 / 390, whole field): the formation, the motion man and the defenders' spots match the film.
+v97 tail (604 / 608 / 612): the carrier 74 goes down with Hamilton (28) on him as on the film, but the film's SECOND Raven
+on the pile is missing in the render: at the down only 28 is within 4 m of 74. The vanish list's one open entry (171
+ends at 600) is that man -- a moving tackler the stand-still hold does not carry. Next: carry a body that ends within
+N frames of the down and within reach of the carrier into the tackle (tackle.py TACKLER_M 1.5 acts only on drawn
+bodies at the down frame).
+tackle.lost_tacklers built + tested (other-team bodies lost within 12 frames before the down and 1.5 m of the carrier:
+Roquan 171 at 599); the 05k wiring (add them to hold_to_end's `always`) waits for the v98 chain to finish, then v99.

@@ -57,3 +57,24 @@ def test_tackled_body_pose_curls_the_legs_and_leaves_the_arms_holding_the_ball()
     half = tackle.tackled_body_pose(bp, 0.5)
     assert 0 < half[3][0] < tackle.TACKLED_ROWS[3][0]
     assert np.allclose(tackle.tackled_body_pose(bp, 0.0), bp)
+
+
+def test_lost_tacklers_are_the_other_team_bodies_lost_beside_the_carrier_before_the_down():
+    from types import SimpleNamespace as S
+    states = {}
+    for f in range(580, 620):
+        rows = [S(pid=74, xy=np.array([-32.0 - 0.05 * (f - 580), 1.0]))]              # the carrier, drawn to the end
+        if f < 600:
+            rows.append(S(pid=171, xy=np.array([-32.3, 1.4])))                          # lost at 599, half a metre off
+        if f < 597:
+            rows.append(S(pid=55, xy=np.array([-40.0, 8.0])))                           # lost at 596, far away
+        if f < 604:
+            rows.append(S(pid=87, xy=np.array([-32.4, 1.2])))                           # lost at 603 beside him, but a teammate
+        if f < 590:
+            rows.append(S(pid=21, xy=np.array([-32.2, 1.1])))                           # lost at 589: too early
+        states[f] = rows
+    team_of = {74: "KC", 171: "BAL", 55: "BAL", 87: "KC", 21: "BAL"}
+    got = tackle.lost_tacklers(states, 74, team_of, 607, lost_frames=12, within_m=1.5)
+    assert got == {171: 599}
+    assert tackle.lost_tacklers(states, 74, team_of, 607, lost_frames=20, within_m=1.5) == {171: 599, 21: 589}
+    assert tackle.lost_tacklers(states, 74, {}, 607) == {171: 599, 87: 603}                  # without teams, anyone close counts

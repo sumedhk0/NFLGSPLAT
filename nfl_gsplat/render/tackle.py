@@ -75,6 +75,43 @@ def fall_orient(global_orient, phase: float, *, pitch: float = FALL_PITCH, direc
 TACKLER_M: float = 1.5          # an other-team body this close to the carrier on the down frame is in the tackle and falls onto him
 
 
+# A tackler the detector loses BEFORE the down (he is under the pile with the carrier) is not on the down frame for
+# tacklers() to find: play 1 v97, Roquan Smith (171) closes from 1.9 m to 0.5 m of the carrier by 598, his track ends
+# at 600, the down is 607 -- the film has two Ravens on the pile, the render one. An other-team body whose last drawn
+# frame is within LOST_FRAMES before the down and whose last spot is within LOST_M of the carrier's on that frame is a
+# lost tackler: 05k holds him from his last frame (timeline.hold_to_end's ``always``) so the pile keeps him.
+LOST_FRAMES: int = 12
+LOST_M: float = 1.5
+
+
+def lost_tacklers(states_by_frame: dict, carrier: int, team_of: dict, down: int, *, lost_frames: int = LOST_FRAMES,
+                  within_m: float = LOST_M) -> dict[int, int]:
+    """``{pid: last_frame}`` of the other-team bodies whose last drawn frame lies in ``[down - lost_frames, down)`` and
+    whose spot on that frame is within ``within_m`` of the carrier's. ``states_by_frame``: frame -> [PlayerState]."""
+    my_team = team_of.get(int(carrier))
+    last: dict[int, tuple[int, np.ndarray]] = {}
+    carrier_xy: dict[int, np.ndarray] = {}
+    for f, states in states_by_frame.items():
+        for s in states:
+            pid = int(s.pid)
+            if pid == int(carrier):
+                carrier_xy[int(f)] = np.asarray(s.xy, float)
+            if pid not in last or int(f) > last[pid][0]:
+                last[pid] = (int(f), np.asarray(s.xy, float))
+    out = {}
+    for pid, (f_last, xy) in last.items():
+        if pid == int(carrier) or not (down - lost_frames <= f_last < down):
+            continue
+        if my_team is not None and team_of.get(pid) == my_team:
+            continue
+        c = carrier_xy.get(f_last)
+        if c is None:
+            continue
+        if float(np.linalg.norm(np.asarray(xy)[:2] - c[:2])) <= within_m:
+            out[pid] = f_last
+    return out
+
+
 def tacklers(states, carrier: int, team_of: dict, *, within_m: float = TACKLER_M) -> dict[int, np.ndarray]:
     """``{pid: direction}`` for the other-team bodies within ``within_m`` of the carrier among ``states``
     (one frame's PlayerStates): the direction is from each toward the carrier on the ground."""
