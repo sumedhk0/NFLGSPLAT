@@ -6365,3 +6365,16 @@ moved p50 0.16 / p90 0.43 m; band ratio p50 0.67 (A 0.76), planted 25 % (A 9 %; 
 sliding keypoint, 0.16 m = 13 px at the stance's end); the jitter is not the end snap alone -- a warm-started leg
 solve (the previous locked frame's solution as the start, the pull still toward the fit) is next, with a probe
 bucketing the jitter by role (strike / stance / end / release / untouched).
+Warm start (commit aedf15a): NO EFFECT on the play (jitter p90 0.07315 = 0.07315): the solve was not hopping. The
+jitter-by-role probe (`$S/jitter_where.py`, locked-leg joints, p50 / p90): stance interior 0.0103 / 0.0295 against
+A's 0.0104 / 0.0237 -- the pinned stance is smooth; STRIKE 0.033 / 0.123 (A 0.0118 / 0.0315) and RELEASE 0.0397 /
+0.1018 (A 0.0097 / 0.0241) carry it: the foot stops dead at the strike (from the fit's swing at ~0.1 m/frame) and
+must catch the fit's swinging ankle over six frames after. A footfall is abrupt in life too; the release catch-up is
+ours. Arms running: EDGE 3 + RELEASE 12, EDGE 2 + RELEASE 10 (strike rule). The film decides after.
+Easing arms (~13:50): EDGE 3 + RELEASE 12 -- 1,225 frames touched, planted 18 %, ankle 8.0 / 24.6, jitter p90 0.0875,
+p99 0.443; EDGE 2 + RELEASE 10 -- 1,129 frames, planted 22 %, ankle 7.9 / 23.8, jitter p90 0.0925, p99 0.430. Both
+LOSE to EDGE 1 + RELEASE 6 on every ruler: a long release chases the fit's ankle into its next swing and the catch-up
+is violent (p99 doubles); the in-ramp only lets the foot slide. Default arm stands (planted 25 %, ankle 7.4 / 22.0,
+jitter p90 0.0731 / p99 0.194). v101 chain launched (~13:55) with the lock on through with_flag (MODE rhythm, BAND_RULE
+strike; EDGE 1, RELEASE 6): 08y, 08x, dump, 07l, hifi, both blends. Film check next on stride-2 strips through one
+stance per jogger (`$S/jog_strip.py`): id 15 R 458-470, id 0 R 584-594 / L 567-575, id 80 L 465-477, id 28 L 525-534.
