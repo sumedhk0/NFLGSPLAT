@@ -6266,3 +6266,14 @@ NEXT UNIT running (~07:45): the one-view refit (05p, today's fit code with the h
 the copy, swapped into the legacy file on its own keys only (two-view records untouched); loader rulers + 09d legs vs
 live (6.4 / 4.2 %). The legacy one-view records predate the hard-hinge defaults (09-16); poses_refit.json's mtime is a
 fold's relabel, not a refit.
+
+**One-view refit PORTED (2026-09-23 ~08:05).** 05p with today's fit code (hard hinges, temporal weight 3) on the copy: 53
+players, 2,591 one-view frames fitted, reprojection median 16.5 -> 3.0 px, body-frame joint speed p50 0.19 -> 0.39 m/s.
+Swapped into the legacy cache on its own keys (2,588 records; two-view records untouched): loader rulers 2 / 0 / 0.16
+unchanged; 09d jerk 10 -> 5, L leg 6.4 -> 5.8 %, R leg 4.2 -> 3.9 %, trunk 0 -> 2 (84 at 404-406, a rusher's stance
+to check), arms 5.8 -> 8.3 / 11.0 -> 11.3 (the football ruler). Live poses_refit.json replaced (backups .v99 and
+.pre_mono; the full 05p output kept as poses_refit_mono_2026-09-23.json). v100 chain launched. Film checks after:
+the arms at 420-500, id 84 at 404-406, the tail.
+Film check of id 84 at 400-410 (diag/lean_84_404.png): a Raven driving low into the KC line, bent ~70 deg -- REAL; the
+new one-view records catch a lean the legacy ones missed. Viewer Version 17 = the v100 joints (the copy's export,
+same config as live now).
