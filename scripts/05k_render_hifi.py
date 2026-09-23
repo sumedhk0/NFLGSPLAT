@@ -362,6 +362,11 @@ def main() -> None:
 
     export: dict | None = {} if args.export_joints else None
     export_ids: dict = {}
+    tracks_g = None
+    if args.export_joints:
+        from nfl_gsplat.calibration.cameras_io import load_camera_track as _lct_g
+
+        tracks_g = _lct_g(P / "cameras.npz")
 
     def body_batch(s, f):
         sw = stance_w.get((int(s.pid), f))
@@ -549,6 +554,32 @@ def main() -> None:
                                    if int(getattr(merged[k], 'jersey', 0) or 0) > 0 else str(merged[k].player))
                          for k in export_ids if k in merged and not str(getattr(merged[k], 'player', '')).startswith('P')},
                "los": los, "bodies": {str(k): v for k, v in export.items()}, "ball": {str(k): v for k, v in ball_out.items()}}
+        # where each man LOOKS by the face keypoints (pose.head_yaw: the nose between the ears in a broadcast camera),
+        # raw material for the first-person view -- the fitted shoulders are the torso, and the film showed the
+        # quarterback's torso facing the sideline while his head turned downfield (2026-09-23). MEASURED and NOT
+        # used by the viewer: on helmets 8-21 px tall the readings are wrong more often than the play-derived gaze
+        # (see head_yaw's VERDICT); exported so a later head model can be scored against them
+        try:
+            import pandas as pd
+
+            from nfl_gsplat.pose.head_yaw import head_headings
+            from nfl_gsplat.render.play_timeline import clip_offset
+
+            kdf_g = pd.read_parquet(P / "keypoints_2d.parquet")
+            off_g = clip_offset(P)
+            gaze: dict = {}
+            for cam_g, shift_g in (("sideline", 0), ("endzone", off_g)):
+                for pid_g, recs in head_headings(kdf_g, tracks_g, cam=cam_g, frame_shift=shift_g).items():
+                    if pid_g not in export_ids:
+                        continue
+                    d = gaze.setdefault(str(pid_g), {})
+                    for f_g, (h, c) in recs.items():
+                        if str(f_g) not in d or c > d[str(f_g)][1]:
+                            d[str(f_g)] = [round(float(h), 4), round(float(c), 3)]
+            doc["gaze"] = gaze
+            print(f"gaze exported for {len(gaze)} ids, {sum(len(v) for v in gaze.values())} (id, frame) readings")
+        except Exception as exc:                                     # the export must never fail for the gaze
+            print(f"gaze not exported: {exc}")
         args.export_joints.parent.mkdir(parents=True, exist_ok=True)
         args.export_joints.write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
         print(f"exported joints: {sum(len(v) for v in export.values())} body-frames on {len(export)} frames, "

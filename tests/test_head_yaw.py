@@ -22,8 +22,10 @@ def test_camera_yaw_from_the_nose_between_the_ears():
     assert abs(yaw - np.pi / 2) < 1e-9
     yaw, _ = hy.head_yaw_camera(*_face(90, 120, 80))
     assert -np.pi / 2 < yaw < 0
-    # one ear hidden: past a quarter turn toward the visible ear
+    # one ear hidden, the visible ear to the image-right of the nose: he faces image-left, past a quarter turn
     yaw, _ = hy.head_yaw_camera(*_face(100, 130, 0, rear_conf=0.1))
+    assert yaw < -np.pi / 4
+    yaw, _ = hy.head_yaw_camera(*_face(100, 0, 70, lear_conf=0.1))
     assert yaw > np.pi / 4
     # both ears, no nose: facing away
     yaw, _ = hy.head_yaw_camera(*_face(0, 120, 80, nose_conf=0.1))
@@ -41,6 +43,18 @@ def test_world_heading_uses_the_cameras_azimuth():
     assert abs(abs(hy.head_heading_world(0.0, R)) - np.pi) < 1e-9
     # facing away: heading 0 (along +x, with the camera)
     assert abs(hy.head_heading_world(np.pi, R)) < 1e-9
+    # an UPRIGHT camera looking along +x (rows = camera right, down, forward in world): image-right is world -y
+    # (fwd x up = x X z), so from facing the camera (heading pi) a quarter turn toward the image's right goes
+    # counter-clockwise to -x-y: heading -3pi/4 -- the sign the old code had backwards (it was only ever tested
+    # at 0 and pi, where the sign is invisible)
+    R_up = np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]])
+    assert abs(np.linalg.det(R_up) - 1) < 1e-9 and np.allclose(R_up.T @ [1.0, 0, 0], [0, -1, 0])
+    assert abs(hy.camera_azimuth(R_up)) < 1e-9
+    h = hy.head_heading_world(np.pi / 4, R_up)
+    assert abs(h + 3 * np.pi / 4) < 1e-9
+    # and a full profile toward image-right points straight along -y
+    h = hy.head_heading_world(np.pi / 2, R_up)
+    assert abs(h + np.pi / 2) < 1e-9
 
 
 def test_head_headings_table():

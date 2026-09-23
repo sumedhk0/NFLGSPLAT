@@ -6289,3 +6289,21 @@ head_yaw on play 1: sideline 2,234 body-frames / 37 ids, endzone 6,786 (a coarse
 pi). QB: 103 deg (away from the sideline camera) at 480/520, -140 at 528, -180 at 540 (endzone) = downfield for the throw.
 Next: 05k exports {pid: {frame: [heading, conf]}} as "gaze"; the viewer's first person uses it where conf >= 0.5, held
 and smoothed, else the play-derived gaze.
+
+**v100 rendered (machine clock 2026-09-23 07:04): `diag/play_001_v100_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs`
+/ `_endzone_blend`.** v99 + the one-view refit with today's fit code on the endzone-blind frames. Film check: pocket
+420-500 and whole field 420/500/580 as v99 (no regressions), the one-view bodies more articulated. v100 = CURRENT BEST
+(tables *.v96; poses_refit.json = the same-keys merge, backups .v99 / .pre_mono). Next: the gaze export into the
+viewer (Version 18), then the placement re-tune on the corrected endzone camera as the next unit.
+
+**Head gaze from the face keypoints: measured, NOT wired (2026-09-23 ~09:45).** `pose/head_yaw.py` + 05k's `gaze` export
+(27 ids, 6,417 readings on v100). Ruler: fast men (> 3 m/s) look where they run; 78 readings on both cameras. Heads
+are 8 px (sideline) / 21 px (endzone) nose-to-ear and the keypoints sit on helmets: sideline one-ear 118 deg off
+(median, n 28), endzone "both ears no nose = facing away" 94 deg off (n 18; a helmet's ear holes show from behind and
+from the side); only the sideline facing-away (8 deg, n 14) and the endzone one-ear (26 deg, n 17) read. On the
+quarterback (film strips both cameras 430-520): 430-450 is the PLAY-ACTION FAKE -- he faces his own end zone, the
+endzone one-ear reading (63 deg, backward-right) is right and the play-derived gaze (attack direction) wrong; 480-520
+he looks downfield and the sideline facing-away reading says the far sideline (103 deg) -- exactly the "faces the
+sideline" the user reported, re-created. Net: the viewer keeps the play-derived gaze (Version 17 rule), the export
+stays as raw material. Two cancelling sign errors fixed in head_yaw (world heading facing+yaw; the one-ear side): the
+play's readings are unchanged, the three-point case (1 reading on the play) flips. Viewer Version 18 = v100 joints.

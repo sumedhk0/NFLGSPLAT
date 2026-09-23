@@ -10,6 +10,15 @@ WHAT. In one camera's image the nose's position between the two ears tells the h
 centred = facing the camera, on an ear = a quarter turn, one ear hidden = past a quarter turn to that side, both
 ears hidden and the nose hidden = facing away. Converted to a field-frame heading with the camera's own azimuth,
 and a confidence from the keypoints' confidences. Numpy only.
+
+VERDICT (2026-09-23, play 1, fast men look where they run, 78 readings): NOT wired into the viewer. Heads are 8 px
+(sideline) / 21 px (endzone) between nose and ear in All-22 footage and the keypoints sit on helmets: the sideline's
+one-ear readings are 118 deg off (median), the endzone's "both ears, no nose = facing away" readings 94 deg off (the
+ear holes of a helmet show from behind AND from the side); only the sideline's facing-away (8 deg, n 14) and the
+endzone's one-ear (26 deg, n 17) cases read. On the quarterback the endzone one-ear case was RIGHT where the
+play-derived gaze is wrong (430-450: the play-action fake, he faces his own end zone) and the sideline facing-away
+case WRONG where the play-derived gaze is right (480-520: reads the far sideline, the film says downfield). 05k
+exports the readings ("gaze") as raw material; the viewer keeps the play-derived gaze.
 """
 from __future__ import annotations
 
@@ -38,7 +47,8 @@ def head_yaw_camera(xy: np.ndarray, conf: np.ndarray, *, min_conf: float = MIN_C
     if nose and (le != re):
         # one ear hidden: he has turned past a quarter turn toward the visible ear's side
         ear = L_EAR if le else R_EAR
-        side = 1.0 if p[ear, 0] > p[NOSE, 0] else -1.0
+        # the nose leads the way: an ear to the image-right of the nose means he faces image-LEFT (a negative turn)
+        side = -1.0 if p[ear, 0] > p[NOSE, 0] else 1.0
         return float(side * np.pi * 0.35), float(min(c[NOSE], c[ear]))
     if not nose and le and re:
         return float(np.pi), float(min(c[L_EAR], c[R_EAR]))              # both ears, no nose: facing away
@@ -53,11 +63,11 @@ def camera_azimuth(R: np.ndarray) -> float:
 
 def head_heading_world(yaw_cam: float, R: np.ndarray) -> float:
     """The head's field-frame heading (radians) from its camera-frame yaw: facing the camera means heading back
-    along the optical axis; a positive camera yaw turns him toward the image's right, which for a camera looking
-    along ``fwd`` is the direction ``fwd x up`` ... (a right-handed turn about the vertical)."""
+    along the optical axis; a positive camera yaw turns him toward the image's right = HIS left = counter-clockwise
+    seen from above (z up), so the heading increases by the yaw."""
     az = camera_azimuth(R)
     facing_camera = az + np.pi
-    return float((facing_camera - yaw_cam + np.pi) % (2 * np.pi) - np.pi)
+    return float((facing_camera + yaw_cam + np.pi) % (2 * np.pi) - np.pi)
 
 
 def head_headings(kdf, tracks, *, cam: str = "sideline", frame_shift: int = 0, min_conf: float = MIN_CONF) -> dict:
