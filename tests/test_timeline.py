@@ -1155,3 +1155,31 @@ def test_drop_unboxed_poses_removes_records_without_a_row():
     out, n = tl.drop_unboxed_poses(poses, boxed)
     assert n == 2 and sorted(out[9]) == [480, 494] and sorted(out[6]) == [488] and 77 not in out
     assert tl.drop_unboxed_poses({}, boxed) == ({}, 0)
+
+
+def test_merged_box_frames_flags_the_tall_or_wide_rows():
+    import pandas as pd
+    rows = []
+    for f in range(10):
+        h, w = (100, 40) if f not in (4, 7) else ((150, 40) if f == 4 else (100, 80))   # 4: tall (merged), 7: wide
+        rows.append(dict(frame=f, cam="sideline", track_id=1, global_player_id=9, bbox_x1=0, bbox_y1=0, bbox_x2=w, bbox_y2=h))
+    rows += [dict(frame=f, cam="sideline", track_id=2, global_player_id=6, bbox_x1=0, bbox_y1=0, bbox_x2=40, bbox_y2=200) for f in range(3)]
+    df = pd.DataFrame(rows)
+    assert tl.merged_box_frames(df, h_ratio=1.3, w_ratio=1.6) == {(4, 9), (7, 9)}        # id 6 has too few rows for a median
+    assert tl.merged_box_frames(df[df.cam == "endzone"]) == set()
+
+
+def test_tilt_limit_follows_the_nearest_records_source():
+    frames = list(range(0, 21))
+    ground = {f: {1: np.array([0.0, 1.0])} for f in frames}
+    lean50 = (Rotation.from_euler("x", 50, degrees=True) * Rotation.from_rotvec(tl.upright_from_yaw(0.0))).as_rotvec()
+    poses = {1: {0: (np.zeros((21, 3)), lean50, np.zeros(10), "fused"),         # two views at 0: 50 deg is allowed
+                 20: (np.zeros((21, 3)), lean50, np.zeros(10), "sideline")}}    # one view at 20: clamped to 35
+    kw = dict(pose_smooth=0, pose_sigma=0, clamp_joints=False, orient_sigma=0)
+    per = tl.build_timeline(frames, ground, poses, tilt_per_frame=True, **kw)
+    whole = tl.build_timeline(frames, ground, poses, tilt_per_frame=False, **kw)
+    def tilt(out, f):
+        s = [x for x in out.states[f] if x.pid == 1][0]
+        return np.degrees(np.arccos(tl.body_up(s.global_orient)[2]))
+    assert abs(tilt(per, 0) - 50) < 1.0 and abs(tilt(per, 20) - 35) < 1.0       # the one-view frame clamps
+    assert abs(tilt(whole, 20) - 50) < 1.0                                        # the old way: the first record's source for all

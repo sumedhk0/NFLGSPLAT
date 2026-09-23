@@ -6094,3 +6094,17 @@ unverified, not applied).
 DROP_UNBOXED_POSES measured alone: 812 records dropped; loader rulers unchanged (2 / 0 / 0.16); id 9's tilt at 486-496
 51-94 -> 32-40 deg; bodies past 70 deg in the window 3 -> 2 (6 at 492, 15 at 576 remain: their rows exist); 09d 14 -> 12.
 ADOPTED (default True). v97 = v96 tables + this rule, chain to launch when v96's endzone view finishes.
+v96 endzone blend (frames ~489 and ~565): bodies on the film's men in depth, the pocket and the collapsed pocket both
+right. v96 review complete: one defect (the receiver flat 486-496), fixed by DROP_UNBOXED_POSES; a second pose class
+under test alone: DROP_MERGED_BOX_POSES (a record fitted on a sideline box over 1.3x the id's median height or 1.6x
+its width is dropped; the defender 6 at 490-492 leans 84 deg on such a record): 199 records dropped, loader rulers
+unchanged (2 / 0 / 0.16); joints export pending. v97 = v96 tables + both rules once measured.
+DROP_MERGED_BOX_POSES measured alone (on top of the no-box rule): 09d jerk 12 -> 10, sideways legs 6.8 -> 6.4 / 4.6 -> 4.2 %,
+arms 5.8 -> 5.6 / 11.2 -> 11.3 %; the trunk ruler UNCHANGED (6 at 490-492 84 deg, 15 at 574-576): the defender's last
+own box (h 116 vs his median) is under the 1.3x ratio, so his record survives -- a different mechanism, open. Kept
+(small net gain, rulers unmoved). v97 chain launched ~22:40 (v96 tables + both pose rules).
+The defender's lean (6, 84 deg at 490-492) explained: no refit records for him there, only the one-view regressor's at
+488 and 494, but the tilt limit is chosen PER PLAYER from his first record's source ("fused" -> 60 deg) so a one-view
+record in a pile gets the two-view allowance. timeline.TILT_LIMIT_PER_FRAME (the nearest keyframe's source per frame)
+built and unit-tested, default OFF while v97 renders (the chain re-imports the modules per stage); measured alone in
+flight (joints export + loader rulers via with_flag).

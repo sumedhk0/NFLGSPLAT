@@ -38,6 +38,11 @@ MAX_TILT_DEG: float = 35.0       # single-view poses: a lineman's stance; nobody
 # past 60 -- bent linemen and lunges, not bodies falling over. The 35 deg
 # clamp built for monocular garbage trimmed 13 % of them.
 MAX_TILT_TWO_VIEW_DEG: float = 60.0
+# Which limit a FRAME gets: the source of its nearest keyframe (True), or the player's first record's source for all
+# his frames (False, the behaviour to 2026-09-22). A player fitted in two views at the snap and by the one-view
+# regressor in a pile later carried the two-view limit into the pile (play 1 v96: the defender 6 leans 84 deg at
+# 490-492 on regressor records at 488 and 494 with no refit near). Read at call time by build_timeline.
+TILT_LIMIT_PER_FRAME: bool = False   # measured next; v97 renders without it
 # A man on the ground is not clamped upright: the sideline box wider than this share of its
 # height says he lies (play 1's tackle at 640: ids 184 and 55 under boxes 0.46-0.58 as tall as
 # wide, fitted standing at 24 deg and clamped there until 2026-09-17). 0.9 also caught crouched
@@ -907,6 +912,14 @@ def _nearest_views(views_by_frame, pid, f, frames_with_record):
 # dropped (two men merged) and a refit at 494. A record whose (frame, id) has no tracks row in any camera is dropped
 # before the timeline interpolates across it. Read at call time by the loader.
 DROP_UNBOXED_POSES: bool = True
+# A merged box is not a man's box either: the detector's one box over two engaged men is taller and wider than the
+# man's own, and a fit to it is neither man's pose (v96: the defender 6 leans 84 deg at 490-492 on a record fitted
+# to his last, merged box, film upright). A record whose row's box in the fitted camera is over MERGED_H_RATIO times
+# the id's median height there, or MERGED_W_RATIO times its median width, is dropped like an unboxed one. Read at
+# call time by the loader; 0 = off.
+DROP_MERGED_BOX_POSES: bool = True
+MERGED_H_RATIO: float = 1.3
+MERGED_W_RATIO: float = 1.6
 
 
 def drop_unboxed_poses(poses_by_pid: dict, boxed: set) -> tuple[dict, int]:
@@ -920,6 +933,28 @@ def drop_unboxed_poses(poses_by_pid: dict, boxed: set) -> tuple[dict, int]:
         if kept:
             out[pid] = kept
     return out, n
+
+
+def merged_box_frames(df, *, cam: str = "sideline", h_ratio: float = MERGED_H_RATIO, w_ratio: float = MERGED_W_RATIO) -> set:
+    """``{(frame, pid)}`` whose ``cam`` box is over ``h_ratio`` times the id's median height in that camera or
+    ``w_ratio`` times its median width: the detector merged him with a neighbour. Ids with under 5 rows are skipped
+    (no median to trust)."""
+    sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]
+    if sub.empty:
+        return set()
+    h = (sub["bbox_y2"] - sub["bbox_y1"]).to_numpy(float)
+    w = (sub["bbox_x2"] - sub["bbox_x1"]).to_numpy(float)
+    pids = sub["global_player_id"].to_numpy(int)
+    frames = sub["frame"].to_numpy(int)
+    out = set()
+    for pid in np.unique(pids):
+        m = pids == pid
+        if m.sum() < 5:
+            continue
+        mh, mw = float(np.median(h[m])), float(np.median(w[m]))
+        bad = m & ((h > h_ratio * mh) | (w > w_ratio * mw))
+        out |= {(int(f), int(pid)) for f in frames[bad]}
+    return out
 
 
 def lying_frames(df, *, cam: str = "sideline", aspect: float = LYING_ASPECT) -> set:
@@ -938,7 +973,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    clamp_joints: bool = True, orient_sigma: float = ORIENT_SMOOTH_SIGMA,
                    unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None,
                    despike_m: float | None = DESPIKE_M, lying_sigma_mult: float | None = None, keep=None,
-                   conf_by_pid=None, conf_min: float = CONF_GATE_MIN, conf_max_run: int = CONF_GATE_MAX_RUN) -> Timeline:
+                   conf_by_pid=None, conf_min: float = CONF_GATE_MIN, conf_max_run: int = CONF_GATE_MAX_RUN,
+                   tilt_per_frame=None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
@@ -946,6 +982,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
     the tilt is not clamped. ``conf_by_pid``: pid -> {frame: conf[21]} per body_pose row (keypoint_confidence),
     for gate_low_confidence at the keyframes. Returns a Timeline with a state per player per frame."""
     lying = lying or set()
+    tilt_per_frame = TILT_LIMIT_PER_FRAME if tilt_per_frame is None else bool(tilt_per_frame)
     if lying_sigma_mult is None:
         lying_sigma_mult = LYING_SIGMA_MULT
     frames = [int(f) for f in frames]
@@ -966,6 +1003,7 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         xy = smooth_xy(despike_xy(fill_gaps(frames, xy), excess_m=despike_m, half=DESPIKE_HALF))
         posed = poses_by_pid.get(pid, {})
         pf = sorted(f for f in posed if f in f_index)
+        frame_source = None
         if pf:
             vals = [posed[f][0] for f in pf]
             if conf_by_pid and conf_max_run and pid in conf_by_pid:
@@ -1001,6 +1039,12 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                   else smooth_axis_angles(go, window=pose_smooth))
             betas = np.mean([np.asarray(posed[f][2], float) for f in pf], axis=0)
             source = posed[pf[0]][3]
+            if tilt_per_frame:
+                # the nearest keyframe's source, per frame
+                fk = np.asarray(pf, float)
+                srcs = [posed[f][3] for f in pf]
+                near = np.abs(np.asarray(frames, float)[:, None] - fk[None, :]).argmin(axis=1)
+                frame_source = [srcs[j] for j in near]
         else:
             yaw = yaw_from_motion(xy)
             bp = np.repeat(default_pose[None], len(frames), axis=0)
@@ -1011,7 +1055,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         for i, f in enumerate(frames):
             if not np.isfinite(xy[i]).all():
                 continue
-            limit = max(max_tilt_deg, MAX_TILT_TWO_VIEW_DEG) if source == "fused" else max_tilt_deg
+            src_i = frame_source[i] if frame_source is not None else source
+            limit = max(max_tilt_deg, MAX_TILT_TWO_VIEW_DEG) if src_i == "fused" else max_tilt_deg
             if (f, pid) in lying:
                 orient, clamped = np.asarray(go[i], float), False        # on the ground: the lean is the pose
             else:

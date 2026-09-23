@@ -873,6 +873,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         boxed = set(zip(df["frame"].astype(int).tolist(), df["global_player_id"].astype(int).tolist()))
         poses, n_unboxed = tlm.drop_unboxed_poses(poses, boxed)
         print(f"pose records with no box for that id on that frame in either camera: {n_unboxed} dropped (no box, no fit)")
+    if tlm.DROP_MERGED_BOX_POSES:
+        merged = tlm.merged_box_frames(df, cam="sideline", h_ratio=tlm.MERGED_H_RATIO, w_ratio=tlm.MERGED_W_RATIO)
+        keep_frames = {(int(f), int(p)) for p, recs in poses.items() for f in recs} - merged
+        poses, n_merged = tlm.drop_unboxed_poses(poses, keep_frames)
+        print(f"pose records fitted on a merged box (over {tlm.MERGED_H_RATIO:g}x the id's median height or "
+              f"{tlm.MERGED_W_RATIO:g}x its width in the sideline): {n_merged} dropped")
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
     ident_path = P / "identity_resolved.pkl"
