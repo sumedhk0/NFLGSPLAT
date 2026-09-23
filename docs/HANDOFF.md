@@ -6182,3 +6182,27 @@ Dataset built (play 1, 214-616 stride 2, the cache's own keyframes -- a range fr
 endzone 12,382, sideline 1,476 -- the endzone detector is the weak one at 88 m; the sideline gets ~120 cross labels per
 joint), det 13.4 %, unlabelled 21.8 %. 165 MB under <play-dir>/pose_ds (gitignored). scripts/09h_finetune_pose.py
 written: baseline score, ultralytics fine-tune (freeze 10, imgsz 1920, batch 2, no mosaic), fine-tuned score by source.
+Baseline detector vs the held-out labels (val frames): sideline det/fit_self PCK@10 100 / 98 %, median 0 / 2.5 px;
+sideline fit_cross (n 281, detector conf 0.33) PCK@10 51 %, median 9.5 px -- the genuine unsure cases. ENDZONE fit_cross
+(n 2,408, detector conf 0.90!) PCK@10 0.6 %, median 20 px: the endzone detector is confident and the fit disagrees by
+20 px (~0.5 m at 88 m). Suspect: the endzone camera's depth wander, not the detector -- measuring the residual's
+per-frame common mode before any training; a label rule change follows (the fit must never override a confident
+detection in its own camera).
+Residual fit - detection on confident joints (all frames): ENDZONE norm p50 12.7 px, per-frame COMMON MODE |du| 3.3 /
+|dv| 8.0 px (p90 14), within-frame MAD 5-6 px, worst on hips (17 px) and shoulders; SIDELINE common mode 0.1 / 0.3 px,
+MAD 1.0 / 1.7, norm 2.5 px. The endzone camera is off per frame (its known depth wander seen from the fit's side); the
+fused refit is fitted against it. So the 2D fine-tune's endzone labels are camera error and the order changes: refine
+the endzone camera per frame from the bodies (the sideline-anchored fit as 3D landmarks), refit, measure the residual
+and 09d, THEN the fine-tune with clean labels.
+The endzone common mode is SMOOTH in time (frame-to-frame p50 0.9 px, +3 to +18 px over the play) and grows with image
+row: dv 3.9 px at the far end (rows < 400), 9.5, 12.4, 30 px at the near end (rows > 800) -- a per-frame zoom / depth
+error of the endzone camera, not a tilt. Plan: scripts/09i_refine_endzone.py -- per frame, a 5-parameter correction
+(small rotation, depth along the axis, focal scale) of the endzone pose fitted to the sideline-anchored 3D joints
+against the confident endzone detections, smoothed over frames; then on a COPY: cameras_refined -> 05f refit -> the
+residual, the loader rulers, 09d, the endzone blend.
+09i first solve (5 params, unbounded): residual 13.4 -> 9.8 px p50 (p90 24.5 -> 14.8) with degenerate parameters (depth
+shift to thousands of metres; depth along the axis and focal scale are collinear at 88 m). Bounded models compared next.
+09i bounded models (residual p50 / p90 px, before 13.4 / 24.5): rot+focal 9.8 / 14.0; rot+depth 9.9 / 13.7 (dz p50 +0.45 m
+= the known endzone depth bias); rot+height+depth 8.8 / 13.1 (dy at the -3 m bound on some frames). All at the endzone
+detector's scatter floor. CARRY rot+depth ($S/cam_rot_depth.npz) downstream on a fresh copy after v99: cameras.npz
+swapped -> 05n triangulate -> 05f refit -> loader rulers on the copy + joints export (09d, tilt) + the residual again.
