@@ -60,6 +60,9 @@ MIN_CYCLE: int = 8              # a strike-to-strike interval outside this range
 MAX_CYCLE: int = 60
 MIN_SWEEP: float = 0.15         # rad: a flexion maximum must drop this far before the next maximum to be a strike
 MAX_BACK_M: float = 0.45        # the pin farther than this behind the hip along the motion: the foot lets go
+MIN_REACH0: float = 0.0         # a strike whose foot is not at least this far AHEAD of the hip along the motion is no
+                                # strike (the fit's flexion maximum with the foot already behind the body: two of the
+                                # defensive back's stances began at -0.24 / -0.33 m and pulled the leg back further)
 WARM_START: bool = True         # start each locked frame's leg solve from the previous locked frame's solution (read at
                                 # call time); the pull stays toward the fit, this only picks the nearest of the equal legs
 ENGAGED_M: float | None = 1.0   # a stance whose strike frame has an other-team body within this (m) is not locked: an
@@ -135,7 +138,7 @@ def stance_windows(strike_frames: list, T: int, *, duty=None, min_cycle=None, ma
 
 def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=None, duty=None, sigma=None,
                    min_cycle=None, max_cycle=None, min_sweep=None, max_back_m=None, band_rule=None,
-                   engaged=None) -> list:
+                   engaged=None, min_reach0=None) -> list:
     """``[(side, t0, t1, pin_xy)]`` for a per-frame ``(xy, body_pose, global_orient)`` sequence: each jogging leg
     cycle's stance, read off the fit's own flexion rhythm in the plane of the motion, pinned to the ankle's world
     xy at the strike. A window that leaves the speed band is dropped (``band_rule`` "window") or only one whose
@@ -146,6 +149,7 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
     jog_m = JOG_M if jog_m is None else float(jog_m)
     run_m = RUN_M_LOCK if run_m is None else float(run_m)
     max_back_m = MAX_BACK_M if max_back_m is None else float(max_back_m)
+    min_reach0 = MIN_REACH0 if min_reach0 is None else float(min_reach0)
     band_rule = BAND_RULE if band_rule is None else str(band_rule)
     if band_rule not in ("window", "strike"):
         raise ValueError(f"band rule {band_rule!r}: window or strike")
@@ -177,6 +181,9 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
             if band_rule == "strike" and (not band[t0] or (speed[t0:t1 + 1] >= run_m).any()):
                 continue
             pin = ank[t0, li].copy()
+            u0 = vel[t0] / max(float(np.linalg.norm(vel[t0])), 1e-9)
+            if float((pin - pel[t0]) @ u0) < min_reach0:       # the foot is not ahead of the hip: no strike
+                continue
             end = t1
             for t in range(t0, t1 + 1):                        # release when the pin is too far behind the hip
                 u = vel[t] / max(float(np.linalg.norm(vel[t])), 1e-9)
@@ -226,13 +233,16 @@ def lock_stances(seq, rest, parents, stances, *, edge=None, pull=None, release=N
         for t in range(t0, t1 + 1):
             w = min(1.0, (t - t0 + 1) / max(edge, 1), (t1 - t + 1) / max(edge, 1)) if edge > 1 else 1.0
             solve(t, side, li, (1 - w) * ank[t, li] + w * pin)
+        off_end = pin - pel[t1]                               # the foot's pelvis-relative offset as the stance ends
         for k in range(1, release + 1):
             t = t1 + k
             if t >= T or t in owned[side] or speed[t] >= run_m:
                 break
             w = 1.0 - k / (release + 1)
             w = w * w * (3.0 - 2.0 * w)
-            solve(t, side, li, (1 - w) * ank[t, li] + w * pin)
+            # the released foot leaves the ground: it keeps its offset from the moving pelvis and swings from
+            # there to the fit's ankle (blending toward the fixed pin dragged it 0.5-0.65 m behind the hip)
+            solve(t, side, li, (1 - w) * ank[t, li] + w * (pel[t] + off_end))
             report["released"] += 1
     return out, report
 

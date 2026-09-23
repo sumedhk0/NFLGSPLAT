@@ -6427,3 +6427,13 @@ residual 6.0 -> 6.8 px, joint jitter p90 +11 %. Module defaults now MODE "rhythm
 gate); the chains no longer need with_flag for it. Viewer Version 19 = v103 joints. Open on the lock: the release
 stretch at the stance end (a shorter MAX_BACK or an earlier release, measured against the same strips); the
 strike-event jitter is a real footfall.
+
+**The release stretch, mechanism found (machine ~12:00, `$S/reach_probe.py` on the DB id 0, v103 lock):** through
+the stance 567-575 the pin runs from +0.24 m ahead of the hip to -0.40 behind (the fit's own ankle -0.28), and over
+the RELEASE 576-581 the target still blends toward the fixed pin while the pelvis moves on: the pin reads -0.47 ->
+-0.65 m and drags the foot back (the fit's ankle sits at -0.31 -> -0.34) -- the stretch on the film at 578. Two more
+of his "stances" (509-511, 515-518) began with the foot already 0.24-0.33 m BEHIND the hip along the motion (the
+fit's flexion maximum with the foot behind the body): no strike, and the release then pulled them to -0.77. Fixes:
+the released foot keeps its pelvis-relative offset from the stance's last frame and swings from there to the fit
+(never farther behind than at the stance's end); a strike needs the foot at least MIN_REACH0 (0.0 m) ahead of the
+hip. Arms MAX_BACK 0.35 / default control running for the record.

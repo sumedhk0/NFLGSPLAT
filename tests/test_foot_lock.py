@@ -206,11 +206,16 @@ def test_release_swings_the_foot_back_to_the_fit_instead_of_snapping():
     jump = np.linalg.norm(ank_snap[t1 + 1, li] - ank_snap[t1, li])
     steps = np.linalg.norm(np.diff(ank_rel[t1:t1 + 8, li], axis=0), axis=1)
     fit_steps = np.linalg.norm(np.diff(ank_fit[t1:t1 + 8, li], axis=0), axis=1)
-    assert jump > 0.05 and steps[0] < 0.6 * jump and steps.max() <= 1.2 * fit_steps.max() + 1e-6
+    assert jump > 0.05 and steps[0] < 0.8 * jump and steps.max() <= 1.2 * fit_steps.max() + 1e-6   # the lifted foot travels with the body from the first release frame
     # the released foot leaves the pin monotonically and ends on the fit's own ankle
     d = [np.linalg.norm(ank_rel[t, li] - pin) for t in range(t1, t1 + 7)]
     assert all(b >= a - 1e-6 for a, b in zip(d, d[1:]))
     assert np.allclose(out[t1 + 7], seq[t1 + 7][1])
+    # ... and never falls farther behind the moving hip than it was at the stance's end (it swings, the pelvis
+    # does not drag it back): the reach along the motion (here -y) stays at or above the stance-end reach
+    pel, _a = fl.ankle_world_xy(seq, rest, parents)
+    reach = lambda t: -(ank_rel[t, li][1] - pel[t][1])
+    assert all(reach(t) >= reach(t1) - 0.02 for t in range(t1 + 1, t1 + 7))
     # a release frame owned by the next stance of the same leg is not released
     both = [s for s in st if s[0] == side][:2]
     if len(both) == 2:
@@ -301,3 +306,17 @@ def test_engaged_flags_from_boxes_read_the_sideline_overlap(monkeypatch):
     assert fl.engaged_flags_from_boxes(pd.DataFrame(rows2), teams) == {(1, 12): True, (2, 12): True}
     monkeypatch.setattr(fl, "ENGAGED_IOU", None)
     assert fl.engaged_flags_from_boxes(df, teams) == {}
+
+
+@pytest.mark.skipif(not __import__("pathlib").Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists(),
+                    reason="SMPL-X model not present")
+def test_a_strike_with_the_foot_behind_the_hip_is_no_strike(monkeypatch):
+    seq, _go = _jogger(T=60)
+    rest, parents = fl.load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    st = fl.rhythm_stances(seq, rest, parents, sigma=0)
+    assert st
+    # the jogger's strikes land ahead of the hip: a floor above them removes every stance, a floor below keeps them
+    assert fl.rhythm_stances(seq, rest, parents, sigma=0, min_reach0=1.0) == []
+    assert len(fl.rhythm_stances(seq, rest, parents, sigma=0, min_reach0=-1.0)) == len(st)
+    monkeypatch.setattr(fl, "MIN_REACH0", 1.0)
+    assert fl.rhythm_stances(seq, rest, parents, sigma=0) == []
