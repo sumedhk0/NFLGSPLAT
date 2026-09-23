@@ -6171,3 +6171,9 @@ In-filler VERDICT (player-wise validation): best epoch 0 -- the model is SLERP: 
 3.95 = 3.95, legs 10.15 = 10.15. Unsure rows 423 of 34,293 (1.2 %), 196 runs, p50 1 keyframe, p90 4, max 16; L arm 260,
 R arm 131, legs 32. Unseen joints are NOT the odd-arm mechanism. Code kept (hook off). NEXT: the 2D keypoint fine-tune
 on two-view-consistent pseudo-labels (the label builder first, with its own hold-out ruler).
+
+**2D fine-tune, step 1 (2026-09-23 ~02:40): pose/pseudo_labels.py + scripts/09g_pose_labels.py + tests.** Labels = the
+fused fit's joints reprojected where a camera anchors them (conf >= 0.5 within 12 px); fit_cross (anchored only by
+the other camera) is the new signal; det where only the detector is confident; unlabelled otherwise. Dataset under
+<play-dir>/pose_ds (gitignored): every 5th sideline frame + its endzone frame = val. Building for play 1 now; the
+counts (how many fit_cross labels, where) decide whether there is enough new signal to train on.
