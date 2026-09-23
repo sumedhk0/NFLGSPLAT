@@ -265,6 +265,10 @@ def test_engaged_stances_are_not_locked(monkeypatch):
     engaged = np.zeros(len(seq), bool); engaged[t0] = True
     st2 = fl.rhythm_stances(seq, rest, parents, sigma=0, engaged=engaged)
     assert not any(s[1] == t0 for s in st2) and len(st2) == len(st) - 1
+    # engaged on a later frame of the same stance (the strike itself clean): still not locked
+    engaged = np.zeros(len(seq), bool); engaged[t1] = True
+    st3 = fl.rhythm_stances(seq, rest, parents, sigma=0, engaged=engaged)
+    assert not any(s[1] == t0 for s in st3) and len(st3) == len(st) - 1
     # the timeline flags: an opponent within ENGAGED_M on a frame marks the man engaged there, a teammate does not
     class S:
         def __init__(self, pid, xy):
@@ -291,5 +295,9 @@ def test_engaged_flags_from_boxes_read_the_sideline_overlap(monkeypatch):
     flags = fl.engaged_flags_from_boxes(df, teams)
     assert flags == {(1, 10): True, (2, 10): True, (4, 10): True}
     assert fl.engaged_flags_from_boxes(df, teams, iou=0.9) == {}
+    # touching boxes count at the default threshold (two men side by side overlap by a sliver)
+    rows2 = [dict(frame=12, cam="sideline", global_player_id=1, bbox_x1=100, bbox_y1=100, bbox_x2=160, bbox_y2=260),
+             dict(frame=12, cam="sideline", global_player_id=2, bbox_x1=152, bbox_y1=100, bbox_x2=212, bbox_y2=260)]
+    assert fl.engaged_flags_from_boxes(pd.DataFrame(rows2), teams) == {(1, 12): True, (2, 12): True}
     monkeypatch.setattr(fl, "ENGAGED_IOU", None)
     assert fl.engaged_flags_from_boxes(df, teams) == {}

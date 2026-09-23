@@ -64,8 +64,10 @@ WARM_START: bool = True         # start each locked frame's leg solve from the p
 ENGAGED_M: float | None = 1.0   # a stance whose strike frame has an other-team body within this (m) is not locked: an
                                 # engaged man drives, chops and pushes -- his feet do slide (v101 on the film: the lock
                                 # compressed a rusher's stride against his blocker where the fit matched the film)
-ENGAGED_IOU: float | None = 0.15  # ... or whose SIDELINE box an other-team box overlaps at this IoU (the film's own
-                                # contact signal: the placement drew a rusher 1.4-1.6 m from the blocker he was leaning on)
+ENGAGED_IOU: float | None = 0.05  # ... or whose SIDELINE box an other-team box overlaps at this IoU on ANY frame of the
+                                # stance (the film's own contact signal: the placement drew a rusher 1.4-1.6 m from the
+                                # blocker he was leaning on; side by side their boxes overlap 0.07-0.19, and his strike
+                                # frame read 0.136 under a 0.15 threshold while 459-465 were over it)
 ENGAGED_CAM: str = "sideline"
 BAND_RULE: str = "window"       # "window": every frame of a stance must be in the speed band; "strike": the strike frame
                                 # must be, and no frame of the stance may reach the gait's speed (a man slowing through
@@ -138,7 +140,7 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
     xy at the strike. A window that leaves the speed band is dropped (``band_rule`` "window") or only one whose
     strike is out of the band or that reaches the gait's speed ("strike"); one whose pin falls ``max_back_m``
     behind the hip along the motion ends there. ``engaged [T]`` (bool, optional): frames on which an other-team body
-    stands within ENGAGED_M of the man -- a stance struck on one is not locked."""
+    stands within ENGAGED_M of the man or his box is on an opponent's -- a stance with any such frame is not locked."""
     from nfl_gsplat.render.gait import HIP_ROW, forward_on_ground, leg_yaw
     jog_m = JOG_M if jog_m is None else float(jog_m)
     run_m = RUN_M_LOCK if run_m is None else float(run_m)
@@ -167,7 +169,7 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
         flex = [motion_flexion(np.asarray(seq[t][1], float).reshape(21, 3)[HIP_ROW[side]], yaw[t]) for t in range(T)]
         st = strikes(flex, sigma=sigma, min_cycle=min_cycle, min_sweep=min_sweep)
         for t0, t1 in stance_windows(st, T, duty=duty, min_cycle=min_cycle, max_cycle=max_cycle):
-            if engaged is not None and bool(np.asarray(engaged)[t0]):
+            if engaged is not None and bool(np.asarray(engaged)[t0:t1 + 1].any()):
                 continue
             if band_rule == "window" and not band[t0:t1 + 1].all():
                 continue
