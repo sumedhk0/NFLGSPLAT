@@ -6139,3 +6139,13 @@ N frames of the down and within reach of the carrier into the tackle (tackle.py 
 bodies at the down frame).
 tackle.lost_tacklers built + tested (other-team bodies lost within 12 frames before the down and 1.5 m of the carrier:
 Roquan 171 at 599); the 05k wiring (add them to hold_to_end's `always`) waits for the v98 chain to finish, then v99.
+
+**v98 rendered (2026-09-23 00:02): `diag/play_001_v98_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.**
+v96 tables + DROP_UNBOXED_POSES + DROP_MERGED_BOX_POSES + TILT_LIMIT_PER_FRAME. Loader rulers 2 / 0 / 0.16. Film check
+of the lean sites pending; the lost-tackler wiring (05k, tackle.lost_tacklers) applied after the chain and measured
+on the joints for v99.
+v98 film check (488 / 492 / 574 / 576): the defender behind the receiver upright at both frames (84 deg in v97), the
+catch-side bodies at 574-576 as on the film. v98 = CURRENT BEST (reviewed on the receiver's contact, both lean sites,
+the catch, the throw, the pre-snap formation via v97 and the tackle spot). Open on it: the second tackler (v99).
+Lost-tackler wiring measured on the joints: 171 held from 599 to the end, tacklers on the down frame [28, 171]; 09d jerk
+10, trunk 0 (unchanged). v99 chain launched ~00:20 (v98 + the second tackler in the pile).

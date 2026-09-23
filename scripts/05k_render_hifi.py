@@ -223,10 +223,20 @@ def main() -> None:
 
             holders_ = load_holders(P)
             carrier = holders_[max(holders_)] if holders_ else None
-            n_end = tlm.hold_to_end(tl, dead, end, teams=team_of or None, always={carrier} if carrier is not None else None)
+            always = {carrier} if carrier is not None else set()
+            lost = {}
+            if carrier is not None:
+                # the tacklers the detector lost under the pile before the down (render.tackle.lost_tacklers) are
+                # held from their last frame too, so the tackle finds them on the down frame
+                from nfl_gsplat.render.tackle import lost_tacklers
+
+                lost = lost_tacklers(tl.states, carrier, team_of or {}, dead)
+                always |= set(lost)
+            n_end = tlm.hold_to_end(tl, dead, end, teams=team_of or None, always=always or None)
             if n_end:
                 print(f"aftermath: {n_end} body-frames held through the tail after the dead ball at {dead}"
-                      + (f" (the carrier {carrier} from his last frame)" if carrier is not None else ""))
+                      + (f" (the carrier {carrier} from his last frame)" if carrier is not None else "")
+                      + (f"; lost tacklers held from their last frame: {lost}" if lost else ""))
     start = args.start_frame if args.start_frame is not None else play_start_frame(P)
     if start is not None:
         n0 = len(frames)
