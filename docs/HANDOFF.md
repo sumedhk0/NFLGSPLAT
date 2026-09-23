@@ -6378,3 +6378,16 @@ is violent (p99 doubles); the in-ramp only lets the foot slide. Default arm stan
 jitter p90 0.0731 / p99 0.194). v101 chain launched (~13:55) with the lock on through with_flag (MODE rhythm, BAND_RULE
 strike; EDGE 1, RELEASE 6): 08y, 08x, dump, 07l, hifi, both blends. Film check next on stride-2 strips through one
 stance per jogger (`$S/jog_strip.py`): id 15 R 458-470, id 0 R 584-594 / L 567-575, id 80 L 465-477, id 28 L 525-534.
+
+**v101 rendered (machine clock 09:15): `diag/play_001_v101_*` (hifi, sideline/endzone blends) = v100 tables + the
+foot lock (rhythm, strike rule, EDGE 1, RELEASE 6) through with_flag; 07l: 83 stances on 1,037 body-frames of 24 ids;
+steps 2 / hops 0 / census 0.16 (unchanged).** Whole-scene check 450 / 500 / 562: bodies on the film's men, no
+regression. FILM on the pinned stances (`$S/lock_diff_strip.py`: film | v100 | v101 | diff, zoomed on the man): the
+open-field jogger (id 0, BAL 21, turning upfield 566-578) -- v101 keeps the left foot on the "2" numeral through
+572-576 as the film does where v100 slid it; the release at 578 stretches the trailing leg a touch long. The ENGAGED
+rusher (id 15 driving into his blocker, 458-470) -- v100's long drive stride matched the film, v101 compressed it: a
+pushing man's feet DO slide, the stance model is wrong for him. The receiver 74 (542-552, being tackled) -- small leg
+changes, undecidable. Also: the strike set depended on the run's start (id 0's R stance at 584-594 found on 395-607,
+absent on the whole clip: the earlier-of-two-maxima rule). Fixes: ENGAGED_M 1.0 (no stance struck with an opponent
+within a metre; engaged_flags from the timeline's teams) and the higher-of-two-maxima rule. v101 is NOT the best
+(the rusher); v102 = the gated lock.

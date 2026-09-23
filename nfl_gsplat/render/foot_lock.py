@@ -61,6 +61,9 @@ MIN_SWEEP: float = 0.15         # rad: a flexion maximum must drop this far befo
 MAX_BACK_M: float = 0.45        # the pin farther than this behind the hip along the motion: the foot lets go
 WARM_START: bool = True         # start each locked frame's leg solve from the previous locked frame's solution (read at
                                 # call time); the pull stays toward the fit, this only picks the nearest of the equal legs
+ENGAGED_M: float | None = 1.0   # a stance whose strike frame has an other-team body within this (m) is not locked: an
+                                # engaged man drives, chops and pushes -- his feet do slide (v101 on the film: the lock
+                                # compressed a rusher's stride against his blocker where the fit matched the film)
 BAND_RULE: str = "window"       # "window": every frame of a stance must be in the speed band; "strike": the strike frame
                                 # must be, and no frame of the stance may reach the gait's speed (a man slowing through
                                 # 2.5 m/s mid-stance still plants)
@@ -95,7 +98,9 @@ def strikes(flex, *, sigma=None, min_cycle=None, min_sweep=None) -> list:
         end = peaks[i + 1] if i + 1 < len(peaks) else len(x)
         if x[t] - x[t:end].min() < min_sweep:
             continue
-        if out and t - out[-1] < min_cycle:
+        if out and t - out[-1] < min_cycle:               # two maxima inside a cycle: the higher one is the strike
+            if x[t] > x[out[-1]]:
+                out[-1] = int(t)
             continue
         out.append(int(t))
     return out
@@ -123,12 +128,14 @@ def stance_windows(strike_frames: list, T: int, *, duty=None, min_cycle=None, ma
 
 
 def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=None, duty=None, sigma=None,
-                   min_cycle=None, max_cycle=None, min_sweep=None, max_back_m=None, band_rule=None) -> list:
+                   min_cycle=None, max_cycle=None, min_sweep=None, max_back_m=None, band_rule=None,
+                   engaged=None) -> list:
     """``[(side, t0, t1, pin_xy)]`` for a per-frame ``(xy, body_pose, global_orient)`` sequence: each jogging leg
     cycle's stance, read off the fit's own flexion rhythm in the plane of the motion, pinned to the ankle's world
     xy at the strike. A window that leaves the speed band is dropped (``band_rule`` "window") or only one whose
     strike is out of the band or that reaches the gait's speed ("strike"); one whose pin falls ``max_back_m``
-    behind the hip along the motion ends there."""
+    behind the hip along the motion ends there. ``engaged [T]`` (bool, optional): frames on which an other-team body
+    stands within ENGAGED_M of the man -- a stance struck on one is not locked."""
     from nfl_gsplat.render.gait import HIP_ROW, forward_on_ground, leg_yaw
     jog_m = JOG_M if jog_m is None else float(jog_m)
     run_m = RUN_M_LOCK if run_m is None else float(run_m)
@@ -157,6 +164,8 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
         flex = [motion_flexion(np.asarray(seq[t][1], float).reshape(21, 3)[HIP_ROW[side]], yaw[t]) for t in range(T)]
         st = strikes(flex, sigma=sigma, min_cycle=min_cycle, min_sweep=min_sweep)
         for t0, t1 in stance_windows(st, T, duty=duty, min_cycle=min_cycle, max_cycle=max_cycle):
+            if engaged is not None and bool(np.asarray(engaged)[t0]):
+                continue
             if band_rule == "window" and not band[t0:t1 + 1].all():
                 continue
             if band_rule == "strike" and (not band[t0] or (speed[t0:t1 + 1] >= run_m).any()):
@@ -344,15 +353,37 @@ def foot_lock_sequence(seq, betas, body_models_dir, *, moving_m: float = MOVING_
     return out, report
 
 
-def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, **kw):
+def engaged_flags(states_by_frame, team_of, *, engaged_m=None) -> dict:
+    """``{(pid, frame): True}`` where an other-team body stands within ``engaged_m`` of the man (None = ENGAGED_M;
+    an id whose team is unknown is never engaged). Empty when the gate is off (ENGAGED_M None)."""
+    engaged_m = ENGAGED_M if engaged_m is None else engaged_m
+    out: dict = {}
+    if engaged_m is None or not team_of:
+        return out
+    for f, states in states_by_frame.items():
+        rows = [(int(s.pid), team_of.get(int(s.pid)), np.asarray(s.xy, float)) for s in states]
+        for pid, team, xy in rows:
+            if team is None:
+                continue
+            for q, tq, xq in rows:
+                if tq is not None and tq != team and float(np.linalg.norm(xy - xq)) <= float(engaged_m):
+                    out[(pid, int(f))] = True
+                    break
+    return out
+
+
+def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, team_of=None, engaged_m=None, **kw):
     """Apply :func:`foot_lock_sequence` to every id of a Timeline in place (frames lo..hi, all when
-    None); returns ``{pid: report}``. Runs of consecutive drawn frames are locked separately."""
+    None); returns ``{pid: report}``. Runs of consecutive drawn frames are locked separately. ``team_of``
+    ``{pid: team}`` turns the engagement gate on (rhythm mode: no stance struck with an opponent within
+    ENGAGED_M)."""
     by: dict = {}
     for f, states in tl.states.items():
         if (lo is not None and f < lo) or (hi is not None and f > hi):
             continue
         for s in states:
             by.setdefault(int(s.pid), {})[int(f)] = s
+    eng = engaged_flags(tl.states, team_of, engaged_m=engaged_m) if team_of else {}
     reports = {}
     for pid, byf in by.items():
         fs = sorted(byf)
@@ -369,7 +400,10 @@ def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, **kw):
             if len(run) < 3:
                 continue
             seq = [(byf[f].xy, byf[f].body_pose, byf[f].global_orient) for f in run]
-            bps, r = foot_lock_sequence(seq, byf[run[0]].betas, body_models_dir, **kw)
+            run_kw = dict(kw)
+            if eng:
+                run_kw["engaged"] = np.array([eng.get((pid, f), False) for f in run])
+            bps, r = foot_lock_sequence(seq, byf[run[0]].betas, body_models_dir, **run_kw)
             for f, bp in zip(run, bps):
                 byf[f].body_pose = bp
             for k in ("segments", "frames", "released"):

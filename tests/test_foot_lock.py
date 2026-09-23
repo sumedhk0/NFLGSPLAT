@@ -239,3 +239,38 @@ def test_warm_start_keeps_consecutive_leg_solves_continuous(monkeypatch):
         return np.linalg.norm(np.diff(x, axis=0), axis=1)
     assert hops(warm).max() <= hops(cold).max() + 1e-9
     assert hops(warm).max() < 0.5                    # under half a radian of hip+knee change per frame
+
+
+def test_two_maxima_inside_a_cycle_keep_the_higher_one_whatever_the_run_start():
+    t = np.arange(120)
+    flex = 0.3 * np.sin(2 * np.pi * t / 24) + 0.12 * np.sin(2 * np.pi * t / 8)     # a wobble rides the cycle
+    a = fl.strikes(flex, sigma=0)
+    b = fl.strikes(flex[5:], sigma=0)
+    assert a and [x - 5 for x in a if x >= 5] == b[:len([x for x in a if x >= 5])]
+    # the kept maximum is the higher of the pair
+    for s in a:
+        lo, hi = max(0, s - fl.MIN_CYCLE + 1), min(len(flex), s + fl.MIN_CYCLE)
+        peaks = [u for u in range(lo, hi) if 0 < u < len(flex) - 1 and flex[u] >= flex[u - 1] and flex[u] > flex[u + 1]]
+        assert flex[s] >= max(flex[u] for u in peaks) - 1e-9
+
+
+@pytest.mark.skipif(not __import__("pathlib").Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists(),
+                    reason="SMPL-X model not present")
+def test_engaged_stances_are_not_locked(monkeypatch):
+    seq, go = _jogger(T=60)
+    rest, parents = fl.load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    st = fl.rhythm_stances(seq, rest, parents, sigma=0)
+    assert st
+    side, t0, t1, _pin = st[0]
+    engaged = np.zeros(len(seq), bool); engaged[t0] = True
+    st2 = fl.rhythm_stances(seq, rest, parents, sigma=0, engaged=engaged)
+    assert not any(s[1] == t0 for s in st2) and len(st2) == len(st) - 1
+    # the timeline flags: an opponent within ENGAGED_M on a frame marks the man engaged there, a teammate does not
+    class S:
+        def __init__(self, pid, xy):
+            self.pid, self.xy = pid, np.asarray(xy, float)
+    states = {10: [S(1, [0, 0]), S(2, [0.5, 0]), S(3, [0.6, 0])], 11: [S(1, [0, 0]), S(2, [3.0, 0])]}
+    flags = fl.engaged_flags(states, {1: "BAL", 2: "KC", 3: "BAL"})
+    assert flags == {(1, 10): True, (2, 10): True, (3, 10): True}
+    monkeypatch.setattr(fl, "ENGAGED_M", None)
+    assert fl.engaged_flags(states, {1: "BAL", 2: "KC", 3: "BAL"}) == {}
