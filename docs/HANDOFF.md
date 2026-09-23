@@ -6415,3 +6415,15 @@ frames on 15 ids (the rusher 15 gated 456-471, the tackled receiver 74 540-553; 
 p50 0.72, planted 17 % (A 9 %; ungated 25 %); ankle 6.8 / 20.6 px (A 6.0 / 17.3), knee 6.4 / 15.4; joint jitter
 p90 0.0669 (A 0.0604, +11 %) / p99 0.188 (A 0.183). Half the gain of the ungated lock at a third of its cost, and
 none of it on engaged men. v103 chain launched (machine ~11:05) with it; the film decides.
+
+**v103 rendered (machine clock 11:34): `diag/play_001_v103_*` = v100 tables + the foot lock (rhythm, strike band rule,
+ENGAGED_M 1.0 + ENGAGED_IOU 0.05 on any stance frame, EDGE 1, RELEASE 6). CURRENT BEST, film-checked.** 07l: 45
+stances on 557 body-frames of 18 ids; steps 2 / hops 0 / census 0.16. Film (`$S/lock_diff_strip2.py`, film | v100 |
+v103 | diff): the rusher 15 (458-470) identical to v100 (the gate holds); the DB 0 (566-578) keeps his left foot on
+the numeral through 572-576 as the film does (v100 slid it), the trailing leg a touch long at 578; the linebacker 28
+(522-536, a lateral shuffle then the turn) plants the left foot through 528-532 where v100 glided both feet; the
+whole scene at 450 / 500 / 562 unchanged. Band rulers (gated arm): planted 9 -> 17 %, ratio 0.76 -> 0.72, ankle
+residual 6.0 -> 6.8 px, joint jitter p90 +11 %. Module defaults now MODE "rhythm" + BAND_RULE "strike" (full suite
+gate); the chains no longer need with_flag for it. Viewer Version 19 = v103 joints. Open on the lock: the release
+stretch at the stance end (a shorter MAX_BACK or an earlier release, measured against the same strips); the
+strike-event jitter is a real footfall.

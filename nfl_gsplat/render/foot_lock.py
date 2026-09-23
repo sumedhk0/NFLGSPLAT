@@ -45,7 +45,8 @@ LEG = {"L": (0, 3, 7), "R": (1, 4, 8)}      # body_pose rows of hip and knee (jo
 # xy at the strike and the leg re-solved (solve_leg) -- the fit's phase and extremes kept, the stance flattened
 # onto the turf -- blended at both edges; a stance is released early when the pin falls farther than MAX_BACK_M
 # behind the hip. Only frames whose pelvis speed is in the band are touched.
-MODE: str = "off"               # "off" | "dips" | "rhythm": what the scripts apply after the gait (read at call time)
+MODE: str = "rhythm"            # "off" | "dips" | "rhythm": what the scripts apply after the gait (read at call time);
+                                # rhythm since v103 (2026-09-23), film-checked on play 1
 JOG_M: float = 0.042            # pelvis speed (m per frame) above which a body jogs: 2.5 m/s at 59.94 fps
 RUN_M_LOCK: float = 0.08        # ... and below which the lock applies (the gait's RUN_M: faster legs are the gait's)
 DUTY: float = 0.40              # stance share of a jog cycle
@@ -69,7 +70,7 @@ ENGAGED_IOU: float | None = 0.05  # ... or whose SIDELINE box an other-team box 
                                 # blocker he was leaning on; side by side their boxes overlap 0.07-0.19, and his strike
                                 # frame read 0.136 under a 0.15 threshold while 459-465 were over it)
 ENGAGED_CAM: str = "sideline"
-BAND_RULE: str = "window"       # "window": every frame of a stance must be in the speed band; "strike": the strike frame
+BAND_RULE: str = "strike"       # "window": every frame of a stance must be in the speed band; "strike": the strike frame
                                 # must be, and no frame of the stance may reach the gait's speed (a man slowing through
                                 # 2.5 m/s mid-stance still plants)
 
