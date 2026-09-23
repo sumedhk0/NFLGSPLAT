@@ -6206,3 +6206,25 @@ shift to thousands of metres; depth along the axis and focal scale are collinear
 = the known endzone depth bias); rot+height+depth 8.8 / 13.1 (dy at the -3 m bound on some frames). All at the endzone
 detector's scatter floor. CARRY rot+depth ($S/cam_rot_depth.npz) downstream on a fresh copy after v99: cameras.npz
 swapped -> 05n triangulate -> 05f refit -> loader rulers on the copy + joints export (09d, tilt) + the residual again.
+
+**The refined endzone camera downstream, on the copy (2026-09-23 ~04:10):** 05n triangulated median reprojection 2.6 px,
+05f refit joint rms 0.072 m. Residual fit - detection: ENDZONE norm 12.7 -> 6.7 px, common mode |dv| 8.0 -> 1.1 (p90 2.0);
+SIDELINE 2.5 -> 5.5 px (the two views' disagreement now split between them: a camera weighting question, later).
+09d on the copy's joints: sideways R arm 11.0 -> 6.9 %, L arm 5.6 -> 5.0, L leg 6.4 -> 2.2, R leg 4.2 -> 2.2 (!), trunk 0,
+jerk 10 -> 12. THE ODD ARMS WERE THE ENDZONE CAMERA pulling the two-view fit. But the loader's placement LOST: steps 2 ->
+13, census 0.16 -> 0.36, vanishings 8 -> 242 frames (167 421-607, 1 556-594, 17 475-488): the pair rule's +0.45 m
+endzone common-mode compensation and the endzone-tuned holds now double-correct. Next: retire the compensation on the
+copy (knob at call time), re-measure; the camera must win the placement rulers too before it is ported (18th case
+memory: a camera refit that doubled the fast steps).
+Split test (old camera in the loader, the corrected-camera refit for poses): steps 4, census 0.385, 167 still vanishes
+421-607 and 17 475-490 -- so the placement break is in the NEW poses_refit.json, not the camera in the loader: 05f refit
+28 players where the live refit has more (its --min-frame-frac 0.5 / --min-valid-joints 6 gates drop the pile ids).
+Coverage: the LIVE poses_refit.json is a legacy file (65 ids, 5,885 records, from before the folds; the no-box rule drops
+812 of them); a fresh 05n+05f on the current tables gives 28 ids / 4,891 records and only the frames BOTH cameras see
+(id 9 271-391 against 14-620 live; 167 none) -- the loader's holds react to the missing records (167 vanishes). Testing
+a MERGE on the copy: the corrected-camera refit where it has a record, the legacy record elsewhere (loader rulers +
+09d). Open beyond that: a one-view refit (05p) for the frames the endzone does not see.
+
+**v99 rendered (2026-09-23 05:41): `diag/play_001_v99_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.**
+v98 + the lost tackler held into the pile. Film check of the tail 600-612: two Ravens on the carrier at 600-604, the
+pile flat with both on him at 608-612, as on the film. v99 = CURRENT BEST (tables *.v96). Viewer Version 16 = v99 joints.
