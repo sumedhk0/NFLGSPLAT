@@ -6391,3 +6391,17 @@ changes, undecidable. Also: the strike set depended on the run's start (id 0's R
 absent on the whole clip: the earlier-of-two-maxima rule). Fixes: ENGAGED_M 1.0 (no stance struck with an opponent
 within a metre; engaged_flags from the timeline's teams) and the higher-of-two-maxima rule. v101 is NOT the best
 (the rusher); v102 = the gated lock.
+Gated arm (~machine 09:50; ENGAGED_M 1.0 + the higher-of-two-maxima strike rule, strike band rule, EDGE 1 / RELEASE 6):
+61 stances / 764 frames on 19 ids (11 stances gated out), foot moved p50 0.17 / p90 0.41 m; band ratio p50 0.71,
+planted 22 % (< 0.5 35 %); ankle 7.5 / 21.9 px, knee 6.3 / 15.6; joint jitter p90 0.0718 / p99 0.190 (A 0.0604 /
+0.183; ungated 0.0731 / 0.194). Most of the gain kept, the engaged men left to the fit. v102 chain launched (the same
+with_flag chain as v101; the gate and the strike rule are module defaults; 05k / 07l pass team_of, commit 6ed9e9a).
+Film check next: id 15 (458-470) must now equal v100; id 0 (566-578) as v101; the whole scene at 450 / 500 / 562.
+
+**v102 rendered (machine clock 10:26): `diag/play_001_v102_*`; 07l: 71 stances on 886 body-frames of 23 ids (12 gated
+out); steps 2 / hops 0 / census 0.16.** Film: the DB (id 0, 566-578) as v101 (the foot held on the numeral); the
+rusher (id 15, 458-470) UNCHANGED from v101 -- the gate missed him: his drawn distance to his blocker (37) is
+1.36-1.55 m at 458-470 (the placement holds engaged men apart; at 525-548 they read 0.69-0.89 m and were gated) while
+the film's boxes overlap. The ground-distance gate is the wrong instrument for contact; the film's boxes are: a stance
+struck while an other-team SIDELINE box overlaps the man's (IoU >= 0.15) is not locked (ENGAGED_IOU), on top of the
+distance gate. v102 is NOT the best; v103 = the box gate.

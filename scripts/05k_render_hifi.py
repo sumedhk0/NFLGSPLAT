@@ -212,7 +212,7 @@ def main() -> None:
         from nfl_gsplat.render import foot_lock as _fl
 
         if _fl.MODE != "off":
-            lreps = _fl.foot_lock_timeline(tl, str(args.body_models), team_of=team_of)
+            lreps = _fl.foot_lock_timeline(tl, str(args.body_models), team_of=team_of, boxes_df=df)
             print(f"foot lock ({_fl.MODE}): {sum(r['segments'] for r in lreps.values())} stances on "
                   f"{sum(r['frames'] for r in lreps.values())} body-frames of "
                   f"{sum(1 for r in lreps.values() if r['segments'])} ids")

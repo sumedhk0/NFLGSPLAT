@@ -83,7 +83,7 @@ def main():
     P = Path(args.play_dir)
     model = smplx.create(args.body_models, model_type="smplx", gender="neutral", num_betas=10,
                          use_pca=False, batch_size=1)
-    tl, *_ = pt.load_play_timeline(P, model)
+    tl, _tracks, df, *_ = pt.load_play_timeline(P, model)
     if args.gait:
         from nfl_gsplat.render.gait import gait_timeline
 
@@ -92,7 +92,7 @@ def main():
         from nfl_gsplat.render import foot_lock as _fl
 
         if _fl.MODE != "off":                                  # as 05k draws it (read at call time)
-            lreps = _fl.foot_lock_timeline(tl, str(args.body_models), team_of=team_of(P))
+            lreps = _fl.foot_lock_timeline(tl, str(args.body_models), team_of=team_of(P), boxes_df=df)
             print(f"foot lock ({_fl.MODE}): {sum(r['segments'] for r in lreps.values())} stances on "
                   f"{sum(r['frames'] for r in lreps.values())} body-frames")
     pos = mr.positions_by_id(tl.states)

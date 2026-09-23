@@ -64,6 +64,9 @@ WARM_START: bool = True         # start each locked frame's leg solve from the p
 ENGAGED_M: float | None = 1.0   # a stance whose strike frame has an other-team body within this (m) is not locked: an
                                 # engaged man drives, chops and pushes -- his feet do slide (v101 on the film: the lock
                                 # compressed a rusher's stride against his blocker where the fit matched the film)
+ENGAGED_IOU: float | None = 0.15  # ... or whose SIDELINE box an other-team box overlaps at this IoU (the film's own
+                                # contact signal: the placement drew a rusher 1.4-1.6 m from the blocker he was leaning on)
+ENGAGED_CAM: str = "sideline"
 BAND_RULE: str = "window"       # "window": every frame of a stance must be in the speed band; "strike": the strike frame
                                 # must be, and no frame of the stance may reach the gait's speed (a man slowing through
                                 # 2.5 m/s mid-stance still plants)
@@ -372,11 +375,41 @@ def engaged_flags(states_by_frame, team_of, *, engaged_m=None) -> dict:
     return out
 
 
-def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, team_of=None, engaged_m=None, **kw):
+def _iou(a, b) -> float:
+    w = max(0.0, min(a[2], b[2]) - max(a[0], b[0])); h = max(0.0, min(a[3], b[3]) - max(a[1], b[1])); i = w * h
+    if i <= 0:
+        return 0.0
+    return i / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i)
+
+
+def engaged_flags_from_boxes(df, team_of, *, iou=None, cam=None) -> dict:
+    """``{(pid, frame): True}`` where an other-team box in ``cam`` overlaps the man's box at IoU >= ``iou`` (None =
+    ENGAGED_IOU / ENGAGED_CAM; empty when ENGAGED_IOU is None). ``df``: the tracks table (frame, cam,
+    global_player_id, bbox_x1..y2); frames are that camera's own frames -- the sideline's are the play's."""
+    iou = ENGAGED_IOU if iou is None else iou
+    cam = ENGAGED_CAM if cam is None else str(cam)
+    out: dict = {}
+    if iou is None or df is None or not team_of:
+        return out
+    sub = df[df["cam"] == cam]
+    cols = ["global_player_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"]
+    for f, g in sub.groupby("frame"):
+        rows = [(int(r[0]), team_of.get(int(r[0])), tuple(float(v) for v in r[1:])) for r in g[cols].to_numpy()]
+        for pid, team, box in rows:
+            if team is None:
+                continue
+            for q, tq, bq in rows:
+                if tq is not None and tq != team and _iou(box, bq) >= float(iou):
+                    out[(pid, int(f))] = True
+                    break
+    return out
+
+
+def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, team_of=None, engaged_m=None, boxes_df=None, **kw):
     """Apply :func:`foot_lock_sequence` to every id of a Timeline in place (frames lo..hi, all when
     None); returns ``{pid: report}``. Runs of consecutive drawn frames are locked separately. ``team_of``
     ``{pid: team}`` turns the engagement gate on (rhythm mode: no stance struck with an opponent within
-    ENGAGED_M)."""
+    ENGAGED_M, nor -- with ``boxes_df``, the tracks table -- with an other-team box on the man's at ENGAGED_IOU)."""
     by: dict = {}
     for f, states in tl.states.items():
         if (lo is not None and f < lo) or (hi is not None and f > hi):
@@ -384,6 +417,8 @@ def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, team_of=None, e
         for s in states:
             by.setdefault(int(s.pid), {})[int(f)] = s
     eng = engaged_flags(tl.states, team_of, engaged_m=engaged_m) if team_of else {}
+    if team_of and boxes_df is not None:
+        eng.update(engaged_flags_from_boxes(boxes_df, team_of))
     reports = {}
     for pid, byf in by.items():
         fs = sorted(byf)

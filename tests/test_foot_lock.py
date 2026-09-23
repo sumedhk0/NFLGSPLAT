@@ -274,3 +274,22 @@ def test_engaged_stances_are_not_locked(monkeypatch):
     assert flags == {(1, 10): True, (2, 10): True, (3, 10): True}
     monkeypatch.setattr(fl, "ENGAGED_M", None)
     assert fl.engaged_flags(states, {1: "BAL", 2: "KC", 3: "BAL"}) == {}
+
+
+def test_engaged_flags_from_boxes_read_the_sideline_overlap(monkeypatch):
+    import pandas as pd
+    rows = [
+        dict(frame=10, cam="sideline", global_player_id=1, bbox_x1=100, bbox_y1=100, bbox_x2=160, bbox_y2=260),
+        dict(frame=10, cam="sideline", global_player_id=2, bbox_x1=130, bbox_y1=110, bbox_x2=190, bbox_y2=270),  # on 1
+        dict(frame=10, cam="sideline", global_player_id=3, bbox_x1=400, bbox_y1=100, bbox_x2=460, bbox_y2=260),  # apart
+        dict(frame=10, cam="sideline", global_player_id=4, bbox_x1=110, bbox_y1=100, bbox_x2=170, bbox_y2=260),  # teammate of 1
+        dict(frame=11, cam="endzone", global_player_id=1, bbox_x1=100, bbox_y1=100, bbox_x2=160, bbox_y2=260),
+        dict(frame=11, cam="endzone", global_player_id=2, bbox_x1=100, bbox_y1=100, bbox_x2=160, bbox_y2=260),  # other camera
+    ]
+    df = pd.DataFrame(rows)
+    teams = {1: "BAL", 2: "KC", 3: "KC", 4: "BAL"}
+    flags = fl.engaged_flags_from_boxes(df, teams)
+    assert flags == {(1, 10): True, (2, 10): True, (4, 10): True}
+    assert fl.engaged_flags_from_boxes(df, teams, iou=0.9) == {}
+    monkeypatch.setattr(fl, "ENGAGED_IOU", None)
+    assert fl.engaged_flags_from_boxes(df, teams) == {}
