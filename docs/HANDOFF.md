@@ -6405,3 +6405,13 @@ rusher (id 15, 458-470) UNCHANGED from v101 -- the gate missed him: his drawn di
 the film's boxes overlap. The ground-distance gate is the wrong instrument for contact; the film's boxes are: a stance
 struck while an other-team SIDELINE box overlaps the man's (IoU >= 0.15) is not locked (ENGAGED_IOU), on top of the
 distance gate. v102 is NOT the best; v103 = the box gate.
+Box gate arm (ENGAGED_IOU 0.15 at the strike frame): 58 stances / 728 frames, planted 21 %, ratio 0.71, ankle 7.4 /
+21.9, jitter p90 0.0715 -- and the rusher STILL locked: his strike frame 458 read IoU 0.136 with his blocker (37),
+his engaged frames were 459-465 (side by side in the sideline view two men overlap 0.07-0.19 through a block). Fix
+(commit after 54a0d05): the gate looks at every frame of the stance and counts touching boxes (ENGAGED_IOU 0.05).
+Arm running; v103 after it.
+Window box gate arm (ENGAGED_IOU 0.05 on any frame of the stance + ENGAGED_M 1.0; commit 1edd44f): 37 stances / 463
+frames on 15 ids (the rusher 15 gated 456-471, the tackled receiver 74 540-553; ids 0 / 28 / 80 free); band ratio
+p50 0.72, planted 17 % (A 9 %; ungated 25 %); ankle 6.8 / 20.6 px (A 6.0 / 17.3), knee 6.4 / 15.4; joint jitter
+p90 0.0669 (A 0.0604, +11 %) / p99 0.188 (A 0.183). Half the gain of the ungated lock at a third of its cost, and
+none of it on engaged men. v103 chain launched (machine ~11:05) with it; the film decides.
