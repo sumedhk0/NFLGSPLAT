@@ -6155,3 +6155,11 @@ Lost-tackler wiring measured on the joints: 171 held from 599 to the end, tackle
 the tail 604-614 (both Ravens on the pile), record v99, snapshot the viewer. Then START THE IN-FILLER (the user's call):
 a self-supervised joint in-filler on play 1 with the hold-out ruler (mask sure joints, measure recovery vs the Gaussian
 + SLERP), design in the 2026-09-23 chat and the pipeline write-up artifact ("All-22 to Avatars", to be kept current).
+
+**In-filler built (2026-09-23 01:40, pose/infill.py, scripts/09f_infill.py, tests/test_infill.py).** Three synthetic
+lessons, each measured: predict the correction over SLERP (rows outright lost 2.8 vs 1.1 deg); zero-init head +
+validation early stopping (epoch 0 = SLERP); every unsure row reads as its SLERP fill in the input (3.7 vs 1.5 with true
+values leaking as context); masks hide a LIMB over a run (single-joint masks taught a same-keyframe shortcut, 1.5 vs
+1.45). Synthetic now: never worse on a 2-keyframe hole, better over an 8-keyframe hole on a curved stride. NEXT: the
+play run (`PYS scripts/09f_infill.py --play-dir P --lo 395 --hi 607`) after v99, then the timeline hook only if the
+hold-out ruler wins on the arms.
