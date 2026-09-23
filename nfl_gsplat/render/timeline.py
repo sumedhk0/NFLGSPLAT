@@ -42,7 +42,7 @@ MAX_TILT_TWO_VIEW_DEG: float = 60.0
 # his frames (False, the behaviour to 2026-09-22). A player fitted in two views at the snap and by the one-view
 # regressor in a pile later carried the two-view limit into the pile (play 1 v96: the defender 6 leans 84 deg at
 # 490-492 on regressor records at 488 and 494 with no refit near). Read at call time by build_timeline.
-TILT_LIMIT_PER_FRAME: bool = False   # measured next; v97 renders without it
+TILT_LIMIT_PER_FRAME: bool = True
 # A man on the ground is not clamped upright: the sideline box wider than this share of its
 # height says he lies (play 1's tackle at 640: ids 184 and 55 under boxes 0.46-0.58 as tall as
 # wide, fitted standing at 24 deg and clamped there until 2026-09-17). 0.9 also caught crouched

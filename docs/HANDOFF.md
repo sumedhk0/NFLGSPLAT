@@ -6108,3 +6108,18 @@ The defender's lean (6, 84 deg at 490-492) explained: no refit records for him t
 record in a pile gets the two-view allowance. timeline.TILT_LIMIT_PER_FRAME (the nearest keyframe's source per frame)
 built and unit-tested, default OFF while v97 renders (the chain re-imports the modules per stage); measured alone in
 flight (joints export + loader rulers via with_flag).
+TILT_LIMIT_PER_FRAME measured alone (with_flag, v96 tables + both pose rules): trunk past 70 deg 4 -> 0 body-frames (6 at
+490-492 and 15 at 574-576 both clamped to the one-view limit their records deserve), 09d jerk 10 -> 10, sideways
+unchanged, loader rulers unchanged (2 / 0 / 0.16). ADOPT after the v97 chain finishes (the chain re-imports the
+modules per stage; flipping now would mix rules inside v97). Then v98 = v97 + this, or fold it into the next render.
+A yaw ruler tried and found CONFOUNDED: for bodies over 3 m/s the fitted facing (up x (R shoulder - L shoulder)) is over
+45 deg off the run direction on 61 % of 1,236 body-frames and past 90 on 35 % -- but the worst ids are the backpedalling
+defenders (6, 0, 30, 5, 3, 2) and the motion man (9, who runs across while facing the ball): real. A facing ruler needs
+the film's own evidence (the endzone camera sees the numbers) or the 2D keypoints' left/right; the FPV yaw stays with
+the viewer's play-derived gaze for now.
+
+**v97 rendered (2026-09-22 22:58): `diag/play_001_v97_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.**
+v96 tables + DROP_UNBOXED_POSES + DROP_MERGED_BOX_POSES. Film check at the receiver's contact: upright and engaged at
+488 and 494 (v96 lay flat); the defender 6 behind him still flat at 488-492 (the per-player tilt-limit case).
+TILT_LIMIT_PER_FRAME flipped ON after the chain; suite running for its commit; v98 chain launched ~23:05 (v96 tables +
+all three pose rules).
