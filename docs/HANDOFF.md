@@ -6277,3 +6277,15 @@ the arms at 420-500, id 84 at 404-406, the tail.
 Film check of id 84 at 400-410 (diag/lean_84_404.png): a Raven driving low into the KC line, bent ~70 deg -- REAL; the
 new one-view records catch a lean the legacy ones missed. Viewer Version 17 = the v100 joints (the copy's export,
 same config as live now).
+
+**The first-person yaw, resolved on the film (2026-09-23 ~08:40):** the triangulated shoulders of the QB face 97 deg at
+500 with a normal 0.38 m gap and match both cameras' left/right labels (sideline 9 px as-labelled vs 54 swapped;
+endzone 34 vs 39, shoulders overlapping in that view). Film strips (diag/qb_shoulders_side.png, _end.png): the
+sideline camera sees the "15" on his BACK at 470-500 and the endzone camera his profile -- his torso faces the far
+sideline; his head turns downfield. The fit is right; the first-person camera needs a HEAD yaw, not a torso yaw.
+Next: head yaw from the COCO face keypoints (nose against the ears' midpoint, one visible ear = a quarter turn) per
+camera, into the export as a per-body gaze; the viewer uses it where present, the play-derived gaze elsewhere.
+head_yaw on play 1: sideline 2,234 body-frames / 37 ids, endzone 6,786 (a coarse instrument: "away" = pi, one ear = 0.35
+pi). QB: 103 deg (away from the sideline camera) at 480/520, -140 at 528, -180 at 540 (endzone) = downfield for the throw.
+Next: 05k exports {pid: {frame: [heading, conf]}} as "gaze"; the viewer's first person uses it where conf >= 0.5, held
+and smoothed, else the play-derived gaze.
