@@ -873,6 +873,11 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         boxed = set(zip(df["frame"].astype(int).tolist(), df["global_player_id"].astype(int).tolist()))
         poses, n_unboxed = tlm.drop_unboxed_poses(poses, boxed)
         print(f"pose records with no box for that id on that frame in either camera: {n_unboxed} dropped (no box, no fit)")
+    if tlm.INFILL_POSES and (P / "infill_poses.pkl").exists():
+        with open(P / "infill_poses.pkl", "rb") as fh:
+            infill = pickle.load(fh)
+        poses, n_fill = tlm.apply_infill(poses, infill)
+        print(f"in-filler: {n_fill} keyframe poses taken from infill_poses.pkl (pose.infill)")
     if tlm.DROP_MERGED_BOX_POSES:
         merged = tlm.merged_box_frames(df, cam="sideline", h_ratio=tlm.MERGED_H_RATIO, w_ratio=tlm.MERGED_W_RATIO)
         keep_frames = {(int(f), int(p)) for p, recs in poses.items() for f in recs} - merged

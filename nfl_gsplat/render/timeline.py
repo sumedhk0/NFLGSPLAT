@@ -918,6 +918,29 @@ DROP_UNBOXED_POSES: bool = True
 # the id's median height there, or MERGED_W_RATIO times its median width, is dropped like an unboxed one. Read at
 # call time by the loader; 0 = off.
 DROP_MERGED_BOX_POSES: bool = True
+# The per-play joint in-filler (pose.infill, scripts/09f_infill.py --write): its infill_poses.pkl carries, per
+# (pid, keyframe), the body_pose with the unsure rows replaced by the model's fill. With this on the loader swaps
+# those poses in before the timeline is built. Off until the play's hold-out ruler says the model beats SLERP.
+INFILL_POSES: bool = False
+
+
+def apply_infill(poses_by_pid: dict, infill: dict) -> tuple[dict, int]:
+    """``poses_by_pid`` (pid -> {frame: (body_pose, orient, betas, source)}) with the body_pose replaced from
+    ``infill`` (pid -> {frame: body_pose[21, 3]}) wherever both carry the (pid, frame); returns (poses, n)."""
+    n = 0
+    out: dict = {}
+    for pid, recs in poses_by_pid.items():
+        fill = infill.get(int(pid), {})
+        new = {}
+        for f, rec in recs.items():
+            bp = fill.get(int(f))
+            if bp is not None:
+                new[f] = (np.asarray(bp, float).reshape(21, 3),) + tuple(rec[1:])
+                n += 1
+            else:
+                new[f] = rec
+        out[pid] = new
+    return out, n
 MERGED_H_RATIO: float = 1.3
 MERGED_W_RATIO: float = 1.6
 

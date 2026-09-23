@@ -1183,3 +1183,12 @@ def test_tilt_limit_follows_the_nearest_records_source():
         return np.degrees(np.arccos(tl.body_up(s.global_orient)[2]))
     assert abs(tilt(per, 0) - 50) < 1.0 and abs(tilt(per, 20) - 35) < 1.0       # the one-view frame clamps
     assert abs(tilt(whole, 20) - 50) < 1.0                                        # the old way: the first record's source for all
+
+
+def test_apply_infill_swaps_only_the_poses_the_file_carries():
+    rec = lambda v: (np.full((21, 3), v), np.zeros(3), np.zeros(10), "fused")
+    poses = {9: {480: rec(0.1), 482: rec(0.2)}, 6: {480: rec(0.3)}}
+    infill = {9: {482: np.full((21, 3), 9.0)}, 77: {500: np.zeros((21, 3))}}
+    out, n = tl.apply_infill(poses, infill)
+    assert n == 1 and np.allclose(out[9][482][0], 9.0) and np.allclose(out[9][480][0], 0.1) and np.allclose(out[6][480][0], 0.3)
+    assert out[9][482][3] == "fused" and 77 not in out
