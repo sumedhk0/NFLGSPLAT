@@ -207,6 +207,15 @@ def main() -> None:
         reps = gait_timeline(tl)
         n_on = sum(r["on"] for r in reps.values())
         print(f"gait: legs synthesised on {n_on} body-frames of {sum(1 for r in reps.values() if r['on'])} ids")
+        # the foot lock on the jogging band (render.foot_lock rhythm mode, 2026-09-23): the fitted legs' own
+        # stances pinned to the turf below the gait's speed; MODE is read at call time, "off" does nothing
+        from nfl_gsplat.render import foot_lock as _fl
+
+        if _fl.MODE != "off":
+            lreps = _fl.foot_lock_timeline(tl, str(args.body_models))
+            print(f"foot lock ({_fl.MODE}): {sum(r['segments'] for r in lreps.values())} stances on "
+                  f"{sum(r['frames'] for r in lreps.values())} body-frames of "
+                  f"{sum(1 for r in lreps.values() if r['segments'])} ids")
     frames = frames_all[:: max(1, args.stride)]
     end = args.end_frame if args.end_frame is not None else play_end_frame(P)
     if end is not None:

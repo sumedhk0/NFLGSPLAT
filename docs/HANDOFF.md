@@ -6325,3 +6325,18 @@ sideline-anchored bodies 14 px farther from their endzone feet). The old camera 
 09i refinement fits the camera to the two-view fit's compromise, a circular ruler, and its pose gain was a wash on
 the same keys (07:30 entry). Also dropped with it: camera weighting in the fit (belonged with the re-tune). The
 endzone blend at 479 shows the drawn paint on the footage's yard lines. play_copy_b kept (28 MB, tables only).
+
+**The jogging band (2.5-4.8 m/s), measured 2026-09-23 ~11:30 (v100 as rendered, 395-607).** 39 % of the play's
+body-frames (1,845 of 4,682; > 4.8 m/s 24 %, < 1 m/s 10 %). As rendered (gait above 4.8): the slower ankle moves at
+0.76 of the pelvis, planted (< 0.3) 9 %, (< 0.5) 26 % on 1,798 band body-frames. The sideline leg KEYPOINTS cycle on
+every jogger (the left-minus-right ankle x: std 20-40 px, autocorrelation periods 24-37 frames = 1.6-2.5 Hz on ids 0,
+74, 80, 30, 7), and the FIT follows them: band ankle residual p50 6.0 / p90 17.6 px, knee 6.2 / 15.0; the fitted
+ankle's sweep about the hip 13.9 px std against the keypoints' 15.1, correlation 0.85-0.99 per id. So the fit is
+not the skate. A strike-window probe (strikes = maxima of the hip flexion in the motion plane, stance = 0.45 of the
+cycle): 41 windows on 19 ids, pelvis travel per stance 0.47 m, the ankle's world skate 0.53 m, sweep/travel 0.35 --
+the sweep is a SINUSOID (a foot planted for an instant per cycle) where a stance is flat for 40 % of it. Remedy
+built (`render/foot_lock.py` rhythm mode, commit 98f7a45, opt-in): the fit's own strikes, the ankle pinned at its
+strike point for DUTY 0.40 of the cycle, the leg re-solved by the numpy-FK solve_leg, eased over 3 frames, released
+0.45 m behind the hip. A/B running (`$S/jog_ab.py`): band planted share / ratio, the leg keypoint residual (must stay
+near 6 px), joint jitter, then the film. The old dips mode's "no effect" (09-16) was the sprint band, where the legs
+do not cycle; the gait owns that band now.

@@ -89,6 +89,12 @@ def main():
 
         reps = gait_timeline(tl)
         print(f"gait applied: legs synthesised on {sum(r['on'] for r in reps.values())} body-frames")
+        from nfl_gsplat.render import foot_lock as _fl
+
+        if _fl.MODE != "off":                                  # as 05k draws it (read at call time)
+            lreps = _fl.foot_lock_timeline(tl, str(args.body_models))
+            print(f"foot lock ({_fl.MODE}): {sum(r['segments'] for r in lreps.values())} stances on "
+                  f"{sum(r['frames'] for r in lreps.values())} body-frames")
     pos = mr.positions_by_id(tl.states)
     joints = joints_for(tl, model, args.lo, args.hi) if args.joints else None
     rep = mr.summarize(pos, tl.states, team_of(P), lo=args.lo, hi=args.hi, joints_by_id=joints)
