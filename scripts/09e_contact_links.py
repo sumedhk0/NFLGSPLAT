@@ -57,10 +57,11 @@ def main() -> None:
     links = cl.find_links(df, ground, teams, cam=a.cam, lo=lo, hi=hi, max_gap=a.max_gap, max_m=a.max_m)
     print(f"{a.cam}: window {lo}-{hi}, {len(links)} candidate pairs")
     for l in links:
-        tag = "REJECT" if l.reject else ("LINK  " if l.score >= a.min_score else "weak  ")
+        tag = "REJECT" if l.reject else ("DIRECTION?" if l.direction else ("LINK  " if l.score >= a.min_score else "weak  "))
         print(f"{tag} score {l.score:4.1f}  {l.keep:4d} <- {l.drop:4d} (track {l.track}): death {l.death_last}, birth "
-              f"{l.birth_first}, overlap {l.overlap}, {l.dist_m} m | " + "; ".join(l.reasons) + (f" | {l.reject}" if l.reject else ""))
-    chosen = [l for l in links if l.reject is None and l.score >= a.min_score]
+              f"{l.birth_first}, overlap {l.overlap}, {l.dist_m} m | " + "; ".join(l.reasons)
+              + (f" | {l.reject}" if l.reject else "") + (f" | {l.direction}" if l.direction else ""))
+    chosen = [l for l in links if l.reject is None and l.direction is None and l.score >= a.min_score]
     if not chosen:
         return
     print("\nto apply:")

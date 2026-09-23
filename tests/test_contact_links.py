@@ -71,3 +71,25 @@ def test_far_or_late_births_are_not_candidates():
     links = cl.find_links(df, _ground(df), {1: "KC", 2: "KC", 3: "KC"}, cam="sideline", lo=0, hi=120)
     assert not any(l.drop == 2 for l in links)                                   # past the gap: not a candidate
     assert all(l.score < cl.MIN_SCORE for l in links)                            # the far birth is listed weak, never applied
+
+
+def test_pile_box_deaths_are_vetoed_and_older_owners_flag_the_direction():
+    # a lineman whose last box is twice his height: the detector merged the pile, not a death
+    rows = _rows(19, 19, range(0, 48), 100, 0.0, 300)
+    rows += _rows(19, 19, [48, 49], 100, 0.0, 300, h=220)
+    rows += _rows(162, 162, range(52, 90), 110, 0.0, 300)
+    df = pd.DataFrame(rows)
+    links = cl.find_links(df, _ground(df), {19: "KC", 162: "KC"}, cam="sideline", lo=0, hi=100)
+    assert links and links[0].reject and "pile" in links[0].reject
+    # the born id 4 stood at this spot for 30 frames before id 1's track died on it: 4 owns the man
+    rows = _rows(4, 45, range(0, 30), 100, 0.0, 300)                       # 4 here early
+    rows += _rows(1, 40, range(20, 60), 100, 0.0, 300)                      # 1 slides onto the spot and dies
+    rows += _rows(4, 46, range(62, 120), 100, 0.0, 300)                     # 4 boxed again after
+    df = pd.DataFrame(rows)
+    links = cl.find_links(df, _ground(df), {1: "BAL", 4: "BAL"}, cam="sideline", lo=0, hi=120)
+    best = [l for l in links if l.keep == 1 and l.drop == 4][0]
+    assert best.reject is None and best.direction and "was here before" in best.direction
+    # the same pair with no history of 4 -> a plain link
+    df2 = pd.DataFrame(_rows(1, 40, range(20, 60), 100, 0.0, 300) + _rows(4, 46, range(62, 120), 100, 0.0, 300))
+    best2 = cl.find_links(df2, _ground(df2), {1: "BAL", 4: "BAL"}, cam="sideline", lo=0, hi=120)[0]
+    assert best2.direction is None and best2.reject is None

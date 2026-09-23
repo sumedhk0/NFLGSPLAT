@@ -27,6 +27,15 @@ VEL_FRAMES: int = 6          # frames of the death track used for its velocity
 CONTACT_IOU: float = 0.10    # another box overlapping the last box this much = contact
 OTHER_CAM_APART_M: float = 2.0
 MIN_SCORE: float = 2.0
+# Two lessons from the first run on play 1 (2026-09-22, four proposals read on the film): a death whose last box is a
+# merged PILE box (two or more men in one detection: height over PILE_H_RATIO times the track's median) is not a man
+# dying, it is the detector merging, so the pair is vetoed; and when the BORN id already has rows in this camera
+# before the death near the same spot, or the other camera saw it there, the born id is the older owner of the man and
+# the dying id's tail is the stray -- the link is flagged "direction?" and never applied (the 1/4 case: the finder
+# folded the owner into the stray and lost the census 0.16 -> 0.43).
+PILE_H_RATIO: float = 1.4
+OLDER_LOOKBACK: int = 240
+OLDER_NEAR_M: float = 4.0
 
 
 @dataclass
@@ -51,6 +60,7 @@ class Link:
     score: float
     reasons: list = field(default_factory=list)
     reject: str | None = None
+    direction: str | None = None       # "born id is the older owner here" -> not applied
 
     @property
     def overlap(self) -> int:
@@ -86,7 +96,9 @@ def _kit(values) -> str | None:
 
 def find_links(df: pd.DataFrame, ground: dict, teams: dict, *, cam: str = "sideline", lo: int, hi: int,
                max_gap: int = MAX_GAP, max_overlap: int = MAX_OVERLAP, max_m: float = MAX_M,
-               contact_iou: float = CONTACT_IOU, other_cam_apart_m: float = OTHER_CAM_APART_M) -> list[Link]:
+               contact_iou: float = CONTACT_IOU, other_cam_apart_m: float = OTHER_CAM_APART_M,
+               pile_h_ratio: float = PILE_H_RATIO, older_lookback: int = OLDER_LOOKBACK,
+               older_near_m: float = OLDER_NEAR_M) -> list[Link]:
     """``df``: tracks rows (frame, cam, track_id, global_player_id, bbox_*, team, jersey_number_ocr; endzone frames
     already on their sideline frames). ``ground``: {(cam, frame, pid): xy}. ``teams``: {pid: 'KC'|'BAL'} from the
     identity. Returns every candidate pair with its score and reasons, best first; ``reject`` set where a hard
@@ -111,8 +123,13 @@ def find_links(df: pd.DataFrame, ground: dict, teams: dict, *, cam: str = "sidel
     track_rows = {(s.pid, s.track): sub[(sub["global_player_id"] == s.pid) & (sub["track_id"] == s.track)]
                   for s in all_spans}
     other_ground = {(f, pid): xy for (c, f, pid), xy in ground.items() if c == other_cam}
+    heights = {(s.pid, s.track): float((track_rows[(s.pid, s.track)]["bbox_y2"] - track_rows[(s.pid, s.track)]["bbox_y1"]).median())
+               for s in all_spans}
     links: list[Link] = []
     for d in deaths:
+        last_box = rows_at.get((d.last, d.pid))
+        pile = (last_box is not None and heights.get((d.pid, d.track), 0) > 0
+                and (last_box[3] - last_box[1]) > pile_h_ratio * heights[(d.pid, d.track)])
         # the death's spot and velocity from its last frames
         pts = [(f, ground.get((cam, f, d.pid))) for f in range(d.last - VEL_FRAMES, d.last + 1)]
         pts = [(f, np.asarray(xy, float)) for f, xy in pts if xy is not None]
@@ -139,6 +156,17 @@ def find_links(df: pd.DataFrame, ground: dict, teams: dict, *, cam: str = "sidel
                 continue
             link = Link(cam=cam, keep=d.pid, drop=b.pid, track=b.track, death_last=d.last, birth_first=b.first,
                         dist_m=round(dist, 2), score=0.0)
+            if pile:
+                link.reject = f"the death box is a merged pile box (h {last_box[3] - last_box[1]:.0f} vs the track's {heights[(d.pid, d.track)]:.0f})"
+            # the born id's history: rows of its own in this camera before the death near the spot, or the other
+            # camera's sight of it there -> it owned this man first; the dying id's tail is the stray
+            older = [f for f in range(max(lo, d.last - older_lookback), d.last)
+                     if (cam, f, b.pid) in ground and np.linalg.norm(np.asarray(ground[(cam, f, b.pid)]) - xy_last) < older_near_m]
+            older_other = [f for f in range(max(lo, d.last - older_lookback), d.last)
+                           if (f, b.pid) in other_ground and np.linalg.norm(np.asarray(other_ground[(f, b.pid)]) - xy_last) < older_near_m]
+            if older or older_other:
+                link.direction = (f"born id {b.pid} was here before the death ({len(older)} frames in this camera, "
+                                  f"{len(older_other)} in the other): fold the dying id's tail into it instead")
             # kinematics
             kin = max(0.0, 1.0 - dist / max_m)
             link.score += kin
@@ -170,7 +198,6 @@ def find_links(df: pd.DataFrame, ground: dict, teams: dict, *, cam: str = "sidel
                     else:
                         link.reject = link.reject or f"jerseys differ ({jd} vs {jb})"
             # contact at the death
-            last_box = rows_at.get((d.last, d.pid))
             if last_box is not None:
                 touching = [pid for pid, box in frame_rows.get(d.last, []) if pid != d.pid and _iou(last_box, box) > contact_iou]
                 if touching:
@@ -196,7 +223,7 @@ def find_links(df: pd.DataFrame, ground: dict, teams: dict, *, cam: str = "sidel
                         link.score += 1.0
                         link.reasons.append(f"{other_cam} carries {d.pid} on to the birth's spot")
             links.append(link)
-    links.sort(key=lambda l: (l.reject is not None, -l.score))
+    links.sort(key=lambda l: (l.reject is not None, l.direction is not None, -l.score))
     return links
 
 

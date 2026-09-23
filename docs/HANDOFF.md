@@ -6078,3 +6078,16 @@ median height).
 The copy trial of the finder's 1 <- 4 (track 45 from 528) measured: census 0.16 -> 0.43, id 4 vanishes 502-607 (106
 frames), steps 2 / hops 0 -- REJECTED by the ruler as by the film (28th correction that lost). v96 chain reached the
 render (loader rulers on v96: steps 2, hops 0, census 0.16; 1 frame rendered) when the machine went off.
+
+**Resumed (2026-09-22 ~21:45): the chain never died** -- the pause left the machine on; the hifi 720 finished 21:14, the
+sideline blend/sbs 21:33, the endzone view is running. v96 film review (catch_check on the sideline blend): whole-field
+420/500/580 counts and spots right; the receiver's contact 482-500 PLACED right (one red man, one white, no spawn) but
+DRAWN LYING FLAT at 486-496 (neck-pelvis tilt 37 -> 90 -> 40 deg, the film has him upright and running); the catch
+556-568 and the throw 528-532 right; the tackle 598-606 at the film's spot. Cause of the flat body: the pose caches
+keep records for frames whose boxes were dropped or folded away after the fit -- id 9 has a regressor record at 488
+(the merged two-man box I dropped) and a refit at 494 (track 77's first, wide box), the timeline interpolates through
+them. Rule under test, alone: timeline.DROP_UNBOXED_POSES (a record whose (frame, id) has no tracks row in either
+camera is dropped before interpolation), measured on the joints (tilt at 486-496, 09d) and the loader rulers.
+Finder re-run with the two rules: 19 <- 162 REJECT (pile box h 201 vs 126), 1 <- 4 DIRECTION? (4 seen 53 frames in the
+endzone before the death), 167 <- 139 / 153 still LINK (167 is itself a pile id at the KC line, 412's box h 206;
+unverified, not applied).
