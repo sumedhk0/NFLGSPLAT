@@ -6177,3 +6177,8 @@ fused fit's joints reprojected where a camera anchors them (conf >= 0.5 within 1
 the other camera) is the new signal; det where only the detector is confident; unlabelled otherwise. Dataset under
 <play-dir>/pose_ds (gitignored): every 5th sideline frame + its endzone frame = val. Building for play 1 now; the
 counts (how many fit_cross labels, where) decide whether there is enough new signal to train on.
+Dataset built (play 1, 214-616 stride 2, the cache's own keyframes -- a range from the odd 215 had missed every fit):
+395 images (317 train / 78 val), 9,298 instances, 85,204 keypoint slots: fit_self 48.5 %, fit_cross 16.3 % (13,858:
+endzone 12,382, sideline 1,476 -- the endzone detector is the weak one at 88 m; the sideline gets ~120 cross labels per
+joint), det 13.4 %, unlabelled 21.8 %. 165 MB under <play-dir>/pose_ds (gitignored). scripts/09h_finetune_pose.py
+written: baseline score, ultralytics fine-tune (freeze 10, imgsz 1920, batch 2, no mosaic), fine-tuned score by source.

@@ -75,7 +75,10 @@ def main() -> None:
                         transl=torch.tensor(np.asarray(rec["transl"]).reshape(1, 3).astype(np.float32)))
         return res.joints[0, :22].numpy().astype(np.float64)
 
-    frames = list(range(a.lo, a.hi + 1, a.stride))
+    # the cache's own keyframes in the window (the fits sit on even frames; a range from an odd start missed them all)
+    frames = sorted(int(f) for f in refit if a.lo <= int(f) <= a.hi and (int(f) - a.lo) % a.stride == 0 or a.lo <= int(f) <= a.hi and a.stride == 1)
+    if not frames:
+        frames = sorted(int(f) for f in refit if a.lo <= int(f) <= a.hi)
     rows = []
     per_image: dict = {}                       # (cam, clip_frame) -> list of (box, uv, vis)
     counts = {s: 0 for s in pl.SOURCES}
