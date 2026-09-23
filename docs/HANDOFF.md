@@ -6228,3 +6228,41 @@ a MERGE on the copy: the corrected-camera refit where it has a record, the legac
 **v99 rendered (2026-09-23 05:41): `diag/play_001_v99_hifi_720.mp4` + `_sideline_blend` / `_sideline_sbs` / `_endzone_blend`.**
 v98 + the lost tackler held into the pile. Film check of the tail 600-612: two Ravens on the carrier at 600-604, the
 pile flat with both on him at 608-612, as on the film. v99 = CURRENT BEST (tables *.v96). Viewer Version 16 = v99 joints.
+Merge test (corrected-camera refit where present, legacy elsewhere; the OLD camera in the loader): steps 2, hops 0, census
+0.343 (live 0.16); every twin / fragment / kit decision identical to live; the difference is stand_still (131 -> 162 hole
+frames bridged, id 17 held 3 -> 33) and the census -- because place_from_refit puts every two-view frame on the refit's
+pelvis, and the corrected camera moved those pelvises (the +0.45 m depth). The placement rules were tuned on the old
+spots. Per-frame census diff against tl_v99.json next.
+The merge changed COVERAGE: "placement from the refit" 4,938 body-frames live -> 7,425 merged (the fresh refit adds
+records the legacy file lacks; each moves that frame's body from the box-bottom point to the refit pelvis). So the
+census 0.34 is mostly the coverage change. Isolating the camera: a same-keys merge (only the legacy file's own
+(pid, frame) records replaced by the corrected-camera poses) under test.
+POPULATION ARTEFACT (2026-09-23 ~06:30): the "sideways R arm 11.0 -> 6.9 %" of the fresh refit was measured on a different
+population -- the fresh 05n+05f only has records on two-view frames, so the remaining bodies were the well-fitted ones.
+Merged with the legacy records (same coverage as live) the share is 10.8 % again, legs 5.5 / 4.7. The camera's own
+effect is the same-keys merge (pending). The sideways arms live in the frames the endzone does not see (one-view
+records of the legacy file), which no endzone correction can touch. State the population before the number (memory).
+Split by record source on the merged copy: two-view frames (700 body-frames) sideways R arm 25.6 % (52 of them the QB's
+throw), L arm 7.9, legs 3.5 / 2.7; legacy-only frames (1,660) R arm 8.3, L arm 6.5, legs 6.4 / 5.4. The arm ruler is
+the throw and the carry; the LEGS are the clean signal, and the one-view records bend sideways twice as often.
+Sideways R arm by id on the v99 joints (frames): 80 the QB 65 frames over 396-602 (the whole pocket, not just the throw
+-- candidate fit error), 74 Gray 30 (456-606: run + carry), 204 Humphrey L arm 24 (blocking), 4 Madubuike 24, 37
+Suamataia 24, 12 Taylor 18 (blocking), 17 16, 84 16, 15 Oweh 16, 9 15. Film check of the QB's arm in the pocket next.
+Film check of the QB's right arm (v99, 420/450/480/500): REAL -- he holds the ball at his chest with both elbows out
+(a frontal-plane bend); the blockers' hands and the carrier's ball arm are the same. The sideways-ARM ruler counts
+football, not fits, and is retired as a target; the sideways-LEG ruler (6.4 / 4.2 % live; the one-view records twice
+the two-view ones) stays. Coverage diff on the merged copy: 39 of 213 frames differ, almost all id 17 (a KC lineman)
+drawn at 441-450 where the live does not (KC 12): the added records restore a twin -- the merge as such is not a port.
+
+**Endzone camera VERDICT (2026-09-23 ~07:30): NOT PORTED.** Same-keys merge (the legacy file's own 5,885 records, 2,396
+of them replaced by the corrected-camera poses; old camera in the loader): loader rulers identical to live (2 / 0 /
+0.16, 4,938 refit placements); 09d L leg 6.4 -> 5.4 %, R leg 4.2 -> 4.8 %, arms 11.0 -> 10.5 / 5.8 -> 6.1, jerk 10 = 10,
+trunk 0 -- a wash. With the corrected camera in the loader too: steps 13, census 0.19, vanishings 235 frames (167
+421-607, 1 556-594): the holds and twin rules were tuned on the biased camera. The refinement (09i) is right by its
+residual (13.4 -> 9.8 px, the detector's floor, +0.45 m depth) and stays as a tool: for the label builder (the copy's
+labels have 3,175 endzone cross labels against 12,382 before) and for a future re-tune of the placement rules on a
+corrected camera. play_copy restored to the original camera. Lesson recorded (29th).
+NEXT UNIT running (~07:45): the one-view refit (05p, today's fit code with the hard hinges) for the endzone-blind frames on
+the copy, swapped into the legacy file on its own keys only (two-view records untouched); loader rulers + 09d legs vs
+live (6.4 / 4.2 %). The legacy one-view records predate the hard-hinge defaults (09-16); poses_refit.json's mtime is a
+fold's relabel, not a refit.
