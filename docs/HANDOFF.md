@@ -6091,3 +6091,6 @@ camera is dropped before interpolation), measured on the joints (tilt at 486-496
 Finder re-run with the two rules: 19 <- 162 REJECT (pile box h 201 vs 126), 1 <- 4 DIRECTION? (4 seen 53 frames in the
 endzone before the death), 167 <- 139 / 153 still LINK (167 is itself a pile id at the KC line, 412's box h 206;
 unverified, not applied).
+DROP_UNBOXED_POSES measured alone: 812 records dropped; loader rulers unchanged (2 / 0 / 0.16); id 9's tilt at 486-496
+51-94 -> 32-40 deg; bodies past 70 deg in the window 3 -> 2 (6 at 492, 15 at 576 remain: their rows exist); 09d 14 -> 12.
+ADOPTED (default True). v97 = v96 tables + this rule, chain to launch when v96's endzone view finishes.

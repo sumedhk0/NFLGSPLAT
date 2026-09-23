@@ -31,7 +31,7 @@ def angle(a, b, c) -> float:
     return math.degrees(math.acos(max(-1.0, min(1.0, d))))
 
 
-def rulers(doc: dict, *, lo: int | None, hi: int | None, jerk_deg: float, side: float) -> dict:
+def rulers(doc: dict, *, lo: int | None, hi: int | None, jerk_deg: float, side: float, tilt_deg: float = 70.0) -> dict:
     frames = [f for f in doc["frames"] if (lo is None or f >= lo) and (hi is None or f <= hi)]
     series: dict = collections.defaultdict(dict)
     plane = {k: [] for k in LIMBS}
@@ -51,7 +51,21 @@ def rulers(doc: dict, *, lo: int | None, hi: int | None, jerk_deg: float, side: 
                     nrm = np.cross(u, v); nn = float(np.linalg.norm(nrm))
                     if nn > 1e-6:
                         plane[name].append((abs(float(np.dot(nrm / nn, r / rn))), pid, f, a))
-    out = {"body_frames_per_hinge": dict(n), "flexion": {}, "jerk": {}, "sideways": {}}
+    out = {"body_frames_per_hinge": dict(n), "flexion": {}, "jerk": {}, "sideways": {}, "tilt": {}}
+    # the trunk's lean from vertical (neck - pelvis): a standing or running man leans under ~45 deg; past 70 he is on
+    # the ground or the fit is (2026-09-22: the motion receiver lay flat for 10 frames on cache records fitted to
+    # boxes that were no longer his; his placement was right and no other ruler saw it)
+    tilt_frames = []
+    for f in frames:
+        for pid, team, J in doc["bodies"].get(str(f), []):
+            J = np.asarray(J, float)
+            up = J[12] - J[0]
+            t = math.degrees(math.acos(max(-1.0, min(1.0, up[2] / (np.linalg.norm(up) + 1e-9)))))
+            if t > tilt_deg:
+                tilt_frames.append((round(t), pid, f))
+    by_id = collections.Counter(pid for _t, pid, _f in tilt_frames)
+    out["tilt"] = {"threshold_deg": tilt_deg, "body_frames": len(tilt_frames), "ids": by_id.most_common(8),
+                   "worst": sorted(tilt_frames, reverse=True)[:8]}
     for name in LIMBS:
         vals = [a for (pid, nm), s in series.items() if nm == name for a in s.values()]
         out["flexion"][name] = {"over_bent_lt_35": int(sum(a < 35 for a in vals)), "locked_gt_178": int(sum(a > 178 for a in vals))}
@@ -80,9 +94,10 @@ def main() -> None:
     ap.add_argument("--hi", type=int, default=None)
     ap.add_argument("--jerk-deg", type=float, default=25.0)
     ap.add_argument("--side", type=float, default=0.4, help="bend-plane sagittal-ness below this = sideways")
+    ap.add_argument("--tilt-deg", type=float, default=70.0, help="trunk lean from vertical past this = on the ground or a bad fit")
     a = ap.parse_args()
     doc = json.load(open(a.joints, encoding="utf-8"))
-    out = rulers(doc, lo=a.lo, hi=a.hi, jerk_deg=a.jerk_deg, side=a.side)
+    out = rulers(doc, lo=a.lo, hi=a.hi, jerk_deg=a.jerk_deg, side=a.side, tilt_deg=a.tilt_deg)
     print("body-frames per hinge:", out["body_frames_per_hinge"])
     print("flexion out of range:", out["flexion"])
     print(f"hinge-angle jerk > {a.jerk_deg:g} deg/frame^2:", out["jerk"]["per_hinge"], "total", out["jerk"]["total"])
@@ -90,6 +105,9 @@ def main() -> None:
     print(f"sideways bends (plane sagittal-ness < {a.side:g}):")
     for name, r in out["sideways"].items():
         print(f"  {name}: {r['sideways']} of {r['bent']} bent ({r['pct']} %), worst ids {r['worst_ids']}")
+    t = out["tilt"]
+    print(f"trunk past {t['threshold_deg']:g} deg from vertical: {t['body_frames']} body-frames, ids {t['ids']}")
+    print("  worst:", t["worst"])
 
 
 if __name__ == "__main__":
