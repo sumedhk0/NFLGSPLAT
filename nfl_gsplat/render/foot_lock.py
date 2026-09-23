@@ -49,7 +49,11 @@ MODE: str = "off"               # "off" | "dips" | "rhythm": what the scripts ap
 JOG_M: float = 0.042            # pelvis speed (m per frame) above which a body jogs: 2.5 m/s at 59.94 fps
 RUN_M_LOCK: float = 0.08        # ... and below which the lock applies (the gait's RUN_M: faster legs are the gait's)
 DUTY: float = 0.40              # stance share of a jog cycle
-EDGE: int = 3                   # frames to blend a stance in and out (the pin interpolated from the fitted ankle)
+EDGE: int = 1                   # frames to ease a stance in and out INSIDE the window (1 = none: the pin IS the fitted
+                                # ankle at the strike, so the start is continuous by construction)
+RELEASE: int = 6                # frames AFTER a stance over which the foot swings from the pin back to the fit's own
+                                # ankle (smoothstep), so the release is a swing, not a snap: the first A/B (EDGE 3, no
+                                # release) raised joint jitter p90 27 % with the foot jumping 0.3 m on the frame after
 FLEX_SIGMA: float = 1.5         # Gaussian (frames) on the fitted flexion before its maxima are read
 MIN_CYCLE: int = 8              # a strike-to-strike interval outside this range is not a leg cycle (no lock)
 MAX_CYCLE: int = 60
@@ -167,25 +171,47 @@ def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=N
     return out
 
 
-def lock_stances(seq, rest, parents, stances, *, edge=None, pull=None):
+def lock_stances(seq, rest, parents, stances, *, edge=None, pull=None, release=None, run_m=None):
     """``(body_poses [T, 21, 3], report)``: each ``(side, t0, t1, pin_xy)`` stance's leg re-solved per frame so the
-    ankle lands on the pin, the target eased from the fitted ankle over ``edge`` frames at both ends."""
+    ankle lands on the pin (the target eased from the fitted ankle over ``edge`` frames inside the window), then
+    over the ``release`` frames after the stance the target swings from the pin back to the fitted ankle on a
+    smoothstep. A release frame that belongs to another stance of the same leg, or runs at the gait's speed, is
+    left to them."""
     edge = EDGE if edge is None else int(edge)
     pull = PULL if pull is None else float(pull)
+    release = RELEASE if release is None else int(release)
+    run_m = RUN_M_LOCK if run_m is None else float(run_m)
+    T = len(seq)
     out = np.array([np.asarray(s[1], float).reshape(21, 3) for s in seq])
     pel, ank = ankle_world_xy(seq, rest, parents)
-    report = {"segments": 0, "frames": 0, "moved_m": [], "miss_m": []}
-    for side, t0, t1, pin in stances:
+    speed = _speeds(pel)
+    owned = {"L": set(), "R": set()}
+    for side, t0, t1, _pin in stances:
+        owned[side].update(range(t0, t1 + 1))
+    report = {"segments": 0, "frames": 0, "released": 0, "moved_m": [], "miss_m": []}
+
+    def solve(t, side, li, target):
+        bp, miss = solve_leg(out[t], seq[t][2], rest, side, target, pel[t], pull=pull, parents=parents)
+        out[t] = bp
+        report["frames"] += 1
+        report["moved_m"].append(float(np.linalg.norm(ank[t, li] - target)))
+        report["miss_m"].append(miss)
+
+    for side, t0, t1, pin in sorted(stances, key=lambda st: (st[1], st[0])):
         li = 0 if side == "L" else 1
+        pin = np.asarray(pin, float)
         report["segments"] += 1
         for t in range(t0, t1 + 1):
             w = min(1.0, (t - t0 + 1) / max(edge, 1), (t1 - t + 1) / max(edge, 1)) if edge > 1 else 1.0
-            target = (1 - w) * ank[t, li] + w * np.asarray(pin, float)
-            bp, miss = solve_leg(out[t], seq[t][2], rest, side, target, pel[t], pull=pull, parents=parents)
-            out[t] = bp
-            report["frames"] += 1
-            report["moved_m"].append(float(np.linalg.norm(ank[t, li] - target)))
-            report["miss_m"].append(miss)
+            solve(t, side, li, (1 - w) * ank[t, li] + w * pin)
+        for k in range(1, release + 1):
+            t = t1 + k
+            if t >= T or t in owned[side] or speed[t] >= run_m:
+                break
+            w = 1.0 - k / (release + 1)
+            w = w * w * (3.0 - 2.0 * w)
+            solve(t, side, li, (1 - w) * ank[t, li] + w * pin)
+            report["released"] += 1
     return out, report
 
 
@@ -283,11 +309,12 @@ def foot_lock_sequence(seq, betas, body_models_dir, *, moving_m: float = MOVING_
     mode = MODE if mode is None else str(mode)
     out0 = np.array([np.asarray(s[1], float).reshape(21, 3) for s in seq])
     if mode == "off" or len(seq) < 3:
-        return out0, {"segments": 0, "frames": 0, "moved_m": [], "miss_m": []}
+        return out0, {"segments": 0, "frames": 0, "released": 0, "moved_m": [], "miss_m": []}
     rest, parents = load_smplx_skeleton(body_models_dir, betas=np.asarray(betas, float)[:10])
     if mode == "rhythm":
-        st = rhythm_stances(seq, rest, parents, **rhythm_kw)
-        return lock_stances(seq, rest, parents, st, pull=pull, edge=rhythm_kw.get("edge"))
+        st = rhythm_stances(seq, rest, parents, **{k: v for k, v in rhythm_kw.items() if k not in ("edge", "release")})
+        return lock_stances(seq, rest, parents, st, pull=pull, edge=rhythm_kw.get("edge"),
+                            release=rhythm_kw.get("release"), run_m=rhythm_kw.get("run_m"))
     if mode != "dips":
         raise ValueError(f"foot lock mode {mode!r}: off, dips or rhythm")
     pel, ank = ankle_world_xy(seq, rest, parents)
@@ -327,7 +354,7 @@ def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, **kw):
                 runs.append(run)
                 run = [f]
         runs.append(run)
-        rep = {"segments": 0, "frames": 0, "moved_m": [], "miss_m": []}
+        rep = {"segments": 0, "frames": 0, "released": 0, "moved_m": [], "miss_m": []}
         for run in runs:
             if len(run) < 3:
                 continue
@@ -335,8 +362,8 @@ def foot_lock_timeline(tl, body_models_dir, *, lo=None, hi=None, **kw):
             bps, r = foot_lock_sequence(seq, byf[run[0]].betas, body_models_dir, **kw)
             for f, bp in zip(run, bps):
                 byf[f].body_pose = bp
-            for k in ("segments", "frames"):
-                rep[k] += r[k]
+            for k in ("segments", "frames", "released"):
+                rep[k] += r.get(k, 0)
             rep["moved_m"] += r["moved_m"]
             rep["miss_m"] += r["miss_m"]
         reports[pid] = rep

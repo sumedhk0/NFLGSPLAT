@@ -127,8 +127,8 @@ def test_rhythm_mode_plants_the_stance_foot_of_a_jogger_and_leaves_the_swing():
         after = np.ptp(ank2[mid, li], axis=0).max()
         assert after < 0.02
         assert np.ptp(ank[t0:t1 + 1, li], axis=0).max() > after
-    # frames outside every stance are untouched
-    touched = {t for _s, t0, t1, _p in st for t in range(t0, t1 + 1)}
+    # frames outside every stance and its release swing are untouched
+    touched = {t for _s, t0, t1, _p in st for t in range(t0, t1 + 1 + fl.RELEASE)}
     for t in range(len(seq)):
         if t not in touched:
             assert np.allclose(out[t], seq[t][1])
@@ -185,3 +185,34 @@ def test_band_rule_strike_keeps_a_stance_that_slows_through_the_band_edge(monkey
         step = 0.06 if not (mid <= t <= mid + 1) else 0.09
         y -= step; fast.append((np.array([0.0, y]), seq[t][1], go))
     assert not any(s[1] == t0 for s in fl.rhythm_stances(fast, rest, parents, sigma=0, band_rule="strike"))
+
+
+@pytest.mark.skipif(not __import__("pathlib").Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists(),
+                    reason="SMPL-X model not present")
+def test_release_swings_the_foot_back_to_the_fit_instead_of_snapping():
+    seq, go = _jogger(T=60)
+    rest, parents = fl.load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    st = fl.rhythm_stances(seq, rest, parents, sigma=0)
+    side, t0, t1, pin = st[0]
+    li = 0 if side == "L" else 1
+    snap, rep0 = fl.lock_stances(seq, rest, parents, [st[0]], release=0)
+    out, rep = fl.lock_stances(seq, rest, parents, [st[0]], release=6)
+    assert rep0["released"] == 0 and rep["released"] == 6
+    _p1, ank_snap = fl.ankle_world_xy([(xy, snap[t], go) for t, (xy, _b, _g) in enumerate(seq)], rest, parents)
+    _p2, ank_rel = fl.ankle_world_xy([(xy, out[t], go) for t, (xy, _b, _g) in enumerate(seq)], rest, parents)
+    # without a release the foot jumps on the frame after the stance; with it the first step is small and no step
+    # exceeds the fit's own swing speed over those frames (a released foot swings, it does not snap)
+    _p0, ank_fit = fl.ankle_world_xy(seq, rest, parents)
+    jump = np.linalg.norm(ank_snap[t1 + 1, li] - ank_snap[t1, li])
+    steps = np.linalg.norm(np.diff(ank_rel[t1:t1 + 8, li], axis=0), axis=1)
+    fit_steps = np.linalg.norm(np.diff(ank_fit[t1:t1 + 8, li], axis=0), axis=1)
+    assert jump > 0.05 and steps[0] < 0.6 * jump and steps.max() <= 1.2 * fit_steps.max() + 1e-6
+    # the released foot leaves the pin monotonically and ends on the fit's own ankle
+    d = [np.linalg.norm(ank_rel[t, li] - pin) for t in range(t1, t1 + 7)]
+    assert all(b >= a - 1e-6 for a, b in zip(d, d[1:]))
+    assert np.allclose(out[t1 + 7], seq[t1 + 7][1])
+    # a release frame owned by the next stance of the same leg is not released
+    both = [s for s in st if s[0] == side][:2]
+    if len(both) == 2:
+        _out2, rep2 = fl.lock_stances(seq, rest, parents, both, release=60)
+        assert rep2["released"] < 60
