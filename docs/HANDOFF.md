@@ -6450,3 +6450,16 @@ FOOTLOCK_PATH): 28 stances / 421 frames on 12 ids (flexion + MIN_REACH0: 21 / 27
 0.74, ankle 6.8 / 18.6 px (the best p90 of any arm; A 6.0 / 17.3), knee 6.4 / 15.0; jitter p90 0.0644 (A 0.0604,
 +7 %) / p99 0.188. The foot lands ahead of the hip by construction; the stances survive. v105 = this, after v104
 lands (module edits wait for the chain).
+
+**v104 rendered (machine clock 12:49): the release from the stance-end offset + MIN_REACH0, flexion strikes; 07l: 22
+stances on 298 body-frames.** Film (`$S/lock_diff_strip2.py --a v103 --b v104`, the DB id 0 566-580): the only change
+is the release 576-580 -- the trailing leg no longer stretches at 578 (the foot sits under him as the film's does);
+the stance 567-575 identical to v103; whole scene 450 / 500 / 562 unchanged. v104 is an improvement on v103's one
+open defect but with fewer stances (the flexion strikes). v105 chain launched (machine ~13:00) with the reach-signal
+strike (commit f5ef27e, 32 tests): the film decides between v103 / v104 / v105 -- v105 expected best (28 stances,
+the foot ahead of the hip by construction, no stretch).
+PAUSE (user powering off, machine ~13:20): the v105 chain was mid-render (`$S/chain_v105.sh`, log `$S/chain_v105.log`).
+ON RESUME: re-run `nohup bash $S/chain_v105.sh > $S/chain_v105.log 2>&1 < /dev/null &` (05k resumes from existing
+frames in render_hifi_v105 / render_view_v105 / render_ezview_v105), then the strips: id 0 561-577 + 583-597, id 2
+541-557, id 30 447-463, id 28 521-537 (`lock_diff_strip2.py --a v103 --b v105`), the whole scene 450 / 500 / 562, then
+the v105 verdict, the joints export + viewer, the write-up. Repo at f5ef27e (reach-signal strike default).
