@@ -216,3 +216,26 @@ def test_release_swings_the_foot_back_to_the_fit_instead_of_snapping():
     if len(both) == 2:
         _out2, rep2 = fl.lock_stances(seq, rest, parents, both, release=60)
         assert rep2["released"] < 60
+
+
+@pytest.mark.skipif(not __import__("pathlib").Path("data/body_models/smplx/SMPLX_NEUTRAL.npz").exists(),
+                    reason="SMPL-X model not present")
+def test_warm_start_keeps_consecutive_leg_solves_continuous(monkeypatch):
+    """A leg pinned over a stance has a 4-D null space (six rotation parameters, a two-coordinate target); solved
+    cold from the fit's swinging rotations each frame the solution can hop between equivalent legs, warm-started
+    from the previous frame it stays put. Both pin the foot."""
+    seq, go = _jogger(T=60)
+    rest, parents = fl.load_smplx_skeleton("data/body_models", betas=np.zeros(10))
+    st = fl.rhythm_stances(seq, rest, parents, sigma=0)
+    side, t0, t1, pin = st[0]
+    hip, knee, _ankle = fl.LEG[side]
+    monkeypatch.setattr(fl, "WARM_START", False)
+    cold, rc = fl.lock_stances(seq, rest, parents, [st[0]], release=0)
+    monkeypatch.setattr(fl, "WARM_START", True)
+    warm, rw = fl.lock_stances(seq, rest, parents, [st[0]], release=0)
+    assert max(rc["miss_m"]) < 0.02 and max(rw["miss_m"]) < 0.02
+    def hops(bp):
+        x = np.array([np.concatenate([bp[t][hip], bp[t][knee]]) for t in range(t0, t1 + 1)])
+        return np.linalg.norm(np.diff(x, axis=0), axis=1)
+    assert hops(warm).max() <= hops(cold).max() + 1e-9
+    assert hops(warm).max() < 0.5                    # under half a radian of hip+knee change per frame

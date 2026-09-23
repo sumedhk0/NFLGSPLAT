@@ -59,6 +59,8 @@ MIN_CYCLE: int = 8              # a strike-to-strike interval outside this range
 MAX_CYCLE: int = 60
 MIN_SWEEP: float = 0.15         # rad: a flexion maximum must drop this far before the next maximum to be a strike
 MAX_BACK_M: float = 0.45        # the pin farther than this behind the hip along the motion: the foot lets go
+WARM_START: bool = True         # start each locked frame's leg solve from the previous locked frame's solution (read at
+                                # call time); the pull stays toward the fit, this only picks the nearest of the equal legs
 BAND_RULE: str = "window"       # "window": every frame of a stance must be in the speed band; "strike": the strike frame
                                 # must be, and no frame of the stance may reach the gait's speed (a man slowing through
                                 # 2.5 m/s mid-stance still plants)
@@ -189,10 +191,15 @@ def lock_stances(seq, rest, parents, stances, *, edge=None, pull=None, release=N
     for side, t0, t1, _pin in stances:
         owned[side].update(range(t0, t1 + 1))
     report = {"segments": 0, "frames": 0, "released": 0, "moved_m": [], "miss_m": []}
+    prev = {"L": (None, None), "R": (None, None)}              # the last solved (frame, x) per leg: the warm start
 
     def solve(t, side, li, target):
-        bp, miss = solve_leg(out[t], seq[t][2], rest, side, target, pel[t], pull=pull, parents=parents)
+        hip, knee, _ankle = LEG[side]
+        pf, px = prev[side]
+        x_init = px if (WARM_START and pf is not None and t == pf + 1) else None
+        bp, miss = solve_leg(out[t], seq[t][2], rest, side, target, pel[t], pull=pull, parents=parents, x_init=x_init)
         out[t] = bp
+        prev[side] = (t, np.concatenate([bp[hip], bp[knee]]))
         report["frames"] += 1
         report["moved_m"].append(float(np.linalg.norm(ank[t, li] - target)))
         report["miss_m"].append(miss)
@@ -277,9 +284,12 @@ def stance_segments(pel_xy, ankle_xy, *, moving_m: float = MOVING_M, stance_rati
 
 
 def solve_leg(body_pose, global_orient, rest, side: str, target_xy, pelvis_xy, *, pull: float = PULL,
-              parents=SMPLX_BODY_PARENTS):
+              parents=SMPLX_BODY_PARENTS, x_init=None):
     """``(body_pose, miss_m)``: the hip and knee rows of ``side`` re-solved so the ankle's world xy lands on
-    ``target_xy`` with the pelvis at ``pelvis_xy``; the rest of the pose untouched."""
+    ``target_xy`` with the pelvis at ``pelvis_xy``; the rest of the pose untouched. The pull is toward the FITTED
+    hip and knee; ``x_init`` (6: hip, knee rotvecs) starts the solve elsewhere -- the previous locked frame's
+    solution, so consecutive frames settle in the same minimum of the null space instead of jittering between
+    equivalent legs."""
     hip, knee, ankle = LEG[side]
     bp0 = np.asarray(body_pose, float).reshape(21, 3).copy()
     go = np.asarray(global_orient, float)
@@ -292,7 +302,7 @@ def solve_leg(body_pose, global_orient, rest, side: str, target_xy, pelvis_xy, *
         J = relative_joints(bp, go, rest, parents)
         return np.concatenate([J[ankle, :2] - tgt, pull * (x - x0)])
 
-    sol = least_squares(resid, x0, method="lm", max_nfev=60)
+    sol = least_squares(resid, x0 if x_init is None else np.asarray(x_init, float), method="lm", max_nfev=60)
     bp = bp0.copy()
     bp[hip], bp[knee] = sol.x[:3], sol.x[3:]
     miss = float(np.linalg.norm(resid(sol.x)[:2]))

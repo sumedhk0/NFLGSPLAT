@@ -6352,3 +6352,16 @@ ankles and +14 % joint jitter p90 -- but it acts on 15 % of the band. Funnel (`$
 (0.45 m behind the hip) trimmed 271 of the kept 534 frames. BAND_RULE "strike" added (the strike in the band, no
 frame at the gait's speed; a man slowing through 2.5 mid-stance still plants); two arms running: strike, and strike
 with MAX_BACK 0.35.
+Strike-rule arms (~12:40): BAND_RULE strike -- 72 stances / 518 frames on 20 ids, foot moved p50 0.11 / p90 0.32 m;
+band ratio p50 0.72, planted 18 % (< 0.5 32 %); ankle 6.7 / 19.4 px, knee 6.3 / 15.2; joint jitter p90 0.0765 (+27 %
+on A's 0.0604), p99 0.215. Strike + MAX_BACK 0.35 -- 69 / 435 frames; planted 16 %; ankle 6.5 / 19.0; jitter p90
+0.0728. The planting gain is real and the keypoints hold (+0.5-0.7 px), the JITTER is the cost: on the frame after a
+stance the foot jumped from its pin to the fit's mid-swing ankle (0.3 m in a frame). RELEASE 6 built (commit 64553b9:
+the target eased from the pin back to the fitted ankle over six frames, smoothstep; EDGE 1); arm running.
+Release arm (~13:05, strike + RELEASE 6, EDGE 1): 72 stances, 907 frames touched (stance + release) on 20 ids, foot
+moved p50 0.16 / p90 0.43 m; band ratio p50 0.67 (A 0.76), planted 25 % (A 9 %; < 0.5 37 % vs 26 %); ankle 7.4 /
+22.0 px (A 6.0 / 17.3), knee 6.3 / 15.8; joint jitter p90 0.0731 (A 0.0604, the snap arm 0.0765), p99 0.194 (A
+0.183). The planting nearly triples; the ankle residual grows by the skate it removes (a pinned foot against a
+sliding keypoint, 0.16 m = 13 px at the stance's end); the jitter is not the end snap alone -- a warm-started leg
+solve (the previous locked frame's solution as the start, the pull still toward the fit) is next, with a probe
+bucketing the jitter by role (strike / stance / end / release / untouched).
