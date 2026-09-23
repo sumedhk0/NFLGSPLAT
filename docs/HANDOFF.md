@@ -6163,3 +6163,11 @@ values leaking as context); masks hide a LIMB over a run (single-joint masks tau
 1.45). Synthetic now: never worse on a 2-keyframe hole, better over an 8-keyframe hole on a curved stride. NEXT: the
 play run (`PYS scripts/09f_infill.py --play-dir P --lo 395 --hi 607`) after v99, then the timeline hook only if the
 hold-out ruler wins on the arms.
+In-filler on the PLAY (395-607, 35 players, 1,633 keyframes, 34,293 rows: 13,833 sure, 423 unsure = 1.2 %): held-out
+sure rows 527, model 10.2 deg mean / 22.7 p90 vs SLERP 5.9 / 15.1; arms 5.3 vs 4.0, legs 21.2 vs 10.2. LOST -- and the
+early-stopping guard let it (best epoch 18): windows of neighbouring keyframes overlap on 8 of 9, so a per-window
+validation split was a near copy of training. Validation now by player; one honest rerun, then the verdict.
+In-filler VERDICT (player-wise validation): best epoch 0 -- the model is SLERP: 5.85 / 15.1 on 527 held-out rows, arms
+3.95 = 3.95, legs 10.15 = 10.15. Unsure rows 423 of 34,293 (1.2 %), 196 runs, p50 1 keyframe, p90 4, max 16; L arm 260,
+R arm 131, legs 32. Unseen joints are NOT the odd-arm mechanism. Code kept (hook off). NEXT: the 2D keypoint fine-tune
+on two-view-consistent pseudo-labels (the label builder first, with its own hold-out ruler).

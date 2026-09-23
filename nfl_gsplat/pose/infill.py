@@ -185,9 +185,11 @@ def hide(seqs: list[Sequence], test_masks: list[np.ndarray]) -> list[Sequence]:
 def train(win: Windows, *, epochs: int = 60, lr: float = 2e-3, width: int = 128, seed: int = 0, device: str = "cpu",
           val_every: int = 7):
     """Fit the in-filler on ``win`` (masked rows -> the correction over SLERP at the centre). The correction head
-    starts at zero, so epoch 0 IS today's fill; every ``val_every``-th window is validation, the epoch with the
-    lowest validation error is kept, and if none beats epoch 0 the model returns the zero correction. Returns the
-    torch model (eval mode) with ``net.best_epoch`` (0 = SLERP wins) and ``net.val_curve``."""
+    starts at zero, so epoch 0 IS today's fill; every ``val_every``-th PLAYER's windows are validation (windows of
+    neighbouring keyframes overlap on all but one keyframe, so a per-window split was a near copy of training and
+    let a memorising model through), the epoch with the lowest validation error is kept, and if none beats epoch 0
+    the model returns the zero correction. Returns the torch model (eval mode) with ``net.best_epoch`` (0 = SLERP
+    wins) and ``net.val_curve``."""
     import copy
 
     import torch
@@ -217,8 +219,10 @@ def train(win: Windows, *, epochs: int = 60, lr: float = 2e-3, width: int = 128,
     m = torch.tensor(win.mask, dtype=torch.float32, device=device)[:, :, None]
     n = len(x)
     is_val = torch.zeros(n, dtype=torch.bool, device=device)
-    if val_every and n >= 2 * val_every:
-        is_val[val_every - 1::val_every] = True
+    pids = sorted({pid for pid, _f in win.who})
+    if val_every and len(pids) >= 2 * val_every:
+        val_pids = set(pids[val_every - 1::val_every])
+        is_val = torch.tensor([pid in val_pids for pid, _f in win.who], dtype=torch.bool, device=device)
     tr_idx = torch.nonzero(~is_val).flatten()
     va_idx = torch.nonzero(is_val).flatten()
 

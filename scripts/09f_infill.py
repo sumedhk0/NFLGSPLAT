@@ -68,6 +68,23 @@ def load_sequences(P: Path, *, lo: int | None, hi: int | None) -> list[inf.Seque
     unsure = sum(int(inf.unsure_mask(s.conf).sum()) for s in seqs)
     total = sum(s.conf.size for s in seqs)
     print(f"rows: {total} total, {sure} sure (conf >= {inf.SURE_CONF}), {unsure} unsure (< {inf.UNSURE_CONF}), the rest in between or unknown")
+    runs = []
+    for s in seqs:
+        u = inf.unsure_mask(s.conf)
+        for j in range(inf.J):
+            k = 0
+            while k < len(s.frames):
+                if u[k, j]:
+                    a = k
+                    while k < len(s.frames) and u[k, j]:
+                        k += 1
+                    runs.append(k - a)
+                else:
+                    k += 1
+    if runs:
+        r = np.asarray(runs)
+        print(f"unsure runs: {len(r)}, keyframes per run p50 {np.percentile(r, 50):.0f} p90 {np.percentile(r, 90):.0f} max {r.max()}; "
+              f"rows by limb: " + ", ".join(f"{name} {int(sum(inf.unsure_mask(s.conf)[:, rows].sum() for s in seqs))}" for name, rows in inf.LIMBS.items()))
     return seqs
 
 
