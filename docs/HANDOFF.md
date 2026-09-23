@@ -6307,3 +6307,21 @@ he looks downfield and the sideline facing-away reading says the far sideline (1
 sideline" the user reported, re-created. Net: the viewer keeps the play-derived gaze (Version 17 rule), the export
 stays as raw material. Two cancelling sign errors fixed in head_yaw (world heading facing+yaw; the one-ear side): the
 play's readings are unchanged, the three-point case (1 reading on the play) flips. Viewer Version 18 = v100 joints.
+
+**Placement re-tune on the corrected endzone camera: CLOSED, no upside on play 1 (2026-09-23 ~10:40).** Three loader
+arms on copies (A play_copy = live tables + original camera; B play_copy_b = the same tables + cam_rot_depth, the 09i
+rot+depth refinement, +0.45 m; C = B with STAND_DEBUG_IDS). A reproduces live (steps 2 / hops 0 / census 0.16); B =
+13 / 0 / 0.192, vanish 235. But the DRAWN BODIES DO NOT MOVE between A and B: on the 4,673 shared (pid, frame) keys
+the median A->B move is 0.01 m (204: 0.07 m, 4: 0.05, 81: 0.03, everyone else <= 0.01) -- the common-mode shift
+already takes the endzone bias out of endzone-only points per frame (play-wide +0.28 m under A, -0.22 m under B, the
+per-frame offsets absorb both), and two-view points take x from the sideline and y from the endzone's lateral axis,
+so an endzone depth bias never reaches them. B's 13 steps and 235 vanish frames are three RULE EDGES flipping on the
+same positions: id 167 (a KC-kit fragment box on the 76/Raven pile at 411-420, film-checked) escapes the rider rule
+(RIDER_M 0.6) for 10 frames and then "vanishes" for 187; BAL 1's hold ends at 556 under the successor test; BAL 4's
+seam at 568-573. A new placement ruler (`$S/placement_residual.py`: every drawn body's ground point projected into
+each camera against the detector's foot point, same keys, px): two-view bodies in the SIDELINE 21.1 -> 20.1 norm p50
+(unchanged camera), in the ENDZONE 20.2 -> 26.8 (dv mean -6 -> -20 px: the corrected camera projects the
+sideline-anchored bodies 14 px farther from their endzone feet). The old camera (paint + box height, 08l) stays; the
+09i refinement fits the camera to the two-view fit's compromise, a circular ruler, and its pose gain was a wash on
+the same keys (07:30 entry). Also dropped with it: camera weighting in the fit (belonged with the re-tune). The
+endzone blend at 479 shows the drawn paint on the footage's yard lines. play_copy_b kept (28 MB, tables only).
