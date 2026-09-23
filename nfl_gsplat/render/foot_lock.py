@@ -34,6 +34,151 @@ PULL: float = 0.05             # weight of the pull toward the fitted hip / knee
 
 LEG = {"L": (0, 3, 7), "R": (1, 4, 8)}      # body_pose rows of hip and knee (joints 1/2, 4/5), ankle joint
 
+# ---- the rhythm mode (2026-09-23) -------------------------------------------------------------------------------
+# The dips mode above found nothing on the sprinting band (the fitted legs hardly cycle there; the gait replaces
+# them). On the JOGGING band (2.5-4.8 m/s, 39 % of play 1's body-frames) the fitted legs DO cycle, with the
+# keypoints (sideline ankle residual p50 6 px; the fitted ankle's sweep 13.9 px std against the keypoints' 15.1,
+# correlation 0.85-0.99 on every jogger), yet the slower ankle still moves at 0.76 of the pelvis and is planted on
+# 9 % of frames: the sweep is a sinusoid, which plants a foot for an instant per cycle, where a stance holds the
+# foot for 40 % of the cycle. So: a strike is a local maximum of the fitted hip's forward flexion in the plane of
+# the motion (gait.leg_yaw); from it, for DUTY of the cycle to the next strike, the ankle is pinned to its world
+# xy at the strike and the leg re-solved (solve_leg) -- the fit's phase and extremes kept, the stance flattened
+# onto the turf -- blended at both edges; a stance is released early when the pin falls farther than MAX_BACK_M
+# behind the hip. Only frames whose pelvis speed is in the band are touched.
+MODE: str = "off"               # "off" | "dips" | "rhythm": what the scripts apply after the gait (read at call time)
+JOG_M: float = 0.042            # pelvis speed (m per frame) above which a body jogs: 2.5 m/s at 59.94 fps
+RUN_M_LOCK: float = 0.08        # ... and below which the lock applies (the gait's RUN_M: faster legs are the gait's)
+DUTY: float = 0.40              # stance share of a jog cycle
+EDGE: int = 3                   # frames to blend a stance in and out (the pin interpolated from the fitted ankle)
+FLEX_SIGMA: float = 1.5         # Gaussian (frames) on the fitted flexion before its maxima are read
+MIN_CYCLE: int = 8              # a strike-to-strike interval outside this range is not a leg cycle (no lock)
+MAX_CYCLE: int = 60
+MIN_SWEEP: float = 0.15         # rad: a flexion maximum must drop this far before the next maximum to be a strike
+MAX_BACK_M: float = 0.45        # the pin farther than this behind the hip along the motion: the foot lets go
+
+
+def motion_flexion(hip_rotvec, yaw: float) -> float:
+    """The fit's hip flexion (rad, forward positive) in a leg plane turned by ``yaw`` about the pelvis's up axis
+    (gait.leg_yaw's convention; ``yaw`` 0 = gait.fit_hip_flexion): the thigh's rest direction (-y) rotated by the
+    hip, un-turned by the yaw, its forward component against its down component."""
+    from scipy.spatial.transform import Rotation
+    d = Rotation.from_rotvec(np.asarray(hip_rotvec, float)).apply([0.0, -1.0, 0.0])
+    d = Rotation.from_rotvec([0.0, -float(yaw), 0.0]).apply(d)
+    return float(np.arctan2(d[2], -d[1]))
+
+
+def strikes(flex, *, sigma=None, min_cycle=None, min_sweep=None) -> list:
+    """Foot strikes of one leg: local maxima of the Gaussian-smoothed forward flexion ``flex [T]`` that fall by at
+    least ``min_sweep`` before the next maximum, at least ``min_cycle`` frames apart (the later one yields). None = the
+    module's knobs, read here."""
+    sigma = FLEX_SIGMA if sigma is None else float(sigma)
+    min_cycle = MIN_CYCLE if min_cycle is None else int(min_cycle)
+    min_sweep = MIN_SWEEP if min_sweep is None else float(min_sweep)
+    x = np.asarray(flex, float)
+    if len(x) < 3:
+        return []
+    if sigma > 0:
+        from scipy.ndimage import gaussian_filter1d
+        x = gaussian_filter1d(x, sigma, mode="nearest")
+    peaks = [t for t in range(1, len(x) - 1) if x[t] >= x[t - 1] and x[t] > x[t + 1]]
+    out = []
+    for i, t in enumerate(peaks):
+        end = peaks[i + 1] if i + 1 < len(peaks) else len(x)
+        if x[t] - x[t:end].min() < min_sweep:
+            continue
+        if out and t - out[-1] < min_cycle:
+            continue
+        out.append(int(t))
+    return out
+
+
+def stance_windows(strike_frames: list, T: int, *, duty=None, min_cycle=None, max_cycle=None) -> list:
+    """``[(t0, t1)]`` per strike: the stance runs from the strike for ``duty`` of the cycle to the next strike (the
+    last strike takes the median cycle; a lone strike takes none). Cycles outside min..max are not cycles."""
+    duty = DUTY if duty is None else float(duty)
+    min_cycle = MIN_CYCLE if min_cycle is None else int(min_cycle)
+    max_cycle = MAX_CYCLE if max_cycle is None else int(max_cycle)
+    if len(strike_frames) < 2:
+        return []
+    cycles = np.diff(strike_frames)
+    med = float(np.median(cycles))
+    out = []
+    for i, t0 in enumerate(strike_frames):
+        cyc = float(cycles[i]) if i < len(cycles) else med
+        if cyc < min_cycle or cyc > max_cycle:
+            continue
+        t1 = min(T - 1, int(t0) + int(round(duty * cyc)))
+        if t1 > t0:
+            out.append((int(t0), int(t1)))
+    return out
+
+
+def rhythm_stances(seq, rest, parents=SMPLX_BODY_PARENTS, *, jog_m=None, run_m=None, duty=None, sigma=None,
+                   min_cycle=None, max_cycle=None, min_sweep=None, max_back_m=None) -> list:
+    """``[(side, t0, t1, pin_xy)]`` for a per-frame ``(xy, body_pose, global_orient)`` sequence: each jogging leg
+    cycle's stance, read off the fit's own flexion rhythm in the plane of the motion, pinned to the ankle's world
+    xy at the strike. A window that leaves the speed band is dropped; one whose pin falls ``max_back_m`` behind the
+    hip along the motion ends there."""
+    from nfl_gsplat.render.gait import HIP_ROW, forward_on_ground, leg_yaw
+    jog_m = JOG_M if jog_m is None else float(jog_m)
+    run_m = RUN_M_LOCK if run_m is None else float(run_m)
+    max_back_m = MAX_BACK_M if max_back_m is None else float(max_back_m)
+    T = len(seq)
+    if T < 3:
+        return []
+    pel, ank = ankle_world_xy(seq, rest, parents)
+    vel = np.zeros((T, 2))
+    vel[1:-1] = (pel[2:] - pel[:-2]) / 2.0
+    vel[0], vel[-1] = pel[1] - pel[0], pel[-1] - pel[-2]
+    speed = np.linalg.norm(vel, axis=1)
+    band = (speed >= jog_m) & (speed < run_m)
+    if not band.any():
+        return []
+    yaw = np.zeros(T)
+    for t in range(T):
+        f = forward_on_ground(seq[t][2])
+        if f is not None:
+            yaw[t], _adv = leg_yaw(f, vel[t])
+    out = []
+    for li, side in enumerate(("L", "R")):
+        flex = [motion_flexion(np.asarray(seq[t][1], float).reshape(21, 3)[HIP_ROW[side]], yaw[t]) for t in range(T)]
+        st = strikes(flex, sigma=sigma, min_cycle=min_cycle, min_sweep=min_sweep)
+        for t0, t1 in stance_windows(st, T, duty=duty, min_cycle=min_cycle, max_cycle=max_cycle):
+            if not band[t0:t1 + 1].all():
+                continue
+            pin = ank[t0, li].copy()
+            end = t1
+            for t in range(t0, t1 + 1):                        # release when the pin is too far behind the hip
+                u = vel[t] / max(float(np.linalg.norm(vel[t])), 1e-9)
+                if float((pin - pel[t]) @ u) < -max_back_m:
+                    end = t - 1
+                    break
+            if end > t0:
+                out.append((side, int(t0), int(end), pin))
+    return out
+
+
+def lock_stances(seq, rest, parents, stances, *, edge=None, pull=None):
+    """``(body_poses [T, 21, 3], report)``: each ``(side, t0, t1, pin_xy)`` stance's leg re-solved per frame so the
+    ankle lands on the pin, the target eased from the fitted ankle over ``edge`` frames at both ends."""
+    edge = EDGE if edge is None else int(edge)
+    pull = PULL if pull is None else float(pull)
+    out = np.array([np.asarray(s[1], float).reshape(21, 3) for s in seq])
+    pel, ank = ankle_world_xy(seq, rest, parents)
+    report = {"segments": 0, "frames": 0, "moved_m": [], "miss_m": []}
+    for side, t0, t1, pin in stances:
+        li = 0 if side == "L" else 1
+        report["segments"] += 1
+        for t in range(t0, t1 + 1):
+            w = min(1.0, (t - t0 + 1) / max(edge, 1), (t1 - t + 1) / max(edge, 1)) if edge > 1 else 1.0
+            target = (1 - w) * ank[t, li] + w * np.asarray(pin, float)
+            bp, miss = solve_leg(out[t], seq[t][2], rest, side, target, pel[t], pull=pull, parents=parents)
+            out[t] = bp
+            report["frames"] += 1
+            report["moved_m"].append(float(np.linalg.norm(ank[t, li] - target)))
+            report["miss_m"].append(miss)
+    return out, report
+
 
 def relative_joints(body_pose, global_orient, rest, parents=SMPLX_BODY_PARENTS):
     """Joints ``[22, 3]`` with the pelvis at the origin, under the pose (the renderer's frame
@@ -120,11 +265,22 @@ def solve_leg(body_pose, global_orient, rest, side: str, target_xy, pelvis_xy, *
 
 
 def foot_lock_sequence(seq, betas, body_models_dir, *, moving_m: float = MOVING_M, stance_ratio: float = STANCE_RATIO,
-                       min_stance: int = MIN_STANCE, max_stance: int = MAX_STANCE, pull: float = PULL):
+                       min_stance: int = MIN_STANCE, max_stance: int = MAX_STANCE, pull: float = PULL, mode=None,
+                       **rhythm_kw):
     """``(body_poses [T, 21, 3], report)`` for one id's per-frame ``(xy, body_pose, global_orient)``
     sequence (consecutive frames). ``report``: segments per leg, the metres each pinned foot was
-    moved (the skate removed), and the solver misses."""
+    moved (the skate removed), and the solver misses. ``mode`` None = the module's MODE at call time: "dips"
+    (the ankle-speed stances below) or "rhythm" (rhythm_stances, the jogging band); "off" returns the input."""
+    mode = MODE if mode is None else str(mode)
+    out0 = np.array([np.asarray(s[1], float).reshape(21, 3) for s in seq])
+    if mode == "off" or len(seq) < 3:
+        return out0, {"segments": 0, "frames": 0, "moved_m": [], "miss_m": []}
     rest, parents = load_smplx_skeleton(body_models_dir, betas=np.asarray(betas, float)[:10])
+    if mode == "rhythm":
+        st = rhythm_stances(seq, rest, parents, **rhythm_kw)
+        return lock_stances(seq, rest, parents, st, pull=pull, edge=rhythm_kw.get("edge"))
+    if mode != "dips":
+        raise ValueError(f"foot lock mode {mode!r}: off, dips or rhythm")
     pel, ank = ankle_world_xy(seq, rest, parents)
     out = np.array([np.asarray(s[1], float).reshape(21, 3) for s in seq])
     report = {"segments": 0, "frames": 0, "moved_m": [], "miss_m": []}
