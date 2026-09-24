@@ -6845,3 +6845,10 @@ own camera takes the detector's point (source tag fit_self kept); the fit labels
 anchors. Dataset pose_ds3 rebuilding, pose_ft3 retraining after the v107 chain frees the GPU ($S/ds3_train.log),
 then the copy chain and film ($S/after_train3.log: ft3_chain -> ft3_film against v107). The knee mean (124.9 v105
 / 131.6 v107) is the ruler for it, with the planted share, jerk, jitter, VPoser and the film of 80 / 15 / 9.
+**Two mistakes on the way (11:05):** (1) the derived ds3 script broke at the training step (a wait loop pasted into
+an echo string; `n: unbound variable`), the gate had passed. (2) Worse: 09g reads <play-dir>/poses_refit.json, which
+is now the PORTED ft2 fit -- so pose_ds3's labels (fit_cross 11,811 vs 13,841, det 36,699 vs 33,621) came from the
+already-drifted fit: a second generation of the same loop, not a fair test of the label rule. 09g gained --refit;
+pose_ds3 rebuilt from poses_refit.json.v105 (the pretrained fit) so the ONLY change against pose_ds2 is
+SELF_LABEL det; then pose_ft3 ($S/train3.sh -> ds3_train.log). Lesson for the next-play recipe: the label
+builder must reproject the fit of the PRETRAINED detector; never re-label from a fine-tuned fit.

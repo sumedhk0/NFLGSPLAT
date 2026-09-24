@@ -40,6 +40,10 @@ def main() -> None:
     ap.add_argument("--agree-px", type=float, default=pl.AGREE_PX)
     ap.add_argument("--anchor-conf", type=float, default=pl.ANCHOR_CONF)
     ap.add_argument("--no-images", action="store_true", help="labels and parquet only")
+    ap.add_argument("--refit", type=Path, default=None,
+                    help="the refit cache whose fits are reprojected as labels (default <play-dir>/poses_refit.json). "
+                         "Name it: a cache already refitted on a fine-tuned detector's keypoints feeds the fit's drift "
+                         "back into the next detector (2026-09-24), so a fair retrain reprojects the PRETRAINED fit")
     ap.add_argument("--min-det-joints", type=int, default=4,
                     help="a tracked box with no fit record takes the detector's own confident keypoints when at least "
                          "this many qualify, else it is left out (never a box with 17 unlabelled keypoints: the "
@@ -51,7 +55,7 @@ def main() -> None:
     P, out = Path(a.play_dir), Path(a.out)
     model = smplx.create(BODY, model_type="smplx", gender="neutral", num_betas=10, use_pca=False, batch_size=1)
     tracks = load_camera_track(P / "cameras.npz")
-    refit = pickle.load(open(P / "poses_refit.json", "rb"))["frames"]
+    refit = pickle.load(open(a.refit or (P / "poses_refit.json"), "rb"))["frames"]
     kdf = pd.read_parquet(P / "keypoints_2d.parquet")
     df = pd.read_parquet(P / "tracks.parquet")
     df = df[df["track_id"] >= 0]
