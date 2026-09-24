@@ -6513,3 +6513,10 @@ keypoints; VPoser 11 because crouches are rare in mocap: a legitimate posture th
 shift needs the film's say: pose_prior.support_weights -- a body-frame whose sideline keypoint residual is under
 8 px is not moved, over 16 px moved in full, linear between, no keypoints = full (SUPPORT_LO / HI; shift_timeline
 takes ``support`` {(pid, frame): px}). Arm running (--support).
+Support-gated arm (blend 8 -> 12, sigma 3, the body's median sideline residual as the support): 509 body-frames
+moved, none fully, mean move 0.038 rad; score p99 15.9 -> 14.9 (the sprinter 22 -> 18 only: his body-median residual
+sits under 16 px because the legs are on their keypoints and the median hides the arms), over 8.0 6.4 %; keypoint
+resid 6.3 -> 6.4 / 14.0 -> 14.5; jitter p90 0.0644 -> 0.0612, p99 0.185 -> 0.180 (both better than as drawn); the
+back's crouch kept (right). Next form: the support PER JOINT ROW -- each body_pose row gated by the residual of the
+joint at the end of its bone (shoulder row <- elbow, elbow <- wrist, hip <- knee, knee <- ankle; the spine / neck /
+collar rows take the body median), so the sprinter's arms move while his legs stay.

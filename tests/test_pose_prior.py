@@ -59,3 +59,30 @@ def test_smooth_weights_spread_a_lone_moved_frame_onto_its_neighbours():
 def test_support_weights_keep_film_backed_poses_still():
     w = pp.support_weights(np.array([2.0, 8.0, 12.0, 16.0, 30.0, np.nan]), lo=8.0, hi=16.0)
     assert np.allclose(w, [0.0, 0.0, 0.5, 1.0, 1.0, 1.0])
+
+
+def test_row_support_reads_each_bones_child_joint_and_the_body_median_elsewhere():
+    rs = pp.row_support({13: 20.0, 9: 30.0, 16: 4.0}, body_median=7.0)
+    assert rs[0] == 20.0 and rs[17] == 30.0 and rs[4] == 4.0          # L hip <- L knee, L elbow <- L wrist, R knee <- R ankle
+    assert rs[2] == 7.0 and rs[11] == 7.0 and rs[1] == 7.0             # spine, neck, R hip (no R knee given): the median
+    assert np.isnan(pp.row_support({}, body_median=np.nan)).all()
+
+
+@pytest.mark.skipif(not _have_vposer(), reason="VPoser checkpoint or human_body_prior not present")
+def test_per_row_support_moves_only_the_unsupported_rows():
+    class S:
+        def __init__(self, pid, bp):
+            self.pid, self.body_pose = pid, bp
+    rng = np.random.default_rng(3)
+    noise = rng.normal(0, 0.9, (10, 21, 3))                             # ten implausible frames of one man
+    tl = type("T", (), {})(); tl.states = {f: [S(7, noise[f].copy())] for f in range(10)}
+    vp = pp.load()
+    # the arms off their keypoints (40 px), everything else on (2 px): only the arm rows may move
+    rs = {(7, f): pp.row_support({7: 40.0, 8: 40.0, 9: 40.0, 10: 40.0, 13: 2.0, 14: 2.0, 15: 2.0, 16: 2.0}, 2.0) for f in range(10)}
+    rep = pp.shift_timeline(tl, vp, lo=1.0, hi=2.0, sigma=0.0, row_support_by=rs)
+    assert rep["moved"] == 10
+    arm_rows = [15, 16, 17, 18]; other = [r for r in range(21) if r not in arm_rows]
+    for f in range(10):
+        bp = tl.states[f][0].body_pose
+        assert np.abs(bp[arm_rows] - noise[f][arm_rows]).max() > 0.05
+        assert np.allclose(bp[other], noise[f][other])

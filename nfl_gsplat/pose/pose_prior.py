@@ -130,7 +130,28 @@ def support_weights(resid, *, lo=None, hi=None) -> np.ndarray:
     return np.where(np.isfinite(r), w, 1.0)
 
 
-def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_frame=None, support=None) -> dict:
+# body_pose row r is SMPL-X joint r + 1; the joint at the END of each row's bone (its child) is the one whose keypoint
+# residual says whether that rotation is right: rows without a keypointed child take the body's median residual (-1)
+ROW_CHILD_COCO: dict = {
+    0: 13, 1: 14,            # L/R hip rows -> the knees (COCO 13, 14)
+    3: 15, 4: 16,            # L/R knee rows -> the ankles (15, 16)
+    15: 7, 16: 8,            # L/R shoulder rows -> the elbows (7, 8)
+    17: 9, 18: 10,           # L/R elbow rows -> the wrists (9, 10)
+}
+
+
+def row_support(resid_by_coco: dict, body_median: float) -> np.ndarray:
+    """``[21]`` residual px per body_pose row from ``{coco_joint: px}`` (missing = NaN): each row takes its bone's
+    child joint's residual (ROW_CHILD_COCO), the other rows the body median."""
+    out = np.full(21, float(body_median) if np.isfinite(body_median) else np.nan)
+    for r, c in ROW_CHILD_COCO.items():
+        v = resid_by_coco.get(c, np.nan)
+        out[r] = float(v) if v is not None and np.isfinite(v) else out[r]
+    return out
+
+
+def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_frame=None, support=None,
+                   row_support_by=None) -> dict:
     """Blend every drawn body's pose toward its VPoser projection where its score is high: per id, over each run of
     consecutive frames, the weights from the scores (``lo``..``hi``), times the support multiplier where
     ``support`` ``{(pid, frame): keypoint residual px}`` is given (a pose the film backs is not moved), smoothed by
@@ -166,8 +187,18 @@ def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_fr
             rep["scored"] += len(run)
             if not (w > 0).any():
                 continue
-            new = blend(bps, project(vp, bps), w)
-            for f, bp, wi, old in zip(run, new, w, bps):
+            if row_support_by is not None:
+                # per row: the frame's weight times the row's own support (its bone's child joint on or off its
+                # keypoint), smoothed along the run row by row
+                rs = np.array([support_weights(row_support_by.get((pid, f), np.full(21, np.nan))) for f in run])
+                wr = np.stack([smooth_weights(w * rs[:, r], sigma) for r in range(21)], axis=1)   # [T, 21]
+                pr = project(vp, bps)
+                new = (1 - wr[:, :, None]) * bps + wr[:, :, None] * pr
+                weff = wr.max(axis=1)
+            else:
+                new = blend(bps, project(vp, bps), w)
+                weff = w
+            for f, bp, wi, old in zip(run, new, weff, bps):
                 if wi > 0:
                     byf[f].body_pose = bp.reshape(21, 3)
                     rep["moved"] += 1
