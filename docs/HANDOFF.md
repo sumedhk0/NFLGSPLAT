@@ -6880,3 +6880,18 @@ pose_ft4 training. The legs are now the pretrained detector's own points everywh
 Elbows too, on the detectors (vs the pretrained, toward the shoulder-wrist line): ft2 sideline +1.9 px (74 %),
 endzone +0.8; ft3 +0.9 / +1.0. The arm labels stay the fit's across cameras (the sprinter's win); the elbow mean
 joins the knee ruler as the second check on the fourth detector.
+**pose_ft4 (14:05):** held-out PCK@10 pretrained -> fine-tuned: endzone fit_cross (arms only now, n 1,073) 1.0 ->
+48.2 %, 21.2 -> 10.3 px; sideline fit_cross 51.6 -> 85.4; endzone det 99.4 -> 93.7 (ft2 90.8, ft3 89.4: the legs
+are det labels now, so the det class holds better); fit_self 99.8 -> 94.8. Confidence gate PASS. 05n: 29 players,
+89 % of the observable joints, median reprojection 3.8 px (ft2 1.6: the legs no longer agree with the fit by
+construction); 05f 29 players / 488 frames, rms 0.065 m. 05p, rulers, film and the knee/elbow ruler follow.
+**14:25 -- the label hypotheses are falsified TWICE.** lkft4 (arms-only fit_cross, legs = the pretrained
+detector's points): steps 2 / hops 0 / census 0.16; jerk 4; VPoser p99 17.5 (the sprinter); jitter 0.0623/0.227;
+knee mean 131.6, elbow mean 126.8 -- identical to v107 (131.6 / 126.6) and lkft3 (132.2). Three detectors with three
+label rules give the same straightening against v105 (124.9 / 118.8), so the labels are not the carrier. What all
+three chains share and v105 does not: the FIT CODE. v105's cache is the v100 merge -- old two-view records from
+earlier 05f runs plus a 09-23 one-view refit on the endzone-blind frames -- while every chain refits EVERYTHING with
+today's 05f and 05p. Test running: the PRETRAINED keypoints through today's 05n/05f only, merged onto the live keys
+(one-view frames keep v105's records), knee/elbow ruler ($S/live_05f_test.log). If the knees come out ~131, the
+straightening is today's two-view fit against the old records, and the film question is which fit is right on the
+quarterback and the rushers -- not the detector.
