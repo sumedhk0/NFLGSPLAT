@@ -6655,3 +6655,11 @@ last record forward, and VPoser (trained on canonical vectors) scored the wrappe
 reads 6.3. Fixed f8ca9e7: pose_prior.canonical folds every vector under pi at every entry (encode, the numpy
 encoder in the fit, blend). Every earlier VPoser number (live p99 15.9, the probes) carries the artefact on held
 bodies past a half-turn; the live reference and the arms are being rescored ($S/prior_*_canon.log).
+
+**07:00 -- canonical VPoser rescoring.** Live (v105 config): p50/p90/p99 4.22/6.71/15.87, over 8: 0.068 -- the
+artefact barely touched live (15.94 before); its tail is real: the sprinter id 9 at 415-418 (22.5) and the back id 5
+at 526-542 (17.9, the crouch); per-id p90: 5 16.5, 9 13.1, 19 10.4, 139 9.5. The fine-tuned fit on live keys
+(lkft): 3.60/5.61/9.66, over 8: 0.024; worst 9 at 395-396 (14.9) and 489-490 (12.4), 28 at 495-498 (9.3); id 5
+p90 16.5 -> 5.1 (the crouch straightened: a LOSS on film, the endzone camera was gone from that fit). Jitter p90
+0.0644 -> 0.0604 but p99 0.1851 -> 0.2534: the one-view fits shake more at the tail. Keypoint residual 8.7 px is
+against the LIVE detector's points, not this fit's, so it is not a ruler here; the film and the cross-view are.
