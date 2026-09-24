@@ -6874,3 +6874,9 @@ of 13,841 slots) -- the fit's leg projected into the camera that did not anchor 
 the anchoring camera's ray. FIX (commit): pseudo_labels.CROSS_JOINTS = the arms (COCO 5-10); the legs are the
 detector's own point or nothing. pose_ds4 from the v105 cache, pose_ft4, the copy chain, the knee ruler and the
 film ($S/ds4_train.log, $S/after_train4.log). Expected: knee mean back near 125 with the sprinter's arms kept.
+pose_ds4 (13:10; arms-only fit_cross, own-camera det, from the v105 cache): slots 114,971; det 40,078 (34.9 %),
+fit_self 41,196, fit_cross 6,791 (5.9 %; endzone 5,475, sideline 1,316; joints 5-10 only), none 26,906; gate PASS;
+pose_ft4 training. The legs are now the pretrained detector's own points everywhere.
+Elbows too, on the detectors (vs the pretrained, toward the shoulder-wrist line): ft2 sideline +1.9 px (74 %),
+endzone +0.8; ft3 +0.9 / +1.0. The arm labels stay the fit's across cameras (the sprinter's win); the elbow mean
+joins the knee ruler as the second check on the fourth detector.
