@@ -109,3 +109,30 @@ def test_numpy_encoder_matches_torch():
     assert z_np.shape == (16, 32) and np.abs(z_np - z_t).max() < 1e-4
     assert enc(bps[0]).shape == (32,) and np.allclose(enc(bps[0]), z_np[0])
     assert pp.encoder() is pp.encoder()                             # cached
+
+
+def test_canonical_folds_wrapped_rotation_vectors_and_keeps_the_rotation():
+    from scipy.spatial.transform import Rotation as Rot
+    rng = np.random.default_rng(3)
+    bp = rng.normal(0, 0.6, (4, 21, 3))
+    axis = bp[1, 0] / np.linalg.norm(bp[1, 0])
+    bp[1, 0] = axis * (np.linalg.norm(bp[1, 0]) + 2 * np.pi)      # the same rotation, wrapped past pi
+    bp[2, 5] = -bp[2, 5] / np.linalg.norm(bp[2, 5]) * (2 * np.pi - np.linalg.norm(bp[2, 5]))   # antipodal form
+    c = pp.canonical(bp)
+    assert c.shape == bp.shape and (np.linalg.norm(c.reshape(-1, 3), axis=1) <= np.pi + 1e-9).all()
+    for i in range(4):
+        for j in range(21):
+            assert np.allclose(Rot.from_rotvec(bp[i, j]).as_matrix(), Rot.from_rotvec(c[i, j]).as_matrix(), atol=1e-9)
+    assert np.allclose(c[0], bp[0]) and np.allclose(c[3], bp[3])            # already canonical: untouched
+    assert np.allclose(pp.canonical(bp[1].reshape(63)), c[1].reshape(63))  # flat input keeps its shape
+
+
+@pytest.mark.skipif(not _have_vposer(), reason="VPoser checkpoint or human_body_prior not present")
+def test_the_prior_scores_a_wrapped_representation_like_its_canonical_form():
+    vp = pp.load()
+    bp = np.random.default_rng(4).normal(0, 0.4, (2, 21, 3))
+    wrapped = bp.copy()
+    wrapped[0, 0] *= (np.linalg.norm(bp[0, 0]) + 2 * np.pi) / np.linalg.norm(bp[0, 0])
+    assert np.allclose(pp.scores(vp, wrapped), pp.scores(vp, bp), atol=1e-4)
+    assert np.allclose(pp.encoder()(wrapped), pp.encoder()(bp), atol=1e-4)
+    assert np.allclose(pp.blend(wrapped, pp.project(vp, wrapped), 0.0), pp.canonical(wrapped))

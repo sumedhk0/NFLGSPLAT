@@ -48,11 +48,29 @@ def load(vposer_dir: str | Path = VPOSER_DIR):
     return vp
 
 
+def canonical(body_pose: np.ndarray) -> np.ndarray:
+    """The same rotations with every axis-angle vector folded under pi (``r -> r * (|r| - 2 pi) / |r|`` while
+    ``|r| > pi``), shape kept. The timeline unwraps rotation vectors along a track for continuity and holds the
+    last record forward, so a rendered body can carry ``|r| > pi``; VPoser was trained on canonical vectors and
+    read such a hip as 27 where the same rotation reads 6 (2026-09-24). Every entry to the prior goes through
+    here."""
+    r = np.asarray(body_pose, float)
+    out = r.reshape(-1, 3).copy()
+    n = np.linalg.norm(out, axis=1)
+    for _ in range(4):                                   # |r| < 3 pi in practice; loop for safety
+        m = n > np.pi
+        if not m.any():
+            break
+        out[m] *= ((n[m] - 2 * np.pi) / n[m])[:, None]
+        n = np.linalg.norm(out, axis=1)
+    return out.reshape(r.shape)
+
+
 def encode(vp, body_pose: np.ndarray) -> np.ndarray:
-    """Latent means ``[N, 32]`` for body poses ``[N, 21, 3]`` (or ``[N, 63]``) axis-angle."""
+    """Latent means ``[N, 32]`` for body poses ``[N, 21, 3]`` (or ``[N, 63]``) axis-angle (canonicalised first)."""
     import torch
 
-    bp = np.asarray(body_pose, np.float32).reshape(-1, 63)
+    bp = canonical(np.asarray(body_pose, np.float32)).astype(np.float32).reshape(-1, 63)
     with torch.no_grad():
         q = vp.encode(torch.from_numpy(bp))
     return q.mean.cpu().numpy()
@@ -80,7 +98,7 @@ def project(vp, body_pose: np.ndarray) -> np.ndarray:
 
 def blend(body_pose: np.ndarray, projected: np.ndarray, w) -> np.ndarray:
     """Move each pose toward its projection by ``w`` (scalar or ``[N]``) per joint on the rotation vectors."""
-    bp = np.asarray(body_pose, float).reshape(-1, 21, 3)
+    bp = canonical(np.asarray(body_pose, float)).reshape(-1, 21, 3)
     pr = np.asarray(projected, float).reshape(-1, 21, 3)
     w = np.asarray(w, float).reshape(-1, 1, 1) if np.ndim(w) else float(w)
     return (1 - w) * bp + w * pr
@@ -113,7 +131,7 @@ class NumpyEncoder:
 
     def __call__(self, body_pose) -> np.ndarray:
         """Latent means ``[N, 32]`` (or ``[32]`` for one pose) from body poses ``[N, 63]`` / ``[63]`` / ``[N, 21, 3]``."""
-        x = np.asarray(body_pose, np.float64)
+        x = canonical(np.asarray(body_pose, np.float64))
         one = x.ndim == 1 or (x.ndim == 2 and x.shape == (21, 3))
         x = x.reshape(-1, 63)
         x = x * self.bn1[0] + self.bn1[1]
