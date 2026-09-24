@@ -6816,3 +6816,32 @@ spread the legs at 494: the flipped leg plane); 410-422 identical (diff black); 
 the film. Rulers: steps 2 / hops 0 / census 0.16 / planted 10 %; 09d jerk 2, trunk 0, sideways legs 4.4 / 3.1 %;
 07l joint jitter p90/p99 0.0594/0.211 (v106 0.0609/0.245, v105 0.0644/0.185); backwards flips inside on-runs 0
 (v106 9). Renders: diag/play_001_v107_hifi_720.mp4, _sideline_blend.mp4, _sideline_sbs.mp4; endzone lock finishing.
+
+**10:20 -- a systematic knee straightening since v105 (the fine-tuned fit).** Joints exports, play window, 22 ids
+with 106 body-frames each: mean knee flexion 124.9 -> 131.6 deg, p25 110.6 -> 118.3, pelvis height 0.910 -> 0.932
+m; 12 of 22 ids straighter by more than 5 deg, none more bent: Oweh 15 +15.6, the quarterback 80 +15.4, Noah Gray 74
++15.0, Taylor 12 +13.0, Hamilton 28 +12.1, Suamataia 37 +11.2, Trey Smith 76 +10.9, Humphrey 204 +9.0. The planted
+share slid 12.4 -> 11.1 -> 10.5 % and the sideways-leg share fell with it. Suspect: self-training drift -- the
+pseudo-labels are the fit's own reprojections (its L2 prior pulls toward straight legs where the keypoints are
+weak), the fine-tuned detector learned them, the refit followed. The film decides: strips of 12, 80, 74, 15
+(v105 vs v107). If v105's bent knees are the film's, the drift is a regression the sprinter's win hid; the fix
+would be labels only where the joint is ANCHORED in both cameras (fit_cross and two-view fit_self), never a
+one-view fit's leg.
+Film on the knee drift (strips v105 vs v107): the quarterback 80 in the pocket at 480-500 stands with the legs
+spread straight in v107 where the film has an athletic bent-knee base (v105 closer, if a touch over-bent); Oweh
+15 rushing at 440-460 stands taller in v107 than the film's low drive (v105 closer); Taylor 12 in his pass set
+and the receiver 74 read as a wash in stills. A mild, consistent regression across the engaged and pocket men,
+hidden behind the sprinter's win. Hypothesis: AGREE_PX 12 lets the fit's projection REPLACE a confident detection
+in its own camera (fit_self), so the label inherits the fit's prior (straighter legs) by up to 12 px, the detector
+learns it, the refit follows -- a self-training loop. Measuring the fit-minus-detector offset at the knees in the
+fit_self labels; if it points toward the hip-ankle line, the fix is: a confident detection in its own camera is
+the label (det), the fit only labels what the other camera anchors (fit_cross).
+**Measured (10:45):** in pose_ds2's labels, fit_self knees sit toward the hip-ankle line by +1.1 px mean (sideline,
+73 % of them) and +1.7 (endzone, 66 %); hips +1.7/+3.2 px lower, knees and ankles 1-2 px higher on the sideline;
+|fit - det| p50 2.5-4.4 px. Small per round, amplified by the refit's prior on the new keypoints. Jogging-band
+ruler (jog_ab, v105 vs v107): the lock finds MORE stances on v107 (32 vs 27; band planted with the lock 0.20 vs
+0.17), so the 07l planted slide is not the band's. FIX: pseudo_labels.SELF_LABEL "det" -- a joint anchored in its
+own camera takes the detector's point (source tag fit_self kept); the fit labels only what the other camera
+anchors. Dataset pose_ds3 rebuilding, pose_ft3 retraining after the v107 chain frees the GPU ($S/ds3_train.log),
+then the copy chain and film ($S/after_train3.log: ft3_chain -> ft3_film against v107). The knee mean (124.9 v105
+/ 131.6 v107) is the ruler for it, with the planted share, jerk, jitter, VPoser and the film of 80 / 15 / 9.
