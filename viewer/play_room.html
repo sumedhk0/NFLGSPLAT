@@ -79,7 +79,7 @@
 <div id="status">Loading the play…</div>
 
 <div id="top" class="bar">
-  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v108</small></h1>
+  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v109</small></h1>
   <div class="presets" role="group" aria-label="Camera">
     <button data-cam="sideline" aria-pressed="true">Sideline</button>
     <button data-cam="endzone" aria-pressed="false">Endzone</button>
@@ -356,7 +356,17 @@
     if (_bp.lengthSq() < 0.25) { out.set(attackDir(team), 0, 0); return; }
     out.copy(_bp).normalize();
   }
+  // First person draws the man's own body -- his hands reaching for the ball, his arms in a block -- and hides what
+  // the camera sits inside or just above: the helmet, the neck bone and the upper chest (bones to joints 12-15, the
+  // spheres at 12-14; a 13 cm capsule 10 cm under the eye filled the bottom of the view).
+  const OWN_HIDDEN_BONES = [11, 12, 13, 14], OWN_HIDDEN_JOINTS = [12, 13, 14];
+  function setOwnHead(b, shown) {
+    b.head.visible = shown;
+    for (const i of OWN_HIDDEN_BONES) b.bones[i].visible = shown;
+    for (const j of OWN_HIDDEN_JOINTS) b.joints[j].visible = shown;
+  }
   function enterFpv(pid) {
+    if (fpv !== null && fpv !== pid) { const o = bodies.get(fpv); if (o) setOwnHead(o, true); }
     leaveRealCam(); orbit.follow = false; fpv = pid; fpvFwd.set(0, 0, 0);
     camera.near = 0.12; camera.fov = 80; camera.updateProjectionMatrix();
     document.querySelectorAll("[data-cam]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.cam === "fpv")));
@@ -364,7 +374,7 @@
   }
   function leaveFpv() {
     if (fpv === null) return;
-    const b = bodies.get(fpv); if (b) b.group.visible = true;
+    const b = bodies.get(fpv); if (b) setOwnHead(b, true);
     fpv = null; camera.near = 0.1; camera.fov = 50; camera.up.set(0, 0, 1); camera.updateProjectionMatrix();
   }
   function setPreset(name) {
@@ -428,7 +438,7 @@
     const rect = el.getBoundingClientRect();
     ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hits = ray.intersectObjects([...bodies.values()].filter(b => b.group.visible).flatMap(b => [b.head, ...b.bones]), false);
+    const hits = ray.intersectObjects([...bodies.values()].filter(b => b.group.visible).flatMap(b => [b.head, ...b.bones]).filter(m => m.visible), false);
     const out = document.getElementById("pick");
     if (hits.length) {
       const pid = hits[0].object.userData.pid;
@@ -456,7 +466,7 @@
     if (bp) { ball.visible = true; ball.position.set(bp[0], bp[1], bp[2]); if (orbit.follow) { orbit.target.set(bp[0], bp[1], 1.0); applyOrbit(); } }
     else ball.visible = false;
     if (realCam) applyRealCam(f);
-    if (fpv !== null) { const b = bodies.get(fpv); if (b) b.group.visible = false; applyFpv(f); }
+    if (fpv !== null) { const b = bodies.get(fpv); if (b) setOwnHead(b, false); applyFpv(f); }
   }
   scrub.addEventListener("input", () => showFrame(parseInt(scrub.value, 10)));
   function setPlaying(p) { playing = p; playBtn.textContent = p ? "Pause" : "Play"; playBtn.setAttribute("aria-pressed", String(p)); last = performance.now(); acc = 0; }
