@@ -6809,3 +6809,10 @@ the prior; it is the fit's records at the sparse observed frames being pulled to
 with the frames between interpolated. Open item (one id, jitter p99 0.21 vs v105 0.185): a per-keypoint temporal
 veto at the fit's INPUT (a wrist keypoint far from its neighbours' at low confidence dropped, the temporal term
 holding the arm) -- a data gate, not a prior; not built today.
+
+**09:45 -- v107 = CURRENT BEST, film-checked.** v106 + gait.BACK_MARGIN_DEG 30. Strips against v106: the sprinter
+488-494 now runs through the tackler's contact with a normal stride (v106 kicked the right leg high at 492 and
+spread the legs at 494: the flipped leg plane); 410-422 identical (diff black); the whole scene at 450/500/562 on
+the film. Rulers: steps 2 / hops 0 / census 0.16 / planted 10 %; 09d jerk 2, trunk 0, sideways legs 4.4 / 3.1 %;
+07l joint jitter p90/p99 0.0594/0.211 (v106 0.0609/0.245, v105 0.0644/0.185); backwards flips inside on-runs 0
+(v106 9). Renders: diag/play_001_v107_hifi_720.mp4, _sideline_blend.mp4, _sideline_sbs.mp4; endzone lock finishing.
