@@ -122,8 +122,31 @@ def test_a_joint_anchored_in_its_own_camera_takes_the_detectors_point_not_the_fi
     proj2["endzone"][13] = (500.0, 300.0)
     xy_e = np.full((17, 2), np.nan); conf_e = np.zeros(17); xy_e[13], conf_e[13] = (503.0, 301.0), 0.9
     xy_s = np.full((17, 2), np.nan); conf_s = np.zeros(17)       # the sideline saw nothing
-    lab2 = pl.label_frame(proj2, {"sideline": (xy_s, conf_s), "endzone": (xy_e, conf_e)}, agree_px=12.0, anchor_conf=0.5)
+    lab2 = pl.label_frame(proj2, {"sideline": (xy_s, conf_s), "endzone": (xy_e, conf_e)}, agree_px=12.0, anchor_conf=0.5,
+                          cross_joints=(13,))                     # a knee is cross-labelled only on request (CROSS_JOINTS)
     assert pl.SOURCES[lab2.source["sideline"][13]] == "fit_cross" and np.allclose(lab2.uv["sideline"][13], (100.0, 200.0))
     import pytest
     with pytest.raises(ValueError):
         pl.label_frame(proj, {"sideline": (xy, conf)}, self_label="other")
+
+
+def test_the_fit_labels_only_the_arms_across_cameras():
+    """A knee anchored by the endzone alone used to get the fit's projection in the sideline (fit_cross); the fit's
+    prior straightens a one-camera leg, and the fine-tuned detector learned it. Legs now fall through to the
+    detector's own point or nothing; the arms keep the cross-camera label."""
+    proj = {"sideline": np.full((17, 2), np.nan), "endzone": np.full((17, 2), np.nan)}
+    for k in (10, 13):                                            # R wrist, L knee
+        proj["sideline"][k] = (100.0 + k, 200.0); proj["endzone"][k] = (500.0 + k, 300.0)
+    s_xy = np.full((17, 2), np.nan); s_conf = np.zeros(17)
+    e_xy = np.full((17, 2), np.nan); e_conf = np.zeros(17)
+    e_xy[10], e_conf[10] = proj["endzone"][10] + [2, 0], 0.9      # the endzone anchors both
+    e_xy[13], e_conf[13] = proj["endzone"][13] + [2, 0], 0.9
+    s_xy[13], s_conf[13] = proj["sideline"][13] + [30, 0], 0.6    # the sideline's own knee, far from the fit but confident
+    lab = pl.label_frame(proj, {"sideline": (s_xy, s_conf), "endzone": (e_xy, e_conf)})
+    S = pl.SOURCES; src = lab.source["sideline"]
+    assert S[src[10]] == "fit_cross" and np.allclose(lab.uv["sideline"][10], proj["sideline"][10])
+    assert S[src[13]] == "det" and np.allclose(lab.uv["sideline"][13], s_xy[13])   # the knee: the detector's own
+    lab_all = pl.label_frame(proj, {"sideline": (s_xy, s_conf), "endzone": (e_xy, e_conf)}, cross_joints=tuple(range(17)))
+    assert S[lab_all.source["sideline"][13]] == "fit_cross"                         # every joint on request
+    lab_none = pl.label_frame(proj, {"sideline": (s_xy, s_conf), "endzone": (e_xy, e_conf)}, cross_joints=())
+    assert S[lab_none.source["sideline"][10]] == "none" and lab_none.vis["sideline"][10] == 0   # no fit_cross at all

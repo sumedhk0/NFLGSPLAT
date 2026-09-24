@@ -36,6 +36,13 @@ SOURCES = ("none", "det", "fit_self", "fit_cross")
 # play 1, the quarterback and the edge rusher taller than the film (2026-09-24). The detector's own confident point is
 # the ground truth for its camera; the fit adds only what the other camera anchors.
 SELF_LABEL: str = "det"
+# The joints the fit may label in a camera that did NOT anchor them (fit_cross): the arms only. A leg anchored by one
+# camera alone is free along that camera's viewing ray, and the fit's prior straightens it, so its projection into
+# the other camera carried a straighter knee (+2.6-2.9 px toward the hip-ankle line on the fine-tuned endzone
+# detector against the pretrained, both ft2 and ft3), the two-view fit inherited it and the play's mean knee flexion
+# went 125 -> 132 deg (2026-09-24). The arms were the fine-tune's target (the sprinter's flung arms); the legs stay
+# the detector's own. None = every body joint (the old behaviour).
+CROSS_JOINTS: tuple | None = (5, 6, 7, 8, 9, 10)
 
 
 @dataclass
@@ -46,13 +53,15 @@ class FrameLabels:
 
 
 def label_frame(proj: dict, det: dict, *, agree_px: float = AGREE_PX, anchor_conf: float = ANCHOR_CONF,
-                self_label: str | None = None) -> FrameLabels:
+                self_label: str | None = None, cross_joints=None) -> FrameLabels:
     """``proj``: cam -> [17, 2] the fit's projection per COCO keypoint (nan for the face and where no camera pose);
     ``det``: cam -> (xy [17, 2], conf [17]) the detector's keypoints, absent cameras missing. Returns the labels per
     camera by the rule in the module docstring. Cameras present in ``det`` but not in ``proj`` get detector labels
     only. ``self_label``: a joint anchored in its own camera takes the detector's point ("det") or the fit's
     projection ("fit"); None = the module's SELF_LABEL."""
     self_label = SELF_LABEL if self_label is None else str(self_label)
+    cross = CROSS_JOINTS if cross_joints is None else cross_joints        # ``()`` = no fit_cross at all
+    cross = None if cross is None else set(int(k) for k in cross)
     if self_label not in ("det", "fit"):
         raise ValueError(f"self_label must be 'det' or 'fit', not {self_label!r}")
     cams = sorted(set(proj) | set(det))
@@ -78,7 +87,7 @@ def label_frame(proj: dict, det: dict, *, agree_px: float = AGREE_PX, anchor_con
             body = k in COCO_TO_SMPLX
             if body and np.isfinite(p[k]).all() and anchored[c][k]:
                 u[k], v[k], s[k] = (xy[k] if self_label == "det" else p[k]), 2, SOURCES.index("fit_self")
-            elif body and np.isfinite(p[k]).all() and any(anchored[o][k] for o in others):
+            elif body and np.isfinite(p[k]).all() and (cross is None or k in cross) and any(anchored[o][k] for o in others):
                 u[k], v[k], s[k] = p[k], 2, SOURCES.index("fit_cross")
             elif conf[k] >= anchor_conf and np.isfinite(xy[k]).all():
                 u[k], v[k], s[k] = xy[k], 2, SOURCES.index("det")
