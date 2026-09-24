@@ -6852,3 +6852,25 @@ already-drifted fit: a second generation of the same loop, not a fair test of th
 pose_ds3 rebuilt from poses_refit.json.v105 (the pretrained fit) so the ONLY change against pose_ds2 is
 SELF_LABEL det; then pose_ft3 ($S/train3.sh -> ds3_train.log). Lesson for the next-play recipe: the label
 builder must reproject the fit of the PRETRAINED detector; never re-label from a fine-tuned fit.
+**pose_ft3 (12:00; labels: own-camera-anchored joints = the detector's point, from the v105 fit):** held-out
+PCK@10 pretrained -> fine-tuned (ft2 in brackets): endzone fit_cross 0.7 -> 54.2 % (66.1), 20.4 -> 9.3 px; sideline
+fit_cross 50.7 -> 83.3 (87.5); endzone det 99.3 -> 89.4 (90.8); fit_self 99.8 -> 90.4 (now a detector-point class).
+Smaller fit_cross gains are expected (the model no longer learns the fit's own-camera projections, and fit_cross
+labels are fit projections too). Confidence gate PASS: endzone 9,392 body-frames >= 0.3 (pretrained 9,306), body
+joints 0.96-1.00. The copy chain runs; the knee ruler ($S/knee_ruler.py on joints_lkft3 vs v105/v107) and the
+film of 80 / 15 / 9 / 5 decide.
+**12:40 -- the label-rule hypothesis is FALSIFIED.** lkft3 (pose_ft3's fit on the live keys): steps 2 / hops 0 /
+census 0.16; jerk 4; VPoser p99 18.3 (the sprinter at 416/442, 23); jitter p90/p99 0.0610/0.212; knee mean 132.2
+deg -- the same straightening as v107 (131.6; v105 124.9): 15 of 22 ids straighter by > 5 deg against v105, and
+against v107 only 139 moved (+8.7). The own-camera label rule was not the cause. Measuring the DETECTORS
+themselves (ft2, ft3 vs pretrained, confident knees, per camera): is the fine-tuned knee displaced toward the
+hip-ankle line? If yes on the endzone, the carrier is fit_cross (the fit's leg projected into the other camera:
+a one-camera anchor leaves the knee free along the viewing ray and the fit's prior straightens it), and the fix is
+fit_cross for the ARMS only (the original target: the sprinter's flung arms), never the legs.
+**Detector-level measurement (12:50):** confident knees, fine-tuned vs pretrained, displacement toward the
+hip-ankle line: ft2 sideline +1.3 px (72 % of knees), endzone +2.9; ft3 sideline +0.5 (57 %), endzone +2.6. The
+own-camera rule fixed most of the sideline drift and none of the endzone's, where the labels are fit_cross (12,364
+of 13,841 slots) -- the fit's leg projected into the camera that did not anchor it, straightened by the prior along
+the anchoring camera's ray. FIX (commit): pseudo_labels.CROSS_JOINTS = the arms (COCO 5-10); the legs are the
+detector's own point or nothing. pose_ds4 from the v105 cache, pose_ft4, the copy chain, the knee ruler and the
+film ($S/ds4_train.log, $S/after_train4.log). Expected: knee mean back near 125 with the sprinter's arms kept.
