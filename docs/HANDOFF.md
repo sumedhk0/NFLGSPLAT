@@ -6589,3 +6589,16 @@ records outside the base keys left out -> play_copy/poses_refit_step.json). ON R
   then the film: a sideline-view render of the copy (launch_view with P=play_copy) and strips of the sprinter id 9
   at 410-422 against v105. Decide: port the fine-tuned keypoints (05m on play_001 with pose_ft/train/weights/best.pt +
   the same recipe) and ship the row-gated VPoser shift (pose_prior.SHIFT True) on the film's say. Repo at 2bc0484.
+
+**Resume (2026-09-24 morning). The fine-tune chain had finished before the power-off.** On the copy: 05f two-view
+refit 29 players / 458 frames, median joint rms 0.050 m; same-keys merge 2,361 of 5,885 records replaced; 05p
+one-view refit 2,647 / 2,647 frames on 48 players, reprojection median 15.0 -> 2.1 px (against the fine-tuned
+keypoints). POSE rulers (09d on the export, 395-607): hinge jerk 9 (L leg 1, R leg 5, R arm 3; v105 5), sideways
+bends none listed, trunk 2 (id 9 -- the sprinter's lean); VPoser score p50 / p90 / p99 3.71 / 5.67 / 9.47 (v105 4.22 /
+6.71 / 15.9), over 8.0 2.8 % (6.8 %), the sprinter's 414-418 out of the tail (his worst now 15 at 395-397); jitter
+p90 0.0553 (0.0644) / p99 0.214 (0.185). But the PLACEMENT broke: loader steps 6 / hops 2 / census 0.465 (live 2 /
+0 / 0.16), vanishings 395 frames (17 gone 424-607, 167 421-607, 4 474-519): the loader reads keypoints_2d.parquet
+for ankle anchoring, the twin rays and the depth snap, and its rules were tuned on the old detector's points (the
+corrected-camera story again). So the split: the fine-tuned keypoints feed the FIT only; the loader keeps the live
+table. On the copy: keypoints_2d.parquet <- .v105 (the fine-tuned table kept as keypoints_2d_ft.parquet), the new
+poses_refit.json kept; rulers + the film again.
