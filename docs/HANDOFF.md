@@ -6793,3 +6793,19 @@ the sprinter's ankles at 488-496 descend smoothly (no swap); 07l on the live pla
 0.0594, p99 0.2452 -> 0.2112 (v105 0.185), worst id 9 0.228 -> 0.217, id 3 0.112 -> 0.102; steps 2 / hops 0 /
 census 0.16 unchanged; planted 11 -> 10 % of moving frames. Shipped as the module default; v107 chain = v106 +
 this. The jitter p99 left (0.21 vs v105 0.185) is the sprinter's right wrist on a jumpy keypoint (446-483).
+v107 09d (joints_v107, 395-607): hinge jerk 2 (= v106), trunk 0, sideways legs L 4.4 % / R 3.1 % (v106 4.6 / 3.0).
+The chain (v106 + gait.BACK_MARGIN_DEG 30) is rendering; film next (the sprinter 488-494 legs, the usual strips).
+**The sprinter's right wrist (08:55):** projected against the fine-tuned table, id 9's right wrist has a keypoint
+on 22 of the 60 frames 440-500 (none at 450-454, 465-473, 478-493), confidence 0.09-0.33 on 457-464 (under the
+fit's 0.3 floor: unobserved) and the observed ones jump 50-139 px frame to frame; the rendered wrist sits 15-66 px
+off the keypoint where one exists. The arm away from the camera on a small blurred sprinter is mostly UNSEEN and
+the fit swings it between sporadic pulls. Arm launched on the copy: 05p --unseen-temporal-mult 3 on the ft2
+keypoints (an unseen limb keeps the previous frame's pose harder), live keys, rulers + the wrist trace
+($S/arm_unseen.log).
+**Unseen-limb hold, REJECTED (09:20):** 05p --unseen-temporal-mult 3 on the ft2 keypoints, live keys, rendered
+with the new gait default: jitter p90/p99 0.0593/0.2113 against 0.0594/0.2112 without it, jerk 2 = 2, VPoser and
+placement unchanged, the sprinter's wrist-worst frames 45 -> 47. The wrist swing is not an unseen limb thrown by
+the prior; it is the fit's records at the sparse observed frames being pulled to keypoints that jump 50-139 px,
+with the frames between interpolated. Open item (one id, jitter p99 0.21 vs v105 0.185): a per-keypoint temporal
+veto at the fit's INPUT (a wrist keypoint far from its neighbours' at low confidence dropped, the temporal term
+holding the arm) -- a data gate, not a prior; not built today.
