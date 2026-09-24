@@ -95,6 +95,14 @@ def main():
             lreps = _fl.foot_lock_timeline(tl, str(args.body_models), team_of=team_of(P), boxes_df=df)
             print(f"foot lock ({_fl.MODE}): {sum(r['segments'] for r in lreps.values())} stances on "
                   f"{sum(r['frames'] for r in lreps.values())} body-frames")
+        # the VPoser shift (pose.pose_prior, 2026-09-23): poses far from the mocap manifold blended toward their
+        # projection, the weight smoothed along each man's run; SHIFT is read at call time, off until the film says
+        from nfl_gsplat.pose import pose_prior as _pp
+
+        if _pp.SHIFT:
+            prep = _pp.shift_timeline(tl, _pp.load())
+            print(f"pose prior shift: {prep['moved']} body-frames moved ({prep['full']} fully), "
+                  f"mean {prep['mean_move_rad']:.3f} rad, of {prep['scored']} scored")
     pos = mr.positions_by_id(tl.states)
     joints = joints_for(tl, model, args.lo, args.hi) if args.joints else None
     rep = mr.summarize(pos, tl.states, team_of(P), lo=args.lo, hi=args.hi, joints_by_id=joints)

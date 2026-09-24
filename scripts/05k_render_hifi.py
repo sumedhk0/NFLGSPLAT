@@ -216,6 +216,14 @@ def main() -> None:
             print(f"foot lock ({_fl.MODE}): {sum(r['segments'] for r in lreps.values())} stances on "
                   f"{sum(r['frames'] for r in lreps.values())} body-frames of "
                   f"{sum(1 for r in lreps.values() if r['segments'])} ids")
+        # the VPoser shift (pose.pose_prior, 2026-09-23): poses far from the mocap manifold blended toward their
+        # projection, the weight smoothed along each man's run; SHIFT is read at call time, off until the film says
+        from nfl_gsplat.pose import pose_prior as _pp
+
+        if _pp.SHIFT:
+            prep = _pp.shift_timeline(tl, _pp.load())
+            print(f"pose prior shift: {prep['moved']} body-frames moved ({prep['full']} fully), "
+                  f"mean {prep['mean_move_rad']:.3f} rad, of {prep['scored']} scored")
     frames = frames_all[:: max(1, args.stride)]
     end = args.end_frame if args.end_frame is not None else play_end_frame(P)
     if end is not None:
