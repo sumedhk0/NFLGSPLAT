@@ -6895,3 +6895,12 @@ today's 05f and 05p. Test running: the PRETRAINED keypoints through today's 05n/
 (one-view frames keep v105's records), knee/elbow ruler ($S/live_05f_test.log). If the knees come out ~131, the
 straightening is today's two-view fit against the old records, and the film question is which fit is right on the
 quarterback and the rushers -- not the detector.
+**14:50 -- CONFIRMED: the knee straightening is the FIT CHAIN's, not the detector's.** The PRETRAINED keypoints
+through today's 05n/05f (two-view only, the copy chain's thresholds 6 / 0.5), merged onto the live keys: knee mean
+132.1, elbow 125.8 -- v107's numbers (131.6 / 126.6), the same ids on top (80 +15.3, 15 +15.2, 74 +14.6, 12, 28,
+76, 37, 204), 15 of 22 straighter by > 5 deg against v105. The three fine-tunes and their three label rules were
+innocent; every chain refitted the two-view frames with today's 05n + 05f, while v105's two-view records date from
+09-09/09-11 (poses_refit_fused 09-09, poses_tri 09-11). 05f's code has not changed since (git: only the VPoser
+option), so the difference is 05n's input (the cameras, the triangulation) and/or the copy chain's looser
+--min-valid-joints 6 --min-frame-frac 0.5 (defaults 10 / 0.7: frames with six triangulated joints get two-view
+records whose LEGS the L2 prior straightens). The default-threshold variant is running ($S/live_05f_default.log).
