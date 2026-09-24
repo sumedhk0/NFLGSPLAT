@@ -6672,3 +6672,16 @@ Sideways-leg share 3.9 % with id 5 (the back) at 20 frames -- new; the prior may
 prior in the fit wins every pose ruler at 0.01; its film is owed (the sprinter, the back) once the GPU is free.
 Queued after the ft2 chain and film: the same term on the RETRAINED detector's keypoints ($S/after_ft2.sh ->
 lkft2vp), the real candidate.
+
+**07:45 -- the four arms on the live keys, canonical ruler (play window 395-607, n 4704 body-frames):**
+
+| arm | VPoser p50/p90/p99 | over 8 | 09d jerk | trunk | jitter p90/p99 | steps/hops/census |
+|---|---|---|---|---|---|---|
+| live v105 | 4.22/6.71/15.87 | 0.068 | 5 | 2 | 0.0644/0.185 | 2/0/0.16 |
+| fine-tuned fit (lkft) | 3.60/5.61/9.66 | 0.024 | 6 | 0 | 0.0604/0.253 | 2/0/0.16 |
+| + prior in the fit 0.003 | 3.53/5.42/8.56 | 0.015 | 4 | 0 | 0.0594/0.230 | 2/0/0.16 |
+| + prior in the fit 0.01 | 3.42/5.07/7.68 | 0.009 | 3 | 0 | 0.0602/0.229 | 2/0/0.16 |
+
+Monotone in the prior's weight on every pose ruler; placement untouched (same keys, same rules); the jitter p99
+stays above live in every fine-tuned arm (the one-view sideline fits shake at the tail). All three use the FIRST
+fine-tune's keypoints (endzone lost); the same arms on the retrained detector's keypoints are the decision.
