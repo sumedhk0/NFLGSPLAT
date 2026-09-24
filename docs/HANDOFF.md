@@ -6552,3 +6552,10 @@ the ungated v106p: the lean eased, the RIGHT arm brought forward and bent, the L
 shoulder row read film-supported (elbow residual 1.5-8 px) because the detector's blurred elbow keypoint sat on the
 flung-back position. Arm keypoints on a 100-px sprinter are the least reliable joints; next: per-row-class ramps
 (arms 4 -> 10 px, legs 8 -> 16) or the keypoint confidence folded into the support.
+Arm-ramp arm (row gate, arms 4 -> 10 px, body 8 -> 16; commit af6bf8a): 718 body-frames moved (5 fully), mean
+0.036 rad; score p99 14.5 (the sprinter 18.7 at 416: his arms only part-freed, the elbow residual 1.5-8 px lands at
+weights 0-0.7); keypoint resid 6.4 / 14.5; jitter p90 0.0608 / p99 0.180 (as the plain row gate; both better than
+as drawn). The aggregate rulers cannot see one man's arms; the film can, after the GPU frees (the 2D fine-tune is
+at epoch 5 / 30, ~75 min). The two threads meet there: the sprinter's flung arms are a DETECTOR error on blurred
+arms (the fit followed it); if the fine-tune's cross-camera labels fix the arm keypoints, a re-detect + refit fixes
+the fit itself and the shift has less to do.
