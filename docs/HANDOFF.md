@@ -6639,3 +6639,19 @@ detector's own confident keypoints (pseudo_labels.detector_labels; fewer than 4 
 the box and drops out-of-image joints; dataset rebuilt as pose_ds2, retrain as pose_ft2, then the copy chain again
 with --keypoints. Meanwhile the three refit arms (fine-tuned fit, VPoser weight 0.003 / 0.01) are being measured
 on the LIVE cache's keys (content only, coverage held): $S/livekeys_rulers.log.
+
+**06:40 -- the dataset rebuilt and retraining; the VPoser ruler's wrapped-rotation artefact.** pose_ds2 (09g with
+--lo 214 --hi 616 --stride 2, after cc4512c / cb57c04 / 1d6578c): 395 images, 6,764 instances, no all-unlabelled
+instance, no out-of-bounds coordinate, body-joint v=0 share 0.07 (was 0.54 endzone / 0.40 sideline); fit_cross
+13,841 as before. pose_ft2 training (30 epochs, ~40 min); then $S/ft2_chain.sh on the copy: 05m -> the confidence
+table gate ($S/conf_table.py; endzone body-frames >= 0.3 must reach 85 % of live's 9,306) -> 05n/05f/05p with
+--keypoints -> merged onto the live keys -> rulers. The three earlier refit arms measured on the LIVE cache's keys
+(content only; $S/livekeys_rulers.log, but its steps/census lines were stale -- read steps_copy_<tag>.log): the
+fine-tuned fit lkft steps 2 / hops 0 / census 0.16 / vanish 171 only (= v105), 09d jerk 6 (v105 5), trunk 0
+(v105 2); VPoser weight 0.003 in the fit (lkvp0003) the same placement, jerk 4, VPoser share over 8 0.044 vs 0.054,
+jitter p99 0.230 vs 0.253; weight 0.01 pending. Both arms' VPoser p99 read 25.9 from ONE body: id 139 held
+556-596 with a left-hip rotation vector of norm 5.62 -- the timeline unwraps rotvecs for continuity and holds the
+last record forward, and VPoser (trained on canonical vectors) scored the wrapped form 27.3 where the same rotation
+reads 6.3. Fixed f8ca9e7: pose_prior.canonical folds every vector under pi at every entry (encode, the numpy
+encoder in the fit, blend). Every earlier VPoser number (live p99 15.9, the probes) carries the artefact on held
+bodies past a half-turn; the live reference and the arms are being rescored ($S/prior_*_canon.log).
