@@ -92,3 +92,67 @@ def weights_from_scores(s: np.ndarray, *, lo: float = None, hi: float = None) ->
     lo = NORM_HI * 0.75 if lo is None else float(lo)
     hi = NORM_HI if hi is None else float(hi)
     return np.clip((np.asarray(s, float) - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
+
+
+# ---- the shift on a timeline -----------------------------------------------------------------------------------
+# Measured on play 1 (2026-09-23, v105 as rendered, blend 8 -> 12 per frame): score p99 15.9 -> 9.7, the share over
+# 8.0 6.8 -> 5.0 %, keypoint residual p50 6.3 -> 6.7 px, joint jitter p90 0.064 -> 0.062 but p99 0.185 -> 0.224:
+# a per-frame weight switches between neighbouring frames and the blend's edges jump. The weight is therefore
+# smoothed along each man's frames (SHIFT_SIGMA) before the blend.
+SHIFT: bool = False             # apply the shift in the render scripts (read at call time); off until the film says yes
+SHIFT_LO: float = 8.0           # the score where the blend toward the projection starts ...
+SHIFT_HI: float = 12.0          # ... and where it is complete
+SHIFT_SIGMA: float = 3.0        # frames: Gaussian smoothing of the per-frame weight along each man's run (0 = none)
+
+
+def smooth_weights(w: np.ndarray, sigma: float) -> np.ndarray:
+    """``w [T]`` smoothed along the frames by a Gaussian of ``sigma`` frames (edges held), so a moved frame's
+    neighbours move part of the way and the blend has no edge to jump over; unchanged for sigma <= 0."""
+    w = np.asarray(w, float)
+    if sigma <= 0 or len(w) < 2:
+        return w.copy()
+    from scipy.ndimage import gaussian_filter1d
+    return np.clip(gaussian_filter1d(w, sigma, mode="nearest"), 0.0, 1.0)
+
+
+def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_frame=None) -> dict:
+    """Blend every drawn body's pose toward its VPoser projection where its score is high: per id, over each run of
+    consecutive frames, the weights from the scores (``lo``..``hi``), smoothed by ``sigma`` frames, then the blend in
+    place. None knobs = the module's SHIFT_LO / SHIFT_HI / SHIFT_SIGMA at call time. Returns ``{"scored", "moved",
+    "full", "mean_move_rad"}``."""
+    lo = SHIFT_LO if lo is None else float(lo)
+    hi = SHIFT_HI if hi is None else float(hi)
+    sigma = SHIFT_SIGMA if sigma is None else float(sigma)
+    by: dict = {}
+    for f, states in tl.states.items():
+        if (lo_frame is not None and f < lo_frame) or (hi_frame is not None and f > hi_frame):
+            continue
+        for s in states:
+            by.setdefault(int(s.pid), {})[int(f)] = s
+    rep = {"scored": 0, "moved": 0, "full": 0, "mean_move_rad": 0.0}
+    moves = []
+    for pid, byf in by.items():
+        fs = sorted(byf)
+        runs, run = [], [fs[0]]
+        for f in fs[1:]:
+            if f == run[-1] + 1:
+                run.append(f)
+            else:
+                runs.append(run)
+                run = [f]
+        runs.append(run)
+        for run in runs:
+            bps = np.array([byf[f].body_pose.reshape(21, 3) for f in run])
+            w = smooth_weights(weights_from_scores(scores(vp, bps), lo=lo, hi=hi), sigma)
+            rep["scored"] += len(run)
+            if not (w > 0).any():
+                continue
+            new = blend(bps, project(vp, bps), w)
+            for f, bp, wi, old in zip(run, new, w, bps):
+                if wi > 0:
+                    byf[f].body_pose = bp.reshape(21, 3)
+                    rep["moved"] += 1
+                    rep["full"] += int(wi >= 1.0)
+                    moves.append(float(np.abs(bp - old).mean()))
+    rep["mean_move_rad"] = float(np.mean(moves)) if moves else 0.0
+    return rep

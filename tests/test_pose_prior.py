@@ -46,3 +46,11 @@ def test_vposer_scores_the_mean_pose_low_and_noise_high_and_projects_onto_the_ma
     again = pp.project(vp, pr)
     assert np.abs(again - pr).max() < np.abs(pr - noise).max()
     assert np.median(pp.scores(vp, pr)) < np.median(sn)
+
+
+def test_smooth_weights_spread_a_lone_moved_frame_onto_its_neighbours():
+    w = np.zeros(21); w[10] = 1.0
+    sw = pp.smooth_weights(w, 2.0)
+    assert sw[10] < 1.0 and sw[9] > 0.05 and sw[8] > 0.01 and sw[0] < 1e-3
+    assert np.allclose(pp.smooth_weights(w, 0.0), w)
+    assert sw.max() <= 1.0 and sw.min() >= 0.0

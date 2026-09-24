@@ -6473,3 +6473,27 @@ running endzone render died, exit 127); restored `torch==2.11.0 --index-url .../
 still imports under its version complaint). Next unit: the VPoser ruler (pose/pose_prior.py + 09j): the latent norm
 per drawn body-frame as the plausibility score, the projection decode(encode(pose)) as the correction, gated on the
 keypoint residual; scored on 09d / 07l / the film.
+
+**v105 rendered (hifi + sideline blend machine ~16:05; the endzone blend re-rendering after the GPU clearing): v100
+tables + the foot lock's final form -- reach-signal strikes, the release from the stance-end offset, the box +
+distance engagement gate (commit f5ef27e; module defaults). CURRENT BEST, film-checked on the sideline.** 07l: 39
+stances on 587 body-frames. Film (`--a v103 --b v105`): the DB id 0's second stance 584-596 holds the right foot on
+the turf through 586-592 where v103 slid it, the swing at 594-596 as the film's; the backpedalling DB 30 (448-462)
+and the shuffling LB 28 (522-536) read as planted steps where v103 glided; the whole scene 450 / 500 / 562
+unchanged. Band rulers (gated, reach): planted 9 -> 17 %, ratio 0.76 -> 0.74, ankle 6.0 -> 6.8 / 17.3 -> 18.6 px,
+jitter p90 +7 %. Viewer Version 20 = v105 joints (export running). The lock unit is CLOSED at this form; open
+only if more plays show a new failure mode.
+
+**VPoser ruler over play 1 as rendered (v105 lock; `$S/prior_ab.py`; 4,704 body-frames on 395-607; machine ~20:40):**
+latent-norm score p50 4.22 / p90 6.71 / p99 15.9, 6.8 % over 8.0 (Gaussian-noise poses score 10-16, the rest pose
+3.4); hinge-violation share 0 (the fit's hard hinges); the score barely correlates with the sideline keypoint residual
+(0.06) -- it sees something the residual does not. Worst: id 9 (KC, the sprinting receiver) at 415-418 scoring
+21-22, id 5 (KC) 526-542 at 17-18, then 19, 139; per-id p90: 5 16.5, 9 13.1, 19 10.4, 139 9.7, the rest under 8.
+Film strips of those cut; the shift arm (--apply 8 12: blend toward the projection from score 8, fully at 12) running.
+Shift arm (blend toward the projection from score 8, full at 12, per frame): 321 body-frames moved (138 fully), mean
+joint move 0.16 rad; score p99 15.9 -> 9.7, over 8.0 6.8 -> 5.0 % (a projected pose does not land under 8: the decoder
+is not idempotent); keypoint residual p50 6.3 -> 6.7, p90 14.0 -> 15.5 px; hinge-violation share 0 -> 0.002; joint
+jitter p90 0.064 -> 0.062 but p99 0.185 -> 0.224 -- a per-frame weight makes edges between moved and unmoved frames.
+Next: the weight smoothed along each man's run (pose_prior.shift_timeline, SHIFT_SIGMA 3), then a sideline-view
+render with the shift for the film (the sprinter id 9 at 414-418: the film has an upright sprint with pumping arms,
+the fit leans far forward with the arms flung back -- VPoser 22, the keypoint residual silent).
