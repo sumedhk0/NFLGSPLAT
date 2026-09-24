@@ -7061,3 +7061,21 @@ hidden; the receiver sees his hands reach for the ball at 560, Thuney his arms o
 previews it (hiding the neck alone left a 13 cm chest capsule filling the bottom of the view).
 
 v109 = v108 + the two rules + the eye. Render chain launched 18:37 ($S/chain_v109.sh); film review next.
+
+### 2026-09-24 19:45 -- v109 = CURRENT BEST (rendered, film-checked on both cameras)
+
+diag/play_001_v109_hifi_720.mp4 + _sideline_blend / _endzone_blend; 07l steps 2 / hops 0 / census 0.17 (= v108).
+Sideline-view renders v108 | v109 against the film ($S/lock_diff_strip2.py; $S/v109diff_*.png): id 6 at 576-590
+(v108 his back to the camera with an arm flung out, v109 facing it as the film has him, number and face); id 9 at
+494-502 (v108 turned toward the defender, v109 sprinting left with his lean); id 28 = Kyle Hamilton at 542-552 (v108
+hunched then diving sideways at 552, v109 running away from the camera with his nameplate showing, as the film).
+Endzone view ($S/v109_thuney_ez.png): Thuney's arms reach LEFT toward his rusher at 548-596 like the film; v108 reached
+right. The whole-scene run sheet is unchanged elsewhere. Viewer Version 25 carries these joints.
+
+Open after v109 (measured, not built): (1) two wrong records IN A ROW between two groups (id 12 = KC #71 at 590/596:
+each agrees with one side, the vote keeps both; drawn a 314-degree spin, the film has him on his man) -- the detour
+pass (drop a run of 1-2 records whose removal shortens the turn by > 170 deg within 24 frames) is the next unit;
+(2) id 9 at 460-490: the fits there face him 90 deg off his sprint; no rule without the motion can fix a majority of
+wrong records; (3) one-view bodies slide sideways to their chest faster than 3 m/s on 36 % of live steps (two-view
+12 %) -- for id 3 the box says he really recedes from the camera while his fit faces 70 deg off that run; which is
+wrong is open, and it makes his first-person camera strafe.
