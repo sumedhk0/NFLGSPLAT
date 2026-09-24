@@ -150,6 +150,21 @@ def row_support(resid_by_coco: dict, body_median: float) -> np.ndarray:
     return out
 
 
+def load_row_support(path) -> dict | None:
+    """``{(pid, frame): [21] px}`` from 09j's pose_support.json, or None when the file is absent."""
+    import json
+    from pathlib import Path as _P
+    path = _P(path)
+    if not path.exists():
+        return None
+    d = json.loads(path.read_text())
+    out = {}
+    for pid, byf in d.get("rows", {}).items():
+        for f, rs in byf.items():
+            out[(int(pid), int(f))] = np.array([np.nan if v is None else float(v) for v in rs])
+    return out
+
+
 def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_frame=None, support=None,
                    row_support_by=None) -> dict:
     """Blend every drawn body's pose toward its VPoser projection where its score is high: per id, over each run of

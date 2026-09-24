@@ -6520,3 +6520,9 @@ resid 6.3 -> 6.4 / 14.0 -> 14.5; jitter p90 0.0644 -> 0.0612, p99 0.185 -> 0.180
 back's crouch kept (right). Next form: the support PER JOINT ROW -- each body_pose row gated by the residual of the
 joint at the end of its bone (shoulder row <- elbow, elbow <- wrist, hip <- knee, knee <- ankle; the spine / neck /
 collar rows take the body median), so the sprinter's arms move while his legs stay.
+**Probe render v106p (sideline view, the shift ungated, sigma 3; 1,491 body-frames moved of 13,510) on film:** the
+sprinter id 9 at 410-422 stands up with the arms carried forward and bent -- the film's upright sprint with pumping
+arms, where v105 leaned 60 deg with both arms flung back (a win, if a touch too upright); the back id 5 at 450-462
+is straightened out of his real low crouch (a loss: the film has him bent over in pass protection). The per-row
+support gate is the form for both; `scripts/09j_pose_support.py` writes `<play-dir>/pose_support.json` (per body-frame
+the 21-row residuals through each bone's child keypoint + the VPoser score) and 05k / 07l read it under SHIFT.

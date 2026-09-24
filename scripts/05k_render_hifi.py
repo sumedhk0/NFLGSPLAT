@@ -221,9 +221,10 @@ def main() -> None:
         from nfl_gsplat.pose import pose_prior as _pp
 
         if _pp.SHIFT:
-            prep = _pp.shift_timeline(tl, _pp.load())
-            print(f"pose prior shift: {prep['moved']} body-frames moved ({prep['full']} fully), "
-                  f"mean {prep['mean_move_rad']:.3f} rad, of {prep['scored']} scored")
+            rowsup = _pp.load_row_support(P / "pose_support.json")   # 09j; None = ungated
+            prep = _pp.shift_timeline(tl, _pp.load(), row_support_by=rowsup)
+            print(f"pose prior shift ({'row-gated' if rowsup else 'ungated'}): {prep['moved']} body-frames moved "
+                  f"({prep['full']} fully), mean {prep['mean_move_rad']:.3f} rad, of {prep['scored']} scored")
     frames = frames_all[:: max(1, args.stride)]
     end = args.end_frame if args.end_frame is not None else play_end_frame(P)
     if end is not None:
