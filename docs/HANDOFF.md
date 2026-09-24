@@ -7013,3 +7013,51 @@ sprinter stays upright with his arms pumping, the back keeps his crouch, the who
 Viewer Version 24 (v108 joints with look/eye), write-up Version 14 (the refit-input bug as an open-defect lesson).
 Not shipped: lkft2p (05p --two-view --endzone-weight 0.3, the pipeline default arm): knees 122.4, the sideline
 dominates, VPoser worse.
+
+### 2026-09-24 18:40 -- v109: the first-person spins were the bodies' (two pose-record rules), the eye, own arms
+
+**What the POV still did wrong after the look model (08bc22a).** $S/pov_steady.py on v108: the look turned more than
+20 deg per exported step (1/30 s) on 2.9 % of live steps, p99 32 deg; the worst were whole-body spins -- id 6 at
+470-496 (+276 deg) and 568-598 (-345 deg), id 15 at 568-594, id 9 at 492-506. The film ($S/facing_strip.py: the
+drawn torso arrow projected on both cameras' footage, --skel for the skeleton; $S/box_crops.py: the raw box zoomed)
+says none of those spins happened. The look was right to follow the torso; the torso was wrong.
+
+**Cause 1, stale refit records.** id 6's 12 refit records at 578-589 have no keypoints for him in either camera in
+ANY version of the keypoint tables (sideline box 45x80 px, no pose detection in it; no endzone rows after 304):
+a two-view fit from an old pairing, carried onto him by 08v. They face away from the sideline camera; the film has his
+number and face toward it. $S/orphan_records.py: 27 % of the live window's refit records have no keypoints for their
+id within +-1 frame, but nearly all sit on ids no longer drawn; on drawn bodies: id 6 578-589, id 17 438-440, id 204
+600. Rule: timeline.drop_unkeyed_poses (a refit record needs a keypoint over 0.3 for its id within 1 frame in
+keypoints_2d or keypoints_2d_ft2; regressor records stay).
+
+**Cause 2, single records facing the wrong way.** The regressor agrees with the keypoint fit on front/back 96 % of
+the time (84 % on boxes under 90 px; $S/regressor_frontback.py), and a one-view fit of a man seen side-on flips too
+(id 9 at 494 and 504, both 05f records). One such record between agreeing neighbours makes the SLERP turn the man the
+long way round. Rule: timeline.drop_flipped_keyframes (fewer than half of the records within 12 frames either side,
+at least 3, face within 90 deg: dropped worst first, regressor before fit on a tie, re-counted after each drop).
+Tests: a clean half turn and a 720 deg/s spin sampled every 2 frames lose nothing.
+
+**Rejected before building: face where you run.** The drawn bodies running backward fast are, on the film, safeties
+backpedalling (id 30, id 0, id 6 at 436-440) and linemen in pass sets (17, 204, 12) -- the torso right every time --
+plus placement speed glitches (the QB at 548); only id 9 was wrong. A motion prior would have broken the correct
+ones. MISTAKE on the way: $S/backward_by_speed.py and pov_jumps.py divided 60 fps frame gaps by 30 fps, so every
+speed they printed is HALF the real one; no conclusion rests on them (the film decided each case), but do not quote
+them.
+
+**A/B on the live export** ($S/ab_flip.sh, knobs via with_flag at call time): A (both off) reproduces v108's joints
+exactly. Both on: drawn torso steps over 20 deg 4.2 % -> 2.1 % (max 173 -> 70); the look as the viewer shows it p99
+30 -> 19 deg per step, over 20 deg 2.1 % -> 0.6 %. Film, rules on better in every judged stretch: id 6 (476-494,
+572-596), id 1 (482-494), id 28 (544-550), id 15 (494-510), id 9 (494-506; 482-490 still wrong in both: the fits
+there face him right), id 139 = Thuney: the endzone film has his back to that camera, turned toward his rusher, arms
+reaching for him; v108 drew him facing the other way with his arms raised. 07l unchanged (steps 2 / hops 0 / census
+0.17), planted 13 -> 14 %. 09d worse and read on the film: jerk 3 -> 5 (id 84 at 594), R arm sideways 11.8 -> 13.4 %
+(Thuney's pass-block arms, right on the film). Committed 5162ce2 (defaults on).
+
+**The eye.** SMPL-X's own eye joints (23/24) sit 4.1-4.5 cm above and 6.5-6.8 cm ahead of the head joint over
+statures 1.62-1.87 m; render.gaze had 8 / 9 cm (a guess), now 4.5 / 6.5. Eye height p50 1.58 -> 1.54 m.
+
+**Own arms in first person** (dc2eb63, viewer Version 25): only the helmet, the neck bone and the upper chest are
+hidden; the receiver sees his hands reach for the ball at 560, Thuney his arms on the rusher. $S/pov_preview2.py
+previews it (hiding the neck alone left a 13 cm chest capsule filling the bottom of the view).
+
+v109 = v108 + the two rules + the eye. Render chain launched 18:37 ($S/chain_v109.sh); film review next.
