@@ -84,6 +84,7 @@ def main() -> None:
     if not frames:
         frames = sorted(int(f) for f in refit if a.lo <= int(f) <= a.hi)
     rows = []
+    n_fit_out = 0                              # fit records whose labels came out all unlabelled in a camera
     per_image: dict = {}                       # (cam, clip_frame) -> list of (box, uv, vis)
     counts = {s: 0 for s in pl.SOURCES}
     for f in frames:
@@ -108,6 +109,9 @@ def main() -> None:
                 cf = clip_of[cam](f)
                 box = boxes.get((cam, cf, pid))
                 if box is None:
+                    continue
+                if not (lab.vis[cam] > 0).any():      # nothing anchored, nothing confident: not an instance
+                    n_fit_out += 1
                     continue
                 per_image.setdefault((cam, cf), []).append((box, lab.uv[cam], lab.vis[cam]))
                 for k in range(pl.N_COCO):
@@ -134,7 +138,8 @@ def main() -> None:
                     counts[pl.SOURCES[s[k]]] += 1
                     rows.append((cam, cf, pid, k, u[k, 0], u[k, 1], int(v[k]), pl.SOURCES[s[k]]))
     print(f"tracked boxes without a fit record: {n_box_det} labelled by the detector, {n_box_out} left out "
-          f"(fewer than {a.min_det_joints} keypoints at confidence >= {a.anchor_conf:g})")
+          f"(fewer than {a.min_det_joints} keypoints at confidence >= {a.anchor_conf:g}); fit records with no "
+          f"labelled keypoint in a camera left out: {n_fit_out}")
     ldf = pd.DataFrame(rows, columns=["cam", "clip_frame", "pid", "joint", "u", "v", "vis", "source"])
     out.mkdir(parents=True, exist_ok=True)
     ldf.to_parquet(out / "labels.parquet", index=False)
