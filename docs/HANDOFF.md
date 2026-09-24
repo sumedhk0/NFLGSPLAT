@@ -6952,3 +6952,15 @@ pretrained +1.3 -> +0.5 px) and CROSS_JOINTS arms-only (endzone det PCK@10 90.8 
 neutral to them. Next-play recipe note: label from the PRETRAINED fit (09g --refit), judge the pose on BOTH cameras.
 The refined endzone camera in the triangulation (05n 5.4 -> 2.6 px; the two-view legs 7.7 / 8.4 -> 6.3 / 8.1) is
 the next candidate: v108 = v107 + the refined camera for the FIT only (ft2 keypoints on play_copy_b's cameras).
+
+### 2026-09-24 16:10 (machine clock; the stamps from ~11:00 to 16:00 above ran ahead of it) -- label rules reverted
+
+The two label rules (SELF_LABEL det, CROSS_JOINTS arms) rested on the knee-drift premise the endzone film falsified,
+and both lost on film and on every ruler against pose_ft2 (same tool, same code, live keys): VPoser p99 / over-8
+v107 10.7 / 0.022 vs ft3 18.3 / 0.032 vs ft4 17.5 / 0.028; jerk 2 / 4 / 4; jitter p99 .211 / .212 / .227; held-out
+endzone fit_cross PCK@10 66.1 / 54.2 / 48.2 (arms). Film: ft3 flings the sprinter's arm out again at 414-418; ft4
+leans him ~45 deg at 410-418 and throws an arm wide at 422; v107 upright. Defaults back to fit / None (verified: the
+rebuilt labels reproduce pose_ds2 exactly, 114,988 slots); the knobs stay as 09g --self-label / --cross-arms-only.
+pose_ft2 stays the shipped detector. NOT pursued: the refined endzone camera in the fit (sideline leg residual 7.7 ->
+6.3 px, knees unchanged) -- the 09-23 closure stands (the drawn bodies do not move under it; its placement ruler read
+14 px worse in the endzone), and the gain is too small to re-open it.

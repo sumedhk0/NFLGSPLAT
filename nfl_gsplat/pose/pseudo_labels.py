@@ -30,19 +30,17 @@ ANCHOR_CONF: float = 0.5      # ... with the detection at least this confident
 N_COCO: int = 17
 COCO_FLIP = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]   # left <-> right for horizontal flips
 SOURCES = ("none", "det", "fit_self", "fit_cross")
-# A joint anchored in its own camera (fit_self) is labelled with the DETECTOR's point ("det") or the fit's projection
-# ("fit"). The projection carried the fit's prior into the labels -- toward the hip-ankle line (straighter) by 1-2 px
-# on two thirds of the anchored knees -- and the fine-tuned detector learned it: knee flexion 125 -> 132 deg mean over
-# play 1, the quarterback and the edge rusher taller than the film (2026-09-24). The detector's own confident point is
-# the ground truth for its camera; the fit adds only what the other camera anchors.
-SELF_LABEL: str = "det"
-# The joints the fit may label in a camera that did NOT anchor them (fit_cross): the arms only. A leg anchored by one
-# camera alone is free along that camera's viewing ray, and the fit's prior straightens it, so its projection into
-# the other camera carried a straighter knee (+2.6-2.9 px toward the hip-ankle line on the fine-tuned endzone
-# detector against the pretrained, both ft2 and ft3), the two-view fit inherited it and the play's mean knee flexion
-# went 125 -> 132 deg (2026-09-24). The arms were the fine-tune's target (the sprinter's flung arms); the legs stay
-# the detector's own. None = every body joint (the old behaviour).
-CROSS_JOINTS: tuple | None = (5, 6, 7, 8, 9, 10)
+# A joint anchored in its own camera (fit_self) is labelled with the fit's projection ("fit") or the DETECTOR's point
+# ("det"). "det" was tried on 2026-09-24 against a knee drift (mean flexion 125 -> 132 deg after the fine-tune) that
+# turned out to be the two-view fit being RIGHT (the endzone film: sideline-only fits had bent the knees toward the
+# camera, where flexion is invisible) -- and it lost on film: its detector (pose_ft3) flung the sprinter's arm out
+# again at 414-418, the held-out cross-camera PCK@10 fell 66 -> 54 %, hinge jerk 2 -> 4. The projection is a
+# two-camera answer; the detector's own point is a one-camera guess. Default "fit" (the rule that trained pose_ft2).
+SELF_LABEL: str = "fit"
+# The joints the fit may label in a camera that did NOT anchor them (fit_cross); None = every body joint. Arms only
+# ((5, 6, 7, 8, 9, 10)) was tried the same day on the same falsified premise: its detector (pose_ft4) leaned the
+# sprinter ~45 deg at 410-418 and threw an arm wide at 422, the arm class's held-out PCK@10 48 %. Default None.
+CROSS_JOINTS: tuple | None = None
 
 
 @dataclass

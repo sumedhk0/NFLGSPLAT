@@ -44,6 +44,12 @@ def main() -> None:
                     help="the refit cache whose fits are reprojected as labels (default <play-dir>/poses_refit.json). "
                          "Name it: a cache already refitted on a fine-tuned detector's keypoints feeds the fit's drift "
                          "back into the next detector (2026-09-24), so a fair retrain reprojects the PRETRAINED fit")
+    ap.add_argument("--self-label", choices=("fit", "det"), default=None,
+                    help="a joint anchored in its own camera takes the fit's projection (fit) or the detector's point "
+                         "(det); default pseudo_labels.SELF_LABEL (fit: det lost on film, 2026-09-24)")
+    ap.add_argument("--cross-arms-only", action="store_true",
+                    help="the fit labels only the arm joints (COCO 5-10) in a camera that did not anchor them "
+                         "(lost on film, 2026-09-24; kept for A/B at call time)")
     ap.add_argument("--min-det-joints", type=int, default=4,
                     help="a tracked box with no fit record takes the detector's own confident keypoints when at least "
                          "this many qualify, else it is left out (never a box with 17 unlabelled keypoints: the "
@@ -108,7 +114,8 @@ def main() -> None:
                     dets[cam] = d
             if not proj:
                 continue
-            lab = pl.label_frame(proj, dets, agree_px=a.agree_px, anchor_conf=a.anchor_conf)
+            lab = pl.label_frame(proj, dets, agree_px=a.agree_px, anchor_conf=a.anchor_conf, self_label=a.self_label,
+                                 cross_joints=(5, 6, 7, 8, 9, 10) if a.cross_arms_only else None)
             for cam in lab.uv:
                 cf = clip_of[cam](f)
                 box = boxes.get((cam, cf, pid))
