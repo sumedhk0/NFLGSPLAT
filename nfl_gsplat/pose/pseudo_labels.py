@@ -117,12 +117,16 @@ def yolo_pose_line(box_xyxy, uv: np.ndarray, vis: np.ndarray, width: int, height
         return None
     cx, cy, w, h = (x1 + x2) / 2 / width, (y1 + y2) / 2 / height, (x2 - x1) / width, (y2 - y1) / height
     parts = [str(cls), f"{cx:.6f}", f"{cy:.6f}", f"{w:.6f}", f"{h:.6f}"]
+    n_lab = 0
     for k in range(N_COCO):
         inside = np.isfinite(uv[k]).all() and 0.0 <= uv[k, 0] <= width and 0.0 <= uv[k, 1] <= height
         if vis[k] > 0 and inside:
             parts += [f"{min(uv[k, 0] / width, 1.0):.6f}", f"{min(uv[k, 1] / height, 1.0):.6f}", str(int(vis[k]))]
+            n_lab += 1
         else:
             parts += ["0", "0", "0"]
+    if n_lab == 0:                  # every labelled joint fell outside the image: not an instance either
+        return None
     return " ".join(parts)
 
 

@@ -99,5 +99,7 @@ def test_yolo_line_clips_the_box_and_drops_out_of_image_joints():
     assert kp[5].tolist() == [10 / 200, 20 / 100, 2]
     assert kp[6].tolist() == [0, 0, 0] and kp[7].tolist() == [0, 0, 0]
     assert (kp[:, :2] >= 0).all() and (kp[:, :2] <= 1).all() and 0 <= cx - w / 2 and cx + w / 2 <= 1
-    # a box entirely outside the image is no instance
+    # a box entirely outside the image is no instance, nor is one whose labelled joints all fell outside it
     assert pl.yolo_pose_line((-50.0, -50.0, -10.0, -10.0), uv, vis, 200, 100) is None
+    uv2 = np.full((17, 2), np.nan); vis2 = np.zeros(17, int); uv2[5], vis2[5] = (-3.0, 20.0), 2
+    assert pl.yolo_pose_line((-20.0, 10.0, 60.0, 130.0), uv2, vis2, 200, 100) is None
