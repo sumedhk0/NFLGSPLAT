@@ -598,6 +598,27 @@ def main() -> None:
             print(f"gaze exported for {len(gaze)} ids, {sum(len(v) for v in gaze.values())} (id, frame) readings")
         except Exception as exc:                                     # the export must never fail for the gaze
             print(f"gaze not exported: {exc}")
+        # the first-person look (render.gaze): the drawn torso's facing plus a bounded head turn toward what the man
+        # watches (the passer downfield then his receiver, the defence the ball, everyone off the line the ball in
+        # flight); the viewer's first-person camera sits at ``eye`` and looks along ``look``. Needs ball.json's events.
+        try:
+            import json as _json
+
+            from nfl_gsplat.render import gaze as _gaze
+
+            ev = _json.loads((P / "ball.json").read_text())
+            bodies_g = {int(f): {int(r[0]): np.asarray(r[2], float) for r in rows} for f, rows in export.items()}
+            ball_g = {int(k): tuple(v) for k, v in ball_out.items()}
+            los_x = float(los["x"]) if isinstance(los, dict) and "x" in los else None
+            if los_x is None:
+                raise ValueError("no line of scrimmage")
+            look_g, eye_g = _gaze.look_table(bodies_g, ball_g, ev, los_x=los_x,
+                                             teams={int(k): v for k, v in export_ids.items()})
+            doc["look"] = {str(p): {str(f): [round(x, 4) for x in v] for f, v in d.items()} for p, d in look_g.items()}
+            doc["eye"] = {str(p): {str(f): [round(x, 3) for x in v] for f, v in d.items()} for p, d in eye_g.items()}
+            print(f"look exported for {len(look_g)} ids, {sum(len(v) for v in look_g.values())} (id, frame) entries")
+        except Exception as exc:                                     # the export must never fail for the look
+            print(f"look not exported: {exc}")
         args.export_joints.parent.mkdir(parents=True, exist_ok=True)
         args.export_joints.write_text(json.dumps(doc, separators=(",", ":")), encoding="utf-8")
         print(f"exported joints: {sum(len(v) for v in export.values())} body-frames on {len(export)} frames, "

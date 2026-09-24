@@ -6964,3 +6964,40 @@ rebuilt labels reproduce pose_ds2 exactly, 114,988 slots); the knobs stay as 09g
 pose_ft2 stays the shipped detector. NOT pursued: the refined endzone camera in the fit (sideline leg residual 7.7 ->
 6.3 px, knees unchanged) -- the 09-23 closure stands (the drawn bodies do not move under it; its placement ruler read
 14 px worse in the endzone), and the gain is too small to re-open it.
+
+### 2026-09-24 16:45 -- first-person POV (the user: "can we figure out how we can do POVs better?") + a 05p bug
+
+**The POV rule, measured.** The viewer's first-person gaze was a play rule (faster than 1.5 m/s: along the run;
+lineman / carrier: the attack direction; else: at the ball) that ignored the drawn body. Census over the live
+window (2,346 body-frames, $S/pov_census.py): more than 90 deg from the drawn torso on 39 %; 30 % are men moving
+BACKWARD relative to their torso (safeties backpedalling, tackles in pass sets, the QB's drop), where it looked
+behind them. Film ruler ($S/pov_ruler.py: arrows from the helmet on both broadcast cameras, 24 cases): the drawn
+torso matched the helmet on every backward case (safeties 2/30, CBs 0/6, LBs 7/171, the tackle 12, the centre 204);
+the QB in the pocket (486-526) has his torso to the far sideline (the sideline camera sees his back number) and his
+head downfield -- the old rule was right there, the torso 90 deg off.
+
+**render.gaze (new, 8 tests): look = the torso heading + a bounded head turn toward what he watches.** Passer:
+downfield, then his receiver for the last 30 frames before the release; defence: the ball; everyone off the line:
+the ball in flight; OL, the offence's other players, the carrier after the catch: no turn. Clamp 75 deg; a target
+more than 125 deg off the chest is not watched (the QB's play-action fake at 420-440 otherwise looked over his
+shoulder; the endzone film has his face to his backfield). Pitch follows the ball when it is the target, else -8.
+05k --export-joints writes "look" and "eye"; the viewer's first person reads them (fallback: the old rule; a jump
+in time snaps instead of swinging). On v107: look vs torso p50 8 / p90 56 deg, over 90 on 0.3 % (old: 39 %).
+Previews of what the camera shows ($S/pov_preview.py): the backpedalling safety sees the offence instead of an empty
+field, the tackle sees his rusher instead of turf, the QB in the pocket sees downfield in both.
+
+**The 05p bug found on the way (fixed, test_refit_mono_base).** An explicit --refit holding one-view records was
+silently swapped for <play-dir>/poses_refit_fused.json: every chain today (ft2, ft3, ft4, the VPoser arms) merged
+its new two-view records into the live cache (which carries "mono"), so 05p dropped them -- 0 of 4,834 fine-tuned
+two-view records reached v106/v107 (their two-view keys hold the 09-09 fused records), and frames the old backup
+did not cover were one-view-fitted from the sideline alone. Visible defect: the receiver 74 turned his back on the
+ball at the catch in v106/v107 (heading 170 at 550/556; v105 -35, the endzone film square to the ball) -- the
+sideline strips I judged v106 on cannot show a front/back flip. Now: base_cache() refuses such a --refit without
+--fused-base; the play-dir backup is rewritten only for an in-place run. Every "fine-tuned fit" number today that went
+through 05p (lkft2/3/4, the VPoser-in-fit arms) measured the one-view refit over the OLD two-view records.
+
+**v108 = v107 + lkft2c** (05p on the ft2 two-view fit, merged onto the live keys): the receiver faces the ball
+through the catch (-3 -> -44 deg, 538-570; film confirmed with pov_ruler), the sprinter's upright run kept (trunk lean
+28-32 deg vs v107 36-42), knees 130.6. Copy rulers: steps 2 / hops 0 / census 0.169; jerk 3 (v107 2); VPoser p99 10.7
+(= v107), over-8 0.027 (0.022), hinge share 0.002 (0.000: 05f's two-view fit has no hard hinges); jitter .062/.216
+(.059/.211). Mixed and small on the rulers; the catch is decisive on film. Chain running; film next (both cameras).
