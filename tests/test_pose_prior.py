@@ -86,3 +86,14 @@ def test_per_row_support_moves_only_the_unsupported_rows():
         bp = tl.states[f][0].body_pose
         assert np.abs(bp[arm_rows] - noise[f][arm_rows]).max() > 0.05
         assert np.allclose(bp[other], noise[f][other])
+
+
+def test_row_ramps_free_an_arm_sooner_than_a_leg(monkeypatch):
+    lo, hi = pp.row_ramps()
+    assert lo[15] == pp.SUPPORT_ARM_LO and hi[15] == pp.SUPPORT_ARM_HI and lo[0] == pp.SUPPORT_LO and hi[0] == pp.SUPPORT_HI
+    resid = np.full(21, 7.0)                                       # every row 7 px off its keypoint
+    w = pp.support_weights(resid, lo=lo, hi=hi)
+    assert w[15] == 0.5 and w[0] == 0.0                            # the arm half freed, the leg held
+    monkeypatch.setattr(pp, "SUPPORT_ARM_LO", 8.0); monkeypatch.setattr(pp, "SUPPORT_ARM_HI", 16.0)
+    lo2, hi2 = pp.row_ramps()
+    assert pp.support_weights(resid, lo=lo2, hi=hi2)[15] == 0.0

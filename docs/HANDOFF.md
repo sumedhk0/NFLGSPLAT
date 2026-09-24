@@ -6526,3 +6526,29 @@ arms, where v105 leaned 60 deg with both arms flung back (a win, if a touch too 
 is straightened out of his real low crouch (a loss: the film has him bent over in pass protection). The per-row
 support gate is the form for both; `scripts/09j_pose_support.py` writes `<play-dir>/pose_support.json` (per body-frame
 the 21-row residuals through each bone's child keypoint + the VPoser score) and 05k / 07l read it under SHIFT.
+Per-row support arm (blend 8 -> 12, sigma 3, each body_pose row gated by its bone's child keypoint residual): 718
+body-frames moved (4 fully), mean move 0.030 rad; score p99 15.9 -> 14.7 (the sprinter 22 -> 18: his arm rows move
+part way, the wrist / elbow residuals sit in the 8-16 px ramp); keypoint residual p50 6.3 = 6.3, p90 14.0 -> 14.5;
+jitter p90 0.0644 -> 0.0608, p99 0.185 -> 0.180 (both better than as drawn); the back's crouch kept. 09j
+(pose_support.json) running; then the row-gated probe render v107p and the film.
+09j on the play (215-615): 5,890 of 8,818 body-frames carry sideline keypoints (the rest -- endzone-only men, low
+confidence -- get the ungated weight). The sprinter's arm rows at 414-418: L shoulder 1.5-8 px, R shoulder 12-22,
+L elbow 15-20, R elbow 4-28 -- his LEFT shoulder reads film-supported while the arm is visibly flung back: the
+detector's elbow keypoint sits on the flung-back position (motion blur on a 100-px sprinter's arms; the fit followed
+the detector, the detector was wrong). So the per-row gate frees the right arm and holds the left; the film on
+v107p decides; if it reads odd, the arm rows take a looser ramp than the legs (the arm keypoints are the least
+reliable on blurred sprinters) or the plausibility score alone judges the arms.
+
+**2D fine-tune baseline (09h --score-only, the pretrained yolov8x-pose on the held-out frames of pose_ds; machine
+~20:45):** endzone -- det n 1,285 pck10 0.991 / pck20 0.992 / 0.4 px (the labels ARE the detector there), fit_self
+n 2,085 0.832 / 1.000 / 6.7 px, fit_cross n 2,435 0.008 / 0.483 / 20.4 px; sideline -- det n 971 0.969 / 0.978 /
+0.5 px, fit_self n 6,164 0.971 / 0.994 / 2.7 px, fit_cross n 277 0.505 / 0.830 / 9.6 px. fit_cross is the target
+class (labels the detector could not have produced, anchored by the other camera); on the endzone it sits 20 px off
+the detector (the endzone's +8 px common mode is inside that number). The training run (30 epochs, imgsz 1920,
+batch 2, backbone frozen 10 layers) starts when the GPU is free of the v107p probe render.
+**Probe v107p (the shift row-gated by pose_support.json; 1,873 body-frames moved, 176 fully, mean 0.060 rad) on
+film:** the back id 5 keeps his crouch (450-462 as v105: right). The sprinter id 9 (410-422) sits between v105 and
+the ungated v106p: the lean eased, the RIGHT arm brought forward and bent, the LEFT arm still trailing back -- its
+shoulder row read film-supported (elbow residual 1.5-8 px) because the detector's blurred elbow keypoint sat on the
+flung-back position. Arm keypoints on a 100-px sprinter are the least reliable joints; next: per-row-class ramps
+(arms 4 -> 10 px, legs 8 -> 16) or the keypoint confidence folded into the support.

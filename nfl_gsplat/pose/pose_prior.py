@@ -120,14 +120,29 @@ SUPPORT_HI: float = 16.0        # ... over this the shift is unrestricted; linea
                                 # scored 11 on play 1 and sat on its keypoints; the sprinter's flung arms did not)
 
 
+ARM_ROWS: tuple = (13, 14, 15, 16, 17, 18, 19, 20)   # collars, shoulders, elbows, wrists
+SUPPORT_ARM_LO: float = 4.0     # px: the arm rows' ramp -- arm keypoints on a 100-px sprinter are the least reliable
+SUPPORT_ARM_HI: float = 10.0    # (motion blur put the detector's elbow on a flung-back arm at 1.5-8 px, v107p), so an
+                                # arm is freed sooner than a leg
+
+
 def support_weights(resid, *, lo=None, hi=None) -> np.ndarray:
     """A multiplier in 0..1 from a per-frame keypoint residual (px): 0 at or under ``lo`` (the film backs the pose),
-    1 at or over ``hi``; NaN (no keypoints) = 1."""
-    lo = SUPPORT_LO if lo is None else float(lo)
-    hi = SUPPORT_HI if hi is None else float(hi)
+    1 at or over ``hi``; NaN (no keypoints) = 1. ``lo`` / ``hi`` may be arrays broadcast against ``resid``."""
+    lo = SUPPORT_LO if lo is None else np.asarray(lo, float)
+    hi = SUPPORT_HI if hi is None else np.asarray(hi, float)
     r = np.asarray(resid, float)
-    w = np.clip((r - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
+    w = np.clip((r - lo) / np.maximum(hi - lo, 1e-9), 0.0, 1.0)
     return np.where(np.isfinite(r), w, 1.0)
+
+
+def row_ramps() -> tuple:
+    """``(lo [21], hi [21])`` per body_pose row: the arm rows' ramp (SUPPORT_ARM_LO / HI) and the body's (SUPPORT_LO
+    / HI) elsewhere, read at call time."""
+    lo = np.full(21, float(SUPPORT_LO)); hi = np.full(21, float(SUPPORT_HI))
+    for r in ARM_ROWS:
+        lo[r], hi[r] = float(SUPPORT_ARM_LO), float(SUPPORT_ARM_HI)
+    return lo, hi
 
 
 # body_pose row r is SMPL-X joint r + 1; the joint at the END of each row's bone (its child) is the one whose keypoint
@@ -205,7 +220,9 @@ def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_fr
             if row_support_by is not None:
                 # per row: the frame's weight times the row's own support (its bone's child joint on or off its
                 # keypoint), smoothed along the run row by row
-                rs = np.array([support_weights(row_support_by.get((pid, f), np.full(21, np.nan))) for f in run])
+                r_lo, r_hi = row_ramps()
+                rs = np.array([support_weights(row_support_by.get((pid, f), np.full(21, np.nan)), lo=r_lo, hi=r_hi)
+                               for f in run])
                 wr = np.stack([smooth_weights(w * rs[:, r], sigma) for r in range(21)], axis=1)   # [T, 21]
                 pr = project(vp, bps)
                 new = (1 - wr[:, :, None]) * bps + wr[:, :, None] * pr
