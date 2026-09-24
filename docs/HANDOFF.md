@@ -6730,3 +6730,21 @@ fragments never drawn) and 23, 158, 177 (moved over from the unreadable-kit rule
 PORT: play_001/poses_refit.json <- the copy's poses_refit_lkft2.json (the ft2 two-view + one-view refit on the
 live keys; the previous cache saved as poses_refit.json.v105; keypoints_2d_ft2.parquet beside the live table, the
 loader keeps keypoints_2d.parquet); chain v106 = v105 tables + this cache + the rider box rule.
+
+**06:40 -- v106 chain (v105 tables + the ft2 refit cache on the live keys + the rider box rule), 07l:** steps 2 /
+hops 0 / census 0.16 (KC 11.02, BAL 11.06), planted 11 % of 713 moving frames (v105 12 %), full-clip steps 42 (v105
+42). Placement equal to v105; the pose rulers and the film follow from the hifi render and the view locks.
+v106 09d (joints_v106, 395-607): hinge jerk 2 (v105 5), trunk 0 (v105 2), sideways legs L 4.6 % / R 3.0 % (v105
+6.2 / 3.9; id 5's crouch reads sideways in both, 45 vs 40 frames), arms 7.9 / 9.8 % (football, unchanged).
+
+**07:10 -- v106 = CURRENT BEST, film-checked.** Strips against v105 from the sideline-view render: the sprinter
+id 9 410-422 upright with the arms pumping (v105 leaned 60 deg, arms flung back) -- the fine-tune's win, now in
+the play; the back id 5 450-462 keeps his crouch behind the quarterback; the receiver 74 at the catch 556-568
+reaches up for the ball at 556 and gathers it at 560 (v105 held the arms at the waist); whole scene at 450/500/562
+on the film, counts right. Rulers: steps 2 / hops 0 / census 0.16 / planted 11 % (= v105); 09d jerk 2 (5), trunk 0
+(2), sideways legs 4.6 / 3.0 % (6.2 / 3.9). Renders: diag/play_001_v106_hifi_720.mp4, _sideline_blend.mp4,
+_sideline_sbs.mp4; the endzone view lock finishing. What v106 is: v105 tables + the pose cache from the RETRAINED
+per-play 2D detector (pose_ft2: 05n/05f/05p on its keypoints, merged onto the live keys) + the rider rule's box
+condition. Not shipped: the VPoser shift (SHIFT off) and the prior inside the fit (measured mixed on ft2 keypoints).
+Open: jitter p99 0.245 vs v105 0.185 (the one-view fits' tail); the fine-tune port recipe for the next play
+(09g --lo even, 09h, the confidence gate, 05m --out ft table, 05n/05p --keypoints, merge onto the live keys).
