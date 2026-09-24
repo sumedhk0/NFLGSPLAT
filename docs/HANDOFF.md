@@ -6602,3 +6602,40 @@ for ankle anchoring, the twin rays and the depth snap, and its rules were tuned 
 corrected-camera story again). So the split: the fine-tuned keypoints feed the FIT only; the loader keeps the live
 table. On the copy: keypoints_2d.parquet <- .v105 (the fine-tuned table kept as keypoints_2d_ft.parquet), the new
 poses_refit.json kept; rulers + the film again.
+**VPoser inside the fit built (commit df9bd77):** Mono2DConfig / SMPLXFitConfig.vposer_weight (0 = off), the residual
+sqrt(w) * z(body_pose) next to the L2 prior; the encoder re-implemented in numpy (pose_prior.NumpyEncoder, 1e-4 of
+torch) so the numeric Jacobian is cheap; 05p / 05f --vposer-weight. Test: an implausible target fitted with the term
+scores lower on VPoser within 3 px of the plain fit. Two 05p arms on the copy (the fine-tuned keypoints, base
+poses_refit_step.json): --vposer-weight 0.003 -> poses_refit_vp0.003.json, 0.01 -> poses_refit_vp0.01.json; each then
+measured by swapping it in as the copy's poses_refit.json for the loader rulers, 09d and the VPoser scores
+(`$S/rulers_for_refit.sh FILE TAG`). Units: the reprojection residual is px / 10, the L2 prior sqrt(0.02) * |bp|
+(~0.3), a normal pose's latent norm 4-6 -> w 0.003-0.01 pulls about as hard as the L2.
+**The fine-tuned fit on film (the copy's sideline-view render `vft`, fine-tuned poses + the live keypoint table for
+the loader):** the sprinter id 9 at 410-422 is an UPRIGHT sprint with both arms bent and pumping -- the film's man;
+v105 had him at 60 deg with the arms flung back and the VPoser shift probes fixed only one arm. The fit itself is
+right now: the detector was the error. The back id 5 keeps his crouch. Loader rulers with the split tables: steps
+2 / hops 0 but census 0.385 (live 0.16), vanish 211 (167 421-607 -- the KC-kit fragment admitted again, as under the
+corrected camera; 17 475-490; 171 600-607); 09d hinge jerk 10 (v105 5), trunk 2 (id 9). Per-frame census diff next:
+which ids the copy draws that live does not.
+
+### 2026-09-24 05:30 -- the copy's census loss explained: the fine-tune's confidence head collapsed on the endzone
+
+Per-frame diff of the drawn ids (copy vs v105): the copy draws id 17 (the centre) 442-474 and id 167 412-420, live
+neither; that is the whole census 0.16 -> 0.385. Both are body-frames whose pose RECORDS the copy's refit cache lacks
+(live's cache has 17 at 432-486 and 167 at 416/420; the copy's has none): with a record present the loader's rules
+drop those bodies, with no record it draws them. The records are missing because the fine-tuned detector's ENDZONE
+keypoints came out with median confidence 0.01 (live 0.95; every joint), so 05n/05f/05p rejected them: endzone
+body-frames with median confidence >= 0.3 went 9306 -> 5193, and the "fine-tuned fit" was mostly a one-view
+sideline fit (which is also why the back's crouch straightened). The sideline body joints are fine (0.79 p50,
+3.1 px p50 from the live detector's points) but its face joints collapsed too (0.00-0.02).
+
+Cause, in the dataset: 09g wrote every tracked box without a fit record as a box-only instance with all 17
+keypoints at visibility 0 -- 54 % of the endzone instances (2373 of 4398), 40 % of the sideline's -- and
+ultralytics' keypoint-objectness loss (loss.py: `kpt_mask = gt_kpt[..., 2] != 0`, `bce(pred_kpt[..., 2], kpt_mask)`)
+trains the confidence head toward 0 on every v=0 joint. The face joints are v=0 in 73-96 % of instances for the
+same reason (the fit has no face; the detector's helmet face is under 0.5). Also 20 endzone images were dropped by
+ultralytics as corrupt (a box or joint outside the image, written unclipped). Fix: box-only instances take the
+detector's own confident keypoints (pseudo_labels.detector_labels; fewer than 4 -> left out), the YOLO line clips
+the box and drops out-of-image joints; dataset rebuilt as pose_ds2, retrain as pose_ft2, then the copy chain again
+with --keypoints. Meanwhile the three refit arms (fine-tuned fit, VPoser weight 0.003 / 0.01) are being measured
+on the LIVE cache's keys (content only, coverage held): $S/livekeys_rulers.log.

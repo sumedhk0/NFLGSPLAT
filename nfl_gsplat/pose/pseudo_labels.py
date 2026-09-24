@@ -75,6 +75,23 @@ def label_frame(proj: dict, det: dict, *, agree_px: float = AGREE_PX, anchor_con
     return FrameLabels(uv, vis, src)
 
 
+def detector_labels(xy, conf, *, anchor_conf: float = ANCHOR_CONF, min_joints: int = 4):
+    """Labels for a tracked box WITHOUT a fit record: the detector's own keypoints at confidence >= ``anchor_conf``
+    (visibility 2, source ``det``), the rest unlabelled; ``None`` when fewer than ``min_joints`` qualify -- the
+    instance is then left out of the label file altogether. Never a box with all 17 keypoints at visibility 0:
+    ultralytics' keypoint-objectness loss trains the confidence head toward 0 on every unlabelled joint, and a
+    dataset that was 54 % such boxes (2026-09-24) taught the detector that endzone men have no visible joints
+    (median confidence 0.95 -> 0.01)."""
+    xy, conf = np.asarray(xy, float), np.asarray(conf, float)
+    ok = (conf >= anchor_conf) & np.isfinite(xy).all(1)
+    if int(ok.sum()) < int(min_joints):
+        return None
+    u = np.where(ok[:, None], xy, np.nan)
+    v = np.where(ok, 2, 0).astype(int)
+    s = np.where(ok, SOURCES.index("det"), 0).astype(int)
+    return u, v, s
+
+
 def coco_projection(joints22: np.ndarray, K, R, t) -> np.ndarray:
     """``[17, 2]`` the fit's body joints projected with ``(K, R, t)`` at the COCO indices that have a body joint;
     nan elsewhere (the face)."""
@@ -90,13 +107,20 @@ def coco_projection(joints22: np.ndarray, K, R, t) -> np.ndarray:
 
 def yolo_pose_line(box_xyxy, uv: np.ndarray, vis: np.ndarray, width: int, height: int, cls: int = 0) -> str:
     """One YOLO-pose label line: class, the box as normalised centre and size, then 17 (x, y, v) normalised; an
-    unlabelled keypoint is written as 0 0 0."""
+    unlabelled keypoint is written as 0 0 0. The box is clipped to the image and a keypoint outside it is written
+    unlabelled: ultralytics drops a whole image as corrupt on one negative or out-of-bounds coordinate (20 endzone
+    frames of the first dataset, 2026-09-24). ``None`` when the clipped box is empty."""
     x1, y1, x2, y2 = (float(b) for b in box_xyxy)
+    x1, x2 = max(0.0, min(x1, width)), max(0.0, min(x2, width))
+    y1, y2 = max(0.0, min(y1, height)), max(0.0, min(y2, height))
+    if x2 - x1 < 1.0 or y2 - y1 < 1.0:
+        return None
     cx, cy, w, h = (x1 + x2) / 2 / width, (y1 + y2) / 2 / height, (x2 - x1) / width, (y2 - y1) / height
     parts = [str(cls), f"{cx:.6f}", f"{cy:.6f}", f"{w:.6f}", f"{h:.6f}"]
     for k in range(N_COCO):
-        if vis[k] > 0 and np.isfinite(uv[k]).all():
-            parts += [f"{uv[k, 0] / width:.6f}", f"{uv[k, 1] / height:.6f}", str(int(vis[k]))]
+        inside = np.isfinite(uv[k]).all() and 0.0 <= uv[k, 0] <= width and 0.0 <= uv[k, 1] <= height
+        if vis[k] > 0 and inside:
+            parts += [f"{min(uv[k, 0] / width, 1.0):.6f}", f"{min(uv[k, 1] / height, 1.0):.6f}", str(int(vis[k]))]
         else:
             parts += ["0", "0", "0"]
     return " ".join(parts)

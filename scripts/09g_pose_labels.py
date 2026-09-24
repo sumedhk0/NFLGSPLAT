@@ -40,6 +40,10 @@ def main() -> None:
     ap.add_argument("--agree-px", type=float, default=pl.AGREE_PX)
     ap.add_argument("--anchor-conf", type=float, default=pl.ANCHOR_CONF)
     ap.add_argument("--no-images", action="store_true", help="labels and parquet only")
+    ap.add_argument("--min-det-joints", type=int, default=4,
+                    help="a tracked box with no fit record takes the detector's own confident keypoints when at least "
+                         "this many qualify, else it is left out (never a box with 17 unlabelled keypoints: the "
+                         "keypoint-objectness loss would train the confidence head to 0 on it)")
     a = ap.parse_args()
     import smplx
     import torch
@@ -110,11 +114,27 @@ def main() -> None:
                     src = pl.SOURCES[lab.source[cam][k]]
                     counts[src] += 1
                     rows.append((cam, cf, pid, k, lab.uv[cam][k, 0], lab.uv[cam][k, 1], int(lab.vis[cam][k]), src))
-    # tracked boxes with no fit: box-only instances (all keypoints unlabelled), so the detector still learns the box
+    # tracked boxes with no fit record: the detector's own confident keypoints label them (source det), and a box the
+    # detector cannot label is left out -- NOT written with 17 unlabelled keypoints (the first dataset did, 54 % of
+    # the endzone instances, and the fine-tune learned endzone men have no visible joints: confidence 0.95 -> 0.01)
+    n_box_det = n_box_out = 0
     for (cam, cf, pid), box in boxes.items():
         if (cam, cf) in per_image and all(b is not box for b, _u, _v in per_image[(cam, cf)]):
             if not any(np.allclose(b, box) for b, _u, _v in per_image[(cam, cf)]):
-                per_image[(cam, cf)].append((box, np.full((pl.N_COCO, 2), np.nan), np.zeros(pl.N_COCO, int)))
+                d = det(cam, cf, pid)
+                lab = None if d is None else pl.detector_labels(d[0], d[1], anchor_conf=a.anchor_conf,
+                                                                 min_joints=a.min_det_joints)
+                if lab is None:
+                    n_box_out += 1
+                    continue
+                u, v, s = lab
+                per_image[(cam, cf)].append((box, u, v))
+                n_box_det += 1
+                for k in range(pl.N_COCO):
+                    counts[pl.SOURCES[s[k]]] += 1
+                    rows.append((cam, cf, pid, k, u[k, 0], u[k, 1], int(v[k]), pl.SOURCES[s[k]]))
+    print(f"tracked boxes without a fit record: {n_box_det} labelled by the detector, {n_box_out} left out "
+          f"(fewer than {a.min_det_joints} keypoints at confidence >= {a.anchor_conf:g})")
     ldf = pd.DataFrame(rows, columns=["cam", "clip_frame", "pid", "joint", "u", "v", "vis", "source"])
     out.mkdir(parents=True, exist_ok=True)
     ldf.to_parquet(out / "labels.parquet", index=False)
@@ -137,7 +157,9 @@ def main() -> None:
         split = "val" if is_val(cam, cf) else "train"
         W, H = size[cam]
         name = f"{cam}_{cf:05d}"
-        lines = [pl.yolo_pose_line(box, uv, vis, W, H) for box, uv, vis in inst]
+        lines = [ln for ln in (pl.yolo_pose_line(box, uv, vis, W, H) for box, uv, vis in inst) if ln is not None]
+        if not lines:
+            continue
         (out / "labels" / split / f"{name}.txt").write_text("\n".join(lines) + "\n")
         if not a.no_images:
             caps[cam].set(cv2.CAP_PROP_POS_FRAMES, cf)

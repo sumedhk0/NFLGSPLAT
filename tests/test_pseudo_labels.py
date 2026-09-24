@@ -71,3 +71,33 @@ def test_coco_projection_puts_body_joints_at_their_coco_index():
     J = np.zeros((22, 3)); J[16] = [1.0, 0.0, 0.0]                                    # the left shoulder a metre to the right
     out = pl.coco_projection(J, K, R, t)
     assert np.isnan(out[0]).all() and np.allclose(out[5], [960 + 100, 540]) and np.allclose(out[11], [960, 540])
+
+
+def test_detector_labels_take_confident_joints_or_leave_the_box_out():
+    xy = np.arange(34, dtype=float).reshape(17, 2) + 100.0
+    conf = np.zeros(17); conf[[5, 6, 11, 12, 15]] = 0.9
+    u, v, s = pl.detector_labels(xy, conf, anchor_conf=0.5, min_joints=4)
+    assert v.tolist() == [2 if k in (5, 6, 11, 12, 15) else 0 for k in range(17)]
+    assert np.isnan(u[0]).all() and np.allclose(u[5], xy[5])
+    assert all(pl.SOURCES[s[k]] == ("det" if v[k] else "none") for k in range(17))
+    # a nan detection never qualifies; below min_joints the box is left out (None), never an all-unlabelled instance
+    xy2 = xy.copy(); xy2[5] = np.nan
+    assert pl.detector_labels(xy2, conf, anchor_conf=0.5, min_joints=5) is None
+    assert pl.detector_labels(xy2, conf, anchor_conf=0.5, min_joints=4) is not None
+
+
+def test_yolo_line_clips_the_box_and_drops_out_of_image_joints():
+    uv = np.full((17, 2), np.nan); vis = np.zeros(17, int)
+    uv[5], vis[5] = (10.0, 20.0), 2            # inside
+    uv[6], vis[6] = (-3.0, 20.0), 2            # left of the image: unlabelled
+    uv[7], vis[7] = (50.0, 105.0), 2           # below the image: unlabelled
+    line = pl.yolo_pose_line((-20.0, 10.0, 60.0, 130.0), uv, vis, 200, 100)
+    parts = line.split()
+    cx, cy, w, h = (float(p) for p in parts[1:5])
+    assert abs(cx - 30 / 200) < 1e-6 and abs(cy - 55 / 100) < 1e-6 and abs(w - 60 / 200) < 1e-6 and abs(h - 90 / 100) < 1e-6
+    kp = np.array(parts[5:], float).reshape(17, 3)
+    assert kp[5].tolist() == [10 / 200, 20 / 100, 2]
+    assert kp[6].tolist() == [0, 0, 0] and kp[7].tolist() == [0, 0, 0]
+    assert (kp[:, :2] >= 0).all() and (kp[:, :2] <= 1).all() and 0 <= cx - w / 2 and cx + w / 2 <= 1
+    # a box entirely outside the image is no instance
+    assert pl.yolo_pose_line((-50.0, -50.0, -10.0, -10.0), uv, vis, 200, 100) is None
