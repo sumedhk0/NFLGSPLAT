@@ -6698,3 +6698,15 @@ confidence on the body joints 0.93-1.00 (pretrained 0.82-1.00), the ears 0.83-0.
 0.01-0.02 (helmets: the head now says "not visible" instead of guessing). Sideline the same: body joints 0.96-1.00
 (0.79-0.99), 10,371 body-frames >= 0.3 (10,302). The dataset defect was the whole story of the endzone collapse.
 Chain continues: 05n -> 05f -> 05p on the ft2 keypoints, onto the live keys, rulers, film.
+
+**08:45 -- pose_ft2 downstream on the copy (lkft2 = the ft2 refit on the live keys).** 05n: 28 players
+triangulated, 90 % of the observable joints, 1.6 px (the endzone is back); 05f 28 players / 489 frames, rms
+0.051 m; 05p 2,596 one-view records, reprojection 14.7 -> 2.1 px. Rulers: steps 2 / hops 0 / census 0.207 (v105
+0.16), vanish 167 421-607 + 171; 09d jerk 2 (v105 5), trunk 0 (v105 2), sideways legs L 4.7 % (id 5 45 frames);
+VPoser p50/p90/p99 3.61/5.81/11.94, over 8: 0.024 (live 0.068), worst 167 at 411-414 (31) and 9 at 395-397 (18);
+jitter p90/p99 0.0609/0.245 (live 0.0644/0.185). FILM (vft2diff_id9/id5, vft2_check): the sprinter id 9 410-422
+upright with the arms pumping = the film (v105 leans 60 deg, arms flung back) -- the first fine-tune's win kept;
+the back id 5 450-462 keeps his crouch behind the quarterback (the first fine-tune had straightened him: the
+endzone was gone) -- the loss undone; whole scene at 450/500/562 on the film. The census 0.207 is one id: 167, the
+KC-kit fragment, whose live records the loader drops as "riding another body" but whose ft2 records (garbage in
+both caches: score 31 / 19, rotation vectors of norm 13-14) place him 0.1 m elsewhere and the rider test flips.
