@@ -6559,3 +6559,13 @@ as drawn). The aggregate rulers cannot see one man's arms; the film can, after t
 at epoch 5 / 30, ~75 min). The two threads meet there: the sprinter's flung arms are a DETECTOR error on blurred
 arms (the fit followed it); if the fine-tune's cross-camera labels fix the arm keypoints, a re-detect + refit fixes
 the fit itself and the shift has less to do.
+
+**2D fine-tune trained (09h, 30 epochs in 40 min, imgsz 1920, batch 2, backbone frozen 10 layers; machine ~22:15):**
+held-out frames, PCK@10 / median px, baseline -> fine-tuned -- endzone: det 99.1 -> 93.1 % / 0.4 -> 1.6 px,
+fit_self 83.2 -> 90.4 % / 6.7 -> 4.4, fit_cross 0.8 -> 72.4 % / 20.4 -> 5.8; sideline: det 96.9 -> 93.0 % / 0.5 -> 1.5,
+fit_self 97.1 -> 96.3 % / 2.7 -> 2.2, fit_cross 50.5 -> 85.8 % / 9.6 -> 3.9. The target class (labels the detector
+could not have produced) moves from 20 to 6 px on the endzone; "det" slips 1-1.5 px because those labels ARE the old
+detector's points. Caveat: the held-out frames are frames of the same play (same men, light, camera), so this is
+the fit's own projection learned back in part; the honest test is downstream: re-detect on the play copy
+(`05m --weights pose_ft/train/weights/best.pt`) -> triangulate -> refit (05f, 05p same-keys merge, the v100 recipe)
+-> 09d / 07l / VPoser rulers + the film (the sprinter's arms at 414-418 first). Weights: pose_ft/train/weights/best.pt.
