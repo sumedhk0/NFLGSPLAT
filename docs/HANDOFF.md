@@ -6581,3 +6581,11 @@ trailing (its blurred elbow keypoint at 1.5-8 px still reads as partial support)
 scene at 450 / 500 / 562 unchanged. The gated shift is a mild, safe improvement; whether it ships waits for the
 fine-tuned detector's refit (running on the copy): if the new arm keypoints put the sprinter right in the fit
 itself, the shift has less to do and its gate reads truer support.
+PAUSE (user powering off, machine ~21:50): the fine-tune downstream chain on the copy was at the 05p one-view refit
+(05n done: 1.2 px median reprojection; 05f done; same-keys merge done: 5,885 base records, 2,361 replaced, 2,411 new
+records outside the base keys left out -> play_copy/poses_refit_step.json). ON RESUME: rerun only the tail --
+  05p: `python scripts/05p_refit_mono.py --play-dir play_copy --refit play_copy/poses_refit_step.json --out play_copy/poses_refit.json`
+  then the rest of `$S/copy_ft_chain.sh` from "loader rulers" on (probe_copy 9 5 0, the joints export + 09d, prior_ab arm A on the copy);
+  then the film: a sideline-view render of the copy (launch_view with P=play_copy) and strips of the sprinter id 9
+  at 410-422 against v105. Decide: port the fine-tuned keypoints (05m on play_001 with pose_ft/train/weights/best.pt +
+  the same recipe) and ship the row-gated VPoser shift (pose_prior.SHIFT True) on the film's say. Repo at 2bc0484.
