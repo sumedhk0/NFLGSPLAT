@@ -6904,3 +6904,51 @@ innocent; every chain refitted the two-view frames with today's 05n + 05f, while
 option), so the difference is 05n's input (the cameras, the triangulation) and/or the copy chain's looser
 --min-valid-joints 6 --min-frame-frac 0.5 (defaults 10 / 0.7: frames with six triangulated joints get two-view
 records whose LEGS the L2 prior straightens). The default-threshold variant is running ($S/live_05f_default.log).
+The 09-11 two-view refit ALSO ran with --min-valid-joints 6 --min-frame-frac 0.5 (HANDOFF line 244), so the
+thresholds are not it either. What changed since 09-11 in 05n's inputs: cameras.npz (09-18 03:13, the sideline
+tail fix) and the keypoint table (09-22, the id folds). The two-view fit today triangulates with the 09-18 cameras;
+the endzone camera is known to be ~8 px off (the 09i refinement was right but never ported). Next test: 05n/05f
+on play_copy_b (the refined endzone camera), merged onto the live keys, knee ruler -- if the knees come back to
+~125, the straightening is the endzone camera's bias in the triangulation, and the port of the refined camera FOR
+THE FIT ONLY is the fix (as the fine-tuned keypoints are for the fit only).
+Default thresholds (10 / 0.7): knee mean 131.7, elbow 125.6 -- the same; thresholds innocent (26 players fitted,
+9 and 17 skipped). The refined endzone camera triangulates far tighter: 05n median reprojection 2.6 px against 5.4
+with the live camera (28 players, 86 % of the observable joints); its knee ruler is running.
+**15:20 -- the old two-view records were sideline-dominated fits.** Same 2,396 (frame, id) records, the fit's
+legs/arms projected against the pretrained detector's confident keypoints (live cameras): v105's records read
+legs 2.9 / 6.2 px (p50 / p90) on the SIDELINE and 14.1 / 29.8 on the ENDZONE, arms 2.3 / 12.8; today's 05f records
+read legs 7.7 / 8.4, arms 6.7 / 7.4 -- balanced between the cameras. The old fit followed the sideline detector's
+bent knees; the new one honours an endzone camera known to sit ~8 px off, and the compromise straightens the legs.
+So the "regression" is two-view geometry, not a detector, and the candidate fix is the refined endzone camera
+(09i) for the FIT: its triangulation already reads 2.6 px against 5.4. Measuring the residual table under the
+refined camera and the knee ruler on its records.
+Refined endzone camera in the two-view fit: knee mean 132.3 -- no change (legs 6.3 / 8.1 px against the two
+detectors under it; the old records 2.9 / 10.2). The camera pose is not the lever. 05f fits the TRIANGULATED joints
+(05n), not the cameras, so the straightening sits in the triangulation's inputs (the endzone knee/ankle keypoints,
+foreshortened from behind) or in the fit's prior on those joints. Next: the triangulated knees themselves, old
+poses_tri.json (09-11) against today's -- are the raw 3D knees straighter before any fit?
+**15:45 -- the raw triangulation is UNCHANGED since 09-11.** Raw triangulated knee angles (SMPL-X tree, 395-607):
+old poses_tri 124.4 mean, today's 123.6 (live camera) / 123.8 (refined) / 126.7 (ft2); on 1,101 shared knees today
+vs old delta +0.0 deg. So 05n gives the same 3D knees and the straightening happens between the triangulation and
+the record: today's 05f turns 124-deg triangulated knees into 132-deg records, while v105's records on those keys
+sit at 125 -- and read 2.9 px on the sideline / 14 px on the endzone, the signature of a sideline ONE-VIEW fit.
+Suspicion: v105's "two-view" keys are mostly earlier 05p one-view records that overwrote the 05f ones (v81-v100
+passes), i.e. the play has been rendered from sideline-only fits for weeks, and today's chains are the first true
+two-view fits on those frames. Checking the cache's mono record list; the endzone film judges the knees
+(endzone_knees.png: the quarterback 480/500, Oweh 440/460, v105 vs v107).
+
+**16:00 -- RESOLVED: the knee "drift" was the sideline's own bias; v107's straighter knees are RIGHT.** The
+endzone film (endzone_knees.png) settles it: the quarterback at 480 and 500 stands in the pocket with a modest
+knee bend and an upright torso -- v107 has exactly that, v105 crouches deep with the torso folded (a fit that put
+the knee bend toward the sideline camera, where flexion is invisible, and matched the sideline at 2.9 px by
+over-bending). Oweh at 440/460 reads as a wash from the endzone. The 3D picture: the old records on the two-view
+keys were sideline-dominated fits (2.9 px sideline / 14 px endzone); today's chains are the first true two-view
+fits on those frames (7.7 / 8.4), and a two-view fit is straighter because the endzone sees the flexion the
+sideline cannot. My "v105 closer" verdicts from the sideline strips were the sideline's bias -- the other camera
+is the pose ruler as it is the placement ruler. Thread closed with no fix owed; v107 stays CURRENT BEST.
+Innocent along the way: the fine-tune, its three label rules, the copy chain's thresholds, the endzone camera
+pose. Kept (measured on their own rulers): SELF_LABEL det (the sideline detector's knee drift against the
+pretrained +1.3 -> +0.5 px) and CROSS_JOINTS arms-only (endzone det PCK@10 90.8 -> 93.7); the rendered rulers are
+neutral to them. Next-play recipe note: label from the PRETRAINED fit (09g --refit), judge the pose on BOTH cameras.
+The refined endzone camera in the triangulation (05n 5.4 -> 2.6 px; the two-view legs 7.7 / 8.4 -> 6.3 / 8.1) is
+the next candidate: v108 = v107 + the refined camera for the FIT only (ft2 keypoints on play_copy_b's cameras).
