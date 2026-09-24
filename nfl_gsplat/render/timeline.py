@@ -976,6 +976,89 @@ def drop_unboxed_poses(poses_by_pid: dict, boxed: set) -> tuple[dict, int]:
     return out, n
 
 
+# No keypoints, no fit. A refit record (05f / 05p) is a fit to the id's keypoints; the tables move on after the fit
+# (folds, unpairs, re-detections) and a record can outlive every keypoint it was fitted to. Play 1 v108: id 6 carried
+# 12 refit records at 578-589 with no keypoints for him in either camera, in any version of the tables (a two-view fit
+# from an old pairing); they faced away from the sideline camera, the film has his number and face toward it all the
+# way, and the timeline turned him 345 degrees into them and out. A refit record with no keypoint row over
+# KEYED_MIN_CONF for its id within KEYED_REACH frames in any of KEYED_TABLES is dropped; the regressor's records (05c,
+# from the crop) are not keypoint fits and stay. Read at call time by the loader.
+DROP_UNKEYED_POSES: bool = True
+KEYED_REACH: int = 1
+KEYED_MIN_CONF: float = 0.3
+KEYED_TABLES: tuple = ("keypoints_2d.parquet", "keypoints_2d_ft2.parquet")
+
+
+def drop_unkeyed_poses(poses_by_pid: dict, keyed: set, *, reach: int = None) -> tuple[dict, int]:
+    """``poses_by_pid`` with every refit record (source ``"fused"``) whose id has no ``(frame + d, pid)`` in ``keyed``
+    for ``|d| <= reach`` (default KEYED_REACH) removed -- ``keyed``: the keypoint tables' (frame, id) pairs, endzone
+    rows on their sideline frames. Regressor records stay. Returns (poses, n)."""
+    reach = KEYED_REACH if reach is None else int(reach)
+    n = 0
+    out: dict = {}
+    for pid, recs in poses_by_pid.items():
+        kept = {f: r for f, r in recs.items()
+                if r[3] != "fused" or any((int(f) + d, int(pid)) in keyed for d in range(-reach, reach + 1))}
+        n += len(recs) - len(kept)
+        if kept:
+            out[pid] = kept
+    return out, n
+
+
+# One record facing the wrong way turns a man the long way round. The timeline SLERPs each man's root orientation
+# between his records, so a single record with his back where his chest is -- a regressor on an 80 px crop, a
+# one-view fit of a man seen side-on (which way he faces is exactly what one camera cannot tell) -- swings him
+# through a half turn and back. Play 1 v108, on the film: id 6 at 488 (a regressor record with his back to the camera
+# between fits facing it: drawn as a 276 degree spin, the man turns 80 degrees), id 9 (the motion receiver sprinting
+# downfield: fits at 494 and 504 facing his own end zone, drawn facing back for 16 frames), ids 1 and 28 (single
+# regressor records swinging them 60-90 degrees). A record is dropped when fewer than FLIP_MIN_AGREE of the records
+# within FLIP_REACH frames either side (at least FLIP_MIN_NEIGHBOURS of them) face within FLIP_AGREE_DEG of it --
+# worst first (the regressor's before a fit's on a tie), re-counted after each drop, so of two alternating records
+# only the outvoted one goes. A real half turn (records one way, then the other) splits its window evenly and a spin
+# move sampled every 2 frames agrees with its near neighbours: neither drops. Read at call time by the loader.
+DROP_FLIPPED_KEYFRAMES: bool = True
+FLIP_REACH: int = 12
+FLIP_AGREE_DEG: float = 90.0
+FLIP_MIN_AGREE: float = 0.5
+FLIP_MIN_NEIGHBOURS: int = 3
+
+
+def drop_flipped_keyframes(poses_by_pid: dict, *, reach: int = None, agree_deg: float = None,
+                           min_agree: float = None, min_neighbours: int = None) -> tuple[dict, list]:
+    """``poses_by_pid`` with each id's outvoted records removed (DROP_FLIPPED_KEYFRAMES); returns
+    ``(poses, [(pid, frame), ...])`` in drop order. Knobs default to the module's values at call time."""
+    reach = FLIP_REACH if reach is None else int(reach)
+    agree = np.radians(FLIP_AGREE_DEG if agree_deg is None else float(agree_deg))
+    min_agree = FLIP_MIN_AGREE if min_agree is None else float(min_agree)
+    min_nb = FLIP_MIN_NEIGHBOURS if min_neighbours is None else int(min_neighbours)
+    out: dict = {}
+    dropped: list = []
+    for pid, recs in poses_by_pid.items():
+        kept = dict(recs)
+        yaw = {int(f): yaw_of(r[1]) for f, r in kept.items()}
+        while len(kept) > min_nb:
+            fs = np.array(sorted(int(f) for f in kept))
+            ys = np.array([yaw[f] for f in fs])
+            worst = None
+            for i, f in enumerate(fs):
+                near = (np.abs(fs - f) <= reach) & (fs != f)
+                if near.sum() < min_nb:
+                    continue
+                share = float(np.mean(np.abs((ys[near] - ys[i] + np.pi) % (2.0 * np.pi) - np.pi) <= agree))
+                if share >= min_agree:
+                    continue
+                key = (share, 1 if kept[f][3] == "fused" else 0, int(f))
+                if worst is None or key < worst:
+                    worst = key
+            if worst is None:
+                break
+            del kept[worst[2]]
+            dropped.append((pid, worst[2]))
+        if kept:
+            out[pid] = kept
+    return out, dropped
+
+
 def merged_box_frames(df, *, cam: str = "sideline", h_ratio: float = MERGED_H_RATIO, w_ratio: float = MERGED_W_RATIO) -> set:
     """``{(frame, pid)}`` whose ``cam`` box is over ``h_ratio`` times the id's median height in that camera or
     ``w_ratio`` times its median width: the detector merged him with a neighbour. Ids with under 5 rows are skipped

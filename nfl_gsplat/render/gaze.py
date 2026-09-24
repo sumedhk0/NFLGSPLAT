@@ -39,8 +39,11 @@ READ_FRAMES: int = 30           # play frames (60 fps) before the release the pa
 DOWNFIELD_M: float = 15.0       # the passer's scanning point: this far ahead along the attack direction
 LINE_M: float = 3.0             # a man within this of the line of scrimmage at the snap is a lineman
 SMOOTH_SIGMA: float = 1.5       # samples: circular Gaussian on the torso heading and on the look's yaw
-EYE_UP: float = 0.08            # metres above the SMPL-X head joint
-EYE_FWD: float = 0.09           # metres ahead of it along the look
+# The eye: SMPL-X's own eye joints (23, 24; their midpoint) sit 4.1-4.5 cm above the head joint (15) and 6.5-6.8 cm
+# ahead of it in the rest pose, over statures 1.62-1.87 m (neutral model, betas[0] -1..+1.5). The first guess (8 cm up,
+# 9 cm ahead) put the first-person camera 4 cm above the man's eyes.
+EYE_UP: float = 0.045           # metres above the SMPL-X head joint
+EYE_FWD: float = 0.065          # metres ahead of it along the look
 SHOULDERS = (16, 17)            # SMPL-X left / right shoulder
 HEAD = 15
 

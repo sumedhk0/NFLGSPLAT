@@ -1216,3 +1216,57 @@ def test_a_short_fragment_whose_box_sits_inside_another_ids_box_is_a_rider_whate
     # a box beside, not inside, the other's is two men
     boxes.update({(f, 3): (210.0, 120.0, 290.0, 280.0) for f in range(0, 10)})
     assert tl.rider_ids(out, team, boxes=boxes, box_cont=0.5) == set()
+
+
+def _faced(yaw_deg, source="fused"):
+    return (np.zeros((21, 3)), tl.upright_from_yaw(np.radians(yaw_deg)), np.zeros(10), source)
+
+
+def test_drop_unkeyed_poses_removes_fits_with_no_keypoints_behind_them():
+    """Play 1 v108: id 6 had 12 refit records at 578-589 with no keypoints for him in either camera (a fit carried
+    over from an old pairing); they faced away from the sideline camera, the film has his number and face toward it,
+    and the timeline turned him 345 degrees into them and out. A regressor record needs no keypoints: it stays."""
+    poses = {6: {576: _faced(-95, "sideline"), 578: _faced(90), 580: _faced(88), 590: _faced(-95, "sideline")},
+             9: {494: _faced(180), 496: _faced(180)}}
+    keyed = {(495, 9), (497, 9)}                                 # keypoints a frame off still vouch for a fit
+    out, n = tl.drop_unkeyed_poses(poses, keyed)
+    assert n == 2 and sorted(out[6]) == [576, 590] and sorted(out[9]) == [494, 496]
+    out, n = tl.drop_unkeyed_poses(poses, keyed, reach=0)
+    assert n == 4 and sorted(out[6]) == [576, 590] and 9 not in out
+    assert tl.drop_unkeyed_poses({}, keyed) == ({}, 0)
+
+
+def test_drop_flipped_keyframes_drops_the_one_record_facing_the_wrong_way():
+    """Play 1 v108 id 6 at 488: a regressor record with his back to the camera between fits facing it; the SLERP
+    turned him 276 degrees through it (film: an 80 degree turn). The record goes, its neighbours stay."""
+    poses = {1: {0: _faced(0), 4: _faced(5), 8: _faced(-5), 12: _faced(175, "sideline"), 16: _faced(0),
+                 20: _faced(10), 24: _faced(0)}}
+    out, dropped = tl.drop_flipped_keyframes(poses)
+    assert sorted(out[1]) == [0, 4, 8, 16, 20, 24] and dropped == [(1, 12)]
+
+
+def test_drop_flipped_keyframes_keeps_a_real_half_turn_and_a_spin():
+    # a clean half turn (a receiver's comeback route): records one way, then the other -- nothing goes
+    turn = {f: _faced(0 if f < 24 else 180) for f in range(0, 48, 2)}
+    # a spin move: 12 deg a frame (720 deg/s at 60 fps), a record every 2 frames
+    spin = {f: _faced((12 * f) % 360 - 180) for f in range(0, 60, 2)}
+    out, dropped = tl.drop_flipped_keyframes({2: turn, 3: spin})
+    assert dropped == [] and len(out[2]) == 24 and len(out[3]) == 30
+
+
+def test_drop_flipped_keyframes_worst_first_on_alternating_records():
+    """Play 1 v108 id 9 (the motion receiver sprinting downfield, film: facing -x throughout): fits at 494 and 504
+    faced his own end zone between regressor records facing downfield. Worst first, re-counted after each drop: the
+    backward fits go, the regressor between them stays."""
+    poses = {9: {482: _faced(148), 488: _faced(44, "sideline"), 494: _faced(20), 500: _faced(-160, "sideline"),
+                 504: _faced(-2), 506: _faced(-162, "sideline"), 512: _faced(-168, "sideline"),
+                 518: _faced(-145, "sideline")}}
+    out, dropped = tl.drop_flipped_keyframes(poses)
+    assert (9, 504) in dropped and (9, 500) not in dropped and 500 in out[9] and 506 in out[9]
+
+
+def test_drop_flipped_keyframes_needs_enough_neighbours():
+    # three records, one flipped: two neighbours are not a majority to trust -- nothing goes
+    poses = {4: {0: _faced(0), 6: _faced(180, "sideline"), 12: _faced(0)}}
+    out, dropped = tl.drop_flipped_keyframes(poses)
+    assert dropped == [] and len(out[4]) == 3

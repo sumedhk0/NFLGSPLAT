@@ -446,6 +446,27 @@ def poses_from_caches(refit, side_blob, tracks, model):
     return out
 
 
+def keyed_pairs(play_dir, offset: int, *, tables=None, min_conf: float = None) -> set:
+    """``{(frame, id)}`` with a keypoint over ``min_conf`` in any of the play's keypoint ``tables`` (default
+    timeline.KEYED_TABLES), endzone rows moved to their sideline frames (``offset``: the clip offset)."""
+    import pandas as pd
+
+    tables = tlm.KEYED_TABLES if tables is None else tables
+    min_conf = tlm.KEYED_MIN_CONF if min_conf is None else float(min_conf)
+    out: set = set()
+    for name in tables:
+        p = Path(play_dir) / name
+        if not p.exists():
+            continue
+        k = pd.read_parquet(p, columns=["frame", "cam", "global_player_id", "conf"])
+        k = k[k["conf"] > min_conf]
+        fr = k["frame"].astype(int).to_numpy()
+        if offset:
+            fr = np.where(k["cam"].to_numpy() == "endzone", fr - int(offset), fr)
+        out |= set(zip(fr.tolist(), k["global_player_id"].astype(int).tolist()))
+    return out
+
+
 def play_start(play_dir) -> int | None:
     """The clip's first frame from ``<play-dir>/play_end.json`` (08x ``start``), or None."""
     import json
@@ -884,6 +905,21 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         poses, n_merged = tlm.drop_unboxed_poses(poses, keep_frames)
         print(f"pose records fitted on a merged box (over {tlm.MERGED_H_RATIO:g}x the id's median height or "
               f"{tlm.MERGED_W_RATIO:g}x its width in the sideline): {n_merged} dropped")
+    if tlm.DROP_UNKEYED_POSES:
+        keyed = keyed_pairs(P, offset, tables=tlm.KEYED_TABLES, min_conf=tlm.KEYED_MIN_CONF)
+        if keyed:
+            poses, n_unkeyed = tlm.drop_unkeyed_poses(poses, keyed, reach=tlm.KEYED_REACH)
+            print(f"refit records with no keypoints for the id within {tlm.KEYED_REACH} frame(s) in any camera: "
+                  f"{n_unkeyed} dropped (no keypoints, no fit)")
+    if tlm.DROP_FLIPPED_KEYFRAMES:
+        poses, flipped = tlm.drop_flipped_keyframes(poses, reach=tlm.FLIP_REACH, agree_deg=tlm.FLIP_AGREE_DEG,
+                                                    min_agree=tlm.FLIP_MIN_AGREE, min_neighbours=tlm.FLIP_MIN_NEIGHBOURS)
+        if flipped:
+            by_f: dict = {}
+            for p_, f_ in flipped:
+                by_f.setdefault(p_, []).append(f_)
+            print(f"pose records facing against their neighbours dropped: {len(flipped)} on {len(by_f)} ids -- "
+                  + ", ".join(f"{p_}: {sorted(v)}" for p_, v in sorted(by_f.items())))
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
     ident_path = P / "identity_resolved.pkl"
