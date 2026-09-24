@@ -6463,3 +6463,13 @@ ON RESUME: re-run `nohup bash $S/chain_v105.sh > $S/chain_v105.log 2>&1 < /dev/n
 frames in render_hifi_v105 / render_view_v105 / render_ezview_v105), then the strips: id 0 561-577 + 583-597, id 2
 541-557, id 30 447-463, id 28 521-537 (`lock_diff_strip2.py --a v103 --b v105`), the whole scene 450 / 500 / 562, then
 the v105 verdict, the joints export + viewer, the write-up. Repo at f5ef27e (reach-signal strike default).
+
+**Resume (machine ~15:50-16:20).** v105 chain relaunched after the power-off; the hifi + sideline blend finished, the
+endzone view crawled (39 / 201) beside two of the user's `uv` Python 3.12 processes holding 11.9 of 12.3 GB; on the
+user's word both were killed (pids 15600 / 54304) and the endzone view relaunched (05k resumes from its frames).
+VPoser V02_05 (user's download) moved to `data/body_models/vposer/V02_05/` (snapshots epoch 08 / 13 ckpt + yaml;
+gitignored). TRAP: `pip install git+human_body_prior` into smplx312 swapped torch for 2.13.0+cpu (CUDA gone; the
+running endzone render died, exit 127); restored `torch==2.11.0 --index-url .../whl/cu128` (cuda True; the package
+still imports under its version complaint). Next unit: the VPoser ruler (pose/pose_prior.py + 09j): the latent norm
+per drawn body-frame as the plausibility score, the projection decode(encode(pose)) as the correction, gated on the
+keypoint residual; scored on 09d / 07l / the film.
