@@ -6753,3 +6753,11 @@ v106 endzone blend at 450/500/562 = v105's (depth unchanged; the pile bodies on 
 (07l's per-id table); every other id flat or better (3: 0.109 -> 0.112, 17: 0.099 -> 0.103). His arms now pump
 (v105 held them flung back, still): fast real motion or a one-view zigzag -- the per-frame wrist trace decides
 ($S/wrist_trace.py).
+Wrist trace 405-425 (per frame, pelvis-relative): v106's arms swing smoothly (left wrist +0.25 -> +0.30 -> +0.14
+-> +0.38 m over 20 frames, no zigzag); the jitter spikes are single frames at the FEET (joints 7/8/10/11) in both
+versions, and in this window v105 has 12 frames over 0.1 against v106's 4. The sprinter's p90 rise must sit
+elsewhere in his run; the whole-run trace is being read ($S/wrist_v10{5,6}_full.log).
+**Shift probe on v106 (row-gated, 8-12, sigma 3):** 191 body-frames moved (none fully), mean joint move 0.056 rad;
+VPoser p99 10.95 -> 9.42, over-8 share 0.022 -> 0.021, jitter p99 0.245 -> 0.268 (worse); the tail is the sprinter
+alone (per-id p90 13.9 -> 10.8; 395-397 at 18 = his stance at the snap, 441 at 16). SHIFT stays OFF: with the
+fine-tuned fit the prior has nothing left to correct that the film would notice, and it costs jitter.
