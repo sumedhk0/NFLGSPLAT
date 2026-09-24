@@ -6685,3 +6685,9 @@ lkft2vp), the real candidate.
 Monotone in the prior's weight on every pose ruler; placement untouched (same keys, same rules); the jitter p99
 stays above live in every fine-tuned arm (the one-view sideline fits shake at the tail). All three use the FIRST
 fine-tune's keypoints (endzone lost); the same arms on the retrained detector's keypoints are the decision.
+
+**08:05 -- pose_ft2 trained (30 epochs, 0.69 h) on the fixed dataset.** Held-out, PCK@10 pretrained -> fine-tuned
+(first fine-tune in brackets): endzone fit_cross 0.7 -> 66.1 % (72.4), median 20.4 -> 7.3 px; endzone fit_self 83.2
+-> 92.3 (90.4); sideline fit_cross 50.7 -> 87.5 (85.8), 9.6 -> 4.1 px; sideline fit_self 97.0 -> 96.9; the det
+classes lose 4-8 points as before (the label IS the pretrained point there). Same label-ruler gains as the first;
+the decision is the confidence table on the re-detected copy, then the refit and the film ($S/ft2_chain.log).
