@@ -6748,3 +6748,8 @@ per-play 2D detector (pose_ft2: 05n/05f/05p on its keypoints, merged onto the li
 condition. Not shipped: the VPoser shift (SHIFT off) and the prior inside the fit (measured mixed on ft2 keypoints).
 Open: jitter p99 0.245 vs v105 0.185 (the one-view fits' tail); the fine-tune port recipe for the next play
 (09g --lo even, 09h, the confidence gate, 05m --out ft table, 05n/05p --keypoints, merge onto the live keys).
+v106 endzone blend at 450/500/562 = v105's (depth unchanged; the pile bodies on the film). The jitter p99 rise
+(0.185 -> 0.245) is ONE id: the sprinter 9, joint jitter p90 0.135 -> 0.228 with joint speed p90 0.218 -> 0.330
+(07l's per-id table); every other id flat or better (3: 0.109 -> 0.112, 17: 0.099 -> 0.103). His arms now pump
+(v105 held them flung back, still): fast real motion or a one-view zigzag -- the per-frame wrist trace decides
+($S/wrist_trace.py).
