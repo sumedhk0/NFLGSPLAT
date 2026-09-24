@@ -6663,3 +6663,12 @@ at 526-542 (17.9, the crouch); per-id p90: 5 16.5, 9 13.1, 19 10.4, 139 9.5. The
 p90 16.5 -> 5.1 (the crouch straightened: a LOSS on film, the endzone camera was gone from that fit). Jitter p90
 0.0644 -> 0.0604 but p99 0.1851 -> 0.2534: the one-view fits shake more at the tail. Keypoint residual 8.7 px is
 against the LIVE detector's points, not this fit's, so it is not a ruler here; the film and the cross-view are.
+
+**07:20 -- the VPoser term in the fit, weight 0.01, on the first fine-tune's keypoints (lkvp001, live keys,
+canonical ruler):** steps 2 / hops 0 / census 0.16 / vanish 171 only; 09d jerk 3 (v105 5, lkft 6, weight 0.003: 4),
+trunk 0; VPoser p50/p90/p99 3.42/5.07/7.68, over 8: 0.009 (lkft 0.024, live 0.068); jitter p90/p99 0.0602/0.229
+(lkft 0.253, live 0.185). Worst: the sprinter 9 at 406-409 (9.8), 28 at 495-498 (9.3), 139 at 453-458 (9.2).
+Sideways-leg share 3.9 % with id 5 (the back) at 20 frames -- new; the prior may be pulling his crouch legs. The
+prior in the fit wins every pose ruler at 0.01; its film is owed (the sprinter, the back) once the GPU is free.
+Queued after the ft2 chain and film: the same term on the RETRAINED detector's keypoints ($S/after_ft2.sh ->
+lkft2vp), the real candidate.
