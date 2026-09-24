@@ -1192,3 +1192,27 @@ def test_apply_infill_swaps_only_the_poses_the_file_carries():
     out, n = tl.apply_infill(poses, infill)
     assert n == 1 and np.allclose(out[9][482][0], 9.0) and np.allclose(out[9][480][0], 0.1) and np.allclose(out[6][480][0], 0.3)
     assert out[9][482][3] == "fused" and 77 not in out
+
+
+def test_a_short_fragment_whose_box_sits_inside_another_ids_box_is_a_rider_whatever_its_placement():
+    """Play 1's id 167: eight sideline boxes, 57-98 % inside the boxes of a Chiefs lineman and the Raven engaged
+    with him, placed 0.46-0.67 m from the lineman by one fit and inside 0.6 m by another -- the distance test
+    flipped on a 10 cm placement change. The boxes do not move with the fit."""
+    frames = list(range(0, 60))
+    ground = {f: {1: np.array([10.0, 0.0]), 3: np.array([10.9, 0.3]), 5: np.array([30.0, 5.0])} for f in frames}
+    for f in range(10, 60):                        # id 3 exists for 10 frames, 0.95 m from id 1: not a distance rider
+        del ground[f][3]
+    views = {f: {p: ("sideline",) for p in g} for f, g in ground.items()}
+    out = tl.build_timeline(frames, ground, {}, views_by_frame=views)
+    team = {1: "KC", 3: "KC", 5: "BAL"}
+    assert tl.rider_ids(out, team) == set()
+    boxes = {(f, 1): (100.0, 100.0, 200.0, 300.0) for f in frames}
+    boxes.update({(f, 5): (900.0, 100.0, 1000.0, 300.0) for f in frames})
+    boxes.update({(f, 3): (150.0, 120.0, 230.0, 280.0) for f in range(0, 10)})      # 62 % inside id 1's box
+    assert tl.rider_ids(out, team, boxes=boxes, box_cont=0.5) == {3}
+    assert tl.rider_ids(out, team, boxes=boxes, box_cont=0.7) == set()             # not inside enough
+    assert tl.rider_ids(out, team, boxes=boxes, box_cont=None) == set()             # the box test off
+    assert tl.rider_ids(out, {**team, 1: "BAL"}, boxes=boxes, box_cont=0.5) == {3}  # either team's box counts
+    # a box beside, not inside, the other's is two men
+    boxes.update({(f, 3): (210.0, 120.0, 290.0, 280.0) for f in range(0, 10)})
+    assert tl.rider_ids(out, team, boxes=boxes, box_cont=0.5) == set()

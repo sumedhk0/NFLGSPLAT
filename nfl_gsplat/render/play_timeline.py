@@ -944,7 +944,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     # path (08y) and the play end (08x) see the tracks as they are and do not chase a held body)
     # a short fragment riding another body of its team is that body's second copy (timeline.rider_ids)
     teams_now = _teams(P)
-    riders = tlm.rider_ids(tl, teams_now)
+    riders = tlm.rider_ids(tl, teams_now, boxes=_boxes_by_cam(df).get("sideline") if tlm.RIDER_BOX_CONT is not None else None,
+                           box_cont=tlm.RIDER_BOX_CONT)
     if riders:
         n = tlm.drop_ids(tl, riders)
         print(f"short fragments riding another body left out: {sorted(riders)} ({n} body-frames)")

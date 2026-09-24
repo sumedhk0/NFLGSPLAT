@@ -6710,3 +6710,23 @@ the back id 5 450-462 keeps his crouch behind the quarterback (the first fine-tu
 endzone was gone) -- the loss undone; whole scene at 450/500/562 on the film. The census 0.207 is one id: 167, the
 KC-kit fragment, whose live records the loader drops as "riding another body" but whose ft2 records (garbage in
 both caches: score 31 / 19, rotation vectors of norm 13-14) place him 0.1 m elsewhere and the rider test flips.
+
+**06:10 (machine clock; the stamps above from 05:30 on ran ahead of it by up to two hours) -- the prior in the
+fit on the RETRAINED keypoints (lkft2vp = ft2 two-view + 05p --vposer-weight 0.01, live keys):** VPoser
+p50/p90/p99 3.41/5.11/8.77, over 8: 0.014 (lkft2 11.94 / 0.024, but lkft2's tail is id 167's garbage records at
+31); worst 9 at 395 (14.0) and 458-459 (13.2); 09d jerk 4 (lkft2 2), trunk 0; jitter p90/p99 0.0583/0.280 (lkft2
+0.0609/0.245); sideways legs L 5.1 % (id 5 44); steps 2 / hops 0 / census 0.207 (167 again). Mixed: the tail
+better, jerk and jitter p99 worse. The plain ft2 fit (lkft2) is the port candidate; the prior term stays a
+measured option (film not cut). Next: the rider rule's box condition (167), measured on the copy and on live, then
+the port of lkft2 and the v106 chain.
+
+**06:20 -- the rider rule asks the boxes (timeline.RIDER_BOX_CONT 0.5).** Id 167 = 8 sideline boxes at 411-420,
+57-98 % inside KC 76's or BAL 4's boxes (two engaged men), and the distance test read him 0.46-0.67 m from 76:
+dropped under the live records' pelvis, kept under ft2's (a 10 cm shift). With the refit placement forced off he
+is kept too, so the live verdict was luck. A frame now also counts as riding when the fragment's own sideline box
+lies half inside another drawn id's box, either team. Measured: the copy with the ft2 cache census 0.207 -> 0.16
+(167 gone), live 0.16 -> 0.16, steps 2 / hops 0 both; the rider list grew by 8, 25, 165 (clip-edge sideline
+fragments never drawn) and 23, 158, 177 (moved over from the unreadable-kit rule). Nothing drawn was lost.
+PORT: play_001/poses_refit.json <- the copy's poses_refit_lkft2.json (the ft2 two-view + one-view refit on the
+live keys; the previous cache saved as poses_refit.json.v105; keypoints_2d_ft2.parquet beside the live table, the
+loader keeps keypoints_2d.parquet); chain v106 = v105 tables + this cache + the rider box rule.

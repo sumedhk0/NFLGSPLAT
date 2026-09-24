@@ -103,6 +103,11 @@ MIN_FRAMES: int = 6              # shorter fragments are noise
 RIDER_MAX_FRAMES: int = 40
 RIDER_M: float = 0.6
 RIDER_SHARE: float = 0.5
+# ... and by the boxes (2026-09-24): a frame also counts as riding when the fragment's sideline box lies at least
+# RIDER_BOX_CONT inside another drawn id's box, EITHER team -- a partial detection of the men in a merged box.
+# Play 1's id 167: 8 boxes at 411-420, 57-98 % inside KC 76's or BAL 4's, and the distance test read him 0.46-0.67 m
+# from 76 -- kept or dropped by which fit's pelvis placed him. The boxes do not move with the fit. None = off.
+RIDER_BOX_CONT: float | None = 0.5
 VEL_WINDOW: int = 12             # frames over which yaw follows the travel direction
 # Poses as rendered still shake: hands and feet move 27 cm between rendered
 # frames at the p90 in second differences (play 1 v23, fused and one-view
@@ -533,13 +538,21 @@ def relabel(ground_by_frame, views_by_frame, poses_by_pid, player_of):
 
 
 def rider_ids(tl: "Timeline", team_of: dict, *, max_frames: int = RIDER_MAX_FRAMES, ride_m: float = RIDER_M,
-              share: float = RIDER_SHARE) -> set:
-    """Ids drawn on at most ``max_frames`` frames that stand within ``ride_m`` of another body of the
-    same team on at least ``share`` of them (see RIDER_MAX_FRAMES)."""
+              share: float = RIDER_SHARE, boxes: dict | None = None, box_cont: float | None = RIDER_BOX_CONT) -> set:
+    """Ids drawn on at most ``max_frames`` frames that ride another body on at least ``share`` of them: standing
+    within ``ride_m`` of a drawn body of the same team, or -- given ``boxes`` (``{(frame, pid): (x1, y1, x2, y2)}``
+    of one camera) and ``box_cont`` -- with at least that share of their own box's area inside another drawn id's
+    box, either team (a partial detection of the men in a merged box; see RIDER_BOX_CONT)."""
     by_id: dict = {}
     for f, states in tl.states.items():
         for s in states:
             by_id.setdefault(int(s.pid), []).append((int(f), np.asarray(s.xy, float)))
+
+    def inside(a, b):
+        ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        area = max(a[2] - a[0], 0.0) * max(a[3] - a[1], 0.0)
+        return ix * iy / area if area > 0 else 0.0
+
     out = set()
     for pid, rows in by_id.items():
         if len(rows) > max_frames or len(rows) < 2:
@@ -551,7 +564,12 @@ def rider_ids(tl: "Timeline", team_of: dict, *, max_frames: int = RIDER_MAX_FRAM
         for f, xy in rows:
             d = [float(np.linalg.norm(np.asarray(o.xy, float) - xy)) for o in tl.states.get(f, ())
                  if int(o.pid) != pid and team_of.get(int(o.pid)) == team]
-            near += bool(d) and min(d) < ride_m
+            hit = bool(d) and min(d) < ride_m
+            if not hit and boxes is not None and box_cont is not None and (f, pid) in boxes:
+                mine = boxes[(f, pid)]
+                hit = any(inside(mine, boxes[(f, int(o.pid))]) >= box_cont for o in tl.states.get(f, ())
+                          if int(o.pid) != pid and (f, int(o.pid)) in boxes)
+            near += hit
         if near / len(rows) >= share:
             out.add(pid)
     return out
