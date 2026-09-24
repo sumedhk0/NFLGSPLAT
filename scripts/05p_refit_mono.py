@@ -61,6 +61,30 @@ EDGE_INIT_WEIGHT = 0.5
 EDGE_BLEND_POSE = False
 
 
+def base_cache(refit_arg, fused_base_arg, play_dir, has_mono):
+    """The cache whose (two-view) records the one-view pass starts from. ``refit_arg`` / ``fused_base_arg``: the
+    --refit / --fused-base paths (None = not given); ``has_mono``: the --refit cache already holds one-view records.
+    Returns the path to load, or raises SystemExit. A cache with one-view records cannot be the base (its one-view
+    frames would count as covered and never refit); the play dir's poses_refit_fused.json stands in ONLY on the
+    pipeline's default path (no --refit): an explicit --refit is somebody's merge, and swapping it silently dropped
+    every two-view record merged into it (2026-09-24, 0 of 4,834 fine-tuned two-view records reached v106)."""
+    refit_path = Path(refit_arg) if refit_arg is not None else Path(play_dir) / "poses_refit.json"
+    if not has_mono:
+        return refit_path
+    if fused_base_arg is not None:
+        base = Path(fused_base_arg)
+    elif refit_arg is None:
+        base = Path(play_dir) / "poses_refit_fused.json"
+    else:
+        raise SystemExit(f"{refit_path} already holds one-view records: pass --fused-base FILE (the two-view-only "
+                         f"cache it was merged from) or a --refit without one-view records; 05p used to fall back to "
+                         f"{Path(play_dir) / 'poses_refit_fused.json'} and drop every two-view record merged into "
+                         f"{refit_path.name}")
+    if not base.exists():
+        raise SystemExit(f"{refit_path} already holds one-view records and {base} is missing")
+    return base
+
+
 def heading_diff_deg(go_a, go_b):
     """Angle between two bodies' facing directions on the ground plane (SMPL-X faces +z in model axes)."""
     from scipy.spatial.transform import Rotation
@@ -438,6 +462,9 @@ def main() -> None:
                     help="05f cache to merge into; default <play-dir>/poses_refit.json")
     ap.add_argument("--out", type=Path, default=None,
                     help="default: the --refit path (its input kept as poses_refit_fused.json)")
+    ap.add_argument("--fused-base", type=Path, default=None,
+                    help="the two-view-only cache to start from when --refit already holds one-view records "
+                         "(without it such a --refit is refused; see base_cache)")
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
     ap.add_argument("--cam", default="sideline")
     ap.add_argument("--stride", type=int, default=2,
@@ -596,11 +623,10 @@ def main() -> None:
     fused_backup = P / "poses_refit_fused.json"
     if refit_path.exists():
         blob = pickle.load(open(refit_path, "rb"))
-        if "mono" in blob:
-            if not fused_backup.exists():
-                raise SystemExit(f"{refit_path} already holds one-view records and {fused_backup.name} is missing")
-            print(f"{refit_path.name} already merged; starting from {fused_backup.name}")
-            refit_path = fused_backup
+        base = base_cache(args.refit, args.fused_base, P, "mono" in blob)
+        if base != refit_path:
+            print(f"{refit_path.name} already merged; starting from {base}")
+            refit_path = base
             blob = pickle.load(open(refit_path, "rb"))
     else:
         print(f"no fused refit at {refit_path}: every keypointed frame is one-view")
@@ -833,8 +859,9 @@ def main() -> None:
         return
     merged, added = merge_into_refit(blob, fits, betas_of)
     out = args.out or (args.refit or P / "poses_refit.json")
-    if refit_path.exists() and refit_path.resolve() != fused_backup.resolve():
-        pickle.dump(blob, open(fused_backup, "wb"))
+    in_place = Path(out).resolve() == (P / "poses_refit.json").resolve()
+    if in_place and refit_path.exists() and refit_path.resolve() != fused_backup.resolve():
+        pickle.dump(blob, open(fused_backup, "wb"))            # the play dir's own flow: keep its base for a re-run
         print(f"kept the fused-only cache as {fused_backup.name}")
     with open(out, "wb") as fh:
         pickle.dump(merged, fh)
