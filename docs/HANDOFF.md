@@ -7001,3 +7001,15 @@ through the catch (-3 -> -44 deg, 538-570; film confirmed with pov_ruler), the s
 28-32 deg vs v107 36-42), knees 130.6. Copy rulers: steps 2 / hops 0 / census 0.169; jerk 3 (v107 2); VPoser p99 10.7
 (= v107), over-8 0.027 (0.022), hinge share 0.002 (0.000: 05f's two-view fit has no hard hinges); jitter .062/.216
 (.059/.211). Mixed and small on the rulers; the catch is decisive on film. Chain running; film next (both cameras).
+
+### 2026-09-24 17:50 -- v108 = CURRENT BEST (film-checked on both cameras)
+
+v108 = the v107 tables + lkft2c (the ft2 two-view fit through 05p, merged onto the live keys; play_001/poses_refit.json
+= lkft2c, backups .v107 (the buggy lkft2) and .v105). Live rulers (07l, 395-607): steps 2 / hops 0 / census 0.17.
+Film: the endzone camera beside the endzone-view renders of v107 and v108 for the receiver 74 at 546-566
+($S/ez_strip.py): the film has Gray square to the camera and the ball; v107 draws his back at 550-558 (torso -165 /
+-171 / -154), v108 his front (-11 / -21 / -24; the endzone camera looks down -x, so a heading near 0 faces it). The
+sprinter stays upright with his arms pumping, the back keeps his crouch, the whole-scene strips show nothing new.
+Viewer Version 24 (v108 joints with look/eye), write-up Version 14 (the refit-input bug as an open-defect lesson).
+Not shipped: lkft2p (05p --two-view --endzone-weight 0.3, the pipeline default arm): knees 122.4, the sideline
+dominates, VPoser worse.
