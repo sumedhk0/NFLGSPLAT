@@ -79,7 +79,7 @@
 <div id="status">Loading the play…</div>
 
 <div id="top" class="bar">
-  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v105</small></h1>
+  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v107</small></h1>
   <div class="presets" role="group" aria-label="Camera">
     <button data-cam="sideline" aria-pressed="true">Sideline</button>
     <button data-cam="endzone" aria-pressed="false">Endzone</button>
@@ -285,6 +285,8 @@
   // ---- first person: the eyes of a picked body ----
   let picked = null, fpv = null;
   const fpvFwd = new THREE.Vector3(), _eye = new THREE.Vector3(), _right = new THREE.Vector3(), _fwd = new THREE.Vector3(), _look = new THREE.Vector3();
+  const _eyeS = new THREE.Vector3();
+  let fpvLastIdx = -1;
   const UP = new THREE.Vector3(0, 0, 1);
   function nameOf(pid) {
     const n = data && data.names && data.names[String(pid)];
@@ -297,19 +299,35 @@
     const out = document.getElementById("pick");
     if (!row) { out.textContent = `First person · id ${fpv} · ${nameOf(fpv)} · not drawn on this frame`; return false; }
     const J = row[2];
-    gazeOf(row, f, _fwd);                                            // where this man is looking (see gazeOf)
-    if (fpvFwd.lengthSq() < 1e-6) fpvFwd.copy(_fwd); else fpvFwd.lerp(_fwd, 0.25).normalize();
-    _eye.set(J[15][0], J[15][1], J[15][2]).addScaledVector(UP, 0.10).addScaledVector(fpvFwd, 0.08);
-    camera.position.copy(_eye);
-    _look.copy(_eye).addScaledVector(fpvFwd, 10).addScaledVector(UP, -1.2);   // a slight downward gaze
+    const jump = fpvFwd.lengthSq() < 1e-6 || Math.abs(idx - fpvLastIdx) > 1;   // entered, scrubbed or looped: snap
+    fpvLastIdx = idx;
+    const lk = data.look && data.look[String(fpv)] && data.look[String(fpv)][String(f)];
+    const ey = data.eye && data.eye[String(fpv)] && data.eye[String(fpv)][String(f)];
+    if (lk && ey) {
+      // the exported look (render.gaze): the drawn torso's facing plus a bounded head turn toward what he watches --
+      // the passer downfield then his receiver, the defence the ball, everyone off the line the ball in flight
+      _fwd.set(lk[0], lk[1], lk[2]).normalize();
+      _eye.set(ey[0], ey[1], ey[2]);
+      if (jump) { fpvFwd.copy(_fwd); _eyeS.copy(_eye); }
+      else { fpvFwd.lerp(_fwd, 0.5).normalize(); _eyeS.lerp(_eye, 0.6); }
+      camera.position.copy(_eyeS);
+      _look.copy(_eyeS).addScaledVector(fpvFwd, 10);
+    } else {
+      gazeOf(row, f, _fwd);                                          // an export without a look: the play rule
+      if (jump) fpvFwd.copy(_fwd); else fpvFwd.lerp(_fwd, 0.25).normalize();
+      _eye.set(J[15][0], J[15][1], J[15][2]).addScaledVector(UP, 0.10).addScaledVector(fpvFwd, 0.08);
+      camera.position.copy(_eye);
+      _look.copy(_eye).addScaledVector(fpvFwd, 10).addScaledVector(UP, -1.2);   // a slight downward gaze
+    }
     camera.up.copy(UP); camera.lookAt(_look);
     out.textContent = `First person · id ${fpv} · ${nameOf(fpv)}`;
     return true;
   }
-  // Where a man is looking. The fitted shoulder line is not trusted: a single-camera pose fit gets the yaw wrong by
-  // up to 90 degrees (the QB in the pocket 'faces the sideline'). Rule: moving (> 1.5 m/s) -> along his run;
-  // a lineman (within 3 m of the line at the snap) -> the other side of the line; the ball carrier standing -> his
-  // team's attack direction; anyone else -> at the ball.
+  // The FALLBACK look, for an export without data.look: moving (> 1.5 m/s) -> along his run; a lineman (within 3 m
+  // of the line at the snap) -> the other side of the line; the ball carrier standing -> his team's attack direction;
+  // anyone else -> at the ball. Measured on play 1 (2026-09-24): it points behind every man who moves backward
+  // (backpedalling safeties, tackles in their pass sets, the quarterback's drop -- 30 % of the live body-frames),
+  // where the drawn torso is right on the film; data.look (render.gaze) starts from the torso instead.
   const _v = new THREE.Vector3(), _bp = new THREE.Vector3();
   const linemen = new Map();                                          // pid -> true/false, decided at the snap
   function isLineman(pid) {
