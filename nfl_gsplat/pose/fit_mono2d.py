@@ -48,6 +48,10 @@ class Mono2DConfig:
     # spread, which the render camera on the sideline's side foreshortens).
     place_weight: float = 10.0      # metres of pelvis xy from the box-bottom ground point
     prior_weight: float = 0.02      # L2 on body_pose
+    # VPoser's latent mean as a residual, sqrt(vposer_weight) * z(body_pose) [32]: the fit is pulled toward the mocap
+    # manifold while it matches the keypoints (SMPLify-X's prior, 2026-09-24). 0 = off. The encoder is numpy
+    # (pose_prior.encoder), so the numeric Jacobian's ~70 calls an iteration cost ~5 ms.
+    vposer_weight: float = 0.0
     init_weight: float = 0.05       # pull toward the regressor's body_pose
     # toward the previous frame's body_pose and orient. 0.3 until 2026-09-16; 3.0 measured at the
     # timeline's placement on play 1's eight worst ids (two-view 0.3, hinge bounds): joint jitter p90
@@ -257,6 +261,11 @@ def orient_temporal_residual(go, prev_go, *, geodesic: bool):
     return (Rotation.from_rotvec(prev_go).inv() * Rotation.from_rotvec(go)).as_rotvec()
 
 
+def _vposer_z(body_pose63):
+    from nfl_gsplat.pose.pose_prior import encoder
+    return encoder()(body_pose63)
+
+
 def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConfig, base_cfg: SMPLXFitConfig,
                  init_body_pose=None, prev_params=None):
     """``(params, reproj_rms_px, n_used)`` for one frame; ``uv [22, 2]``, ``conf [22]``,
@@ -334,6 +343,8 @@ def fit_frame_2d(uv, conf, cam, init_params, forward, ground_xy, cfg: Mono2DConf
         place = cfg.place_weight * (J[PELVIS, :2] - gxy)
         prior = np.sqrt(cfg.prior_weight) * p[bp_slice]
         parts = [rep, behind, ground, place, prior]
+        if cfg.vposer_weight > 0:
+            parts.append(np.sqrt(cfg.vposer_weight) * _vposer_z(p[bp_slice]))
         if cfg.tilt_weight > 0:
             parts.append(np.array([tilt_penalty(p[go_slice], cfg)]))
         if cfg.bounds_weight > 0:

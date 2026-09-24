@@ -37,6 +37,7 @@ class SMPLXFitConfig:
     global_orient_dim: int = 3
     transl_dim: int = 3
     pose_prior_weight: float = 0.01   # L2 on body_pose (axis-angle magnitudes)
+    vposer_weight: float = 0.0        # sqrt(w) * VPoser latent mean of body_pose (pose_prior.encoder); 0 = off
     min_valid_joints: int = 10
     min_frame_validity_frac: float = 0.7
     max_iter: int = 50
@@ -105,6 +106,9 @@ def fit_single_frame(
         diff = (joints - target)[mask]            # [Mv, 3]
         data_res = diff.reshape(-1)
         prior_res = np.sqrt(cfg.pose_prior_weight) * p[bp_slice]
+        if cfg.vposer_weight > 0:
+            from nfl_gsplat.pose.pose_prior import encoder
+            prior_res = np.concatenate([prior_res, np.sqrt(cfg.vposer_weight) * encoder()(p[bp_slice])])
         parts = [data_res, prior_res]
         if w_t > 0:
             parts.append(w_t * (p[bp_slice] - prev_params[bp_slice]))

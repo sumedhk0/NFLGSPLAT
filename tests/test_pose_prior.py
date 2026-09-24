@@ -97,3 +97,15 @@ def test_row_ramps_free_an_arm_sooner_than_a_leg(monkeypatch):
     monkeypatch.setattr(pp, "SUPPORT_ARM_LO", 8.0); monkeypatch.setattr(pp, "SUPPORT_ARM_HI", 16.0)
     lo2, hi2 = pp.row_ramps()
     assert pp.support_weights(resid, lo=lo2, hi=hi2)[15] == 0.0
+
+
+@pytest.mark.skipif(not _have_vposer(), reason="VPoser checkpoint or human_body_prior not present")
+def test_numpy_encoder_matches_torch():
+    vp = pp.load()
+    enc = pp.NumpyEncoder(vp)
+    bps = np.random.default_rng(5).normal(0, 0.5, (16, 21, 3))
+    z_np = enc(bps)
+    z_t = pp.encode(vp, bps)
+    assert z_np.shape == (16, 32) and np.abs(z_np - z_t).max() < 1e-4
+    assert enc(bps[0]).shape == (32,) and np.allclose(enc(bps[0]), z_np[0])
+    assert pp.encoder() is pp.encoder()                             # cached

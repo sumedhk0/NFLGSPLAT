@@ -94,6 +94,49 @@ def weights_from_scores(s: np.ndarray, *, lo: float = None, hi: float = None) ->
     return np.clip((np.asarray(s, float) - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
 
 
+# ---- the encoder in numpy, for the fit ----------------------------------------------------------------------------
+class NumpyEncoder:
+    """VPoser's encoder mean as numpy: BatchNorm(63) -> Linear -> LeakyReLU(0.01) -> BatchNorm(512) -> Linear -> Linear
+    -> mu. Built once from the torch model's state; a least-squares fit calls it ~70 times an iteration."""
+
+    def __init__(self, vp):
+        sd = {k: v.detach().cpu().numpy().astype(np.float64) for k, v in vp.state_dict().items() if k.startswith("encoder_net")}
+        def bn(i):
+            g, b, m, v = sd[f"encoder_net.{i}.weight"], sd[f"encoder_net.{i}.bias"], sd[f"encoder_net.{i}.running_mean"], sd[f"encoder_net.{i}.running_var"]
+            scale = g / np.sqrt(v + 1e-5)
+            return scale, b - m * scale
+        self.bn1 = bn(1); self.bn4 = bn(4)
+        self.w2, self.b2 = sd["encoder_net.2.weight"], sd["encoder_net.2.bias"]
+        self.w6, self.b6 = sd["encoder_net.6.weight"], sd["encoder_net.6.bias"]
+        self.w7, self.b7 = sd["encoder_net.7.weight"], sd["encoder_net.7.bias"]
+        self.wmu, self.bmu = sd["encoder_net.8.mu.weight"], sd["encoder_net.8.mu.bias"]
+
+    def __call__(self, body_pose) -> np.ndarray:
+        """Latent means ``[N, 32]`` (or ``[32]`` for one pose) from body poses ``[N, 63]`` / ``[63]`` / ``[N, 21, 3]``."""
+        x = np.asarray(body_pose, np.float64)
+        one = x.ndim == 1 or (x.ndim == 2 and x.shape == (21, 3))
+        x = x.reshape(-1, 63)
+        x = x * self.bn1[0] + self.bn1[1]
+        x = x @ self.w2.T + self.b2
+        x = np.where(x > 0, x, 0.01 * x)
+        x = x * self.bn4[0] + self.bn4[1]
+        x = x @ self.w6.T + self.b6
+        x = x @ self.w7.T + self.b7
+        z = x @ self.wmu.T + self.bmu
+        return z[0] if one else z
+
+
+_ENC = None
+
+
+def encoder(vposer_dir: str | Path = VPOSER_DIR) -> NumpyEncoder:
+    """The module's cached numpy encoder (loaded from the torch checkpoint on first use)."""
+    global _ENC
+    if _ENC is None:
+        _ENC = NumpyEncoder(load(vposer_dir))
+    return _ENC
+
+
 # ---- the shift on a timeline -----------------------------------------------------------------------------------
 # Measured on play 1 (2026-09-23, v105 as rendered, blend 8 -> 12 per frame): score p99 15.9 -> 9.7, the share over
 # 8.0 6.8 -> 5.0 %, keypoint residual p50 6.3 -> 6.7 px, joint jitter p90 0.064 -> 0.062 but p99 0.185 -> 0.224:

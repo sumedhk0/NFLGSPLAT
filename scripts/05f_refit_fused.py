@@ -60,6 +60,7 @@ def main() -> None:
     # 0.3 keeps most of the gain with the least lag on a real move.
     ap.add_argument("--temporal-weight", type=float, default=0.3,
                     help="pull toward the previous frame's pose (fuse_smplx.SMPLXFitConfig; 0 = the plain fit)")
+    ap.add_argument("--vposer-weight", type=float, default=0.0, help="VPoser latent-mean residual weight; 0 = off")
     ap.add_argument("--f-scale", type=float, default=0.1,
                     help="soft_l1 scale in metres; joint errors past it count linearly (1.0 = plain least squares)")
     args = ap.parse_args()
@@ -71,7 +72,7 @@ def main() -> None:
     if not fused:
         raise SetupError(f"{args.fused} holds no fused players")
 
-    cfg = SMPLXFitConfig(max_iter=args.max_iter, min_valid_joints=args.min_valid_joints,
+    cfg = SMPLXFitConfig(vposer_weight=args.vposer_weight, max_iter=args.max_iter, min_valid_joints=args.min_valid_joints,
                          min_frame_validity_frac=args.min_frame_frac,
                          temporal_weight=args.temporal_weight, f_scale=args.f_scale)
     fits, betas_of, rms_all, skipped = {}, {}, [], []

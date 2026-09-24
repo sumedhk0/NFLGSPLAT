@@ -428,3 +428,51 @@ def test_geodesic_temporal_residual_ignores_the_representation_of_prev():
     assert np.allclose(geo, geo_alt, atol=1e-9) and abs(np.linalg.norm(geo) - 0.06) < 1e-6
     assert Mono2DConfig().temporal_geodesic is False                          # off until measured
 
+
+
+def _have_vposer():
+    from pathlib import Path
+    try:
+        import human_body_prior  # noqa: F401
+    except Exception:
+        return False
+    from nfl_gsplat.pose import pose_prior as pp
+    return Path(pp.VPOSER_DIR, "snapshots").exists()
+
+
+def test_vposer_term_pulls_the_fit_toward_plausible_poses_at_little_reprojection_cost():
+    """An implausible target pose projected into one camera: the fit with VPoser's latent as a residual scores
+    lower on the prior than the plain fit while landing within a few px of it on the keypoints."""
+    import pytest
+    if not _have_vposer():
+        pytest.skip("VPoser checkpoint or human_body_prior not present")
+    from scipy.spatial.transform import Rotation
+    from nfl_gsplat.pose import pose_prior as pp
+    from nfl_gsplat.pose.fit_mono2d import _param_slices
+
+    base = SMPLXFitConfig()
+    bp_slice, _go, _tr = _param_slices(base)
+    rest = _rest(); forward = fk_forward(rest)
+    K = intrinsics(1920, 1080, fov_deg=12.0)
+    R, t = look_at(np.array([0.0, -100.0, 40.0]), np.array([0.0, 0.0, 1.0]))
+    cam = (K, R, t)
+    rng = np.random.default_rng(11)
+    bp = np.zeros(63)
+    for j in (16, 17, 18, 19, 3, 6):                          # arms flung, spine twisted: an implausible body
+        bp[(j - 1) * 3:(j - 1) * 3 + 3] = rng.normal(0, 0.9, 3)
+    go = Rotation.from_euler("z", np.pi / 2).as_rotvec()
+    p_true = _pack_params(bp, go, np.array([2.0, 1.0, 0.0]))
+    J = forward(p_true); p_true[-1] -= sole_height(J); J = forward(p_true)
+    uv, _ = project(K, R, t, J)
+    conf = np.ones(22); conf[[3, 6, 9, 13, 14, 10, 11]] = 0.0
+    T = 2
+    out = {}
+    for w in (0.0, 0.01):
+        params, valid, rep = fit_sequence_2d(np.stack([uv] * T), np.stack([conf] * T), [cam] * T,
+                                             np.stack([J[0, :2]] * T), rest, forward,
+                                             cfg=Mono2DConfig(up_axis=(0.0, 0.0, 1.0), vposer_weight=w),
+                                             base_cfg=base, init_orient_seq=np.stack([go] * T))
+        assert valid.all()
+        out[w] = (float(pp.scores(pp.load(), params[-1][bp_slice].reshape(1, 21, 3))[0]), float(rep[-1]))
+    assert out[0.01][0] < out[0.0][0]
+    assert out[0.01][1] < out[0.0][1] + 3.0
