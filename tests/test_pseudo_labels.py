@@ -30,8 +30,8 @@ def test_labels_follow_the_anchor_rule():
     lab = pl.label_frame(proj, {"sideline": _det(side_xy, side_conf), "endzone": _det(end_xy, end_conf)})
     S = pl.SOURCES
     s = lab.source["sideline"]; e = lab.source["endzone"]
-    assert S[s[9]] == "fit_self" and np.allclose(lab.uv["sideline"][9], proj["sideline"][9])
-    assert S[e[9]] == "fit_self"
+    assert S[s[9]] == "fit_self" and np.allclose(lab.uv["sideline"][9], side_xy[9])      # anchored here: the detector's point
+    assert S[e[9]] == "fit_self" and np.allclose(lab.uv["endzone"][9], end_xy[9])
     assert S[s[10]] == "fit_cross" and np.allclose(lab.uv["sideline"][10], proj["sideline"][10]) and lab.vis["sideline"][10] == 2
     assert S[e[10]] == "fit_self"
     assert S[s[7]] == "det" and np.allclose(lab.uv["sideline"][7], side_xy[7])
@@ -103,3 +103,27 @@ def test_yolo_line_clips_the_box_and_drops_out_of_image_joints():
     assert pl.yolo_pose_line((-50.0, -50.0, -10.0, -10.0), uv, vis, 200, 100) is None
     uv2 = np.full((17, 2), np.nan); vis2 = np.zeros(17, int); uv2[5], vis2[5] = (-3.0, 20.0), 2
     assert pl.yolo_pose_line((-20.0, 10.0, 60.0, 130.0), uv2, vis2, 200, 100) is None
+
+
+def test_a_joint_anchored_in_its_own_camera_takes_the_detectors_point_not_the_fits():
+    """The fit's projection carried its prior into the labels (knees 1-2 px straighter on two thirds of the
+    anchored joints); the detector's own confident point is the ground truth for its camera."""
+    proj = {"sideline": np.full((17, 2), np.nan)}
+    proj["sideline"][13] = (100.0, 200.0)                       # the fit's left knee
+    xy = np.full((17, 2), np.nan); conf = np.zeros(17)
+    xy[13], conf[13] = (104.0, 197.0), 0.9                       # the detector's, 5 px away: anchored
+    lab = pl.label_frame(proj, {"sideline": (xy, conf)}, agree_px=12.0, anchor_conf=0.5)
+    assert pl.SOURCES[lab.source["sideline"][13]] == "fit_self" and lab.vis["sideline"][13] == 2
+    assert np.allclose(lab.uv["sideline"][13], (104.0, 197.0))  # the detector's point, SELF_LABEL "det"
+    lab_fit = pl.label_frame(proj, {"sideline": (xy, conf)}, agree_px=12.0, anchor_conf=0.5, self_label="fit")
+    assert np.allclose(lab_fit.uv["sideline"][13], (100.0, 200.0))  # the old behaviour on request
+    # the other camera's anchor still labels with the fit (the class the detector could not have produced)
+    proj2 = {"sideline": proj["sideline"].copy(), "endzone": np.full((17, 2), np.nan)}
+    proj2["endzone"][13] = (500.0, 300.0)
+    xy_e = np.full((17, 2), np.nan); conf_e = np.zeros(17); xy_e[13], conf_e[13] = (503.0, 301.0), 0.9
+    xy_s = np.full((17, 2), np.nan); conf_s = np.zeros(17)       # the sideline saw nothing
+    lab2 = pl.label_frame(proj2, {"sideline": (xy_s, conf_s), "endzone": (xy_e, conf_e)}, agree_px=12.0, anchor_conf=0.5)
+    assert pl.SOURCES[lab2.source["sideline"][13]] == "fit_cross" and np.allclose(lab2.uv["sideline"][13], (100.0, 200.0))
+    import pytest
+    with pytest.raises(ValueError):
+        pl.label_frame(proj, {"sideline": (xy, conf)}, self_label="other")

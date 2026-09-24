@@ -30,6 +30,12 @@ ANCHOR_CONF: float = 0.5      # ... with the detection at least this confident
 N_COCO: int = 17
 COCO_FLIP = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]   # left <-> right for horizontal flips
 SOURCES = ("none", "det", "fit_self", "fit_cross")
+# A joint anchored in its own camera (fit_self) is labelled with the DETECTOR's point ("det") or the fit's projection
+# ("fit"). The projection carried the fit's prior into the labels -- toward the hip-ankle line (straighter) by 1-2 px
+# on two thirds of the anchored knees -- and the fine-tuned detector learned it: knee flexion 125 -> 132 deg mean over
+# play 1, the quarterback and the edge rusher taller than the film (2026-09-24). The detector's own confident point is
+# the ground truth for its camera; the fit adds only what the other camera anchors.
+SELF_LABEL: str = "det"
 
 
 @dataclass
@@ -39,11 +45,16 @@ class FrameLabels:
     source: dict        # cam -> [17] index into SOURCES
 
 
-def label_frame(proj: dict, det: dict, *, agree_px: float = AGREE_PX, anchor_conf: float = ANCHOR_CONF) -> FrameLabels:
+def label_frame(proj: dict, det: dict, *, agree_px: float = AGREE_PX, anchor_conf: float = ANCHOR_CONF,
+                self_label: str | None = None) -> FrameLabels:
     """``proj``: cam -> [17, 2] the fit's projection per COCO keypoint (nan for the face and where no camera pose);
     ``det``: cam -> (xy [17, 2], conf [17]) the detector's keypoints, absent cameras missing. Returns the labels per
     camera by the rule in the module docstring. Cameras present in ``det`` but not in ``proj`` get detector labels
-    only."""
+    only. ``self_label``: a joint anchored in its own camera takes the detector's point ("det") or the fit's
+    projection ("fit"); None = the module's SELF_LABEL."""
+    self_label = SELF_LABEL if self_label is None else str(self_label)
+    if self_label not in ("det", "fit"):
+        raise ValueError(f"self_label must be 'det' or 'fit', not {self_label!r}")
     cams = sorted(set(proj) | set(det))
     anchored = {}
     for c in cams:
@@ -66,7 +77,7 @@ def label_frame(proj: dict, det: dict, *, agree_px: float = AGREE_PX, anchor_con
         for k in range(N_COCO):
             body = k in COCO_TO_SMPLX
             if body and np.isfinite(p[k]).all() and anchored[c][k]:
-                u[k], v[k], s[k] = p[k], 2, SOURCES.index("fit_self")
+                u[k], v[k], s[k] = (xy[k] if self_label == "det" else p[k]), 2, SOURCES.index("fit_self")
             elif body and np.isfinite(p[k]).all() and any(anchored[o][k] for o in others):
                 u[k], v[k], s[k] = p[k], 2, SOURCES.index("fit_cross")
             elif conf[k] >= anchor_conf and np.isfinite(xy[k]).all():
