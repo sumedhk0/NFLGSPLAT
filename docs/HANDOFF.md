@@ -6569,3 +6569,15 @@ detector's points. Caveat: the held-out frames are frames of the same play (same
 the fit's own projection learned back in part; the honest test is downstream: re-detect on the play copy
 (`05m --weights pose_ft/train/weights/best.pt`) -> triangulate -> refit (05f, 05p same-keys merge, the v100 recipe)
 -> 09d / 07l / VPoser rulers + the film (the sprinter's arms at 414-418 first). Weights: pose_ft/train/weights/best.pt.
+Re-detect on the copy with the fine-tuned weights (05m, imgsz 1920): sideline 14,129 detections matched / 918
+unmatched, endzone 11,527 / 676, 25,656 person-frames (the live detector's table kept as keypoints_2d.parquet.v105).
+05n on them: 29 players triangulated, valid joints 52 % of all / 77 % of the COCO-observable, median reprojection
+1.2 px. The downstream chain (`$S/copy_ft_chain.sh`: 05f two-view refit -> the live cache's records replaced on their
+own keys (`$S/merge_samekeys.py`) -> 05p one-view refit merged on its keys -> loader rulers, 09d, VPoser scores) is
+running on the copy; the arm-ramp gated shift probe render v108p on the GPU beside it.
+**Probe v108p (row-gated shift with the arm ramps 4 -> 10 px; 1,903 body-frames moved, 176 fully, mean 0.062 rad)
+on film:** as v107p to the eye -- the sprinter's lean eased and his right arm carried forward, the left arm still
+trailing (its blurred elbow keypoint at 1.5-8 px still reads as partial support); the back's crouch kept; the whole
+scene at 450 / 500 / 562 unchanged. The gated shift is a mild, safe improvement; whether it ships waits for the
+fine-tuned detector's refit (running on the copy): if the new arm keypoints put the sprinter right in the fit
+itself, the shift has less to do and its gate reads truer support.
