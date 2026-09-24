@@ -6761,3 +6761,35 @@ elsewhere in his run; the whole-run trace is being read ($S/wrist_v10{5,6}_full.
 VPoser p99 10.95 -> 9.42, over-8 share 0.022 -> 0.021, jitter p99 0.245 -> 0.268 (worse); the tail is the sprinter
 alone (per-id p90 13.9 -> 10.8; 395-397 at 18 = his stance at the snap, 441 at 16). SHIFT stays OFF: with the
 fine-tuned fit the prior has nothing left to correct that the film would notice, and it costs jitter.
+
+**08:00 -- the sprinter's jitter, located.** Whole-run trace of id 9 (395-607): v105 jitter p50/p90/p99 0.057 /
+0.135 / 0.186 (17 frames over 0.15), v106 0.063 / 0.227 / 1.255 (46). Two events, neither the arms' pumping: (1)
+490-494 the LEGS SWAP -- the right ankle goes from -0.62 to -0.18 m (pelvis-relative height) in one frame while
+the left drops, then back four frames later: second differences 1.25-1.38 m/frame^2 on joint 8; the sideline
+detector barely sees his ankles there (2-3 ankle keypoints at 484-498 in BOTH tables), so the legs are the gait's,
+and the gait's phase flips; v105 is smooth there (-0.47 -> -0.34 -> -0.65). (2) The right wrist 446-466 and
+471-483 swings +0.39 -> +0.83 -> +0.26 m with second differences 0.2-0.47 (41 frames over 0.1 on joint 21): the
+detector's right wrist on the small blurred sprinter jumps 50 px at p90 and up to 139 px frame to frame in both
+tables (fine-tuned p50 conf 0.69, pretrained 0.78), and the one-view fit follows it. Next: the leg swap on film
+(strip 488-494) and the gait's phase continuity.
+**The leg swap's mechanism (08:20):** not the fit's legs (with the gait off the ankles are smooth at 484-500) and
+not the gait's phase (on throughout, w 1.00, phase advancing 0.19 rad/frame). It is gait.leg_yaw's forward/backward
+decision: the fitted body heading in v106 swings from 121 to 75 deg while the velocity heading sits at 163-176
+(the tackler turns his torso), so the yaw between them crosses 90 deg at 491 and again at 494 -- leg_yaw flips
+to "moving backwards" (advance -0.106 m/frame, yaw -88) for three frames and the whole leg plane turns 180 deg:
+the right ankle jumps 0.44 m up in one frame and back. v105's fit had him 30 deg off the velocity there. The
+boundary is a cliff at exactly 90 deg; a torso twisted 90 deg off the line of running is a tackle, not a
+backpedal. Fix: hysteresis on the backwards decision along a run (flip only past 90 + margin, un-flip only under
+90 - margin); counting the play's flips first ($S/flip_count.py, v105 vs v106).
+Flip count on the play (the gait on, live window, the cliff at 90 deg): v106 9 backwards flips inside on-runs on
+5 ids (3 at 507/509/556/560, 4 at 533, 6 at 469, 9 at 491/494, 12 at 562; 94 backwards frames of 612 on, 50
+frames within 15 deg of the boundary); v105 4 flips on 3 ids (3, 4, 12). Every flip is a leg plane turning 180
+deg between two frames. Built: gait.BACK_MARGIN_DEG 30 (leg_yaw takes the previous frame's decision;
+gait_sequence carries it along a run; tests: the twisted torso stays forward, a backpedal still flips, a 30 ->
+100 -> 30 deg facing sweep keeps the hip rows smooth). Measuring: flips with the margin, the sprinter's ankles,
+07l with margin 0 (v106b) vs 30 (v107p).
+**Measured (08:40):** with the margin, backwards flips inside on-runs 9 -> 0 (backwards frames 94 -> 84 of 612);
+the sprinter's ankles at 488-496 descend smoothly (no swap); 07l on the live play: joint jitter p90 0.0609 ->
+0.0594, p99 0.2452 -> 0.2112 (v105 0.185), worst id 9 0.228 -> 0.217, id 3 0.112 -> 0.102; steps 2 / hops 0 /
+census 0.16 unchanged; planted 11 -> 10 % of moving frames. Shipped as the module default; v107 chain = v106 +
+this. The jitter p99 left (0.21 vs v105 0.185) is the sprinter's right wrist on a jumpy keypoint (446-483).

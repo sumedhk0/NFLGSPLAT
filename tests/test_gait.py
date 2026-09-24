@@ -287,3 +287,54 @@ def test_phase_matching_starts_the_gait_at_the_fits_legs():
     def gap(out):
         return sum(abs(gait.fit_hip_flexion(out[t0, gait.HIP_ROW[s]]) - gait.fit_hip_flexion(fit[gait.HIP_ROW[s]])) for s in ("L", "R"))
     assert gap(matched) < 0.5 * gap(plain) and gap(matched) < 0.3
+
+
+def test_leg_yaw_hysteresis_keeps_a_twisted_torso_running_forward():
+    """The sprinter's tackler turned his torso to 75 deg off his run (v106, 491-493): with the plain threshold the
+    legs ran backwards for three frames and the leg plane flipped. With the previous decision carried, the flip
+    needs 90 + margin, and un-flipping needs 90 - margin; a true backpedal still flips."""
+    def vel_at(deg):                                        # facing -y; the velocity turned `deg` toward the body's left
+        a = np.radians(deg)
+        return np.array([np.sin(a) * 0.1, -np.cos(a) * 0.1])
+    fwd = np.array([0.0, -1.0])
+    yaw, adv = gait.leg_yaw(fwd, vel_at(100))                                  # plain: past 90, backwards
+    assert adv < 0
+    yaw, adv = gait.leg_yaw(fwd, vel_at(100), backwards=False, margin_deg=30)  # carried: still forward under 120
+    assert adv > 0 and abs(np.degrees(yaw) - 100) < 1e-6
+    yaw, adv = gait.leg_yaw(fwd, vel_at(125), backwards=False, margin_deg=30)  # past 120: backwards
+    assert adv < 0
+    yaw, adv = gait.leg_yaw(fwd, vel_at(75), backwards=True, margin_deg=30)    # backwards, 75 is not under 60: stays
+    assert adv < 0
+    yaw, adv = gait.leg_yaw(fwd, vel_at(50), backwards=True, margin_deg=30)    # under 60: forward again
+    assert adv > 0
+    yaw, adv = gait.leg_yaw(fwd, vel_at(170), backwards=False, margin_deg=30)  # a backpedal
+    assert adv < 0 and abs(abs(np.degrees(yaw)) - 10) < 1e-6
+    assert gait.leg_yaw(fwd, vel_at(100), backwards=False, margin_deg=0)[1] < 0  # margin 0 = the plain cliff
+
+
+def test_gait_sequence_carries_the_backward_decision_along_a_run(monkeypatch):
+    """A body running along +x whose fitted facing swings from 30 to 100 deg off the motion and back: the legs
+    never flip. Measured on the hip rows of consecutive frames: with the cliff the leg plane turns 180 deg for the
+    frames past 90; with the margin the hip rotation vectors change smoothly."""
+    from scipy.spatial.transform import Rotation as R_
+    T = 40
+    base = R_.from_euler("x", -np.pi / 2)                    # tips the pelvis's +z (its forward) onto the ground
+    f0 = base.apply([0.0, 0.0, 1.0])[:2]
+    ang0 = np.arctan2(f0[1], f0[0])
+    seq2 = []
+    for t in range(T):
+        off = 30 + 70 * np.sin(np.pi * t / (T - 1)) ** 2      # the facing 30 -> 100 -> 30 deg off the motion (+x)
+        rot = R_.from_euler("z", np.radians(off) - ang0) * base
+        seq2.append((np.array([0.12 * t, 0.0]), np.zeros((21, 3)), rot.as_rotvec()))
+    for xy, bp, go in seq2:
+        f = gait.forward_on_ground(go)
+        assert f is not None
+    monkeypatch.setattr(gait, "MIN_ON", 1)
+    def max_hip_step(margin):
+        monkeypatch.setattr(gait, "BACK_MARGIN_DEG", margin)
+        out, rep = gait.gait_sequence(seq2, run_m=0.05, blend=1)
+        assert rep["on"] == T
+        hips = out[:, gait.HIP_ROW["L"]]
+        return float(np.linalg.norm(np.diff(hips, axis=0), axis=1).max())
+    assert max_hip_step(0.0) > 1.0            # the cliff: the leg plane flips
+    assert max_hip_step(30.0) < 0.5           # the margin: no flip

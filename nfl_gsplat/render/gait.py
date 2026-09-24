@@ -264,13 +264,24 @@ def forward_on_ground(global_orient):
     return f / n if n > 1e-6 else None
 
 
-def leg_yaw(forward, velocity):
+# The forward/backward decision has hysteresis (2026-09-24): the legs run BACKWARDS only once the body faces more
+# than 90 + BACK_MARGIN_DEG off its motion, and forwards again only under 90 - BACK_MARGIN_DEG, the previous frame's
+# decision carried along a run. A cliff at exactly 90 deg flipped play 1's sprinter's whole leg plane for three
+# frames (v106, 491-493) when the tackler turned his torso to 75 deg off his run: the right ankle rose 0.44 m in one
+# frame and fell back (joint jitter 1.25-1.38 m/frame^2 against a run's 0.05). A torso twisted 90 deg off the line
+# of running is a tackle or a cut, not a backpedal. 0 = the plain cliff, read at call time.
+BACK_MARGIN_DEG: float = 30.0
+
+
+def leg_yaw(forward, velocity, *, backwards=None, margin_deg=None):
     """``(yaw, advance)``: the signed angle (rad, positive toward the body's left) that turns the
     legs' plane from the body's forward onto the direction of motion, and the speed along that
     turned plane (negative when the body moves backwards along it). The legs run where the body
     goes -- on play 1's runner the fitted facing sat 45-90 deg off the velocity on 39 % of his moving
     frames and the legs swung sideways to his motion, planting nothing; a torso twisted off the
-    line of running is what a cut looks like, but the feet still go where the man goes."""
+    line of running is what a cut looks like, but the feet still go where the man goes.
+    ``backwards``: the previous frame's decision (``advance < 0``), for the hysteresis (BACK_MARGIN_DEG;
+    ``margin_deg`` overrides it); None = no history, the plain 90-degree threshold."""
     f = np.asarray(forward, float)
     v = np.asarray(velocity, float)
     sp = float(np.linalg.norm(v))
@@ -278,7 +289,9 @@ def leg_yaw(forward, velocity):
         return 0.0, 0.0
     left = np.array([-f[1], f[0]])
     yaw = float(np.arctan2(v @ left, v @ f))
-    if abs(yaw) <= np.pi / 2:
+    margin = np.radians(BACK_MARGIN_DEG if margin_deg is None else float(margin_deg)) if backwards is not None else 0.0
+    limit = np.pi / 2 + (margin if not backwards else -margin)   # flip late, un-flip late
+    if abs(yaw) <= limit:
         return yaw, sp                                      # legs turned onto the motion, running forward
     yaw = yaw - np.pi if yaw > 0 else yaw + np.pi            # moving backwards: legs face away, cycle backwards
     return yaw, -sp
@@ -316,12 +329,14 @@ def gait_sequence(seq, *, run_m=None, blend=None, duty=None, leg_m: float = LEG_
     speed = np.linalg.norm(vel, axis=1)
     adv = np.zeros(T)
     yaw = np.zeros(T)
+    backwards = None                                         # the previous frame's decision, carried along the run
     for t in range(T):
         f = forward_on_ground(seq[t][2])
         if f is None:
             adv[t] = speed[t]
         else:
-            yaw[t], adv[t] = leg_yaw(f, vel[t])
+            yaw[t], adv[t] = leg_yaw(f, vel[t], backwards=backwards)
+            backwards = bool(adv[t] < 0)
     on = on_flags(speed, run_m=run_m, off_share=off_share, min_run=min_run, min_on=min_on)
     phi0 = {}
     if phase_match_on:
