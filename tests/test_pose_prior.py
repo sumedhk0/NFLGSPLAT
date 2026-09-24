@@ -54,3 +54,8 @@ def test_smooth_weights_spread_a_lone_moved_frame_onto_its_neighbours():
     assert sw[10] < 1.0 and sw[9] > 0.05 and sw[8] > 0.01 and sw[0] < 1e-3
     assert np.allclose(pp.smooth_weights(w, 0.0), w)
     assert sw.max() <= 1.0 and sw.min() >= 0.0
+
+
+def test_support_weights_keep_film_backed_poses_still():
+    w = pp.support_weights(np.array([2.0, 8.0, 12.0, 16.0, 30.0, np.nan]), lo=8.0, hi=16.0)
+    assert np.allclose(w, [0.0, 0.0, 0.5, 1.0, 1.0, 1.0])

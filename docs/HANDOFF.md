@@ -6497,3 +6497,19 @@ jitter p90 0.064 -> 0.062 but p99 0.185 -> 0.224 -- a per-frame weight makes edg
 Next: the weight smoothed along each man's run (pose_prior.shift_timeline, SHIFT_SIGMA 3), then a sideline-view
 render with the shift for the film (the sprinter id 9 at 414-418: the film has an upright sprint with pumping arms,
 the fit leans far forward with the arms flung back -- VPoser 22, the keypoint residual silent).
+v105 endzone blend done (machine ~20:15; the render checked at the pocket: bodies on the footage's men). Viewer
+Version 20 = v105 joints. The VPoser shift wired into 05k / 07l after the foot lock behind pose_prior.SHIFT (off;
+commit 90cb916); the smoothed-weight arm (sigma 3) running; a sideline-view render with SHIFT on (with_flag) follows
+for the film check of the sprinter id 9 (414-418) and id 5 (526-542).
+Smoothed-weight arm (blend 8 -> 12, the weight Gaussian-smoothed along each man's run, sigma 3): 550 body-frames
+moved (46 fully), mean joint move 0.093 rad; score p99 15.9 -> 9.8, over 8.0 6.8 -> 5.4 %; keypoint residual p50
+6.3 -> 6.6, p90 14.0 -> 15.4 px; hinge-violation share 0.001; joint jitter p90 0.0644 -> 0.0599 and p99 0.185 -> 0.174
+-- BOTH better than as drawn (the per-frame blend had p99 0.224). Three rulers up, the keypoints down a little; the
+film decides (the sideline-view probe render v106p with SHIFT on is running).
+Film on the ruler's tail (v105 strips): id 9 (KC 1, the sprinter) 414-418 -- the film has an upright sprint with
+pumping arms, the fit leans far forward with both arms flung back: a REAL defect the keypoint residual never
+flagged (VPoser 21-22). id 5 (the KC back) 450-462 -- a low pass-protection crouch beside the quarterback, on its
+keypoints; VPoser 11 because crouches are rare in mocap: a legitimate posture the shift would straighten. So the
+shift needs the film's say: pose_prior.support_weights -- a body-frame whose sideline keypoint residual is under
+8 px is not moved, over 16 px moved in full, linear between, no keypoints = full (SUPPORT_LO / HI; shift_timeline
+takes ``support`` {(pid, frame): px}). Arm running (--support).

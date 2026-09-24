@@ -115,11 +115,27 @@ def smooth_weights(w: np.ndarray, sigma: float) -> np.ndarray:
     return np.clip(gaussian_filter1d(w, sigma, mode="nearest"), 0.0, 1.0)
 
 
-def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_frame=None) -> dict:
+SUPPORT_LO: float = 8.0         # px: a body-frame whose keypoint residual is under this is film-supported: no shift ...
+SUPPORT_HI: float = 16.0        # ... over this the shift is unrestricted; linear between (a low pass-protection crouch
+                                # scored 11 on play 1 and sat on its keypoints; the sprinter's flung arms did not)
+
+
+def support_weights(resid, *, lo=None, hi=None) -> np.ndarray:
+    """A multiplier in 0..1 from a per-frame keypoint residual (px): 0 at or under ``lo`` (the film backs the pose),
+    1 at or over ``hi``; NaN (no keypoints) = 1."""
+    lo = SUPPORT_LO if lo is None else float(lo)
+    hi = SUPPORT_HI if hi is None else float(hi)
+    r = np.asarray(resid, float)
+    w = np.clip((r - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
+    return np.where(np.isfinite(r), w, 1.0)
+
+
+def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_frame=None, support=None) -> dict:
     """Blend every drawn body's pose toward its VPoser projection where its score is high: per id, over each run of
-    consecutive frames, the weights from the scores (``lo``..``hi``), smoothed by ``sigma`` frames, then the blend in
-    place. None knobs = the module's SHIFT_LO / SHIFT_HI / SHIFT_SIGMA at call time. Returns ``{"scored", "moved",
-    "full", "mean_move_rad"}``."""
+    consecutive frames, the weights from the scores (``lo``..``hi``), times the support multiplier where
+    ``support`` ``{(pid, frame): keypoint residual px}`` is given (a pose the film backs is not moved), smoothed by
+    ``sigma`` frames, then the blend in place. None knobs = the module's SHIFT_LO / SHIFT_HI / SHIFT_SIGMA at call
+    time. Returns ``{"scored", "moved", "full", "mean_move_rad"}``."""
     lo = SHIFT_LO if lo is None else float(lo)
     hi = SHIFT_HI if hi is None else float(hi)
     sigma = SHIFT_SIGMA if sigma is None else float(sigma)
@@ -143,7 +159,10 @@ def shift_timeline(tl, vp, *, lo=None, hi=None, sigma=None, lo_frame=None, hi_fr
         runs.append(run)
         for run in runs:
             bps = np.array([byf[f].body_pose.reshape(21, 3) for f in run])
-            w = smooth_weights(weights_from_scores(scores(vp, bps), lo=lo, hi=hi), sigma)
+            w = weights_from_scores(scores(vp, bps), lo=lo, hi=hi)
+            if support is not None:
+                w = w * support_weights([support.get((pid, f), np.nan) for f in run])
+            w = smooth_weights(w, sigma)
             rep["scored"] += len(run)
             if not (w > 0).any():
                 continue
