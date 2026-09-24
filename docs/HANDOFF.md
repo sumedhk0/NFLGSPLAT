@@ -6691,3 +6691,10 @@ fine-tune's keypoints (endzone lost); the same arms on the retrained detector's 
 -> 92.3 (90.4); sideline fit_cross 50.7 -> 87.5 (85.8), 9.6 -> 4.1 px; sideline fit_self 97.0 -> 96.9; the det
 classes lose 4-8 points as before (the label IS the pretrained point there). Same label-ruler gains as the first;
 the decision is the confidence table on the re-detected copy, then the refit and the film ($S/ft2_chain.log).
+
+**08:10 -- the confidence gate PASSES on pose_ft2.** Re-detected copy (keypoints_2d_ft2.parquet): endzone
+body-frames with median confidence >= 0.3: 9,347 (pretrained 9,306; the first fine-tune 5,193); per-joint median
+confidence on the body joints 0.93-1.00 (pretrained 0.82-1.00), the ears 0.83-0.93 (0.62-0.69), the nose and eyes
+0.01-0.02 (helmets: the head now says "not visible" instead of guessing). Sideline the same: body joints 0.96-1.00
+(0.79-0.99), 10,371 body-frames >= 0.3 (10,302). The dataset defect was the whole story of the endzone collapse.
+Chain continues: 05n -> 05f -> 05p on the ft2 keypoints, onto the live keys, rulers, film.
