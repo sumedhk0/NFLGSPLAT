@@ -111,9 +111,10 @@ def main() -> None:
     ap.add_argument("--max-width-ratio", type=float, default=1.5,
                     help="skip a frame whose endzone box is wider than this times the id's median endzone box width "
                          "(a box merged with the man beside him: play 1 id 4 at 516-522 fitted #65's keypoints)")
-    ap.add_argument("--merged-rule", choices=("width", "swallowed"), default="width",
-                    help="width: every box over --max-width-ratio is merged; swallowed: only one that has also taken a "
-                         "neighbour's box (swallowed()), so a man stretched out on his own is fitted")
+    ap.add_argument("--merged-rule", choices=("width", "swallowed"), default="swallowed",
+                    help="width: every box over --max-width-ratio is merged; swallowed (default since 2026-09-25): only "
+                         "one that has also taken a neighbour's box (swallowed()), so a man stretched out on his own is "
+                         "fitted (play 1: 84 more records; Madubuike's endzone limb joints over 25 px 113 -> 50)")
     ap.add_argument("--merged-window", type=int, default=6, help="swallowed's look-back, clip frames")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
