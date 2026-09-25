@@ -7120,3 +7120,26 @@ vs 41.7 % majority and 57.0 % hand rule; on play 1's two-view labels 73.4 % (maj
 one-view disagreements with the drawn facing: the motion receiver 430-460 (18 of 28), the stretch the film shows wrong.
 As a record rule (pose.action_class.drop_against_prior; offline on play 1): drops only id 9's 476/488/494/504, all
 facing him off his sprint. Model: data/models/facing_prior_bdb2023w01.pt (09l rebuilds it). Wiring into the loader next.
+
+### 2026-09-25 01:30 -- VPoser 0.005 (not shipped); a random film audit; the KC left line is still crossed in the endzone
+
+**VPoser in the fit at 0.005** ($S/vp5_chain.sh): score p99 10.13 -> 8.89, jitter p99 0.183 -> 0.179, arms/legs within
+0.1 pp. Film: keeps the 0.01 arm's defect (the safety #21 at 490, an arm pushed out) and loses its gain (the motion
+receiver's raised arm at 464 is back). Not shipped at either weight; VPoser stays the ruler, not the fit.
+
+**Random audit, 30 drawn bodies on both cameras' film** ($S/audit_sheet.py, seed 7; $S/audit_*.png): ~55-60 % right;
+~17 % arm pose wrong (a long tail -- arms raised or flung out, one dive; a wrist 15 cm over the shoulder is only 2.1 %
+of one-view body-frames and mostly real: the throw 518-532, the catch 562; the exception the motion receiver 432-482);
+~17-20 % misplaced 0.5-2 m in the endzone view (some of it the endzone camera's own wander, removed by the next ruler);
+1 wrong man.
+
+**Depth ruler on the drawn bodies** ($S/depth_ruler.py): each two-view body against the ground point under its own
+endzone box, the frame's common offset removed (the endzone camera: |cx| p50 0.33 m, the known bias). Across the field
+(the sideline's blind axis, the endzone's sharp one): p50 0.10, p90 0.45, p99 2.33 m; 13 % over 0.75 m overall. The
+tail is IDENTITY, not placement: the KC left line at 420-500. Endzone track t139 (labelled 139) is #76 the left tackle
+(y ~ -4; the sideline's 37 is there); endzone t33 (labelled 204) is #62 Thuney (y ~ -2); endzone t17 (17) the centre
+#52 (y ~ -1.4). The sideline side is tangled too: t39 (139) at the centre's y ~ -1 at 436-452 and at the guard's
+y ~ -2.2 from 476, t25 (204) at the guard's 444-484, both ids on one spot at 476-484. So the two-view fits of 37/139/204
+blend neighbouring linemen (Thuney's facing errors before the record rules were this). NEXT: untangle on a copy with
+the endzone jerseys (09c + 08z per camera track), refit two-view for the three, measure on the depth ruler + census +
+film. Also id 4 (BAL) 1.4 m across at 398-560: check its endzone rows the same way.
