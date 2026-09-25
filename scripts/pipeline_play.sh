@@ -365,9 +365,16 @@ if ! done_ roles; then
   mark roles
 fi
 
+# The fits (05n, 05p, 05r) read the per-play fine-tuned detector's keypoints once 09h has written them
+# (keypoints_2d_ft2.parquet; play 1 from v106, film-checked), else the pretrained detector's. Until 2026-09-25 the
+# stages below read keypoints_2d.parquet whatever existed, while play 1's live caches were fitted on ft2 by hand:
+# a re-run from the tri stage would have quietly refitted on the pretrained keypoints.
+KP="$P/keypoints_2d.parquet"
+[ -f "$P/keypoints_2d_ft2.parquet" ] && KP="$P/keypoints_2d_ft2.parquet"
+
 if ! done_ tri; then
-  log "joints triangulated from the keypoints with both cameras (05n; the offset from clip_offset.json)"
-  "$PYS" scripts/05n_triangulate_keypoints.py --play-dir "$P" 2>&1 | grep -v "Warning\|warn" | grep -E "offset|triangulated|Error" || fail tri
+  log "joints triangulated from the keypoints with both cameras (05n; the offset from clip_offset.json; $(basename "$KP"))"
+  "$PYS" scripts/05n_triangulate_keypoints.py --play-dir "$P" --keypoints "$KP" 2>&1 | grep -v "Warning\|warn" | grep -E "offset|triangulated|Error" || fail tri
   mark tri
 fi
 
@@ -394,7 +401,7 @@ if ! done_ refit_mono; then
   # The regressor's poses glide (play 1 v14: 0.21 m/s body-frame joint speed, 34 px off the
   # keypoints); the fit follows the keypoints (2.5 px) and moves (0.55 m/s). Re-runs start
   # from poses_refit_fused.json, the 05f cache kept beside the merged one.
-  "$PYS" scripts/05p_refit_mono.py --play-dir "$P" $ONE_VIEW_FLAG 2>&1 | grep -v "Warning\|warn"      | grep -E "players with|^fitted|wrote|already merged|no fused|Error|Traceback" || fail refit_mono
+  "$PYS" scripts/05p_refit_mono.py --play-dir "$P" --keypoints "$KP" $ONE_VIEW_FLAG 2>&1 | grep -v "Warning\|warn"      | grep -E "players with|^fitted|wrote|already merged|no fused|Error|Traceback" || fail refit_mono
   mark refit_mono
 fi
 
@@ -434,7 +441,7 @@ fi
 if [ "${REFIT_EZ:-1}" != "0" ] && ! done_ refit_ez; then
   log "bodies only the endzone camera sees refit to its keypoints (05r; the snap to the play's end)"
   read -r EZ_LO EZ_HI <<< "$("$PYN" -c "import json; d=json.load(open(r'$P/play_end.json')); print(d['snap'], d['end'] + d.get('tail', 0))")"
-  "$PYS" scripts/05r_refit_endzone_only.py --play-dir "$P" --frames "$EZ_LO" "$EZ_HI" --lying-aspect 1.3 --out "$P/poses_refit.json" 2>&1 \
+  "$PYS" scripts/05r_refit_endzone_only.py --play-dir "$P" --keypoints "$KP" --frames "$EZ_LO" "$EZ_HI" --lying-aspect 1.3 --out "$P/poses_refit.json" 2>&1 \
      | grep -v "Warning\|warn" | grep -E "ids with|wrote|nothing to fit|Error|Traceback" || fail refit_ez
   mark refit_ez
 fi
