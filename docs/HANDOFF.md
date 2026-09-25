@@ -7349,3 +7349,25 @@ v114's views finish). Then the pipeline stage (refit_ez after refit_mono).
 
 **Logged, not chased:** Thuney's pose blips at pre-snap frame ~270 (one endzone regressor record at 269, not a
 heading flip, so the flip veto keeps it); the quarterback's legs in a stride while he stands 586-608.
+
+### 2026-09-25 10:45 -- v115 (05r poses, pose only) rendering; a drawn cross-view ruler; two placement probes
+
+**v115 = v114 + 05r's endzone-only fits, POSE ONLY.** The first v115 run (10:00) moved bodies onto 05r's pelvis via
+place_from_refit (the endzone's raw ground point: a 0.63 m step, hops 0 -> 1, census 0.13 -> 0.15) and was stopped;
+73d44ba marks 05r's records no_place and place_from_refit skips them. Re-run: 0 of 13,386 drawn body-frames moved, 07l
+identical to v114, heading changed on 1,703 (median 9 deg). v115 relaunched 10:11 (views running).
+
+**A drawn cross-view ruler ($S/drawn_xview.py JOINTS [CAM] [LO HI]).** The exported (drawn) world joints projected
+into the endzone film against its keypoints (shoulders..ankles), per body-frame the median px; then each frame's shared
+offset (the endzone camera's bias) removed and split into the body's own offset (placement) and the shape (pose).
+Live window, 1,156 body-frames: v112 p50/p90/p99 19.2/57.0/158.7 px; v113 19.1/55.6/143.3; v114 18.5/41.2/110.2 (the
+own-id snap); v115 15.8/36.3/112.8. v114 -> v115: shape p90 24.0 -> 14.4 (05r; partly circular on its own frames),
+placement p90 36.7 -> 31.5, p99 ~109 unchanged: the placement tail is sideline-seen men (the quarterback 426-526,
+Raven 15 398-470, the centre 398-442, #32 458-540, #76) -- next unit.
+
+**Probes.** MAX_REFIT_ACROSS_M 0.5 (the across-ray gate on the refit placement, 09-18 "no change"): steps full 36 ->
+35, nothing else; #32 and Trey Smith unchanged on film -- not adopted. The loader without placement from the refit's
+pelvis (place_from_refit_transl False): A/B running (the refit's two-view pelvis overrides the own-id snapped point).
+Thuney's pre-snap blip at 270: drawn position and heading steady, the endzone camera smooth, his endzone regressor poses
+steady -- the likely source is a sideline regressor record from t82's upper-body box (folded into 139); 1-2 frames,
+logged. The quarterback's stride at 586-602 while he stands (0.2-0.8 m/s, under the gait): a one-view leg ambiguity.
