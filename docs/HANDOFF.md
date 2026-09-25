@@ -7228,3 +7228,36 @@ same frames it took out of 204 in v110, so not new; whether t25's early pre-snap
 open. The id-19 "P19" (jersey 67, role OL) stands 0.5 m from #76 at the snap: a probable twin, open.
 v111's viewer (Version 27) used the earlier ball file (401 frames) and is unaffected. v112 = v111 + the roles: export
 and render running.
+
+### 2026-09-25 06:10 -- the pre-snap line answered on the film; a dead pre-snap fill found; the hole chain's outlier
+
+**Pre-snap KC left line + quarterback (read on both films; $S/zoom_side_line.png, zoom_side_t19.png,
+line_presnap_a.png).** The pre-snap census had been |KC-11| 0.511 on v110-v112 (215-394): Thuney drawn 30 of 180
+frames, the left tackle 25, sideline ghosts 19/166/82/31 in their place. The tracks: sideline t25 (g139) is the
+QUARTERBACK under centre until 383 (t80 takes him at 377; 379 a blip onto #62), #62 Thuney from 384 -- so the v111
+port's fold of t25 210-499 into 139 was wrong before 384 (and v110 had it under 204); sideline t19 (g19, "jersey 67")
+is #76 the left tackle, some frames a box merged with #62's upper body; t33 (g166) is #76 from 291; t37 sits on #62
+(its box bottom on #76's body) 372-390 and on #76 from 395; t82 is a twin on the quarterback 217-248 and Thuney's
+upper body 264-307; endzone t86 (g86, jersey 62, KC OL) is Thuney 140-392 and was never drawn (the span rule and the
+dedupe took him against the sideline ghosts). The quarterback's endzone t22 (g22/g164) doubles the centre's box at
+216-248 and sits past the line at 272-280: NOT folded. On the copy (scratchpad presnap_fold.sh: drops t19 291-400,
+t37 370-394, t25 377-383, t82 217-248; folds t25 210-376 -> 80, t19 14-290 -> 37, t33 291-394 -> 37, endzone t86 ->
+139, t82 264-307 -> 139): pre-snap |KC-11| 0.511 -> 0.183, the quarterback, both tackles-side men and Thuney drawn on
+all 180 frames in film order (-3.3 / -1.5 / 0 / QB behind); the QB hold now finds no candidate (his track starts at
+210) and is not needed. Left: Trey Smith (76) absent on 31 frames. Refit on the folded tables pending (GPU).
+
+**The pre-snap hole fill has been dead code since 5779113 (09-20).** fill_presnap_holes (adopted 3ebc0ea, 09-18,
+0.52 -> 0.43) sat at the end of the line-vouch branch; 5779113 inserted the pocket and short-team vouch blocks above
+it and the fill became the body of `if SHORT_TEAM_VOUCH_CLEAR_M is not None` (OFF). Trey Smith's 31 missing pre-snap
+frames are exactly the fill's case: absent from ground at the vouch (the span rule's same-body test takes his
+endzone-only frames against the quarterback's sideline point 1.3 m across -- the quarterback has no endzone box to
+prove them apart), vouched on both sides. Fix (move the block back; AST structure test) waits for the render chain.
+
+**Madubuike's hole (id 4, sideline 443-528).** The endzone chain rule broke on one box: at 491 endzone t45's box is
+on KC #74 beside him (1.3 m across, inside the isotropic 1.8 m three-frame bound, so TAKEN), the true point at 493 then
+failed and ENDED the chain; the rule deleted 493-516 while endzone t136 boxed him crawling on the turf (film), and the
+timeline held him at the 491 point, a metre off, 492-504. Variant (runtime patch, scratchpad patch_chain_variant.py):
+a point off the chain is skipped, not the chain's end; a step is bounded along the endzone camera's ray by step_m and
+across it by 0.2 + 0.17 m per frame of gap (also refuses the box merged with #65 over him at 518-522). On the whole
+play only two long holes carry endzone points: id 4 (+17 frames, -491) and the centre 204 474-533 (+19; endzone t33
+on Humphrey there, film). Live 07l unchanged (steps 2 / hops 0 / census 0.16); the endzone strips A/B are running.
