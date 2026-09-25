@@ -47,6 +47,22 @@ def fold_ids(df: pd.DataFrame, keep: int, drop: list[int], *, frames: tuple[int,
     return out, int(len(dropped))
 
 
+def carry_roles(roles: dict, *, keep: int, gone: list[int]) -> dict:
+    """``roles`` (pid -> role, int or str keys) with the ``gone`` ids' entries removed and, when the kept id has no
+    role, the first gone id's role given to it. Play 1 (2026-09-25): folding the centre's early id 17 (role OL) into
+    204 (Humphrey, no role) dropped the role, and the ball path and the quarterback-under-centre hold -- both take the
+    centre as the role-OL id nearest the line's middle -- chose the guard beside him."""
+    out = {int(k): v for k, v in roles.items()}
+    carried = None
+    for pid in gone:
+        r = out.pop(int(pid), None)
+        if carried is None and r:
+            carried = r
+    if carried and not out.get(int(keep)):
+        out[int(keep)] = carried
+    return {k: v for k, v in out.items() if v}
+
+
 def drop_rows(df: pd.DataFrame, pid: int, *, cam: str, frames: tuple[int, int]) -> tuple[pd.DataFrame, int]:
     """``(df without id ``pid``'s rows of camera ``cam`` on frames lo..hi, rows removed)``. For a stray box the
     tracker re-associated to a track after a loss (play 1 id 4: one sideline box at 465, 22 frames after his

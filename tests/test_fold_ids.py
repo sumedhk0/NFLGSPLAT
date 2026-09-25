@@ -95,3 +95,15 @@ def test_drop_rows_one_camera_frames():
                         dict(cam="sideline", frame=443, global_player_id=4, joint=0, x=1.0, y=1.0, conf=1.0)])
     kout, kdrop = relabel_keypoints(kdf, keypoint_map(df, out))
     assert kdrop == 1 and set(kout.frame) == {443}                                               # the keypoints follow
+
+
+def test_carry_roles_moves_a_folded_ids_role_to_a_kept_id_without_one():
+    """Play 1 v111 (2026-09-25): folding the centre's early id 17 (role OL) into 204 (Humphrey, no role) dropped the role;
+    the ball path and the quarterback-under-centre hold then took Thuney as the centre. A dropped id's role carries."""
+    from nfl_gsplat.tracking.fold import carry_roles
+
+    roles = {17: "OL", 139: "OL", 5: "RB"}
+    assert carry_roles(roles, keep=204, gone=[17]) == {139: "OL", 5: "RB", 204: "OL"}
+    assert carry_roles({17: "OL", 204: "TE"}, keep=204, gone=[17]) == {204: "TE"}       # the kept id's own role stands
+    assert carry_roles({"17": "OL"}, keep=204, gone=[17]) == {204: "OL"}                 # str keys (pickled ids) too
+    assert carry_roles({17: None}, keep=204, gone=[17]) == {}

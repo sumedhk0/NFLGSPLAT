@@ -31,7 +31,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nfl_gsplat.errors import SetupError  # noqa: E402
-from nfl_gsplat.tracking.fold import fold_ids, keypoint_map  # noqa: E402
+from nfl_gsplat.tracking.fold import carry_roles, fold_ids, keypoint_map  # noqa: E402
 from nfl_gsplat.tracking.relabel import assert_numpy1_for_pickles, backup_path, relabel_keypoints  # noqa: E402
 
 
@@ -81,6 +81,11 @@ def main() -> None:
     ib = backup_path(ip, ".pre_fold")
     shutil.copy2(ip, ib)
     gone = [p for p in args.drop if not (out["global_player_id"] == p).any()]     # an id folded in part keeps its identity
+    roles_before = blob.get("roles", {}) or {}
+    roles_after = carry_roles(roles_before, keep=args.keep, gone=gone)
+    if roles_after.get(int(args.keep)) and not (roles_before.get(args.keep) or roles_before.get(str(args.keep))):
+        print(f"identity: roles[{args.keep}] = {roles_after[int(args.keep)]} carried from the folded id")
+    blob["roles"] = roles_after
     for key in ("merged", "roles"):
         d = blob.get(key, {})
         for pid in gone:
