@@ -7456,3 +7456,33 @@ IoU 0.96 at 540) -- the scan's suggestion (drop track 25) was WRONG, the film sa
 (79204b6, 41a1852): 08z / 08za relabel keypoints_2d_ft2.parquet too (every port had patched it by hand), 08za
 --track-id and runs 08v, 08v drops records whose row was dropped or whose row moved to an id posed there already
 (the QB kept the centre's record otherwise), swaps trade. Copy: fold + two drops applied, refit running.
+
+### 2026-09-25 14:50 -- PAUSED (power-off). Placement change committed (5ba0160, default ON); live tables = v116; v117 identity fixes on the copy NOT ported
+
+**State.** Live play_001 = v116 tables + cache (poses_refit.json = the swallowed 05r cache; .v115 backup). The repo
+now smooths placement along the sideline ray (timeline.XY_ALONG_WINDOW 31) and anchors feet-point bodies by their feet
+(play_timeline.FEET_ANCHOR) -- ON by default, so the next render of the live tables IS "v117a" (= the measured combined
+arm: surges 396 -> 127, census 0.13 -> 0.04, steps 36/2 -> 20/0, endzone joints over 40 px 8.0 -> 5.0 %; sideline over
+20 px 9.3 -> 10.3 %). Not yet rendered or film-checked as a version: NEXT = render v117a (chain scripts: sed v116 -> v117a
+in $S/export_v116.sh / chain_v116.sh / launch_v116.sh), review strips, viewer + write-up.
+Repo code and live data agree otherwise; full suite 1377 passed, 8 skipped.
+
+**The copy (play_copy) = v117 identity fixes + refit** ($S/v117_copy.sh; 08v cleanup applied by hand before the merge):
+QB sideline rows on the centre's track 54 folded into the centre; the centre's duplicate row at 474 dropped; the LT's
+endzone track-37 rows at clip 526-558 (the Raven twin) dropped. With the new code on both sides (live+code vs copy+code):
+QB surges 15 -> 2, joint jitter p99 0.162 -> 0.155; BUT census live 0.04 -> 0.12, the LT's endzone offset 12.4 -> 14.4
+px, and the centre vanishes at 475-477: with the true last sideline point (473) his hole chain (474-546, a 72-frame
+sideline hole) starts elsewhere and his endzone-placed points sit 0.3 m from Thuney's (also endzone-placed) -> dedupe
+drops him. NOT ported. NEXT for the copy: a per-man bias correction in sideline holes -- shift the man's endzone points
+by his own endzone-minus-sideline offset measured at the hole's two ends (interpolated), instead of the frame-wide
+common mode (the plain x-hold was rejected twice because it freezes sprinters). The centre's endzone offset is 34 px mean
+in BOTH versions: his whole hole is misplaced.
+
+**Late pile (logged, not fixed).** Sideline track 45 carries id 1 at 485-527 and id 4 (Madubuike) at 528-631 -- one
+tracker track, two ids; at 572-596 two white bodies (1 and 4) are drawn beside KC #74 where the endzone film shows ONE
+Raven (#90), and a Raven getting up between #65 and #74 (likely #92) has no body. Settle who track 45 is on the ENDZONE
+film (jerseys) before folding; per-camera folds only.
+
+**Also measured and closed this session:** VPoser shift (rejected, every limb joint worse); the gait vs a lock on fitted
+legs (the gait stays: film shows the fitted sprinter crouched); a backpedal gate on the lock (21 of 38 stances dropped,
+QB unchanged, marginal: not adopted); Savitzky-Golay along the ray (worse: steps at run edges).
