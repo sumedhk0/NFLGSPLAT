@@ -188,6 +188,11 @@ def main() -> None:
     if args.dry_run:
         return
     merged, added = merge_into_refit(blob, fits, betas_of, source="endzone-mono2d")
+    for pid, (frames, _params, valid) in fits.items():          # the pose only: the loader keeps its own placement
+        for f, ok in zip(frames, valid):
+            r = merged["frames"].get(int(f), {}).get(int(pid))
+            if ok and r is not None and int(pid) not in blob["frames"].get(int(f), {}):
+                r["no_place"] = True
     out = args.out or P / "poses_refit_ez.json"
     with open(out, "wb") as fh:
         pickle.dump(merged, fh)

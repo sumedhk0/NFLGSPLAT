@@ -349,7 +349,9 @@ def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, m
     sits 0.35 m from the pelvis along the rest skeleton's down axis -- see
     placed_vertices). A shift beyond ``max_shift_m`` is a wrong record and is
     not applied; a (frame, id) in ``skip`` keeps its ground point (its endzone
-    row was vetoed, so the two-view record fitted to it is not trusted).
+    row was vetoed, so the two-view record fitted to it is not trusted). A record flagged ``no_place`` gives its pose,
+    not its placement: 05r's endzone-only fits pin the pelvis to the endzone's raw ground point, which carries that
+    camera's depth bias (play 1 v115: bodies moved up to a metre, a 0.63 m step, census 0.13 -> 0.15).
     Returns ``(ground, shifts)``, ``shifts`` the metres moved."""
     out = {f: dict(d) for f, d in ground.items()}
     shifts = []
@@ -361,7 +363,7 @@ def place_from_refit(ground, refit, *, max_shift_m: float = MAX_REFIT_SHIFT_M, m
             continue
         for pid, r in recs.items():
             pid = int(pid)
-            if pid not in out[f] or (f, pid) in skip:
+            if pid not in out[f] or (f, pid) in skip or r.get("no_place"):
                 continue
             xy = np.asarray(r["transl"], float)[:2] if pelvis_xy is None else np.asarray(pelvis_xy(r), float)[:2]
             d = float(np.hypot(*(xy - np.asarray(out[f][pid], float))))

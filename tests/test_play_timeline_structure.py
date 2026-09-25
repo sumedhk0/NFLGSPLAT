@@ -40,3 +40,15 @@ def test_presnap_fill_runs_with_the_line_vouch_not_under_another_vouch():
     for stack in calls:
         assert any("line_vouch_m" in t for t in stack), stack
         assert not any("SHORT_TEAM_VOUCH" in t or "POCKET_VOUCH" in t for t in stack), stack
+
+
+def test_place_from_refit_keeps_the_ground_point_for_a_no_place_record():
+    """A pose-only record (05r's endzone fits) does not move the body; an ordinary record does."""
+    import numpy as np
+
+    from nfl_gsplat.render.play_timeline import place_from_refit
+
+    ground = {10: {1: np.array([0.0, 0.0]), 2: np.array([5.0, 0.0])}}
+    refit = {10: {1: {"transl": np.array([0.4, 0.0, 1.0])}, 2: {"transl": np.array([5.4, 0.0, 1.0]), "no_place": True}}}
+    out, shifts = place_from_refit(ground, refit, max_shift_m=1.0)
+    assert np.allclose(out[10][1], [0.4, 0.0]) and np.allclose(out[10][2], [5.0, 0.0]) and len(shifts) == 1
