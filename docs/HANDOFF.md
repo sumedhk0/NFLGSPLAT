@@ -7168,3 +7168,25 @@ crossed endzone rows (on #76's spot); moved to 37, he vanishes. The "fold that e
 restored from live (md5 equal); its poses_refit_fused.json may carry the 08v remap (unused by the --refit 2v chains).
 Next: the whole left-line untangle -- who is 139 on the sideline in his holes (the stand-still/hole rules), the sideline
 t39/t25 switching between #52 and #62 -- one frame-by-frame pass with both films, then this relabel with it.
+
+### 2026-09-25 03:05 -- the KC left line untangled on the copy (chain 2 measured; chain 3 = the port candidate, running)
+
+**Who is who, settled on both films.** Endzone by jersey (above). Sideline by depth ORDER ($S/line_order.py): the
+three men stand one behind another along the sideline's line of sight, so each sideline box's foot row ranks it and the
+rank is matched to the endzone's jersey-labelled order across the field: 37 = #76 nearest on every frame; sideline t25
+(labelled 204, 210-499) = #62 Thuney (second); t17 (17) = #52 at 400-420; t39 (139) = #52 at 438-474 then Thuney from
+~476 (its early rows 384-408 are Gray on the right side, left alone). Identities in identity_resolved.pkl agree with the
+target: 37 = Suamataia #76, 139 = Thuney #62, 204 = Humphrey #52 (17 = "P17", his unnamed early track).
+
+**Two traps met.** (1) The same-keys merge onto the live cache uses the OLD ids: after a relabel it left the relabelled
+men's new records out (2,824) and kept their stale ones -- fixed by remapping the base first (08v on a scratch dir
+holding the live cache + the before/after tables; $S/untangle_line2_chain.sh). (2) 08z will not keep a fresh id
+(SetupError: no rows) -- a temporary holder must be an existing id (17 held the centre's t39 rows before folding into
+204); a failed step silently let the next fold dedupe two men (40 boxes) -- the run was killed and redone.
+
+**Chain 2 (all relabels, the centre as 17, correct merge) vs control (lkft2c on today's loader):** census 0.169 ->
+0.164, steps 2 / hops 0, the centre no longer vanishes; the depth ruler's across-field p99 2.33 -> 1.18 m, over 1.5 m
+4.9 -> 2.8 %; endzone film: Thuney and #76 drawn ON their men at 436-476 with their arms on their rushers
+($S/line2_ez.png). But hinge jerk 5 -> 14, all nine new on the centre at 482-484 and 512-514: at 475-492 his only
+sideline rows are a 5-box fragment (39 px wide) and at 510-530 endzone-only boxes. Chain 3 ($S/untangle_line3_chain.sh)
+drops the fragment and keeps 204 (Humphrey's name and build).
