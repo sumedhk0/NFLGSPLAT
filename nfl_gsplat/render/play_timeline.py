@@ -672,7 +672,9 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
 
         from nfl_gsplat.render import endzone_only_rule as _ezr_h
         ground, hole_moves = hold_holes(ground, side_ground, hold_m=hole_hold_m, chain_step_m=_ezr_h.HOLE_CHAIN_STEP_M,
-                                        chain_gap=_ezr_h.HOLE_CHAIN_GAP)
+                                        chain_gap=_ezr_h.HOLE_CHAIN_GAP, chain_skip=_ezr_h.HOLE_CHAIN_SKIP,
+                                        chain_across_m=_ezr_h.HOLE_CHAIN_ACROSS_M, chain_speed_m=_ezr_h.HOLE_CHAIN_SPEED_M,
+                                        cam_xy=_ezr_h.camera_ground_xy(tracks.get("endzone")) if _ezr_h.HOLE_CHAIN_ACROSS_M is not None else None)
         # a set man keeps his spot from the clip start to the snap (endzone_only_rule.formation_hold)
         from nfl_gsplat.render import endzone_only_rule as _ezr
 
@@ -803,6 +805,26 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                 for pid_ in pids_:
                     lv_frames.setdefault(int(pid_), set()).add(int(f_))
             print(f"hidden linemen vouched for: {sum(lv_counts.values())} body-frames on {len(lv_counts)} ids " + str(dict(sorted(lv_counts.items()))))
+            # a set man's holes before the snap (endzone_only_rule.fill_presnap_holes): a vouched id between its
+            # vouched frames (the filled frames vouched too), then every id where the line point is empty
+            mode = presnap_fill if presnap_fill is not None else _ezr.PRESNAP_FILL
+            if mode:
+                frames_of = {}
+                for f_, pids_ in lv_keep.items():
+                    for pid_ in pids_:
+                        frames_of.setdefault(int(pid_), set()).add(int(f_))
+                before_fill = {f_: set(d_) for f_, d_ in ground.items()}
+                ground, filled_v = _ezr.fill_presnap_holes(ground, start=start_f if start_f is not None else min(ground), snap=snap_f,
+                                                           teams=_teams(P), only_ids=set(frames_of), frames_of=frames_of)
+                for f_, d_ in ground.items():                      # the filled frames are vouched for like the frames they join
+                    for pid_ in set(d_) - before_fill.get(f_, set()):
+                        qb_keep.setdefault(int(f_), set()).add(int(pid_))
+                filled_a: dict = {}
+                if mode == "all" or mode is True:
+                    ground, filled_a = _ezr.fill_presnap_holes(ground, start=start_f if start_f is not None else min(ground), snap=snap_f,
+                                                               teams=_teams(P))
+                print(f"pre-snap holes filled: vouched ids {sum(filled_v.values())} body-frames {dict(sorted(filled_v.items()))}; "
+                      f"empty spots {sum(filled_a.values())} body-frames {dict(sorted(filled_a.items()))}")
         # the rusher the sideline cannot see during the play (endzone_only_rule.pocket_vouch): the same test on the
         # play frames, in the pocket region; his frames count toward a revival of his own (POCKET_VOUCH_REVIVE_MIN)
         pv_los = _los(P)
@@ -830,26 +852,6 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                     sv_frames.setdefault(int(pid_), set()).add(int(f_))
             print(f"short-team vouch on the play: {sum(sv_counts.values())} body-frames on {len(sv_counts)} ids "
                   + str(dict(sorted(sv_counts.items()))))
-            # a set man's holes before the snap (endzone_only_rule.fill_presnap_holes): a vouched id between its
-            # vouched frames (the filled frames vouched too), then every id where the line point is empty
-            mode = presnap_fill if presnap_fill is not None else _ezr.PRESNAP_FILL
-            if mode:
-                frames_of = {}
-                for f_, pids_ in lv_keep.items():
-                    for pid_ in pids_:
-                        frames_of.setdefault(int(pid_), set()).add(int(f_))
-                before_fill = {f_: set(d_) for f_, d_ in ground.items()}
-                ground, filled_v = _ezr.fill_presnap_holes(ground, start=start_f if start_f is not None else min(ground), snap=snap_f,
-                                                           teams=_teams(P), only_ids=set(frames_of), frames_of=frames_of)
-                for f_, d_ in ground.items():                      # the filled frames are vouched for like the frames they join
-                    for pid_ in set(d_) - before_fill.get(f_, set()):
-                        qb_keep.setdefault(int(f_), set()).add(int(pid_))
-                filled_a: dict = {}
-                if mode == "all" or mode is True:
-                    ground, filled_a = _ezr.fill_presnap_holes(ground, start=start_f if start_f is not None else min(ground), snap=snap_f,
-                                                               teams=_teams(P))
-                print(f"pre-snap holes filled: vouched ids {sum(filled_v.values())} body-frames {dict(sorted(filled_v.items()))}; "
-                      f"empty spots {sum(filled_a.values())} body-frames {dict(sorted(filled_a.items()))}")
         # A body the endzone alone sees stands on the endzone's foot point, blind along the field
         # (render.blind_axis): its x from the id's nearest sideline sightings, sliding the point
         # along the endzone's own ray. Measured on play 1 and NOT adopted (live steps 5 -> 7, census

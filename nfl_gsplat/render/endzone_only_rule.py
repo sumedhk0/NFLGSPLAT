@@ -281,12 +281,42 @@ HOLE_CHAIN_STEP_M: float | None = 0.6   # inside a LONG hole the endzone's own p
                                         # hole's near end: first point within HOLE_HOLD_M of the sideline's there, then this far
                                         # per frame of gap (the endzone's depth jitter breaks a 0.3 m chain); None = off
 HOLE_CHAIN_GAP: int = 5                 # ... across gaps of at most this many frames
+# A point off the chain is SKIPPED, not the chain's end (the chain still ends after HOLE_CHAIN_GAP frames without a
+# point on it), and a step is bounded ACROSS the endzone camera's line of sight by HOLE_CHAIN_ACROSS_M plus
+# HOLE_CHAIN_SPEED_M per frame of gap (the endzone measures across well; a man covers ~0.17 m a frame at 59.94 fps)
+# as well as ALONG it by step_m per frame of gap (its depth jitter). Play 1 (2026-09-25): Madubuike (id 4) crawled
+# on the turf through a 443-528 sideline hole; one box on the tackle beside him at 491 (1.3 m across, inside the
+# isotropic 1.8 m three-frame bound) was taken, the true point at 493 then failed and ended the chain, and the rule
+# deleted 493-516 while the endzone boxed him on: the timeline held him still a metre off. The across bound also
+# refuses the box merged with the guard over him at 518-522 (1.2 m across). Read at call time by the loader.
+HOLE_CHAIN_SKIP: bool = False
+HOLE_CHAIN_ACROSS_M: float | None = None   # None: the shipped isotropic bound (step_m per frame of gap)
+HOLE_CHAIN_SPEED_M: float = 0.17
 
 
-def hole_chain(ground, side_ground, pid, fa, fb, *, hold_m: float, step_m: float, gap: int) -> set:
+def camera_ground_xy(track, step: int = 20):
+    """A camera's centre on the ground plane (the median over its solved frames every ``step``), or None."""
+    if track is None:
+        return None
+    cs = []
+    for f in range(0, len(track.conf), int(step)):
+        if track.conf[f] <= 0:
+            continue
+        _, pose = track.at(f)
+        R = np.asarray(pose.R, float)
+        t = np.asarray(pose.t, float).reshape(3)
+        cs.append((-R.T @ t)[:2])
+    return np.median(np.asarray(cs), axis=0) if cs else None
+
+
+def hole_chain(ground, side_ground, pid, fa, fb, *, hold_m: float, step_m: float, gap: int, skip: bool = False,
+               across_m: float | None = None, speed_m: float = HOLE_CHAIN_SPEED_M, cam_xy=None) -> set:
     """Frames strictly inside the hole (fa, fb) of ``pid`` whose endzone points form a continuous chain from either end:
     the first point (within ``gap`` frames of the end) within ``hold_m`` of the sideline's point at that end, then each
-    next point within ``gap`` frames and ``step_m`` per frame of gap of the previous. The chain is the man's own track."""
+    next point within ``gap`` frames and ``step_m`` per frame of gap of the previous. The chain is the man's own track.
+    With ``across_m`` and ``cam_xy`` (the endzone camera's ground point) a step is bounded along the camera's line of
+    sight by ``step_m`` and across it by ``across_m + speed_m`` per frame of gap; with ``skip`` a point off the chain is
+    passed over instead of ending it."""
     keep: set = set()
     for edge, step in ((int(fa), +1), (int(fb), -1)):
         sp = side_ground.get(edge, {}).get(pid)
@@ -302,9 +332,24 @@ def hole_chain(ground, side_ground, pid, fa, fb, *, hold_m: float, step_m: float
                     break
                 continue
             q = np.asarray(q, float)
-            limit = hold_m if first else step_m * abs(f - prev_f)
-            if float(np.linalg.norm(q - prev_x)) > limit:
-                break
+            n = abs(f - prev_f)
+            if first:
+                ok = float(np.linalg.norm(q - prev_x)) <= hold_m
+            elif across_m is not None and cam_xy is not None:
+                ray = prev_x - np.asarray(cam_xy, float)
+                ray = ray / max(float(np.linalg.norm(ray)), 1e-9)
+                d = q - prev_x
+                ok = (abs(float(d @ ray)) <= step_m * n
+                      and abs(float(d[0] * ray[1] - d[1] * ray[0])) <= across_m + speed_m * n)
+            else:
+                ok = float(np.linalg.norm(q - prev_x)) <= step_m * n
+            if not ok:
+                if not skip:
+                    break
+                f += step
+                if abs(f - prev_f) > gap + 1:
+                    break
+                continue
             keep.add(f)
             prev_f, prev_x, first = f, q, False
             f += step
@@ -313,7 +358,8 @@ def hole_chain(ground, side_ground, pid, fa, fb, *, hold_m: float, step_m: float
 
 def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_hole: int = HOLE_MAX,
                reach: int = HOLE_REACH, vel_frames: int = HOLE_VEL_FRAMES, chain_step_m: float | None = HOLE_CHAIN_STEP_M,
-               chain_gap: int = HOLE_CHAIN_GAP):
+               chain_gap: int = HOLE_CHAIN_GAP, chain_skip: bool = False, chain_across_m: float | None = None,
+               chain_speed_m: float = HOLE_CHAIN_SPEED_M, cam_xy=None):
     """``ground`` (frame -> {pid: xy}) with every endzone-filled HOLE frame -- inside a sideline span,
     the sideline has no point that frame, the merged ground has the endzone's -- moved onto the
     sideline's own straight line between its points either side of the hole when it stands farther
@@ -341,7 +387,8 @@ def hold_holes(ground, side_ground, *, hold_m: float | None = HOLE_HOLD_M, max_h
             for fa, fb in zip(fs, fs[1:]):
                 if fb - fa - 1 > max_hole:
                     chained.setdefault(pid, set()).update(
-                        hole_chain(ground, side_ground, pid, fa, fb, hold_m=hold_m, step_m=chain_step_m, gap=chain_gap))
+                        hole_chain(ground, side_ground, pid, fa, fb, hold_m=hold_m, step_m=chain_step_m, gap=chain_gap,
+                                   skip=chain_skip, across_m=chain_across_m, speed_m=chain_speed_m, cam_xy=cam_xy))
     for pid, fs in side_frames.items():
         arr = np.asarray(fs)
         for f in range(fs[0], fs[-1] + 1):
@@ -636,8 +683,10 @@ def pocket_vouch(ground, views, side_ground, *, snap: int, end: int, teams: dict
 # Measured on play 1's pre-snap 213-383 (2026-09-18, line vouch and quarterback rule on), mean |KC - 11| a
 # frame: off 0.520; the vouched ids' holes only (38: 28 frames) 0.462, exact-eleven frames 91 -> 96; plus
 # every empty spot (36 more frames: 172, 98, 82 ...) 0.427, exact 102, frames at ten or fewer 46 -> 28,
-# at twelve or more 34 -> 41. On by default; the loader's presnap_fill takes False / "vouched" / True.
-PRESNAP_FILL: bool = True
+# at twelve or more 34 -> 41. The loader's presnap_fill takes False / "vouched" / True.
+# DEAD CODE 2026-09-20..25 (5779113 nested the loader's block under the switched-off short-team vouch); moved back
+# 2026-09-25 with the default OFF -- the state v110-v112 shipped -- until re-measured on today's tables.
+PRESNAP_FILL: bool = False
 PRESNAP_FILL_ACROSS_M: float = 0.7
 PRESNAP_FILL_ALONG_M: float = 2.0
 

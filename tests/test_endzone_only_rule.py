@@ -468,3 +468,31 @@ def test_beyond_the_span_same_body_test_is_for_short_spans():
     assert dropped == 0 and 1 in out[300]                                            # 200 sideline frames: his own man
     out, dropped = beyond_sideline_span(ground, long, _Side(), gap=30, side_ground=side, same_body_max_span=None)
     assert dropped == 1 and out[300] == {}                                           # off: the old rule
+
+def test_hole_chain_skips_a_point_off_the_chain_and_bounds_the_step_across_the_camera_ray():
+    """A 40-frame hole walked at 0.1 m a frame along the endzone camera's ray (the camera on the +x side): one point
+    1.3 m across at 120 ends the shipped chain (121-134 lost); skipping it with the across bound keeps 121-134 and
+    not 120; 0.4 m of depth jitter along the ray stays on the chain; the flag off is the shipped result exactly."""
+    import numpy as np
+    from nfl_gsplat.render.endzone_only_rule import hole_chain, hold_holes
+
+    side = {f: {7: np.array([0.0, 0.0])} for f in list(range(100, 110)) + list(range(150, 160))}
+    ground = {f: dict(d) for f, d in side.items()}
+    for f in range(110, 135):
+        ground[f] = {7: np.array([0.1 * (f - 109), 0.0])}
+    ground[120] = {7: np.array([1.1, 1.3])}                                           # the merged box beside him
+    ground[126] = {7: np.array([0.1 * (126 - 109) + 0.4, 0.0])}                        # depth jitter along the ray
+    kw = dict(hold_m=0.8, step_m=0.6, gap=5)
+    shipped = hole_chain(ground, side, 7, 109, 150, **kw)
+    assert shipped == set(range(110, 120))
+    new = hole_chain(ground, side, 7, 109, 150, **kw, skip=True, across_m=0.2, speed_m=0.17, cam_xy=(100.0, 0.0))
+    assert 120 not in new and set(range(121, 135)) <= new and set(range(110, 120)) <= new
+    base = hold_holes(ground, side, hold_m=0.8, max_hole=17, reach=8, vel_frames=4, chain_step_m=0.6, chain_gap=5)
+    off = hold_holes(ground, side, hold_m=0.8, max_hole=17, reach=8, vel_frames=4, chain_step_m=0.6, chain_gap=5,
+                     chain_skip=False, chain_across_m=None, cam_xy=(100.0, 0.0))
+    assert np.array_equal(np.asarray(base[1]), np.asarray(off[1]), equal_nan=True)
+    assert all(set(base[0][f]) == set(off[0][f]) and all(np.allclose(base[0][f][q], off[0][f][q]) for q in base[0][f])
+               for f in base[0])
+    on = hold_holes(ground, side, hold_m=0.8, max_hole=17, reach=8, vel_frames=4, chain_step_m=0.6, chain_gap=5,
+                    chain_skip=True, chain_across_m=0.2, chain_speed_m=0.17, cam_xy=(100.0, 0.0))
+    assert all(7 in on[0][f] for f in range(121, 135)) and 7 not in base[0][130]
