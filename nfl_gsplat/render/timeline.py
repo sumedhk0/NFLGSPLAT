@@ -294,7 +294,32 @@ def gate_low_confidence(frames_known, values_known, conf_known, *, min_conf: flo
     return v, n
 
 
-def smooth_xy(xy, *, window: int = 9):
+# Placement smoothing ALONG the sideline camera's line of sight (2026-09-25, play 1 v117). The sideline places depth
+# from a box bottom -- 0.2-1 m of noise per frame along its ray -- and the 9-frame average left play 1's placement
+# accelerating past 25 m/s^2 on 17 % of the live body-frames (scratch surge_ruler: smoothed pelvis acceleration),
+# nearly all across the field; the step ruler (> 0.25 m/frame) never saw them, the average spreads a 1 m slide over
+# frames. Sideline-only frames surged at 24 %, two-view 7 %; the depth snap was not the cause (off, own-id off and a
+# carried correction all measured ~unchanged). Averaging the ALONG-ray component over 31 frames and the across
+# component over the 9 as before (with anchor_feet): surges 396 -> 127, steps full 36 -> 20 / live 2 -> 0, census
+# live 0.13 -> 0.04, planted 14 -> 34 %, joint jitter p99 0.169 -> 0.162; the endzone film (which sees that axis)
+# joints over 40 px 8.0 -> 5.0 %, p99 113 -> 87 px; the sideline film a little worse (over 20 px 9.3 -> 10.3 %).
+# None = off (the isotropic window, exactly). XY_ALONG_POLY 0 = a box average; 2 = Savitzky-Golay quadratic.
+# Read at call time by build_timeline.
+XY_ALONG_WINDOW: int | None = 31
+XY_ALONG_POLY: int = 0
+
+
+def _box_average(v, window: int):
+    """smooth_xy's edge-padded moving average of one component (unchanged when the window is under 3)."""
+    k = min(window, len(v) if len(v) % 2 else len(v) - 1)
+    if k < 3:
+        return v
+    pad = k // 2
+    vp = np.concatenate([np.full(pad, v[0]), v, np.full(pad, v[-1])])
+    return np.convolve(vp, np.ones(k) / k, mode="valid")
+
+
+def smooth_xy(xy, *, window: int = 9, along_window: int | None = None, centre=None, along_poly: int = 0):
     """Zero-phase moving average with edge handling; NaN rows stay NaN.
 
     Smoothed within each CONTIGUOUS run of finite rows, never across a gap. The
@@ -303,6 +328,9 @@ def smooth_xy(xy, *, window: int = 9):
     frames of the next segment -- 77 frames and metres away on play 1's id 21,
     whose stationary body marched 0.88 m/frame for four frames toward where its
     track resumed (2026-09-15). Every sparse track did this at every long gap.
+    With ``centre`` (the sideline camera's ground position) and ``along_window`` > ``window``, each run's component
+    along the ray from ``centre`` to the run's median point is averaged over ``along_window`` (``along_poly`` 2: a
+    quadratic Savitzky-Golay fit instead of the box) and the component across it over ``window`` (XY_ALONG_WINDOW).
     """
     xy = np.asarray(xy, float)
     out = xy.copy()
@@ -314,17 +342,30 @@ def smooth_xy(xy, *, window: int = 9):
     # fill_gaps are contiguous here, anything longer than its max_gap is a break
     breaks = np.flatnonzero(np.diff(idx) > 1)
     runs = np.split(idx, breaks + 1)
+    aniso = centre is not None and along_window is not None and int(along_window) > int(window)
     for run in runs:
         if len(run) < 3:
             continue
-        for d in range(2):
-            v = xy[run, d]
-            k = min(window, len(v) if len(v) % 2 else len(v) - 1)
-            if k < 3:
+        if aniso:
+            c = np.asarray(centre, float)[:2]
+            v = xy[run] - c
+            u = np.median(v, axis=0)
+            nu = float(np.linalg.norm(u))
+            if nu > 1e-9:
+                u = u / nu
+                n = np.array([-u[1], u[0]])
+                a = v @ u
+                k = min(int(along_window), len(a) if len(a) % 2 else len(a) - 1)
+                if along_poly and k > int(along_poly) + 1:
+                    from scipy.signal import savgol_filter
+
+                    a = savgol_filter(a, k, int(along_poly), mode="interp")
+                else:
+                    a = _box_average(a, int(along_window))
+                out[run] = c + np.outer(a, u) + np.outer(_box_average(v @ n, window), n)
                 continue
-            pad = k // 2
-            vp = np.concatenate([np.full(pad, v[0]), v, np.full(pad, v[-1])])
-            out[run, d] = np.convolve(vp, np.ones(k) / k, mode="valid")
+        for d in range(2):
+            out[run, d] = _box_average(xy[run, d], window)
     return out
 
 
@@ -1215,13 +1256,14 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
                    unwrap: bool = True, hole_reach: int = HOLE_REACH, lying=None,
                    despike_m: float | None = DESPIKE_M, lying_sigma_mult: float | None = None, keep=None,
                    conf_by_pid=None, conf_min: float = CONF_GATE_MIN, conf_max_run: int = CONF_GATE_MAX_RUN,
-                   tilt_per_frame=None) -> Timeline:
+                   tilt_per_frame=None, ray_centre=None) -> Timeline:
     """``frames``: every frame to render. ``ground_by_frame``: frame ->
     {pid: xy}. ``poses_by_pid``: pid -> {frame: (body_pose[21,3],
     global_orient_world[3], betas[10], source)} at posed frames (any
     subset). ``lying``: ``{(frame, pid)}`` on the ground (lying_frames), where
     the tilt is not clamped. ``conf_by_pid``: pid -> {frame: conf[21]} per body_pose row (keypoint_confidence),
-    for gate_low_confidence at the keyframes. Returns a Timeline with a state per player per frame."""
+    for gate_low_confidence at the keyframes. ``ray_centre``: the sideline camera's ground position, for smooth_xy's
+    along-ray window. Returns a Timeline with a state per player per frame."""
     lying = lying or set()
     tilt_per_frame = TILT_LIMIT_PER_FRAME if tilt_per_frame is None else bool(tilt_per_frame)
     if lying_sigma_mult is None:
@@ -1241,7 +1283,8 @@ def build_timeline(frames, ground_by_frame, poses_by_pid, *, default_pose=None,
         seen = np.flatnonzero(np.isfinite(xy).all(1))
         if len(seen) < min_frames:
             continue
-        xy = smooth_xy(despike_xy(fill_gaps(frames, xy), excess_m=despike_m, half=DESPIKE_HALF))
+        xy = smooth_xy(despike_xy(fill_gaps(frames, xy), excess_m=despike_m, half=DESPIKE_HALF),
+                       along_window=XY_ALONG_WINDOW, centre=ray_centre, along_poly=XY_ALONG_POLY)
         posed = poses_by_pid.get(pid, {})
         pf = sorted(f for f in posed if f in f_index)
         frame_source = None

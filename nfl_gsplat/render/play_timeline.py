@@ -906,13 +906,18 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
             if moved:
                 print(f"endzone-only frames held on the sideline's x: {len(moved)} body-frames "
                       f"(median slide {np.median(moved):.2f} m, max {max(moved):.2f})")
+    pelvis_keys: set = set()     # (frame, id) placed at a refit record's pelvis: anchor_feet leaves them
     if place_from_refit_transl and refit:
         from nfl_gsplat.render.depth_snap import camera_ground_centre as _cgc
 
         _side = tracks.get("sideline")
+        _ground_before_refit = ground
         ground, shifts = place_from_refit(ground, refit, pelvis_xy=_pelvis_xy_fn(model),
                                           ray_centre=(lambda f_: _cgc(_side, min(int(f_), len(_side.conf) - 1))) if _side is not None else None,
                                           max_across_m=MAX_REFIT_ACROSS_M, skip=set(vetoed))
+        pelvis_keys = {(int(f), int(p)) for f, d in ground.items() for p, xy in d.items()
+                       if p in _ground_before_refit.get(f, {})
+                       and float(np.linalg.norm(np.asarray(xy, float) - np.asarray(_ground_before_refit[f][p], float))) > 1e-9}
         if len(shifts):
             print(f"placement from the refit for {len(shifts)} body-frames (median shift "
                   f"{np.median(shifts):.2f} m from the box-bottom point)")
@@ -1079,7 +1084,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                             default_betas=default_betas, views_by_frame=views,
                             conf_by_pid=conf_by_pid, conf_min=tlm.CONF_GATE_MIN, conf_max_run=tlm.CONF_GATE_MAX_RUN,
                             exclude=clipped if not stitch_ids else None, lying=lying, keep=qb_keep or None,
-                            despike_m=tlm.DESPIKE_M if (despike_m is not None and despike_m < 0) else despike_m)
+                            despike_m=tlm.DESPIKE_M if (despike_m is not None and despike_m < 0) else despike_m,
+                            ray_centre=sideline_ground_centre(tracks) if tlm.XY_ALONG_WINDOW else None)
     tl.members = members
     if tl.n_gated:
         print(f"joint gate: {tl.n_gated} keyframe-joints under confidence {tlm.CONF_GATE_MIN:g} SLERPed across "
@@ -1172,6 +1178,12 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         if rep["bridged"] or rep["held"]:
             print(f"stands still: {rep['bridged']} hole body-frames bridged, {rep['held']} held after a track's end "
                   f"({rep['locked']} of them locked with an opponent), on {len(rep['ids'])} ids " + str(dict(sorted(rep["ids"].items()))))
+    if FEET_ANCHOR:
+        moved = anchor_feet(tl, pelvis_keys, posed_joints_fn(model))
+        if moved:
+            print(f"feet anchoring: {sum(1 for m in moved if m > 0.05)} of {len(moved)} states moved over 5 cm by their "
+                  f"posed pelvis - ankle offset (p90 {np.percentile(moved, 90):.2f} m, max {max(moved):.2f}); "
+                  f"{len(pelvis_keys)} refit pelvis points kept")
     return tl, tracks, df, frames_all, poses
 
 
@@ -1205,6 +1217,82 @@ def _pelvis_xy_fn(model):
         return np.asarray(rec["transl"], float)[:2] + cache[key]
 
     return fn
+
+
+# FEET anchoring (2026-09-25, play 1 v117). placed_body puts the PELVIS over a state's xy. The refit's points are pelvis
+# points; every other ground point (ankle keypoints, box points anchored to them, the endzone's, holds) is measured at
+# the FEET -- standing the two nearly coincide, lunging or lying they are 0.5-1 m apart (Madubuike lunging between #65
+# and #74 at 444-474 was drawn a torso width behind himself on the endzone film). anchor_feet moves a feet-point
+# state by its posed body's pelvis - ankle-midpoint offset, averaged over +-FEET_ANCHOR_HALF frames of the id and
+# weighted by the share of feet-point frames in that window (a body passing between the kinds blends, no jump).
+# Measured on v116's tables (live): endzone film offset p50/p90/p99 9.6/31.4/108 -> 8.8/26.1/90 px, Madubuike 49 ->
+# 23 px mean, #32 14.5 -> 11.4, #65 14.3 -> 11.5; the sideline film's tail a little worse (p99 27.0 -> 28.7: Thuney);
+# 07l unchanged. Moving EVERY state (the refit's points converted to feet points and back) was worse for the
+# quarterback and the left tackle: the refit's points are pelvis-exact. Read at call time by the loader.
+FEET_ANCHOR: bool = True
+FEET_ANCHOR_HALF: int = 7
+
+
+def anchor_feet(tl, pelvis_keys: set, joints_fn, *, half: int | None = None) -> list:
+    """Move each state of ``tl`` by w * m: m the mean of its id's posed pelvis - ankle-midpoint offsets (xy) over
+    +-``half`` frames (default FEET_ANCHOR_HALF), w the share of those frames whose (frame, pid) is NOT in
+    ``pelvis_keys`` (the refit's pelvis points). ``joints_fn(states)`` -> posed joints [N, >=9, 3] (translation 0;
+    SMPL-X order: 0 pelvis, 7 / 8 the ankles). Returns the shift lengths (metres), one per state."""
+    half = FEET_ANCHOR_HALF if half is None else int(half)
+    items = [(int(f), s) for f, ss in tl.states.items() for s in ss]
+    if not items:
+        return []
+    J = np.asarray(joints_fn([s for _f, s in items]), float)
+    off = J[:, 0, :2] - 0.5 * (J[:, 7, :2] + J[:, 8, :2])
+    by_pid: dict = {}
+    for (f, s), o in zip(items, off):
+        by_pid.setdefault(int(s.pid), {})[f] = (s, o, (f, int(s.pid)) not in pelvis_keys)
+    moved = []
+    for d in by_pid.values():
+        for f, (s, _o, _feet) in d.items():
+            near = [d[g] for g in range(f - half, f + half + 1) if g in d]
+            m = np.mean([x[1] for x in near], axis=0)
+            w = float(np.mean([x[2] for x in near]))
+            s.xy = np.asarray(s.xy, float) + w * m
+            moved.append(float(np.linalg.norm(w * m)))
+    return moved
+
+
+def posed_joints_fn(model, batch: int = 256):
+    """``fn(states) -> joints [N, 9, 3]``: each state's posed SMPL-X body joints with translation 0, batched."""
+    import torch
+
+    def fn(states):
+        out = []
+        nb = model.num_betas
+        with torch.no_grad():
+            for i in range(0, len(states), batch):
+                ss = states[i:i + batch]
+                n = len(ss)
+                z3 = torch.zeros(n, 3)
+                res = model(betas=torch.tensor(np.stack([np.asarray(s.betas, float)[:nb] for s in ss]), dtype=torch.float32),
+                            body_pose=torch.tensor(np.stack([np.asarray(s.body_pose, float).reshape(63) for s in ss]),
+                                                   dtype=torch.float32),
+                            global_orient=torch.tensor(np.stack([np.asarray(s.global_orient, float).reshape(3) for s in ss]),
+                                                       dtype=torch.float32),
+                            transl=z3, jaw_pose=z3, leye_pose=z3, reye_pose=z3,
+                            left_hand_pose=torch.zeros(n, 45), right_hand_pose=torch.zeros(n, 45),
+                            expression=torch.zeros(n, model.num_expression_coeffs))
+                out.append(res.joints[:, :9].numpy().astype(np.float64))
+        return np.concatenate(out) if out else np.zeros((0, 9, 3))
+
+    return fn
+
+
+def sideline_ground_centre(tracks, step: int = 10):
+    """The sideline camera's median ground position over the play (None without a sideline track)."""
+    from nfl_gsplat.render.depth_snap import camera_ground_centre
+
+    tr = tracks.get("sideline") if tracks else None
+    if tr is None:
+        return None
+    cs = [camera_ground_centre(tr, f) for f in range(0, len(tr.conf), step) if tr.conf[f] > 0]
+    return np.median(np.asarray(cs), axis=0) if cs else None
 
 
 def placed_body(state: tlm.PlayerState, model):

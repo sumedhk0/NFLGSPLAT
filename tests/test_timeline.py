@@ -1362,3 +1362,28 @@ def test_endzone_only_lying_reads_the_endzone_box_only_where_the_sideline_has_no
     df = pd.DataFrame(rows, columns=["cam", "frame", "global_player_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"])
     df["track_id"] = 1
     assert endzone_only_lying(df, aspect=0.7) == {(500, 4)}
+
+
+def test_smooth_xy_along_the_sideline_ray_takes_the_longer_window():
+    """Play 1 (2026-09-25): the sideline camera places depth from a box bottom (0.2-1 m per frame along its line of
+    sight), and the 9-frame average left 17 % of live body-frames accelerating past 25 m/s^2 across the field. The
+    component along the ray from the camera's ground position is averaged over ``along_window``; across it, the
+    shipped ``window``. Without a centre, or with along_window <= window, the result is the old one exactly."""
+    rng = np.random.default_rng(3)
+    n = 61
+    centre = np.array([-3.7, -101.6])
+    base = np.array([-20.0, 0.0])
+    u = (base - centre) / np.linalg.norm(base - centre)
+    v = np.array([-u[1], u[0]])
+    t = np.arange(n)
+    xy = base + np.outer(0.05 * t, v) + np.outer(rng.choice([-0.3, 0.3], n), u)   # walks across, noisy along
+    old = tl.smooth_xy(xy, window=9)
+    assert np.allclose(tl.smooth_xy(xy, window=9, along_window=9, centre=centre), old, atol=1e-12)
+    assert np.allclose(tl.smooth_xy(xy, window=9, along_window=31, centre=None), old)
+    new = tl.smooth_xy(xy, window=9, along_window=31, centre=centre)
+    mid = slice(15, n - 15)
+    along_old = (old[mid] - base) @ u
+    along_new = (new[mid] - base) @ u
+    assert np.std(along_new) < 0.5 * np.std(along_old)                 # the depth noise averaged down
+    across_new = (new[mid] - base) @ v
+    assert np.allclose(across_new, 0.05 * t[mid], atol=0.02)           # the walk across the ray kept
