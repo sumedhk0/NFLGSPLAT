@@ -97,7 +97,11 @@ def snap_one(xy, centre, others, *, lateral_m: float = LATERAL_M, margin_m: floa
 # under his own id. With SNAP_OWN_ID, an id whose own endzone point lies within OWN_LATERAL_M of its ray (and within
 # MAX_MOVE_M along it) slides onto it with no margin test; otherwise the positional snap. The outlier and jump vetoes
 # still apply. Read at call time.
-SNAP_OWN_ID: bool = False
+# ADOPTED 2026-09-25 (v114) with play 1's id 186 untangled in the tables (the twin that rode Thuney would otherwise
+# have been pulled onto the quarterback's endzone rows under the same id and drawn): endzone film, the quarterback
+# 585-606 and #76 580-601 on their keypoints (a metre off before); census live 0.13 unchanged, full 1.40 -> 1.39;
+# steps full 37 -> 36; hops 0.
+SNAP_OWN_ID: bool = True
 OWN_LATERAL_M: float = 0.8
 
 
