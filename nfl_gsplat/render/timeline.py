@@ -1154,7 +1154,11 @@ def merged_box_frames(df, *, cam: str = "sideline", h_ratio: float = MERGED_H_RA
 # off vertical there. A record is taken for (sideline frame, global id) only where no fused or sideline record of the
 # id lies within ENDZONE_POSE_REACH frames; the wide-box "on the ground" test reads the endzone's boxes only on frames
 # the sideline has no box of the id (a merged box beside a man the sideline sees is wide too). Read at call time.
-ENDZONE_POSES: bool = False
+# ADOPTED 2026-09-25 (v113), pre-snap only: on the endzone film Gray, Thuney and Trey Smith stood before the snap with
+# their arms flung up over their heads (no record of theirs within reach: they are endzone-only there) and now hold
+# their two-point stance, hands on knees, on their own keypoints; 320 records; the live window unchanged (09d);
+# pre-snap sideways R arm 23.8 -> 21.8 %, census and trunk tilt unchanged.
+ENDZONE_POSES: bool = True
 ENDZONE_POSE_REACH: int = 3
 ENDZONE_POSES_PRESNAP_ONLY: bool = True   # the regressor holds a set man's stance; a moving man's records six
                                            # frames apart blend into contortions (Madubuike's crawl, film 2026-09-25)
