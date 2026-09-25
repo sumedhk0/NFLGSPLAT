@@ -52,3 +52,33 @@ def test_expected_facing_for_confident_directional_classes_only():
     assert ac.expected_facing(ac.FWD, heading) == pytest.approx(0.3)
     assert abs(((ac.expected_facing(ac.BACK, heading) - (0.3 + np.pi)) + np.pi) % (2 * np.pi) - np.pi) < 1e-9
     assert ac.expected_facing(ac.LAT, heading) is None           # sideways: which side is not known
+
+
+def _rec(yaw_deg, source="fused"):
+    from nfl_gsplat.render import timeline as tl
+    return (np.zeros((21, 3)), tl.upright_from_yaw(np.radians(yaw_deg)), np.zeros(10), source)
+
+
+def test_drop_against_prior_drops_records_off_a_confident_forward_run_when_one_agrees():
+    """Play 1 id 9 (the motion receiver, film: sprinting downfield -x): one-view fits at 460/462/476 face +80 (the far
+    sideline) between regressor records facing -x; the tracking-learnt prior says forward (p 0.9) along -x."""
+    poses = {9: {460: _rec(82), 462: _rec(75), 464: _rec(-174, "sideline"), 470: _rec(151, "sideline"), 476: _rec(80)}}
+    prior = {(9, f): (np.array([0.9, 0.05, 0.05]), np.pi) for f in range(456, 481, 2)}
+    one_view = {(f, 9) for f in range(450, 490)}
+    out, dropped = ac.drop_against_prior(poses, prior, one_view=one_view)
+    assert sorted(f for _p, f in dropped) == [460, 462, 476] and sorted(out[9]) == [464, 470]
+
+
+def test_drop_against_prior_needs_an_agreeing_record_confidence_a_direction_and_one_view():
+    poses = {9: {460: _rec(82), 462: _rec(75)}}                          # nobody agrees with the prior: keep them
+    prior = {(9, f): (np.array([0.9, 0.05, 0.05]), np.pi) for f in range(456, 470, 2)}
+    one_view = {(f, 9) for f in range(450, 490)}
+    assert ac.drop_against_prior(poses, prior, one_view=one_view)[1] == []
+    poses = {9: {460: _rec(82), 464: _rec(-174, "sideline")}}
+    weak = {k: (np.array([0.6, 0.2, 0.2]), v[1]) for k, v in prior.items()}           # not confident
+    assert ac.drop_against_prior(poses, weak, one_view=one_view)[1] == []
+    lat = {k: (np.array([0.05, 0.05, 0.9]), v[1]) for k, v in prior.items()}           # sideways implies no facing
+    assert ac.drop_against_prior(poses, lat, one_view=one_view)[1] == []
+    assert ac.drop_against_prior(poses, prior, one_view=set())[1] == []                # two views: trusted
+    back = {k: (np.array([0.05, 0.9, 0.05]), 0.0) for k in prior}                      # backpedal along +x: faces -x
+    assert [f for _p, f in ac.drop_against_prior(poses, back, one_view=one_view)[1]] == [460]

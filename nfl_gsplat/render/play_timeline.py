@@ -446,6 +446,48 @@ def poses_from_caches(refit, side_blob, tracks, model):
     return out
 
 
+def _drop_against_facing_prior(P, poses, ground, views):
+    """timeline.DROP_AGAINST_PRIOR: the tracking-learnt facing prior (pose.action_class) on the placed ground tracks,
+    acting on the frames only the sideline sees."""
+    from nfl_gsplat.pose import action_class as _ac
+
+    model_path = Path(__file__).resolve().parents[2] / tlm.PRIOR_MODEL
+    ball_path = P / "ball.json"
+    if not model_path.exists() or not ball_path.exists():
+        print(f"facing prior skipped: {'no model at ' + str(model_path) if not model_path.exists() else 'no ball.json'}")
+        return poses
+    ev = json.loads(ball_path.read_text())
+    if not all(k in ev for k in ("snap", "release", "passer")):
+        print("facing prior skipped: ball.json has no snap / release / passer")
+        return poses
+    teams = {int(k): v for k, v in (_teams(P) or {}).items()}
+    roles = {int(k): v for k, v in (_roles(P) or {}).items()}
+    los = _los(P)
+    los_x = los.get("x") if isinstance(los, dict) else None
+    if los_x is None or not teams:
+        print("facing prior skipped: no line of scrimmage or teams")
+        return poses
+    xy: dict = {}
+    for f, d in ground.items():
+        for pid, v in d.items():
+            xy.setdefault(int(pid), {})[int(f)] = np.asarray(v, float)
+    snap, passer = int(ev["snap"]), int(ev["passer"])
+    at_snap = [xy[p][snap][0] for p in xy if teams.get(p) == teams.get(passer) and snap in xy[p]]
+    attack = -1.0 if (at_snap and float(np.median(at_snap)) > float(los_x)) else 1.0
+    prior = _ac.prior_table(xy, teams=teams, roles=roles, snap=snap, release=int(ev["release"]), passer=passer,
+                            los_x=float(los_x), attack=attack, model=_ac.load_model(model_path))
+    one_view = {(int(f), int(pid)) for f, d in views.items() for pid, v in d.items() if tuple(v) == ("sideline",)}
+    poses, dropped = _ac.drop_against_prior(poses, prior, one_view=one_view, min_p=_ac.PRIOR_MIN_P,
+                                            max_off_deg=_ac.PRIOR_MAX_OFF_DEG, reach=_ac.PRIOR_REACH,
+                                            frame_slack=_ac.PRIOR_FRAME_SLACK)
+    by: dict = {}
+    for p_, f_ in dropped:
+        by.setdefault(p_, []).append(f_)
+    print(f"facing prior ({len(prior)} samples): pose records facing against a confident run or backpedal on one-view "
+          f"frames dropped: {len(dropped)}" + (" -- " + ", ".join(f"{p_}: {sorted(v)}" for p_, v in sorted(by.items())) if by else ""))
+    return poses
+
+
 def keyed_pairs(play_dir, offset: int, *, tables=None, min_conf: float = None) -> set:
     """``{(frame, id)}`` with a keypoint over ``min_conf`` in any of the play's keypoint ``tables`` (default
     timeline.KEYED_TABLES), endzone rows moved to their sideline frames (``offset``: the clip offset)."""
@@ -929,6 +971,8 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                 by_d.setdefault(p_, []).append(f_)
             print(f"pose records turning a man the long way round dropped: {len(detours)} on {len(by_d)} ids -- "
                   + ", ".join(f"{p_}: {sorted(v)}" for p_, v in sorted(by_d.items())))
+    if tlm.DROP_AGAINST_PRIOR:
+        poses = _drop_against_facing_prior(P, poses, ground, views)
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
     ident_path = P / "identity_resolved.pkl"

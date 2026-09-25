@@ -1111,6 +1111,19 @@ def drop_detour_keyframes(poses_by_pid: dict, *, detour_deg: float = None, max_r
     return out, dropped
 
 
+# The tracking-learnt facing prior (pose.action_class, scripts/09l_facing_prior.py): where a model trained on measured
+# orientation (Big Data Bowl, 190k samples, 74 % held out by play) is confident a man runs forward or backpedals on a
+# frame only the sideline sees, his records facing more than 90 degrees off that are dropped when one of his records
+# nearby agrees. Play 1: drops only the motion receiver's 476 / 488 / 494 / 504 records, all four facing him off his
+# sprint on the film. The model file is data/models (gitignored; 09l rebuilds it); missing = the rule is skipped.
+# MEASURED IN THE LOADER (2026-09-25) and left OFF: on the placed ground tracks it drops two records -- the receiver's
+# 476 (wrong on the film) and id 3's 506 (right on the film: the placement's heading there is the receding +y, not
+# the cut) -- torso steps over 20 deg 1.71 -> 1.63 %, and the receiver stays wrong at 482-490 (his 488 record
+# survives). Read at call time by the loader.
+DROP_AGAINST_PRIOR: bool = False
+PRIOR_MODEL: str = "data/models/facing_prior_bdb2023w01.pt"
+
+
 def merged_box_frames(df, *, cam: str = "sideline", h_ratio: float = MERGED_H_RATIO, w_ratio: float = MERGED_W_RATIO) -> set:
     """``{(frame, pid)}`` whose ``cam`` box is over ``h_ratio`` times the id's median height in that camera or
     ``w_ratio`` times its median width: the detector merged him with a neighbour. Ids with under 5 rows are skipped

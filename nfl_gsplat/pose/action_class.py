@@ -151,3 +151,114 @@ def grouped_cv_accuracy(X, y, groups, *, folds: int = 5, seed: int = 0, per_clas
         return acc
     return acc, {CLASS_NAMES[c]: float(np.mean(pred[ok & (y == c)] == c)) if np.any(ok & (y == c)) else float("nan")
                  for c in CLASSES}, pred
+
+
+# ---- the tracking-learnt prior applied to a play's pose records --------------------------------------------------
+# A model trained on measured orientation (scripts/09l_facing_prior.py, BDB) predicts, from where a man moves and who he
+# is, whether he runs forward, backpedals or moves sideways. Where it is confident about forward or backward on a
+# frame only one camera sees, a pose record facing more than PRIOR_MAX_OFF_DEG off the facing that class implies is a
+# one-view front/back or side-on error -- play 1's motion receiver, drawn facing the far sideline at 430-490 while the
+# film has him sprinting downfield -- and is dropped, but only when a record of his within PRIOR_REACH frames agrees
+# (nothing is invented: the timeline turns him to the records that were right).
+PRIOR_MIN_P: float = 0.8
+PRIOR_MAX_OFF_DEG: float = 90.0
+PRIOR_REACH: int = 12
+PRIOR_FRAME_SLACK: int = 2
+COVERED_ROLES = ("WR", "TE", "RB", "QB", "DB", "LB")
+
+
+def load_model(path):
+    """``(net, mu, sd)`` saved by scripts/09l_facing_prior.py (--model-out)."""
+    import torch
+
+    blob = torch.load(str(path), map_location="cpu", weights_only=False)
+    if list(blob.get("features", FEATURE_NAMES)) != list(FEATURE_NAMES):
+        raise ValueError(f"{path}: trained on other features than this module's FEATURE_NAMES")
+    net = _net(len(FEATURE_NAMES))
+    net.load_state_dict(blob["state"])
+    net.eval()
+    return net, np.asarray(blob["mu"], float), np.asarray(blob["sd"], float)
+
+
+def prior_table(xy_by_pid: dict, *, teams: dict, roles: dict, snap: int, release: int, passer: int, los_x: float,
+                attack: float, model, half: int = 4) -> dict:
+    """``{(pid, frame): (probs[3], heading)}`` for every moving sample from the snap to the release of the position
+    groups the tracking covers; ``xy_by_pid``: pid -> {frame: (x, y)} ground track (metres, play frames)."""
+    offence = teams.get(passer)
+    keys, rows = [], []
+    by_frame: dict = {}
+    for p, tr in xy_by_pid.items():
+        for f, v in tr.items():
+            by_frame.setdefault(f, {})[p] = np.asarray(v, float)
+    for p, tr in xy_by_pid.items():
+        role = roles.get(p)
+        if role not in COVERED_ROLES or teams.get(p) is None:
+            continue
+        is_off = teams[p] == offence
+        for f in sorted(tr):
+            if not snap <= f < release:
+                continue
+            m = track_motion(tr, f, half=half)
+            if m is None or m[0] < V_MIN:
+                continue
+            here = np.asarray(tr[f], float)
+            opp = [np.linalg.norm(q - here) for p2, q in by_frame.get(f, {}).items()
+                   if teams.get(p2) is not None and teams.get(p2) != teams[p]]
+            qb = by_frame.get(f, {}).get(passer)
+            rows.append(feature_vector(dict(
+                speed=m[0], heading=m[1], attack_sign=attack, offence=is_off, role=role, t_snap=(f - snap) / FPS,
+                phase="pre", depth=attack * (here[0] - los_x) * (-1.0 if is_off else 1.0),
+                ball_bearing=None if (qb is None or p == passer) else float(np.arctan2(qb[1] - here[1], qb[0] - here[0])),
+                nearest_opp=min(opp) if opp else 10.0, nose=0.0, cam_bearing=None, lr_sign=0.0)))
+            keys.append((p, f, m[1]))
+    if not rows:
+        return {}
+    pr = predict_proba(model, np.stack(rows))
+    return {(p, f): (pr[i], h) for i, (p, f, h) in enumerate(keys)}
+
+
+def _record_yaw(rec) -> float:
+    from scipy.spatial.transform import Rotation
+
+    fw = Rotation.from_rotvec(np.asarray(rec[1], float).reshape(3)).apply([0.0, 0.0, 1.0])
+    return float(np.arctan2(fw[1], fw[0]))
+
+
+def drop_against_prior(poses_by_pid: dict, prior: dict, *, one_view=None, min_p: float = None, max_off_deg: float = None,
+                       reach: int = None, frame_slack: int = None) -> tuple[dict, list]:
+    """``poses_by_pid`` (pid -> {frame: (body_pose, orient, betas, source)}) without the records the prior outvotes
+    (see PRIOR_MIN_P); ``prior``: prior_table's output; ``one_view``: {(frame, pid)} the rule may act on (None = all).
+    Returns ``(poses, [(pid, frame), ...])``. Knobs default to the module's values at call time."""
+    min_p = PRIOR_MIN_P if min_p is None else float(min_p)
+    lim = np.radians(PRIOR_MAX_OFF_DEG if max_off_deg is None else float(max_off_deg))
+    reach = PRIOR_REACH if reach is None else int(reach)
+    slack = PRIOR_FRAME_SLACK if frame_slack is None else int(frame_slack)
+    out: dict = {}
+    dropped: list = []
+    for pid, recs in poses_by_pid.items():
+        fs = sorted(int(f) for f in recs)
+        yaw = {f: _record_yaw(recs[f]) for f in fs}
+        expect = {}
+        for f in fs:
+            hit = None
+            for d in sorted(range(-slack, slack + 1), key=abs):
+                hit = prior.get((pid, f + d))
+                if hit is not None:
+                    break
+            if hit is None:
+                continue
+            probs, heading = hit
+            c = int(np.argmax(probs))
+            if probs[c] < min_p or c not in (FWD, BACK):
+                continue
+            expect[f] = expected_facing(c, heading)
+        cand = [f for f, e in expect.items() if (one_view is None or (f, pid) in one_view)
+                and abs(float(wrap(yaw[f] - e))) > lim]
+        cset = set(cand)
+        gone = [f for f in cand if any(abs(g - f) <= reach and g not in cset and abs(float(wrap(yaw[g] - expect[f]))) <= lim
+                                       for g in fs if g != f)]
+        kept = {f: r for f, r in recs.items() if int(f) not in set(gone)}
+        dropped += [(pid, f) for f in sorted(gone)]
+        if kept:
+            out[pid] = kept
+    return out, dropped

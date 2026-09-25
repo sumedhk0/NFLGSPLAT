@@ -7098,3 +7098,25 @@ $S/v110_id12_ez.png, $S/v110_id15_ez.png): id 12 (a KC guard, on his man) keeps 
 sideline his facing is left toward the defender but on the far side of it (the records after 596 sit 50-80 deg off the
 film's slightly-toward-the-camera facing) -- steadier and closer, not exact. Oweh at 596-608 barely changes. Viewer
 Version 26 = v110. Next: VPoser in the fit re-measured on the fixed 05p ($S/vp_chain.sh, running).
+
+### 2026-09-25 00:50 -- ML status: VPoser in the fit re-measured (mixed, not shipped); the facing prior from BDB works
+
+**VPoser in the fit, on the fixed 05p** ($S/vp_chain.sh): the lkft2c recipe with ONE knob changed (05p --vposer-weight
+0.01; 831 s), merged onto the same live keys, both arms' copy rulers re-run with today's loader. Control -> VPoser:
+VPoser score p99 10.13 -> 8.56, over-8 share 0.029 -> 0.015 (its own ruler: circular); joint jitter p90/p99
+0.0531/0.1833 -> 0.0512/0.1713; sideways L/R arm 6.7/13.3 -> 6.2/12.8 %, L/R leg 4.2/6.0 -> 4.5/5.9 %; jerk 5 = 5;
+reprojection 8.3 -> 8.2 px; knees/elbows unchanged (no id moves 5 deg); steps 2 / hops 0 / census 0.169 both. 7.1 % of
+live body-frames move a joint > 15 cm, all one-view ids (3, 0, 9, 5, 12, 84). Film at the largest change per id
+($S/vp_film2.png): the motion receiver at 464 better (a raised arm the film does not show goes away), the safety #21 at
+490 WORSE (an arm pushed out where the film holds it tight in his backpedal), the rest too small to judge. Not shipped;
+the 09-24 "win" (p99 15.9 -> 7.7) was the refit bug. Next arm: weight 0.005, or the prior on the legs and trunk only.
+
+**Action classifier, self-labelled: dead end (5adcc52).** Two-view fits as labels, facing-free features, held out by
+player: 37-42 % vs a 37 % majority and a 54 % hand rule; the labels are not physical (19 % "backward" above 5 m/s).
+
+**Facing prior from real tracking: works (ea480bd).** BDB 2026 input, 2023 week 1 (data/tracking/input_2023_w01.csv,
+819 pass plays, measured o and dir): the same features, held out by PLAY 74.2 % (forward 85, backward 79, sideways 61)
+vs 41.7 % majority and 57.0 % hand rule; on play 1's two-view labels 73.4 % (majority 40.0 %): it transfers. Confident
+one-view disagreements with the drawn facing: the motion receiver 430-460 (18 of 28), the stretch the film shows wrong.
+As a record rule (pose.action_class.drop_against_prior; offline on play 1): drops only id 9's 476/488/494/504, all
+facing him off his sprint. Model: data/models/facing_prior_bdb2023w01.pt (09l rebuilds it). Wiring into the loader next.
