@@ -7331,3 +7331,21 @@ t22 512-526 = the quarterback, folded into 80; live tables snapshotted *.v113) +
 the quarterback 585-606 and #76 580-601 on their own keypoints in the endzone film, a metre off before). Next after
 v114: Madubuike's crawl (an endzone keypoint fit for moving endzone-only men; the regressor's records six frames apart
 contort), Thuney 586-601 on a box merged with #76's.
+
+### 2026-09-25 09:35 -- v114 rendered (strips checked; camera views running); 05r measured for v115
+
+**v114** = v113 + id 186 untangled + the own-id depth snap (fb10956). 07l: steps 36 / 2, hops 0, census live 0.13,
+full 1.39. Render strips (review_v114): the quarterback standing in the pocket 586-608 (legs in a stride where he
+stands -- old), #76 pass-blocking #99 580-602 like the film. Camera views rendering (not stopped this time).
+
+**05r (3528e3b): the endzone-only one-view fit.** On v114's cache, live window, --lying-aspect 1.3, merged boxes
+(> 1.5x the id's median width) skipped: 45 ids, 794 frames, 3-10 px. 09d live: jerk 4 unchanged; sideways bends up
+(L arm 6.2 -> 8.9 %, R arm 13.7 -> 15.4, L leg 4.1 -> 8.6, R leg 5.1 -> 6.5; Madubuike 56 L-leg frames). The FILM
+disagrees with that ruler (endzone strips diag/ov_05r_base|r): #32 (id 2) 510-546 and Thuney 560-595 drawn on their
+keypoints (base: beside them), Gray's hands out for the ball at 536 (base: an arm over his head), Madubuike lying
+along his body 494-502 (base: upright), zig-zag limbs 506-522. The sideways-bend ruler counts a backpedalling safety
+and a crawling man as faults. -> v115 = v114 + 05r on 395-615 (859 records; $S/poses_refit_v115.json, installed after
+v114's views finish). Then the pipeline stage (refit_ez after refit_mono).
+
+**Logged, not chased:** Thuney's pose blips at pre-snap frame ~270 (one endzone regressor record at 269, not a
+heading flip, so the flip veto keeps it); the quarterback's legs in a stride while he stands 586-608.
