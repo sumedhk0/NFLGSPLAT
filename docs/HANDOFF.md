@@ -7384,3 +7384,39 @@ Probes this hour, not adopted: the loader without refit placement (census 0.13 -
 his records at 420-468 ARE the two-view fits, and the endzone keypoints of a quarterback inside his pocket are the
 ruler's own noise). NEXT candidates: the placement tail (vertical offsets of 20-26 px in the endzone film for the
 quarterback, Raven 15, #32, #76 -- height/leg bend more than depth), Madubuike's zig-zag limbs, the late pile.
+
+### 2026-09-25 12:40 -- VPoser shift rejected; 05r's merged-box rule fixed (v116 rendering); the pipeline fits on ft2; gait vs lock; placement SURGES
+
+**VPoser shift (pose_prior.SHIFT) on the per-joint limb ruler: REJECTED.** Endzone film, live: every limb joint worse
+or equal (ankle p90 29/23 -> 31/26, wrists 23/33 -> 24/33); limb joints over 25 px arms 359 -> 382, legs 323 -> 378.
+
+**05r --merged-rule swallowed (1e487ae, default; v116).** 05r skipped every endzone box over 1.5x the id's median width
+as merged. On the endzone film Madubuike at 444-474 is ONE man lunging between #65 and #74 (his ft2 keypoints on him,
+#65 boxed beside him at IoU ~0.1); only 516-522 is a real merge (#65 bending over him, #65's own box gone, the
+keypoints #65's). Neither the keypoints' span of the box nor "two ids, one skeleton" separates the cases (the merged
+man has no skeleton of his own) -- swallowed(): wide AND a neighbour who overlapped (IoU >= 0.3, last 6 clip frames)
+lost his box, or shares it (IoU >= 0.5). 84 more records. Madubuike's endzone limb joints over 25 px 113 -> 50; all ids
+legs 326 -> 300, arms 364 -> 318; sideline, 07l, jerk unchanged; joint jitter p99 0.21 -> 0.17. The width rule over
+395-615 reproduces the live v115 cache record for record (the fit is deterministic). Film: the limbs lean into the
+lunge; the BODY is still drawn a torso width to his right (placement anchored on trailing ankles -- open).
+
+**Pipeline keypoints (461428c).** tri / refit_mono / refit_ez ran 05n / 05p / 05r on keypoints_2d.parquet (the
+pretrained detector) while every live cache since v106 was fitted on keypoints_2d_ft2.parquet by hand. Now KP = ft2
+when present.
+
+**Gait vs foot lock (ablation, v115 tables; 05k runs the lock only under --gait, so "no gait" = no lock too).**
+Sprinters' planted share (07l, pelvis > 6 m/s, 685 frames) / leg joints over 25 px endzone, sideline:
+v115 gait+lock 14 % / 323, 114; neither 1 % / 298, 76; lock on its jogging band only 1 % / 317, 78; lock on every speed,
+gait never fires (gait.RUN_M 1e9, foot_lock.RUN_M_LOCK 1e9) 11 % / 315, 79 (id 9 sideline leg mean 17.5 -> 9.3 px).
+Joint jitter p99 0.21 (v115) / 0.12 / 0.13 / 0.17. The gait's legs are out of the film's phase by design (PHASE_MATCH
+off, measured before); the lock on the jogging band costs the quarterback (endzone legs 56 -> 67; backpedal = motion
+against facing, which the reach-signal strikes assume away). The gait also fires on the centre and Madubuike, whose
+drawn pelvis surges past 4.8 m/s (below). NOT decided: needs a render of the feet.
+
+**Placement SURGES -- a new ruler ($S/surge_ruler.py).** Smoothed pelvis acceleration (centred differences over
++-4 frames) > 25 m/s^2: v115 live 396 of 2295 body-frames (17 %), 22 ids, nearly all ACROSS the field (the sideline's
+line of sight); timeline dump 769 of 4588 (same share). Control: set players before the snap 22 of 1864, 12 of them
+the left tackle wobbling ~6 m/s across in his stance. The centre slides 1.4 m across at 416-428 (7 m/s), 1.3 m along
+at 510-526, and swings 1.2 m out and back at 558-584; Madubuike, with no detection in either camera at 590-606, moves
+2.3 m in 16 frames. The step ruler (> 0.25 m/frame) never sees them: the smoother spreads each slide over frames.
+Placement ablation running (own-id snap off, depth snap off, refit placement off, despike off).
