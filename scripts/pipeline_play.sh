@@ -36,6 +36,8 @@
 #   fuse      scripts/05e (monocular joints fused) -- OPT-IN, FUSE=1; 2.6-3.4x worse than tri
 #   refit     scripts/05f                                             -> poses_refit.json
 #   refit_mono scripts/05p one-view bodies refit to the sideline keypoints -> poses_refit.json (+ _fused.json kept)
+#   refit_ez  scripts/05r bodies only the endzone sees, refit to its keypoints (snap to the play's end, after
+#             play_end; REFIT_EZ=0 skips)                                   -> poses_refit.json
 #   fit       scripts/05i (appearance fit from the footage) -- OPT-IN, FIT=1: the hi-fi render
 #             wears synthetic uniforms (render.uniform); fitted textures measured no better
 #   field     scripts/05l footage warped onto the ground plane        -> <play-dir>/field_texture.npz (+PNG in diag)
@@ -146,7 +148,7 @@ if ! done_ endzone; then
      --out "$P/recon_abs.npz" 2>&1 | grep -v "Warning\|warn" | grep -E "mount side|mirror|gap  |reconciled  |player height|Error|Exit" || fail endzone
   "$PYN" scripts/08b_export_play_dir.py --recon "$P/recon_abs.npz" --root "$ROOT" --sideline "$SIDE" --endzone "$END" --out "$P" \
      2>&1 | grep -v "Warning\|warn" | grep -E "cameras:|linked|tracks.parquet" || fail endzone-export
-  rm -f "$P"/.done_pose_s "$P"/.done_pose_e "$P"/.done_identity "$P"/.done_keypoints "$P"/.done_tri "$P"/.done_fuse "$P"/.done_refit "$P"/.done_hifi "$P"/.done_render \
+  rm -f "$P"/.done_pose_s "$P"/.done_pose_e "$P"/.done_identity "$P"/.done_keypoints "$P"/.done_tri "$P"/.done_fuse "$P"/.done_refit "$P"/.done_refit_ez "$P"/.done_hifi "$P"/.done_render \
         "$P/poses_sideline.json" "$P/poses_endzone.json"
   mark endzone
 fi
@@ -210,7 +212,7 @@ if ! done_ link; then
   "$PYN" scripts/08b_export_play_dir.py --recon "$P/recon.npz" --cameras "$P/cameras.npz" --root "$P" \
      --sideline sideline.mp4 --endzone endzone.mp4 --out "$P" --pairing track --pair-gap 0 \
      2>&1 | grep -v "Warning\|warn" | grep -E "kits|per-camera|linked|tracks.parquet|Error" || fail link
-  rm -f "$P/.done_pose_s" "$P/.done_pose_e" "$P/.done_identity" "$P/.done_keypoints" "$P/.done_tri" "$P/.done_refit"
+  rm -f "$P/.done_pose_s" "$P/.done_pose_e" "$P/.done_identity" "$P/.done_keypoints" "$P/.done_tri" "$P/.done_refit" "$P/.done_refit_ez"
   mark link
 fi
 
@@ -422,6 +424,19 @@ if ! done_ play_end; then
   log "when the play is dead (08x)"
   "$PYS" scripts/08x_play_end.py --play-dir "$P" ${LIVE_LO:+--snap "$LIVE_LO"} ${END_LIVE:+--live-hi "$END_LIVE"} 2>&1      | grep -v "Warning\|warn" | grep -E "play dead|wrote|Error|Traceback" || fail play_end
   mark play_end
+fi
+
+# Bodies only the endzone camera sees (05r): 05p fits the sideline's keypoints, so a body the sideline has lost had no
+# record of its own and the timeline SLERPed across the gap (play 1 v114: Madubuike drawn upright while he crawled,
+# #32 and Thuney beside their own keypoints in the endzone film). 05r fits the endzone keypoints there with 05p's fit,
+# from the snap to the play's end plus tail, in place (existing records win). Marked: delete .done_refit_ez after a
+# refit (the refit and link stages do).
+if [ "${REFIT_EZ:-1}" != "0" ] && ! done_ refit_ez; then
+  log "bodies only the endzone camera sees refit to its keypoints (05r; the snap to the play's end)"
+  read -r EZ_LO EZ_HI <<< "$("$PYN" -c "import json; d=json.load(open(r'$P/play_end.json')); print(d['snap'], d['end'] + d.get('tail', 0))")"
+  "$PYS" scripts/05r_refit_endzone_only.py --play-dir "$P" --frames "$EZ_LO" "$EZ_HI" --lying-aspect 1.3 --out "$P/poses_refit.json" 2>&1 \
+     | grep -v "Warning\|warn" | grep -E "ids with|wrote|nothing to fit|Error|Traceback" || fail refit_ez
+  mark refit_ez
 fi
 
 log "plausibility rulers on the timeline 05k will draw (07l)"
