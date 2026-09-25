@@ -7190,3 +7190,17 @@ holding the live cache + the before/after tables; $S/untangle_line2_chain.sh). (
 ($S/line2_ez.png). But hinge jerk 5 -> 14, all nine new on the centre at 482-484 and 512-514: at 475-492 his only
 sideline rows are a 5-box fragment (39 px wide) and at 510-530 endzone-only boxes. Chain 3 ($S/untangle_line3_chain.sh)
 drops the fragment and keeps 204 (Humphrey's name and build).
+
+### 2026-09-25 04:10 -- v111 = v110 + the KC left line untangled + the bridge pose blend (ported; render running)
+
+**Chain 3 (the port candidate) on the copy, with the bridge blend (4837025), vs the v110-equivalent control:** census
+0.169 -> 0.160; steps 2 / hops 0; hinge jerk 5 -> 4 (without the blend 12: the centre's midpoint snap); joint jitter
+p99 0.183 -> 0.163; the depth ruler's across-field p99 2.33 -> 1.18 m (over 1.5 m 4.9 -> 2.8 %); the vanishings list
+unchanged. Ported to play_001 ($S/port_line.sh; tables snapshotted *.v110 plus the 08z/08za backups): the live tables'
+md5 now equal the copy's; play_001/poses_refit.json <- lkft2l3c (05n/05f/05p on the relabelled tables, merged onto the
+live keys remapped by 08v). The ids: 37 = Suamataia #76, 139 = Thuney #62, 204 = Humphrey #52 (17 folded into him);
+the centre's 5-box sideline fragment at 475-492 dropped. The bridge blend alone on v110: jerk 5 -> 3 (id 84 at 594),
+torso worst step 70 -> 40.
+
+Still open on the line: id 4 (BAL) 1.4 m across in his 443-528 sideline hole (hole-hold, not identity); the centre's
+endzone rows at 531-577 sit on a box shared with the Raven he blocks.
