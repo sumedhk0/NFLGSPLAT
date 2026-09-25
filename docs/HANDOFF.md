@@ -7079,3 +7079,13 @@ pass (drop a run of 1-2 records whose removal shortens the turn by > 170 deg wit
 wrong records; (3) one-view bodies slide sideways to their chest faster than 3 m/s on 36 % of live steps (two-view
 12 %) -- for id 3 the box says he really recedes from the camera while his fit faces 70 deg off that run; which is
 wrong is open, and it makes his first-person camera strafe.
+
+### 2026-09-24 20:45 -- PAUSED (user powering off): v110 render stopped mid endzone view
+
+v110 = v109 + timeline.drop_detour_keyframes (24495c1), viewer Version 26. Rendered before the stop: the hifi clip
+(diag/play_001_v110_hifi_720.mp4), the sideline blend and the sideline view (render_view_v110). The endzone view
+(play_001/render_ezview_v110) stopped at 172 of 200 frames; the newest frame (560) was deleted in case it was half
+written. RESUME: re-run the endzone view (05k --view-camera endzone ... --out-dir play_001/render_ezview_v110, the same
+flags as v109's; it resumes from the frames on disk), then the v109-vs-v110 film strips for id 12 (588-600) and Oweh 15
+(596-608) on both views; if they hold, v110 = CURRENT BEST. Scratch scripts: $S/chain_v110.sh (re-runnable end to end),
+$S/film_v110.sh.
