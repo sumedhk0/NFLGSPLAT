@@ -7293,3 +7293,24 @@ artifact (the sideline regressor fills those frames; the drawn joints articulate
 
 **Pre-snap fold refit (copy) running:** presnap_refit.sh (05n/05f/05p on the folded tables, merge_relabelled onto the
 remapped live keys plus the relabelled men's new records on 14-400; arms A1/A2/A0 through one tail, chain + fill on).
+
+### 2026-09-25 07:30 -- the pre-snap KC line + quarterback fold PORTED (v113 tables); endzone regressor poses (flag)
+
+**Copy A/B (presnap_refit.sh; one tail, chain + fill on):** A0 live tables: play census 0.16, pre-snap |KC-11|
+0.400, pre-snap trunk past 70 deg 140 body-frames, pre-snap R arm sideways 28.3 %. A1 folded (live cache remapped):
+0.131 / 0.056 / 118 (#76 inherited the merged-box ghost 19's records: R arm sideways on 82 frames, 54 frames past
+70 deg). A2 folded + refit (05n/05f/05p on the folded tables; merge_relabelled.py: same keys + 127 new records for
+37/80/139 on 14-400): 0.131 / 0.056 / 65, R arm 23.8 % (the quarterback's hands under centre 56), live window
+unchanged (steps 2 / hops 0 / jerk 4). NOTE: the copy's sideline regressor cache must be the remapped one before the
+tails -- drop_unboxed_poses keeps a record whenever the id has a box in EITHER camera, so the quarterback's old
+records under 139 would have drawn Thuney pre-snap (checked per id: remap moves t25's 29 records to 80, 63 to 37).
+**Ported** (port_presnap.sh; tables snapshotted *.v112; the four tables hash-equal to the copy's; poses_refit.json <-
+the copy's lkps, poses_sideline.json <- the one-shot remap).
+
+**Endzone regressor poses (bb3fa9d, flags off):** Gray's pre-snap arms flung up -> hands on knees (endzone film);
+moving men contort (records 6 frames apart) -> ENDZONE_POSES_PRESNAP_ONLY. A/B on the ported play running.
+
+**Found, not fixed:** at the end of the play (586-601) Thuney (endzone-only after his sideline track ends at 565) and
+#76 (sideline-backed) are both drawn 36-115 px left of their own endzone ankle keypoints (the endzone film): #76's
+depth along the sideline's line of sight is a metre off where the depth snap did not take the endzone's point, and
+Thuney's endzone box merges with #76's. Next placement unit after v113.
