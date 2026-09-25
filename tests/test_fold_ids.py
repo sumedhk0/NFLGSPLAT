@@ -97,6 +97,28 @@ def test_drop_rows_one_camera_frames():
     assert kdrop == 1 and set(kout.frame) == {443}                                               # the keypoints follow
 
 
+def test_drop_rows_one_camera_track_only():
+    """Play 1 (2026-09-25): the left tackle's endzone id alternates between his own box (track 25) and track 37, which
+    drifted onto the Raven he blocks (a twin of the Raven's own box, IoU up to 0.96) -- drop track 37's rows only."""
+    import pandas as pd
+    from nfl_gsplat.tracking.fold import drop_rows
+
+    rows = []
+    for f in range(526, 560):
+        tid = 37 if f % 3 == 0 else 25
+        rows.append(dict(frame=f, cam="endzone", track_id=tid, global_player_id=37, bbox_x1=0, bbox_y1=0, bbox_x2=10, bbox_y2=20, conf=1.0))
+        rows.append(dict(frame=f, cam="sideline", track_id=37, global_player_id=37, bbox_x1=0, bbox_y1=0, bbox_x2=10, bbox_y2=20, conf=1.0))
+    df = pd.DataFrame(rows)
+    out, n = drop_rows(df, 37, cam="endzone", frames=(526, 558), track_id=37)
+    n37 = sum(1 for f in range(526, 559) if f % 3 == 0)
+    assert n == n37
+    ez = out[out.cam == "endzone"]
+    assert set(ez.track_id) == {25} and len(ez) == 34 - n37                                   # his own box stays
+    assert len(out[out.cam == "sideline"]) == 34                                                 # the sideline's track 37 too
+    out2, n2 = drop_rows(df, 37, cam="endzone", frames=(526, 558))                              # no track: every box
+    assert n2 == 33 and len(out2[out2.cam == "endzone"]) == 1
+
+
 def test_carry_roles_moves_a_folded_ids_role_to_a_kept_id_without_one():
     """Play 1 v111 (2026-09-25): folding the centre's early id 17 (role OL) into 204 (Humphrey, no role) dropped the role;
     the ball path and the quarterback-under-centre hold then took Thuney as the centre. A dropped id's role carries."""

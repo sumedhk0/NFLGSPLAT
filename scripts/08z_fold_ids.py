@@ -12,7 +12,8 @@ this folds them (tracking.fold).
 
 WHAT IT DOES. tracks.parquet: every row of a dropped id takes the kept GLOBAL id (track ids stay);
 where two of the folded ids have a box on one frame of one camera one row survives (confidence, then
-the kept id's own, then the taller box). keypoints_2d.parquet follows the rows. The pose caches are
+the kept id's own, then the taller box). Every keypoint table (keypoints_2d.parquet and the fine-tuned
+detector's keypoints_2d_ft2.parquet, tracking.relabel.KEYPOINT_TABLES) follows the rows. The pose caches are
 carried by 08v (before/after tables joined on (cam, frame, track_id)), which this runs.
 identity_resolved.pkl loses the dropped ids from ``merged`` and ``roles``. Backups: *.pre_fold (never
 overwritten: tracking.relabel.backup_path). Runs under the venv that WRITES the caches (numpy-1
@@ -32,7 +33,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from nfl_gsplat.errors import SetupError  # noqa: E402
 from nfl_gsplat.tracking.fold import carry_roles, fold_ids, keypoint_map  # noqa: E402
-from nfl_gsplat.tracking.relabel import assert_numpy1_for_pickles, backup_path, relabel_keypoints  # noqa: E402
+from nfl_gsplat.tracking.relabel import assert_numpy1_for_pickles, backup_path, relabel_keypoint_tables  # noqa: E402
 
 
 def main() -> None:
@@ -68,12 +69,8 @@ def main() -> None:
     shutil.copy2(P / "tracks.parquet", tb)
     out.to_parquet(P / "tracks.parquet", index=False)
     print(f"wrote tracks.parquet (backup {tb.name})")
-    kdf = pd.read_parquet(P / "keypoints_2d.parquet")
-    kout, kdrop = relabel_keypoints(kdf, keypoint_map(df, out))
-    kb = backup_path(P / "keypoints_2d.parquet", ".pre_fold")
-    shutil.copy2(P / "keypoints_2d.parquet", kb)
-    kout.to_parquet(P / "keypoints_2d.parquet", index=False)
-    print(f"keypoints: {len(kout)} rows written, {kdrop} dropped (backup {kb.name})")
+    for name, n_rows_k, kdrop, n_changed, kb in relabel_keypoint_tables(P, keypoint_map(df, out), ".pre_fold"):
+        print(f"{name}: {n_rows_k} rows written, {kdrop} dropped, {n_changed} relabelled (backup {kb})")
     subprocess.run([sys.executable, str(Path(__file__).with_name("08v_remap_poses_after_relabel.py")),
                     "--play-dir", str(P), "--before", tb.name, "--apply"], check=True)
     ip = P / "identity_resolved.pkl"

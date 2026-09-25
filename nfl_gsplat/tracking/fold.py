@@ -63,14 +63,19 @@ def carry_roles(roles: dict, *, keep: int, gone: list[int]) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
-def drop_rows(df: pd.DataFrame, pid: int, *, cam: str, frames: tuple[int, int]) -> tuple[pd.DataFrame, int]:
-    """``(df without id ``pid``'s rows of camera ``cam`` on frames lo..hi, rows removed)``. For a stray box the
+def drop_rows(df: pd.DataFrame, pid: int, *, cam: str, frames: tuple[int, int],
+              track_id: int | None = None) -> tuple[pd.DataFrame, int]:
+    """``(df without id ``pid``'s rows of camera ``cam`` on frames lo..hi, rows removed)``; with ``track_id``
+    only that camera track's rows (play 1 2026-09-25: the left tackle's endzone id alternating between his own
+    box and a track that drifted onto the Raven he blocks). For a stray box the
     tracker re-associated to a track after a loss (play 1 id 4: one sideline box at 465, 22 frames after his
     track ended hidden behind KC 65, on another man): that box is the span's edge the beyond-span rule joins
     the endzone's stretch to, and a wrong edge drops the whole stretch. Keypoints follow through keypoint_map."""
     lo, hi = int(frames[0]), int(frames[1])
     m = ((df["global_player_id"].astype(int) == int(pid)) & (df["cam"].astype(str) == str(cam))
          & df["frame"].astype(int).between(lo, hi))
+    if track_id is not None:
+        m &= df["track_id"].astype(int) == int(track_id)
     return df.loc[~m].copy(), int(m.sum())
 
 

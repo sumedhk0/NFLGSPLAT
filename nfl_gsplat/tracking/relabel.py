@@ -78,6 +78,34 @@ def relabel_keypoints(kdf: pd.DataFrame, mapping: dict):
     return out, int((~keep).sum())
 
 
+KEYPOINT_TABLES: tuple = ("keypoints_2d.parquet", "keypoints_2d_ft2.parquet")
+
+
+def relabel_keypoint_tables(play_dir, mapping: dict, suffix: str, *, names: tuple = KEYPOINT_TABLES) -> list:
+    """Apply ``mapping`` ({(cam, frame, old id): new id}, fold.keypoint_map) to every keypoint table of ``play_dir``
+    named in ``names`` that exists, each backed up first (backup_path(table, ``suffix``)). Returns
+    ``[(name, rows written, rows dropped, rows relabelled, backup name)]``. The per-play fine-tuned detector's table
+    (keypoints_2d_ft2.parquet) feeds the fits since play 1 v106; until 2026-09-25 08z / 08za relabelled only
+    keypoints_2d.parquet and every port patched the ft2 table by hand."""
+    import shutil
+    from pathlib import Path
+
+    out = []
+    for name in names:
+        p = Path(play_dir) / name
+        if not p.exists():
+            continue
+        kdf = pd.read_parquet(p)
+        keys = zip(kdf["cam"].astype(str), kdf["frame"].astype(int), kdf["global_player_id"].astype(int))
+        changed = sum(1 for k in keys if mapping.get(k, -1) not in (-1, k[2]))
+        kout, kdrop = relabel_keypoints(kdf, mapping)
+        b = backup_path(p, suffix)
+        shutil.copy2(p, b)
+        kout.to_parquet(p, index=False)
+        out.append((name, len(kout), kdrop, changed, b.name))
+    return out
+
+
 def relabel_pose_cache(blob: dict, mapping: dict, cam: str):
     """``(blob with each frame's ids remapped, records dropped)``; an id without a mapping is
     dropped, and where two old ids land on one new id the first record stays."""

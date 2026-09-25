@@ -56,6 +56,34 @@ def relabel_map(before: pd.DataFrame, after: pd.DataFrame, offset: int) -> dict:
     return out
 
 
+def dropped_keys(before: pd.DataFrame, after: pd.DataFrame, offset: int) -> set:
+    """``{(timeline_frame, old_gid)}`` whose DECIDING row was removed (08za): the sideline row when the id had one on
+    that frame, else the endzone row. A pose fitted to a dropped box is that box's man's, not the id's (play 1
+    2026-09-25: the centre's refit record at 474 fitted to 84's box). An endzone row dropped under a sideline row that
+    stays leaves the pose, as the relabel rule does."""
+    key = ["cam", "frame", "track_id"]
+
+    def tl_rows(df):
+        d = df[df["track_id"] >= 0][key + ["global_player_id"]].copy()
+        d["tl"] = d["frame"].astype(int)
+        d.loc[d["cam"] == "endzone", "tl"] = d.loc[d["cam"] == "endzone", "frame"].astype(int) - offset
+        return d
+
+    b, a = tl_rows(before), tl_rows(after)
+    j = b.merge(a[key].assign(kept=True), on=key, how="left")
+    gone = j[j["kept"].isna()]
+    side_before = set(zip(b.loc[b["cam"] == "sideline", "tl"].astype(int), b.loc[b["cam"] == "sideline", "global_player_id"].astype(int)))
+    left = {(c, int(t), int(g)) for c, t, g in zip(a["cam"], a["tl"], a["global_player_id"])}
+    out = set()
+    for r in gone.itertuples():
+        k = (int(r.tl), int(r.global_player_id))
+        if r.cam == "sideline" and ("sideline", *k) not in left:
+            out.add(k)
+        elif r.cam == "endzone" and k not in side_before and ("endzone", *k) not in left:
+            out.add(k)
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--play-dir", required=True, type=Path)
@@ -69,9 +97,12 @@ def main() -> None:
         if not need.exists():
             raise SetupError(f"08v: missing {need}")
     offset = clip_offset(P)
-    m = relabel_map(pd.read_parquet(bp), pd.read_parquet(ap_), offset)
+    tb_df, ta_df = pd.read_parquet(bp), pd.read_parquet(ap_)
+    m = relabel_map(tb_df, ta_df, offset)
+    drops = dropped_keys(tb_df, ta_df, offset)
     new_ids = sorted({v for v in m.values()})
-    print(f"08v: {len(m)} (frame, old id) relabels across {len(new_ids)} new ids; clip offset {offset:+d}")
+    print(f"08v: {len(m)} (frame, old id) relabels across {len(new_ids)} new ids; {len(drops)} (frame, id) whose "
+          f"deciding row was dropped; clip offset {offset:+d}")
 
     for name in CACHES:
         fp = P / name
@@ -80,12 +111,17 @@ def main() -> None:
             continue
         d = pickle.load(open(fp, "rb"))
         frames = d.get("frames", {})
-        moved, by_new = 0, {}
+        moved, by_new, removed = 0, {}, 0
         for f, per in frames.items():
             if not isinstance(per, dict):
                 continue
             for old in list(per.keys()):
                 new = m.get((int(f), int(old)))
+                if new is None and (int(f), int(old)) in drops:
+                    if args.apply:
+                        per.pop(old)
+                    removed += 1
+                    continue
                 if new is None or new in per:
                     continue
                 if args.apply:
@@ -93,8 +129,9 @@ def main() -> None:
                 moved += 1
                 by_new[new] = by_new.get(new, 0) + 1
         print(f"  {name} (cam {d.get('cam')}): {moved} posed frames "
-              f"{'moved' if args.apply else 'would move'} across {len(by_new)} new ids")
-        if args.apply and moved:
+              f"{'moved' if args.apply else 'would move'} across {len(by_new)} new ids; {removed} "
+              f"{'removed' if args.apply else 'would go'} with their dropped row")
+        if args.apply and (moved or removed):
             b = backup_path(fp, ".pre08v")             # never overwrites an earlier pass's backup
             shutil.copy2(fp, b)
             pickle.dump(d, open(fp, "wb"))

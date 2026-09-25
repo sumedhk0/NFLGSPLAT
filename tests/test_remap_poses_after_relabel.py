@@ -43,3 +43,16 @@ def test_unlinked_and_unchanged_rows_are_ignored():
     before = pd.DataFrame([("sideline", 1, -1, 3), ("sideline", 2, 4, 3)], columns=COLS)
     after = pd.DataFrame([("sideline", 1, -1, 8), ("sideline", 2, 4, 3)], columns=COLS)
     assert remap.relabel_map(before, after, offset=0) == {}
+
+
+def test_a_dropped_deciding_row_drops_the_pose():
+    """08za removes rows; the pose records fitted to them stayed under the id (play 1 2026-09-25: the centre's refit
+    record at 474 fitted to 84's box). A record goes when its deciding row -- the sideline row, else the endzone row --
+    was dropped; an endzone row dropped under a kept sideline row leaves the pose; a relabel is not a drop."""
+    before = pd.DataFrame([("sideline", 474, 13, 204), ("sideline", 475, 39, 204),
+                           ("endzone", 526, 37, 37), ("sideline", 541, 37, 37),        # endzone 526 = timeline 541
+                           ("endzone", 600, 25, 37),                                    # endzone-only at timeline 615
+                           ("sideline", 548, 54, 80)], columns=COLS)
+    after = pd.DataFrame([("sideline", 475, 39, 204), ("sideline", 541, 37, 37),
+                          ("sideline", 548, 54, 204)], columns=COLS)
+    assert remap.dropped_keys(before, after, offset=-15) == {(474, 204), (615, 37)}

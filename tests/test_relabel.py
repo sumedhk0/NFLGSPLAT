@@ -60,3 +60,25 @@ def test_keypoints_and_pose_cache_relabelled():
     assert dropped == 1
     assert sorted(out["frames"][0]) == [1] and sorted(out["frames"][1]) == [1]
     assert blob["frames"][0][3] is out["frames"][0][1]
+
+
+def test_relabel_keypoint_tables_does_every_table_present(tmp_path):
+    """08z / 08za relabelled keypoints_2d.parquet only; the fits read keypoints_2d_ft2.parquet (play 1 from v106), which
+    every port patched by hand. Every table present follows the mapping, each backed up; an absent one is skipped."""
+    from nfl_gsplat.tracking.relabel import relabel_keypoint_tables
+
+    kdf = pd.DataFrame([("sideline", 548, 80, 0, 1.0, 1.0, 0.9), ("sideline", 548, 80, 1, 2.0, 2.0, 0.9),
+                        ("sideline", 474, 204, 0, 3.0, 3.0, 0.9), ("endzone", 540, 15, 0, 4.0, 4.0, 0.9)],
+                       columns=["cam", "frame", "global_player_id", "joint", "x", "y", "conf"])
+    kdf.to_parquet(tmp_path / "keypoints_2d.parquet", index=False)
+    kdf.to_parquet(tmp_path / "keypoints_2d_ft2.parquet", index=False)
+    m = {("sideline", 548, 80): 204, ("sideline", 474, 204): -1, ("endzone", 540, 15): 15}
+    rep = relabel_keypoint_tables(tmp_path, m, ".pre_fold")
+    assert [r[0] for r in rep] == ["keypoints_2d.parquet", "keypoints_2d_ft2.parquet"]
+    for name, n_rows, n_drop, n_changed, backup in rep:
+        got = pd.read_parquet(tmp_path / name)
+        assert (n_rows, n_drop, n_changed) == (3, 1, 2)
+        assert sorted(got.global_player_id) == [15, 204, 204]
+        assert (tmp_path / backup).exists() and len(pd.read_parquet(tmp_path / backup)) == 4
+    (tmp_path / "keypoints_2d_ft2.parquet").unlink()
+    assert [r[0] for r in relabel_keypoint_tables(tmp_path, m, ".pre_fold")] == ["keypoints_2d.parquet"]
