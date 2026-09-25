@@ -7261,3 +7261,35 @@ a point off the chain is skipped, not the chain's end; a step is bounded along t
 across it by 0.2 + 0.17 m per frame of gap (also refuses the box merged with #65 over him at 518-522). On the whole
 play only two long holes carry endzone points: id 4 (+17 frames, -491) and the centre 204 474-533 (+19; endzone t33
 on Humphrey there, film). Live 07l unchanged (steps 2 / hops 0 / census 0.16); the endzone strips A/B are running.
+
+### 2026-09-25 06:40 -- v112 reviewed; the hole chain and the pre-snap fill adopted; the endzone pose gap measured
+
+**v112 = CURRENT BEST (small).** v111 + the corrected roles: the hifi render's pre-snap ball sits at the centre's hands
+on the turf (review_v112 ball strip 388-402), in the quarterback's from 398. Its joints export equals v111's body for
+body (compare_exports: 4400/4400, no difference), so the viewer (Version 27) stands. The two camera-view renders were
+stopped to free the GPU (kill_views_v112.ps1; NOTE: a venv python.exe is a launcher with a child interpreter carrying
+the same command line -- a "stop two processes" watcher stops one render's pair).
+
+**Hole chain adopted (e792787 flag, 52202cd on).** Flags off reproduce v112 and flags on the runtime-patch what-if,
+exactly, on 13,424 drawn body-frames. Endzone film (05q strips diag/ov_chain_A|B): Madubuike over #92 on the turf
+instead of on #74's block; the centre on #52 512-528 (the old bridge drifted 0.5 m onto Thuney), 500-508 a bridge
+0.25 m right of him (no box on him there). Live 07l unchanged; depth ruler across p99 1.18 -> 0.86 m.
+
+**Pre-snap fill ON again (321850f).** Live tables: pre-snap |KC-11| 0.511 -> 0.400; the one drawn change is Trey Smith
+on 22 more pre-snap frames; live 07l unchanged; full census 1.49 -> 1.46. tests/test_play_timeline_structure.py pins
+the block under the line vouch.
+
+**The pose gap (next unit after v113).** With every pose cache counted (fused refit + the sideline regressor),
+262 of 4,684 live drawn body-frames (5.6 %) have no pose record of their id within 6 frames: Madubuike 122 (his
+hole), Thuney 52, the centre 35, ... -- 169 of them endzone-only. Pre-snap 462 of 7,855: Gray 165, the quarterback
+157 (fixed by the pre-snap fold: t25's records move to 80), Trey Smith 125. The timeline SLERPs across such a gap,
+which is why Madubuike is drawn upright while he crawls. The endzone camera's own regressor cache
+(poses_endzone.json, 05c) sees him lying -- trunk 56-70 deg off upright at clip 482-494, 28-42 deg while he lunges --
+but the loader never reads it: it is keyed by ENDZONE TRACK ids (45, 136 for id 4) and clip frames. A runtime patch
+(scratchpad patch_endzone_poses.py: records mapped to global ids and sideline frames, used only where no fused or
+sideline record lies within 3 frames; the endzone's wide boxes as "on the ground" only where the sideline has no box
+of the id) is being measured. An earlier count that used the refit cache alone read 30 % "stale" -- an instrument
+artifact (the sideline regressor fills those frames; the drawn joints articulate 0.06-0.2 m a step).
+
+**Pre-snap fold refit (copy) running:** presnap_refit.sh (05n/05f/05p on the folded tables, merge_relabelled onto the
+remapped live keys plus the relabelled men's new records on 14-400; arms A1/A2/A0 through one tail, chain + fill on).
