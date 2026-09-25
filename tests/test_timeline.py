@@ -1336,3 +1336,29 @@ def test_stand_still_bridge_blends_the_pose_across_the_hole():
     tlm.stand_still(tl2, {17: "KC"}, lo=395, hi=459, bridge_m=1.5, hold=False, blend_pose=False)
     e2 = [next(s for s in tl2.states[f] if s.pid == 17).body_pose[18][1] for f in range(419, 432)]
     assert max(np.diff(e2)) > 1.0                                        # the old midpoint switch, when asked for
+
+def test_endzone_pose_keys_map_clip_frames_and_track_ids_and_keep_off_other_records():
+    """The endzone cache is keyed by clip frames and endzone TRACK ids: a record maps to (clip frame - offset, the
+    tracks table's global id); one whose id has a fused or sideline record within the reach is left out; a track row
+    missing from the table maps to nothing."""
+    from nfl_gsplat.render.timeline import endzone_pose_keys
+
+    ez = {482: {136: "r1", 45: "r2"}, 488: {136: "r3"}, 500: {99: "r4"}}
+    gid = {(482, 136): 4, (482, 45): 12, (488, 136): 4}             # (500, 99) has no row
+    have = {12: [495, 496], 4: [430]}                                # id 12 has a record 2 frames from 497
+    keys = endzone_pose_keys(ez, gid, -15, have, reach=3)
+    assert sorted(keys) == [(497, 4, 482, 136), (503, 4, 488, 136)]
+    assert endzone_pose_keys(ez, gid, -15, have, reach=3, max_frame=500) == [(497, 4, 482, 136)]
+
+
+def test_endzone_only_lying_reads_the_endzone_box_only_where_the_sideline_has_none():
+    import pandas as pd
+    from nfl_gsplat.render.timeline import endzone_only_lying
+
+    rows = [("endzone", 500, 4, 0, 0, 150, 80),      # wide, no sideline box of 4 at 500: on the ground
+            ("endzone", 501, 7, 0, 0, 150, 80),      # wide, but the sideline boxes 7 at 501: a merged box, not lying
+            ("sideline", 501, 7, 0, 0, 60, 180),
+            ("endzone", 502, 4, 0, 0, 60, 180)]      # tall: standing
+    df = pd.DataFrame(rows, columns=["cam", "frame", "global_player_id", "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2"])
+    df["track_id"] = 1
+    assert endzone_only_lying(df, aspect=0.7) == {(500, 4)}

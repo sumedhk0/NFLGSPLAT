@@ -1146,6 +1146,54 @@ def merged_box_frames(df, *, cam: str = "sideline", h_ratio: float = MERGED_H_RA
     return out
 
 
+# The endzone camera's regressor cache (05c, poses_endzone.json) as a pose source. A body only the endzone sees had
+# no pose record at all: the loader read the fused refit and the SIDELINE regressor, and the endzone cache is keyed by
+# endzone TRACK ids and clip frames, so the timeline SLERPed across the gap. Play 1 (2026-09-25): 262 of 4,684 live
+# drawn body-frames had no record of their id within 6 frames, 169 of them endzone-only -- Madubuike (id 4) crawled on
+# the turf through his 443-528 sideline hole and was drawn upright, while the endzone regressor has his trunk 56-70 deg
+# off vertical there. A record is taken for (sideline frame, global id) only where no fused or sideline record of the
+# id lies within ENDZONE_POSE_REACH frames; the wide-box "on the ground" test reads the endzone's boxes only on frames
+# the sideline has no box of the id (a merged box beside a man the sideline sees is wide too). Read at call time.
+ENDZONE_POSES: bool = False
+ENDZONE_POSE_REACH: int = 3
+ENDZONE_POSES_PRESNAP_ONLY: bool = True   # the regressor holds a set man's stance; a moving man's records six
+                                           # frames apart blend into contortions (Madubuike's crawl, film 2026-09-25)
+ENDZONE_LYING: bool = False
+
+
+def endzone_pose_keys(ez_frames: dict, gid: dict, offset: int, have: dict, *, reach: int = None,
+                      max_frame: int | None = None) -> list:
+    """``[(sideline frame, global id, clip frame, track id)]`` of the endzone cache records to use: ``ez_frames`` clip
+    frame -> {track id: record}; ``gid`` (clip frame, track id) -> global id (the tracks table's endzone rows);
+    ``offset`` the clip offset (sideline frame = clip frame - offset); ``have`` global id -> sorted frames that already
+    carry a fused or sideline record. A record whose id has one within ``reach`` frames is left out, and one past
+    ``max_frame`` (a sideline frame) too."""
+    reach = ENDZONE_POSE_REACH if reach is None else int(reach)
+    out = []
+    for fc, recs in ez_frames.items():
+        fc = int(fc)
+        fs = fc - int(offset)
+        if max_frame is not None and fs > int(max_frame):
+            continue
+        for tid in recs:
+            g = gid.get((fc, int(tid)))
+            if g is None:
+                continue
+            h = have.get(int(g))
+            if h is not None and len(h) and int(np.min(np.abs(np.asarray(h) - fs))) <= reach:
+                continue
+            out.append((fs, int(g), fc, int(tid)))
+    return out
+
+
+def endzone_only_lying(df, *, aspect: float = None) -> set:
+    """``{(frame, pid)}`` whose ENDZONE box is wider than ``aspect`` times its height on a frame the sideline has no box
+    of that id (``df`` with the endzone rows on their sideline frames)."""
+    aspect = LYING_ASPECT if aspect is None else float(aspect)
+    side = set(zip(df.loc[df["cam"] == "sideline", "frame"].astype(int), df.loc[df["cam"] == "sideline", "global_player_id"].astype(int)))
+    return {k for k in lying_frames(df, cam="endzone", aspect=aspect) if k not in side}
+
+
 def lying_frames(df, *, cam: str = "sideline", aspect: float = LYING_ASPECT) -> set:
     """``{(frame, pid)}`` whose ``cam`` box is wider than ``aspect`` times its height: on the ground."""
     sub = df[(df["cam"] == cam) & (df["track_id"] >= 0)]

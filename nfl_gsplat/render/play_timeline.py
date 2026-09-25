@@ -446,6 +446,49 @@ def poses_from_caches(refit, side_blob, tracks, model):
     return out
 
 
+def _endzone_poses(P, poses, tracks, model):
+    """``poses`` plus the endzone regressor's records (timeline.endzone_pose_keys) in world orientation: the record's
+    camera-frame body placed through the endzone camera at its clip frame, as poses_from_caches places the sideline's."""
+    import pandas as pd
+    import torch
+    from scipy.spatial.transform import Rotation
+
+    from nfl_gsplat.pose.place_on_field import placement_transform
+
+    ez = pickle.load(open(P / "poses_endzone.json", "rb"))
+    off = clip_offset(P) or 0
+    df = pd.read_parquet(P / "tracks.parquet")
+    e = df[(df["cam"] == "endzone") & (df["track_id"] >= 0)]
+    gid = {(int(f), int(t)): int(g) for f, t, g in zip(e["frame"], e["track_id"], e["global_player_id"])}
+    have = {int(pid): sorted(int(f) for f in fr) for pid, fr in poses.items()}
+    tr = tracks["endzone"]
+    out = {pid: dict(fr) for pid, fr in poses.items()}
+    n = 0
+    snap = play_snap(P)
+    max_frame = (int(snap) - 1) if (tlm.ENDZONE_POSES_PRESNAP_ONLY and snap is not None) else None
+    for fs, g, fc, tid in tlm.endzone_pose_keys(ez["frames"], gid, off, have, max_frame=max_frame):
+        if fc >= len(tr.conf) or tr.conf[fc] <= 0:
+            continue
+        r = ez["frames"][fc][tid] if tid in ez["frames"][fc] else ez["frames"][fc][str(tid)]
+        intr, pose = tr.at(fc)
+        betas = np.asarray(r["betas"], np.float32)[None, :model.num_betas]
+        body_pose = np.asarray(r["body_pose"], np.float32).reshape(1, -1)
+        orient = np.asarray(r["global_orient"], np.float32).reshape(1, 3)
+        with torch.no_grad():
+            res = model(betas=torch.tensor(betas), body_pose=torch.tensor(body_pose), global_orient=torch.tensor(orient))
+        b = r["bbox"]
+        try:
+            rot_world, _o = placement_transform(res.joints[0].numpy().astype(float), (0.5 * (b[0] + b[2]), float(b[3])),
+                                                intr.K(), pose.R, pose.t)
+        except Exception:
+            continue
+        go_world = (Rotation.from_matrix(rot_world) * Rotation.from_rotvec(np.asarray(r["global_orient"], float).reshape(3))).as_rotvec()
+        out.setdefault(int(g), {})[int(fs)] = (np.asarray(r["body_pose"], float).reshape(21, 3), go_world,
+                                               np.asarray(r["betas"], float)[:10], "endzone")
+        n += 1
+    return out, n
+
+
 def _drop_against_facing_prior(P, poses, ground, views):
     """timeline.DROP_AGAINST_PRIOR: the tracking-learnt facing prior (pose.action_class) on the placed ground tracks,
     acting on the frames only the sideline sees."""
@@ -934,6 +977,10 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         print(f"endzone-only ids revived on their vouched frames: {sorted(revived)} ({n_cut} unvouched body-frames cut, "
               f"{n_fold} sideline fragment body-frames folded into them)")
     poses = poses_from_caches(refit, side_blob, tracks, model)
+    if tlm.ENDZONE_POSES and "endzone" in tracks and (P / "poses_endzone.json").exists():
+        poses, n_ez = _endzone_poses(P, poses, tracks, model)
+        print(f"endzone regressor records for frames no fused or sideline record reaches "
+              f"(within {tlm.ENDZONE_POSE_REACH}): {n_ez}")
     if tlm.DROP_UNBOXED_POSES:
         boxed = set(zip(df["frame"].astype(int).tolist(), df["global_player_id"].astype(int).tolist()))
         poses, n_unboxed = tlm.drop_unboxed_poses(poses, boxed)
@@ -1018,6 +1065,11 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
     default_pose = tlm.median_pose(all_bp) if all_bp else np.zeros((21, 3))
     default_betas = np.median(np.stack(all_betas), axis=0) if all_betas else np.zeros(10)
     lying = tlm.lying_frames(df)
+    if tlm.ENDZONE_LYING:
+        ez_lying = tlm.endzone_only_lying(df)
+        print(f"on the ground from the endzone's boxes (frames the sideline has no box of the id): {len(ez_lying)} "
+              f"body-frames, ids {sorted({p for _f, p in ez_lying})[:12]}")
+        lying = lying | ez_lying
     if lying:
         print(f"on the ground (sideline box wider than {tlm.LYING_ASPECT:.1f} of its height): {len(lying)} body-frames, "
               f"ids {sorted({p for _f, p in lying})[:12]}")
