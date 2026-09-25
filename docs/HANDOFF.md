@@ -7089,3 +7089,12 @@ written. RESUME: re-run the endzone view (05k --view-camera endzone ... --out-di
 flags as v109's; it resumes from the frames on disk), then the v109-vs-v110 film strips for id 12 (588-600) and Oweh 15
 (596-608) on both views; if they hold, v110 = CURRENT BEST. Scratch scripts: $S/chain_v110.sh (re-runnable end to end),
 $S/film_v110.sh.
+
+### 2026-09-25 00:15 -- v110 = CURRENT BEST (render finished after the power-off; film-checked on both cameras)
+
+The endzone view resumed from its 172 frames. v109 vs v110 renders against the film ($S/v110diff_id12.png,
+$S/v110_id12_ez.png, $S/v110_id15_ez.png): id 12 (a KC guard, on his man) keeps his back to the endzone camera through
+588-606 as the film has him (v109 turned his face to it at 594) and no longer spins on the sideline view; on the
+sideline his facing is left toward the defender but on the far side of it (the records after 596 sit 50-80 deg off the
+film's slightly-toward-the-camera facing) -- steadier and closer, not exact. Oweh at 596-608 barely changes. Viewer
+Version 26 = v110. Next: VPoser in the fit re-measured on the fixed 05p ($S/vp_chain.sh, running).
