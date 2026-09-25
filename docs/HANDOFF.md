@@ -7204,3 +7204,13 @@ torso worst step 70 -> 40.
 
 Still open on the line: id 4 (BAL) 1.4 m across in his 443-528 sideline hole (hole-hold, not identity); the centre's
 endzone rows at 531-577 sit on a box shared with the Raven he blocks.
+
+### 2026-09-25 05:15 -- v111 = CURRENT BEST (rendered, film-checked on both cameras)
+
+Live 07l: steps 2 / hops 0 / census 0.16 (KC 10.96, BAL 11.03). 09d on v111 vs v110: jerk 5 -> 4, R leg sideways
+6.0 -> 5.1 % (Thuney off the worst list), L arm 6.7 -> 6.3, R arm 13.3 -> 13.5; the look over 20 deg per step 1.08 ->
+0.87 %, eye accel p99 0.230 -> 0.209; depth ruler across p99 1.18 m (v110 2.33). Film (endzone view v110 | v111,
+$S/v111_thuney_ez.png, _76_ez, _centre_ez): Thuney projects on #62; the left tackle at 440 in a pass-set stance where
+v110 lunged; at 500 the centre and Thuney drawn side by side like the film (v110: one lineman with a Raven in front).
+Whole-scene sheet unchanged. Viewer Version 27, write-up Version 16. Next accuracy units: id 4's hole (the hole hold
+pins him to the sideline's line while the endzone boxes him rushing on); the remaining arm-pose tail.
