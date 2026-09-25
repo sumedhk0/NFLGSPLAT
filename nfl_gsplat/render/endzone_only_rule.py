@@ -691,7 +691,11 @@ def pocket_vouch(ground, views, side_ground, *, snap: int, end: int, teams: dict
 # at twelve or more 34 -> 41. The loader's presnap_fill takes False / "vouched" / True.
 # DEAD CODE 2026-09-20..25 (5779113 nested the loader's block under the switched-off short-team vouch); moved back
 # 2026-09-25 with the default OFF -- the state v110-v112 shipped -- until re-measured on today's tables.
-PRESNAP_FILL: bool = False
+# RE-MEASURED 2026-09-25 (v113): on the live tables pre-snap |KC-11| 0.511 -> 0.400; the one drawn change is Trey
+# Smith (76) on 22 more pre-snap frames (150 -> 172 of 180: his endzone-only frames the span rule took against the
+# quarterback's sideline point 1.3 m across, vouched on both sides); every other filled id is left out later and
+# never drawn; the live 07l rulers are unchanged (steps 2 / hops 0 / census 0.16). ON again.
+PRESNAP_FILL: bool = True
 PRESNAP_FILL_ACROSS_M: float = 0.7
 PRESNAP_FILL_ALONG_M: float = 2.0
 
