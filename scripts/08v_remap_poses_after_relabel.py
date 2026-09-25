@@ -112,25 +112,39 @@ def main() -> None:
         d = pickle.load(open(fp, "rb"))
         frames = d.get("frames", {})
         moved, by_new, removed = 0, {}, 0
+        rebuilt: dict = {}
         for f, per in frames.items():
             if not isinstance(per, dict):
                 continue
-            for old in list(per.keys()):
+            # per frame: records that stay under their id first, then the moving ones; a moving record whose target
+            # id is posed here already (it stays, or an earlier move took it) is that man's box under the old id --
+            # play 1 2026-09-25: the quarterback's record on the centre's box, the centre posed there by the endzone
+            # -- and goes; two ids that trade rows trade records
+            stay, moves = {}, []
+            for old, rec in per.items():
                 new = m.get((int(f), int(old)))
-                if new is None and (int(f), int(old)) in drops:
-                    if args.apply:
-                        per.pop(old)
+                if new is None:
+                    if (int(f), int(old)) in drops:
+                        removed += 1
+                    else:
+                        stay[old] = rec
+                else:
+                    moves.append((new, rec))
+            out_per = dict(stay)
+            for new, rec in moves:
+                if new in out_per:
                     removed += 1
                     continue
-                if new is None or new in per:
-                    continue
-                if args.apply:
-                    per[new] = per.pop(old)
+                out_per[new] = rec
                 moved += 1
                 by_new[new] = by_new.get(new, 0) + 1
+            rebuilt[f] = out_per
+        if args.apply:
+            for f, out_per in rebuilt.items():
+                frames[f] = out_per
         print(f"  {name} (cam {d.get('cam')}): {moved} posed frames "
               f"{'moved' if args.apply else 'would move'} across {len(by_new)} new ids; {removed} "
-              f"{'removed' if args.apply else 'would go'} with their dropped row")
+              f"{'removed' if args.apply else 'would go'} (their row dropped, or its man posed there already)")
         if args.apply and (moved or removed):
             b = backup_path(fp, ".pre08v")             # never overwrites an earlier pass's backup
             shutil.copy2(fp, b)
