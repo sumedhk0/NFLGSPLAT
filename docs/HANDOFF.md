@@ -7214,3 +7214,17 @@ $S/v111_thuney_ez.png, _76_ez, _centre_ez): Thuney projects on #62; the left tac
 v110 lunged; at 500 the centre and Thuney drawn side by side like the film (v110: one lineman with a Raven in front).
 Whole-scene sheet unchanged. Viewer Version 27, write-up Version 16. Next accuracy units: id 4's hole (the hole hold
 pins him to the sideline's line while the endzone boxes him rushing on); the remaining arm-pose tail.
+
+### 2026-09-25 05:40 -- a v111 regression found and fixed: the centre's role (v112 renders)
+
+The ball path (08y) and the loader's quarterback-under-centre hold both take the centre as the role-OL id nearest the
+mean across of the role-OL ids at the snap. Folding 17 (role OL) into 204 dropped 17's role and 204 (Humphrey) had
+none, so both picked 139 (Thuney): the v111 render has the pre-snap ball in Thuney's hands and ball.json lost 150 frames
+(251 of 401). The role list was polluted besides: Kelce (11) was OL, the left tackle (37) and Trey Smith (76) had no
+role. Fixed in identity_resolved.pkl (play_001 and play_copy; backup *.pre_role204): 11 = TE, 37 / 76 / 204 = OL.
+08y now: centre 204, 401 frames. NOTE for any fold: carry the dropped id's ROLE to the kept id -- 08z pops the dropped
+id's roles entry. The QB hold still takes out 146 pre-snap frames of 139 (Thuney's pre-snap sideline track): the
+same frames it took out of 204 in v110, so not new; whether t25's early pre-snap rows are Thuney or the quarterback is
+open. The id-19 "P19" (jersey 67, role OL) stands 0.5 m from #76 at the snap: a probable twin, open.
+v111's viewer (Version 27) used the earlier ball file (401 frames) and is unaffected. v112 = v111 + the roles: export
+and render running.
