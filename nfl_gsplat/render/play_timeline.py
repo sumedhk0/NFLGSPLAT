@@ -920,6 +920,15 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                 by_f.setdefault(p_, []).append(f_)
             print(f"pose records facing against their neighbours dropped: {len(flipped)} on {len(by_f)} ids -- "
                   + ", ".join(f"{p_}: {sorted(v)}" for p_, v in sorted(by_f.items())))
+    if tlm.DROP_DETOUR_KEYFRAMES:
+        poses, detours = tlm.drop_detour_keyframes(poses, detour_deg=tlm.DETOUR_DEG, max_run=tlm.DETOUR_MAX_RUN,
+                                                   span=tlm.DETOUR_SPAN)
+        if detours:
+            by_d: dict = {}
+            for p_, f_ in detours:
+                by_d.setdefault(p_, []).append(f_)
+            print(f"pose records turning a man the long way round dropped: {len(detours)} on {len(by_d)} ids -- "
+                  + ", ".join(f"{p_}: {sorted(v)}" for p_, v in sorted(by_d.items())))
     # Roster height is the one shape fact worth imposing: the regressor's
     # betas sit near neutral (1.72 m) and these players median 1.85 m.
     ident_path = P / "identity_resolved.pkl"

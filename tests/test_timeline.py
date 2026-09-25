@@ -1270,3 +1270,33 @@ def test_drop_flipped_keyframes_needs_enough_neighbours():
     poses = {4: {0: _faced(0), 6: _faced(180, "sideline"), 12: _faced(0)}}
     out, dropped = tl.drop_flipped_keyframes(poses)
     assert dropped == [] and len(out[4]) == 3
+
+
+def test_drop_detour_keyframes_drops_two_wrong_records_between_the_groups():
+    """Play 1 v109 id 12 (KC #71, facing his man throughout on the film): regressor records at 590 (-92) and 596 (+58)
+    between records at 180 and +130; each agrees with one side, so the vote keeps both, and the SLERP spun him 314
+    degrees. Without the pair the turn is 47 degrees."""
+    poses = {12: {566: _faced(-157, "sideline"), 572: _faced(179, "sideline"), 578: _faced(180, "sideline"),
+                  584: _faced(-179, "sideline"), 590: _faced(-92, "sideline"), 596: _faced(58, "sideline"),
+                  602: _faced(134, "sideline"), 608: _faced(127, "sideline"), 614: _faced(136, "sideline")}}
+    kept, flipped = tl.drop_flipped_keyframes(poses)
+    assert flipped == []                                           # the vote cannot see it
+    out, dropped = tl.drop_detour_keyframes(poses)
+    assert sorted(f for _p, f in dropped) == [590, 596] and 584 in out[12] and 602 in out[12]
+
+
+def test_drop_detour_keyframes_keeps_sparse_spins_and_half_turns():
+    # a 360 deg spin sampled every 6 frames (72 deg a record), and a half turn with one record halfway
+    spin = {6 * i: _faced(72 * i - 180, "sideline") for i in range(6)}
+    half = {0: _faced(0), 6: _faced(90), 12: _faced(180), 18: _faced(180)}
+    out, dropped = tl.drop_detour_keyframes({1: spin, 2: half})
+    assert dropped == [] and len(out[1]) == 6 and len(out[2]) == 4
+
+
+def test_drop_detour_keyframes_respects_the_span():
+    # the same wrong pair, but its neighbours 40 frames apart: a real turn could hide in a gap that long
+    poses = {3: {0: _faced(180), 10: _faced(-92), 20: _faced(58), 40: _faced(134)}}
+    out, dropped = tl.drop_detour_keyframes(poses, span=24)
+    assert dropped == []
+    out, dropped = tl.drop_detour_keyframes(poses, span=48)
+    assert sorted(f for _p, f in dropped) == [10, 20]

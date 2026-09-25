@@ -1059,6 +1059,58 @@ def drop_flipped_keyframes(poses_by_pid: dict, *, reach: int = None, agree_deg: 
     return out, dropped
 
 
+# ... and a run of up to DETOUR_MAX_RUN records whose removal shortens the man's turn between its neighbours (within
+# DETOUR_SPAN frames) by more than DETOUR_DEG goes. Two wrong records in a row can sit between the two groups of an id's
+# records -- each agrees with one side, so the vote keeps both -- and the SLERP takes the man the long way round
+# through them. Play 1 v109, on the film: id 12 (KC #71, engaged and facing his man throughout 576-606) had regressor
+# records at 590 (-92 deg) and 596 (+58) between records at 180 and +130: drawn as a 314-degree spin, a 47-degree turn
+# without them. A real spin sampled every 6 frames saves nothing (each record lies on the short way between its
+# neighbours), nor does a half turn with one record halfway. Largest saving first, re-counted after each drop. Read at
+# call time by the loader.
+DROP_DETOUR_KEYFRAMES: bool = True
+DETOUR_DEG: float = 170.0
+DETOUR_MAX_RUN: int = 2
+DETOUR_SPAN: int = 24
+
+
+def drop_detour_keyframes(poses_by_pid: dict, *, detour_deg: float = None, max_run: int = None,
+                          span: int = None) -> tuple[dict, list]:
+    """``poses_by_pid`` with each id's detour runs removed (DROP_DETOUR_KEYFRAMES); returns ``(poses,
+    [(pid, frame), ...])`` in drop order. Knobs default to the module's values at call time."""
+    detour = np.radians(DETOUR_DEG if detour_deg is None else float(detour_deg))
+    max_run = DETOUR_MAX_RUN if max_run is None else int(max_run)
+    span = DETOUR_SPAN if span is None else int(span)
+
+    def turn(a, b):
+        return abs((b - a + np.pi) % (2.0 * np.pi) - np.pi)
+
+    out: dict = {}
+    dropped: list = []
+    for pid, recs in poses_by_pid.items():
+        kept = dict(recs)
+        yaw = {int(f): yaw_of(r[1]) for f, r in kept.items()}
+        while True:
+            fs = sorted(int(f) for f in kept)
+            best = None
+            for i in range(1, len(fs) - 1):
+                for n in range(1, max_run + 1):
+                    j = i + n - 1
+                    if j >= len(fs) - 1 or fs[j + 1] - fs[i - 1] > span:
+                        break
+                    through = sum(turn(yaw[fs[k]], yaw[fs[k + 1]]) for k in range(i - 1, j + 1))
+                    save = through - turn(yaw[fs[i - 1]], yaw[fs[j + 1]])
+                    if save > detour and (best is None or save > best[0]):
+                        best = (save, fs[i:j + 1])
+            if best is None:
+                break
+            for f in best[1]:
+                del kept[f]
+                dropped.append((pid, f))
+        if kept:
+            out[pid] = kept
+    return out, dropped
+
+
 def merged_box_frames(df, *, cam: str = "sideline", h_ratio: float = MERGED_H_RATIO, w_ratio: float = MERGED_W_RATIO) -> set:
     """``{(frame, pid)}`` whose ``cam`` box is over ``h_ratio`` times the id's median height in that camera or
     ``w_ratio`` times its median width: the detector merged him with a neighbour. Ids with under 5 rows are skipped
