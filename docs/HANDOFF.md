@@ -7420,3 +7420,39 @@ the left tackle wobbling ~6 m/s across in his stance. The centre slides 1.4 m ac
 at 510-526, and swings 1.2 m out and back at 558-584; Madubuike, with no detection in either camera at 590-606, moves
 2.3 m in 16 frames. The step ruler (> 0.25 m/frame) never sees them: the smoother spreads each slide over frames.
 Placement ablation running (own-id snap off, depth snap off, refit placement off, despike off).
+
+### 2026-09-25 13:45 -- v116 = CURRENT BEST (viewer Version 31); surges: two placement fixes measured; the gait stays; v117 identity fixes on the copy
+
+**v116 rendered and film-checked** (swallowed 05r): Madubuike drawn lunging low into #65 through 444-486 on the hi-fi
+render (review_v116/strips/render_4_f444.png), as on the endzone film. 07l = v115's. Viewer Version 31.
+
+**Surges (the new ruler, $S/surge_ruler.py) -- mechanisms and two fixes, runtime patches, measured on v116's tables:**
+- rate by placing source: two-view 7 %, sideline-only 24 %, endzone-only 33 %. The depth snap is not the cause (off /
+  own-id off / carrying its correction: 779 / 850 / 728 vs 769 on the timeline dump).
+- along-ray smoothing ($S/patch_xy_aniso.py; XY_ALONG 9 reproduces the shipped smoother to 6e-14 m): 31 frames
+  along the sideline ray, 9 across -> surges 396 -> 116, steps full 36 -> 20 / live 2 -> 0, census live 0.13 -> 0.04,
+  planted 14 -> 37 %, joint jitter p99 0.169 -> 0.160; endzone film joint p99 113 -> 81 px, over 40 px 8.0 -> 7.3 %;
+  sideline film flat; pre-snap flat.
+- FEET anchoring ($S/patch_feet_anchor2.py): placed_body puts the pelvis over a feet-measured point; states placed
+  from feet points (not the refit's pelvis, 25 % of states) move by the posed pelvis - ankle offset (+-7-frame mean,
+  weighted by the feet share): endzone offset p50/p90/p99 9.6/31.4/108 -> 8.8/26.1/90, Madubuike 49 -> 23 px mean;
+  sideline tail slightly worse (Thuney). Moving every state (variant 1) hurt the QB / LT: refit points are pelvis-exact.
+- COMBINED (31 box + feet v2): surges 396 -> 127, steps 36 -> 20 / 2 -> 0, census 0.13 -> 0.04, endzone joints over
+  40 px 8.0 -> 5.0 %, p99 113 -> 87; sideline over 20 px 9.3 -> 10.3 %. Savitzky-Golay along the ray (31, 45) running.
+  Repo change staged as $S/patch_repo_v117.py (timeline.smooth_xy along_window/centre, play_timeline.anchor_feet);
+  applied only when no render/refit process imports those modules.
+
+**The gait vs the lock on the fitted legs (gait never fires, lock at every speed): the gait STAYS.** The keypoint
+ruler preferred the fitted legs (id 9 sideline legs 17.5 -> 9.3 px) but the sideline-view renders beside the footage
+($S/fvr_id9_big.png) show the fitted sprinter crouched with his legs under him where the film has long strides; the
+gait draws the strides. Id 3 mixed. A keypoint ruler on a small blurred sprinter is not the film.
+
+**Identity: short excursions ($S/foreign_rows.py) -- v117 on the copy.** The quarterback's sideline id on the
+centre's track 54 at 548-549 / 557 / 568-569: the refit fitted the centre's box, AGREED with the wrong box (passes the
+1 m shift gate) and place_from_refit interpolated 537-547 toward it -- the QB walked 1.3 m along the field (sideline
+film -54 px at 542). The centre on 84's track at 474 (a duplicate box). The left tackle's endzone id alternating
+between his own box (track 25) and track 37, which drifted onto the Raven he blocks (a twin of Raven 15's own box,
+IoU 0.96 at 540) -- the scan's suggestion (drop track 25) was WRONG, the film said drop track 37. Tools fixed
+(79204b6, 41a1852): 08z / 08za relabel keypoints_2d_ft2.parquet too (every port had patched it by hand), 08za
+--track-id and runs 08v, 08v drops records whose row was dropped or whose row moved to an id posed there already
+(the QB kept the centre's record otherwise), swaps trade. Copy: fold + two drops applied, refit running.
