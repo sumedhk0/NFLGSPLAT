@@ -57,6 +57,40 @@ def select_frames(rec_frames: list, frames: list, reach: int) -> list:
     return out
 
 
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def swallowed(box_of: dict, pid: int, fc: int, *, window: int = 6, iou_min: float = 0.3, twin_iou: float = 0.5):
+    """The id whose man ``pid``'s endzone box at clip frame ``fc`` has taken, or None. ``box_of``: {clip frame: {id: box
+    (x1, y1, x2, y2)}}. A box the detector drew over two men either leaves the other man with no box of his own (his
+    box overlapped this id's at IoU >= ``iou_min`` on one of the last ``window`` frames and he has none at ``fc``) or is
+    his box too (his box at ``fc`` overlaps at IoU >= ``twin_iou``). A man stretched out on his own (a lunge, a dive) is
+    as wide, with every neighbour still boxed beside him. Play 1: Madubuike lunging between #65 and #74 at 444-468
+    (x1.7-1.9 his median width, #65 boxed beside him at IoU ~0.1, his keypoints his own on the film) against 518-522
+    (#65's box, IoU 0.62 at 516, gone into his, the keypoints #65's)."""
+    here = box_of.get(fc, {})
+    me = here.get(pid)
+    if me is None:
+        return None
+    for q, b in here.items():
+        if q != pid and _iou(me, b) >= twin_iou:
+            return q
+    for j in range(1, window + 1):
+        past = box_of.get(fc - j, {})
+        mine = past.get(pid)
+        if mine is None:
+            continue
+        for q, b in past.items():
+            if q != pid and q not in here and _iou(mine, b) >= iou_min:
+                return q
+    return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--play-dir", required=True, type=Path)
@@ -77,6 +111,10 @@ def main() -> None:
     ap.add_argument("--max-width-ratio", type=float, default=1.5,
                     help="skip a frame whose endzone box is wider than this times the id's median endzone box width "
                          "(a box merged with the man beside him: play 1 id 4 at 516-522 fitted #65's keypoints)")
+    ap.add_argument("--merged-rule", choices=("width", "swallowed"), default="width",
+                    help="width: every box over --max-width-ratio is merged; swallowed: only one that has also taken a "
+                         "neighbour's box (swallowed()), so a man stretched out on his own is fitted")
+    ap.add_argument("--merged-window", type=int, default=6, help="swallowed's look-back, clip frames")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--body-models", type=Path, default=Path("data/body_models"))
     ap.add_argument("--no-roster-betas", action="store_true")
@@ -109,8 +147,11 @@ def main() -> None:
         for tid, r in recs.items():
             ez_by_tid.setdefault(int(tid), {})[int(fc)] = r
     box = {(int(r.frame), int(r.global_player_id)): (r.bbox_x1, r.bbox_y1, r.bbox_x2, r.bbox_y2) for r in e.itertuples()}
+    box_of: dict = {}
+    for (fc_, gid_), b_ in box.items():
+        box_of.setdefault(fc_, {})[gid_] = b_
     med_w = (e["bbox_x2"] - e["bbox_x1"]).groupby(e["global_player_id"]).median().to_dict()
-    n_merged = 0
+    n_merged = n_wide_kept = 0
     lo, hi = args.frames
     cand = list(range(lo - (lo % args.stride), hi + 1, args.stride))
     jobs = []
@@ -148,8 +189,10 @@ def main() -> None:
                 betas_seen.append(np.asarray(r["betas"], float)[:10])
             b = box.get((fc, pid))
             if b is not None and med_w.get(pid) and (b[2] - b[0]) > args.max_width_ratio * float(med_w[pid]):
-                n_merged += 1
-                continue
+                if args.merged_rule == "width" or swallowed(box_of, pid, fc, window=args.merged_window) is not None:
+                    n_merged += 1
+                    continue
+                n_wide_kept += 1
             lying = (b is not None and (fs, pid) not in side_keys
                      and (b[3] - b[1]) / max(1.0, b[2] - b[0]) < args.lying_aspect)
             frames.append(fs); uv.append(u); conf.append(c); cams.append((K, R, t))
@@ -171,7 +214,8 @@ def main() -> None:
     n_frames = sum(len(j["frames"]) for j in jobs)
     print(f"{len(jobs)} ids with endzone keypoints and no record within {args.reach} frames on {lo}-{hi}: {n_frames} "
           f"frames to fit ({sum(sum(1 for o in j['cfg_overrides'] if o) for j in jobs)} on the ground; {n_merged} skipped "
-          f"on a merged box); {n_rej} keypoint outliers rejected")
+          f"on a merged box, {n_wide_kept} wide boxes kept by the {args.merged_rule} rule); {n_rej} keypoint outliers "
+          f"rejected")
     if not jobs:
         raise SystemExit("nothing to fit")
     if args.workers > 1 and len(jobs) > 1:
