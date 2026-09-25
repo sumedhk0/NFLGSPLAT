@@ -7314,3 +7314,20 @@ moving men contort (records 6 frames apart) -> ENDZONE_POSES_PRESNAP_ONLY. A/B o
 #76 (sideline-backed) are both drawn 36-115 px left of their own endzone ankle keypoints (the endzone film): #76's
 depth along the sideline's line of sight is a metre off where the depth snap did not take the endzone's point, and
 Thuney's endzone box merges with #76's. Next placement unit after v113.
+
+### 2026-09-25 08:40 -- v113 = CURRENT BEST (rendered; film-checked); v114 rendering
+
+**v113** = v112 + the hole chain (skip + across-ray bound) + the pre-snap fill back on + the pre-snap KC line and
+quarterback fold (+ refit) + the endzone camera's regressor poses before the snap. Live 07l: steps full 37 (v112 42)
+/ live 2, hops 0, census live 0.13 (0.16), full 1.40 (1.49); pre-snap |KC-11| 0.51 -> 0.06; depth ruler across p99
+1.18 -> 0.86 m; 09d live unchanged (jerk 4), pre-snap trunk past 70 deg 140 -> 65. Film: endzone 05q strips per change
+(diag/ov_chain_*, ov_ezpre_*, ov_snap_*), the hifi render strips (review_v113: the set line crouched, the quarterback
+under centre, Madubuike placed at #65's block -- his crawl still drawn as a lunge). The camera-view renders were
+stopped (kill_views_v113.ps1, kills every match until the chain reports done) to go straight to v114. Viewer Version
+28 (joints_v113), write-up Version 17.
+
+**v114 (rendering since 08:32)** = v113 + id 186 untangled (sideline t80 524-567 = Thuney's twin, dropped; endzone
+t22 512-526 = the quarterback, folded into 80; live tables snapshotted *.v113) + depth_snap.SNAP_OWN_ID on (fb10956;
+the quarterback 585-606 and #76 580-601 on their own keypoints in the endzone film, a metre off before). Next after
+v114: Madubuike's crawl (an endzone keypoint fit for moving endzone-only men; the regressor's records six frames apart
+contort), Thuney 586-601 on a box merged with #76's.
