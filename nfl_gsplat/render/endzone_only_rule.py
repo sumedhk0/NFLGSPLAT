@@ -289,8 +289,13 @@ HOLE_CHAIN_GAP: int = 5                 # ... across gaps of at most this many f
 # isotropic 1.8 m three-frame bound) was taken, the true point at 493 then failed and ended the chain, and the rule
 # deleted 493-516 while the endzone boxed him on: the timeline held him still a metre off. The across bound also
 # refuses the box merged with the guard over him at 518-522 (1.2 m across). Read at call time by the loader.
-HOLE_CHAIN_SKIP: bool = False
-HOLE_CHAIN_ACROSS_M: float | None = None   # None: the shipped isotropic bound (step_m per frame of gap)
+# ADOPTED 2026-09-25 (v113): on play 1 only two long holes carry endzone points and only their ids move. Endzone film
+# (05q strips): Madubuike drawn over #92 on the turf instead of on #74's block 490-518; the centre on #52 512-528
+# (the old bridge drifted half a metre onto Thuney), 500-508 a bridge 0.25 m right of him (no box on him there).
+# Live 07l unchanged (steps 2 / hops 0 / census 0.16); depth ruler across p99 1.18 -> 0.86 m, over 1.5 m 2.8 -> 2.1 %;
+# frames the hole rule deleted 42 -> 11. Flags off reproduce v112 exactly (13,424 body-frames).
+HOLE_CHAIN_SKIP: bool = True
+HOLE_CHAIN_ACROSS_M: float | None = 0.2   # None: the shipped isotropic bound (step_m per frame of gap)
 HOLE_CHAIN_SPEED_M: float = 0.17
 
 
