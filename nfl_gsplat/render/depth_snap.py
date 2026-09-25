@@ -90,6 +90,36 @@ def snap_one(xy, centre, others, *, lateral_m: float = LATERAL_M, margin_m: floa
     return cands[0][2], cands[0][1]
 
 
+# The body's OWN endzone detection first. The positional snap below takes the nearest same-team endzone body within
+# LATERAL_M of the sideline ray and refuses when a runner-up lies within MARGIN_M of it -- two bodies on one ray. Men
+# side by side across the field share a sideline ray, so on play 1 the refusal left #76 and the quarterback a metre off
+# in depth at 580-606 (endzone film: drawn on empty turf beside their own keypoints) while the endzone boxed each
+# under his own id. With SNAP_OWN_ID, an id whose own endzone point lies within OWN_LATERAL_M of its ray (and within
+# MAX_MOVE_M along it) slides onto it with no margin test; otherwise the positional snap. The outlier and jump vetoes
+# still apply. Read at call time.
+SNAP_OWN_ID: bool = False
+OWN_LATERAL_M: float = 0.8
+
+
+def snap_own(xy, centre, own, *, lateral_m: float = None, max_move_m: float = MAX_MOVE_M):
+    """``xy`` slid along its ray from ``centre`` onto ``own`` (the id's own point in the other camera), or None when
+    ``own`` lies more than ``lateral_m`` (default OWN_LATERAL_M) off the ray or more than ``max_move_m`` along it."""
+    lateral_m = OWN_LATERAL_M if lateral_m is None else float(lateral_m)
+    xy = np.asarray(xy, float)
+    centre = np.asarray(centre, float)
+    u = xy - centre
+    n = float(np.linalg.norm(u))
+    if n < MIN_RAY_M:
+        return None
+    u = u / n
+    e = np.asarray(own, float)
+    along = float((e - centre) @ u)
+    lateral = float(np.linalg.norm((e - centre) - along * u))
+    if lateral > lateral_m or abs(along - n) > max_move_m:
+        return None
+    return centre + along * u
+
+
 EXCLUSIVE: bool = False     # one endzone body snaps at most one sideline body per frame (the nearer ray keeps it;
                             # measured 2026-09-18: 116 of 4337 live snaps had two claimants)
 
@@ -128,7 +158,7 @@ def veto_outlier_snaps(deltas: dict, *, window: int = VETO_WINDOW, veto_m: float
 def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, frame_shift: int = 0,
                 lateral_m: float = LATERAL_M, margin_m: float = MARGIN_M, max_move_m: float = MAX_MOVE_M,
                 veto_window: int = VETO_WINDOW, veto_m: float = VETO_M, exclusive: bool | None = None,
-                jump_m: float | None | bool = None):
+                jump_m: float | None | bool = None, own_id: bool | None = None, own_lateral_m: float | None = None):
     """``(ground, n_snapped)``: ``ground_side`` (frame -> {pid: xy}) with each body sliding along
     its own ray to the nearest body of ``ground_other`` (keyed by that camera's own frames, i.e.
     ``frame + frame_shift``). ``teams`` ``{pid: team}`` gates the match; an id whose team is
@@ -136,6 +166,7 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
     undone (veto_outlier_snaps; ``veto_window`` 0 turns that off)."""
     out: dict = {}
     deltas: dict = {}
+    own_on = SNAP_OWN_ID if own_id is None else bool(own_id)
     for f, bodies in ground_side.items():
         others_all = ground_other.get(int(f) + int(frame_shift))
         if not others_all or int(f) >= len(track.conf) or track.conf[int(f)] <= 0:
@@ -148,8 +179,16 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
             side = None if teams is None else teams.get(int(pid))
             others = ({q: e for q, e in others_all.items() if teams.get(int(q)) == side}
                       if (teams is not None and side is not None) else dict(others_all))
-            moved, took = snap_one(xy, centre, others, lateral_m=lateral_m, margin_m=margin_m,
-                                   max_move_m=max_move_m)
+            moved = took = None
+            if own_on:
+                own = others_all.get(pid, others_all.get(int(pid)))
+                if own is not None:
+                    moved = snap_own(xy, centre, own, lateral_m=own_lateral_m, max_move_m=max_move_m)
+                    if moved is not None:
+                        took = pid if pid in others_all else int(pid)
+            if moved is None:
+                moved, took = snap_one(xy, centre, others, lateral_m=lateral_m, margin_m=margin_m,
+                                       max_move_m=max_move_m)
             new[pid] = moved
             if took is not None:
                 took_by.setdefault(int(took), []).append((_lateral(xy, centre, others_all[took]), int(pid)))

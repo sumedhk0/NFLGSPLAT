@@ -108,3 +108,28 @@ def test_veto_jumps_undoes_a_run_of_snaps_that_make_the_body_jump_but_keeps_a_co
     out2 = {f: {7: np.array([0.0, 0.1 * f + (0.4 if f >= 5 else 0.0)]), 9: np.array([1.0, 3.0])} for f in range(5, 10)}
     side2 = {f: {7: np.array([0.0, 0.1 * f]), 9: np.array([1.0, 1.0])} for f in range(5, 10)}
     assert veto_jumps(out2, side2, {7: {f: 0.4 for f in range(5, 10)}, 9: {5: 2.0}}, set(), jump_m=0.6) == set()
+
+def test_snap_own_id_resolves_two_bodies_on_one_ray():
+    """Two teammates side by side across the field sit on the same sideline ray: the positional snap refuses (a
+    runner-up within MARGIN_M), the id's own endzone point settles it; the flag off keeps the shipped refusal."""
+    import numpy as np
+
+    from nfl_gsplat.render import depth_snap as ds
+
+    class _Track:
+        conf = np.ones(10)
+
+    centre = np.array([0.0, -100.0])
+    ds_centre = ds.camera_ground_centre
+    ds.camera_ground_centre = lambda track, f: centre
+    try:
+        side = {5: {37: np.array([0.0, -3.7]), 80: np.array([2.0, 0.0])}}
+        other = {5: {37: np.array([0.05, -2.8]), 139: np.array([-0.05, -1.9])}}
+        teams = {37: "KC", 139: "KC", 80: "KC"}
+        off, _ = ds.snap_ground(side, other, _Track(), teams=teams, own_id=False, veto_window=0, jump_m=False)
+        assert np.allclose(off[5][37], side[5][37])                        # ambiguous: left where the sideline put him
+        on, _ = ds.snap_ground(side, other, _Track(), teams=teams, own_id=True, veto_window=0, jump_m=False)
+        assert np.allclose(on[5][37], [0.0, -2.8], atol=0.06)               # onto his own endzone point along the ray
+        assert np.allclose(on[5][80], side[5][80])                          # no endzone point of his own, no candidate
+    finally:
+        ds.camera_ground_centre = ds_centre
