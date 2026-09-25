@@ -7371,3 +7371,16 @@ pelvis (place_from_refit_transl False): A/B running (the refit's two-view pelvis
 Thuney's pre-snap blip at 270: drawn position and heading steady, the endzone camera smooth, his endzone regressor poses
 steady -- the likely source is a sideline regressor record from t82's upper-body box (folded into 139); 1-2 frames,
 logged. The quarterback's stride at 586-602 while he stands (0.2-0.8 m/s, under the gait): a one-view leg ambiguity.
+
+### 2026-09-25 11:15 -- v115 = CURRENT BEST (rendered; film-checked); viewer Version 30, write-up Version 18
+
+v115 = v114 + 05r's endzone-only fits as POSES ONLY (no_place). 07l identical to v114 (steps 36 / 2, hops 0, census
+live 0.13, full 1.39). Drawn cross-view ruler (endzone film, live): p50/p90 15.8/36.3 px (v114 18.5/41.2); per joint
+(shape) ankles p90 43 -> 29/23, wrists 35/43 -> 23/33; limb joints over 25 px: arms 644 -> 359, legs 795 -> 323.
+Hifi render strips (review_v115): Madubuike on the turf beside and under #65 at 494-522 (v114: lunging upright);
+Thuney pass-blocking #98/#99 560-596. Camera views rendering; they do not change the viewer.
+Probes this hour, not adopted: the loader without refit placement (census 0.13 -> 0.10 but steps live 2 -> 6, jerk
+4 -> 11, placement p90 31.5 -> 42.4 px); the foot lock off (the quarterback's leg joints over 25 px 67 -> 56 only --
+his records at 420-468 ARE the two-view fits, and the endzone keypoints of a quarterback inside his pocket are the
+ruler's own noise). NEXT candidates: the placement tail (vertical offsets of 20-26 px in the endzone film for the
+quarterback, Raven 15, #32, #76 -- height/leg bend more than depth), Madubuike's zig-zag limbs, the late pile.
