@@ -1300,3 +1300,39 @@ def test_drop_detour_keyframes_respects_the_span():
     assert dropped == []
     out, dropped = tl.drop_detour_keyframes(poses, span=48)
     assert sorted(f for _p, f in dropped) == [10, 20]
+
+
+def test_stand_still_bridge_blends_the_pose_across_the_hole():
+    """Play 1 (2026-09-25, the KC centre untangled): a 60-frame hole bridged in a straight line copied the start's
+    whole state into the first half and the far end's into the second -- his elbow went from 9 to 76 degrees in one
+    frame at the midpoint (hinge jerk 67 deg/frame^2). The bridge now SLERPs the body pose and the orientation."""
+    import numpy as np
+    from scipy.spatial.transform import Rotation
+
+    from nfl_gsplat.render import timeline as tlm
+
+    def st(f, elbow, yaw):
+        bp = np.zeros((21, 3)); bp[18] = [0.0, elbow, 0.0]
+        return tlm.PlayerState(pid=17, xy=np.array([0.01 * (f - 400), 0.0]), body_pose=bp,
+                               global_orient=tlm.upright_from_yaw(yaw), betas=np.zeros(10), source="sideline")
+
+    tl = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in range(400, 420):
+        tl.states[f].append(st(f, 0.2, 0.0))
+    for f in range(431, 460):
+        tl.states[f].append(st(f, 1.3, np.radians(60)))
+    rep = tlm.stand_still(tl, {17: "KC"}, lo=395, hi=459, bridge_m=1.5, hold=False)
+    assert rep["bridged"] == 11
+    elbow = [next(s for s in tl.states[f] if s.pid == 17).body_pose[18][1] for f in range(419, 432)]
+    steps = np.diff(elbow)
+    assert np.all(steps > 0) and steps.max() < 0.2                       # 1.1 rad over 12 steps, no jump
+    yaw = [np.degrees(tlm.yaw_of(next(s for s in tl.states[f] if s.pid == 17).global_orient)) for f in range(419, 432)]
+    assert np.all(np.diff(yaw) > 0) and np.diff(yaw).max() < 10.0
+    tl2 = tlm.Timeline(frames=list(range(400, 460)), states={f: [] for f in range(400, 460)})
+    for f in list(range(400, 420)):
+        tl2.states[f].append(st(f, 0.2, 0.0))
+    for f in range(431, 460):
+        tl2.states[f].append(st(f, 1.3, np.radians(60)))
+    tlm.stand_still(tl2, {17: "KC"}, lo=395, hi=459, bridge_m=1.5, hold=False, blend_pose=False)
+    e2 = [next(s for s in tl2.states[f] if s.pid == 17).body_pose[18][1] for f in range(419, 432)]
+    assert max(np.diff(e2)) > 1.0                                        # the old midpoint switch, when asked for

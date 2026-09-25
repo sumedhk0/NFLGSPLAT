@@ -1110,7 +1110,7 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
                               bridge_max_frames=tlm.STAND_BRIDGE_MAX_FRAMES, newborn_iou=tlm.STAND_NEWBORN_IOU,
                               newborn_reach=tlm.STAND_NEWBORN_REACH, lock_iou=tlm.STAND_LOCK_IOU, lock_max=tlm.STAND_LOCK_MAX,
                               lock_slow_m=tlm.STAND_LOCK_SLOW_M, lock_history=tlm.STAND_LOCK_HISTORY,
-                              lock_hist_iou=tlm.STAND_LOCK_HIST_IOU)
+                              lock_hist_iou=tlm.STAND_LOCK_HIST_IOU, blend_pose=tlm.STAND_BRIDGE_BLEND_POSE)
         for dpid, lines in sorted(rep.get("debug", {}).items()):
             print(f"stand_still debug {dpid}: " + " | ".join(lines))
         if rep["bridged"] or rep["held"]:

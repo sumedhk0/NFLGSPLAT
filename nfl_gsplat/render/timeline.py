@@ -1394,6 +1394,11 @@ STAND_HOLE_HOLD_TO_END: bool = True     # a hold inside a hole the bridge cannot
                                         # short enough to bridge; only its ends are too far for a line), not to STAND_HOLD_MAX
 STAND_SEAM_STEP_M: float = 0.15         # the seam walks at most this far a frame (smoothstep: the peak step is 1.5x the mean,
                                         # 0.22 m under the 0.25 m/frame ruler), so its length grows with the distance
+# A bridged hole (a straight line between its ends) SLERPs the man's body pose and orientation from the start's to the
+# far end's instead of copying the start's whole state into the first half and the far end's into the second: play 1's
+# centre, one id through a 60-frame hole after the left line was untangled (2026-09-25), snapped his elbow from 9 to 76
+# degrees in one frame at the midpoint (hinge jerk 67 deg/frame^2, six ruler events). Read at call time by the loader.
+STAND_BRIDGE_BLEND_POSE: bool = True
 STAND_LONG_HOLE_HOLD: bool = False      # a hole longer than STAND_BRIDGE_MAX_FRAMES: hold or lock from its start for
                                         # STAND_HOLD_MAX / STAND_LOCK_MAX, as at a track's end (id 1's 14 frames at 421 were
                                         # lost the moment his track gained rows at 524 and 421-523 became a hole)
@@ -1436,7 +1441,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 bridge_max_frames: int = STAND_BRIDGE_MAX_FRAMES, newborn_iou: float = STAND_NEWBORN_IOU,
                 newborn_reach: int = STAND_NEWBORN_REACH, lock_iou: float | None = STAND_LOCK_IOU,
                 lock_max: int = STAND_LOCK_MAX, lock_slow_m: float = STAND_LOCK_SLOW_M,
-                lock_history: int = STAND_LOCK_HISTORY, lock_hist_iou: float = STAND_LOCK_HIST_IOU) -> dict:
+                lock_history: int = STAND_LOCK_HISTORY, lock_hist_iou: float = STAND_LOCK_HIST_IOU,
+                blend_pose: bool | None = None) -> dict:
     """Bridge an id's holes of at most ``bridge_max_frames`` whose ends lie within ``bridge_m``, and hold an id
     whose track ends while slow, on frames ``lo..hi`` where no same-team body is drawn within ``clear_m`` of the
     point. A hold runs at most ``hold_max`` frames and, given ``boxes`` (``{cam: {(frame, pid): box}}``), stops at
@@ -1527,6 +1533,8 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 if v >= successor_iou or (v >= newborn_iou and born.get(q, -10**9) >= f_end - int(newborn_reach)):
                     successor = True
         return successor, (cover / a0 if a0 > 0 else 0.0)
+
+    blend_on = STAND_BRIDGE_BLEND_POSE if blend_pose is None else bool(blend_pose)
 
     def hold_or_lock(pid, team, byf, f_last, f_stop, *, seam_to, hold_cap=None):
         """Hold (or, locked with his opponent, follow) the man from his last drawn frame ``f_last`` over
@@ -1669,6 +1677,11 @@ def stand_still(tl: "Timeline", teams: dict, *, lo: int, hi: int, bridge_m: floa
                 if _same_team_near(tl.states[f], pid, team, xy, teams, clear_m):
                     continue
                 s = byf[a] if t < 0.5 else byf[b]
+                if blend_on:
+                    bp = interp_axis_angle([0.0, 1.0], [np.asarray(byf[a].body_pose, float), np.asarray(byf[b].body_pose, float)], [t])[0]
+                    go = interp_axis_angle([0.0, 1.0], [np.asarray(byf[a].global_orient, float).reshape(1, 3),
+                                                        np.asarray(byf[b].global_orient, float).reshape(1, 3)], [t])[0, 0]
+                    s = dataclasses.replace(s, body_pose=bp, global_orient=go)
                 tl.states[f].append(dataclasses.replace(s, xy=np.array([xy[0], xy[1]], float)))
                 out["bridged"] += 1; out["ids"][pid] = out["ids"].get(pid, 0) + 1
         # a track that ends inside the window while slow
