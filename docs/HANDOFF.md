@@ -7143,3 +7143,28 @@ y ~ -2.2 from 476, t25 (204) at the guard's 444-484, both ids on one spot at 476
 blend neighbouring linemen (Thuney's facing errors before the record rules were this). NEXT: untangle on a copy with
 the endzone jerseys (09c + 08z per camera track), refit two-view for the three, measure on the depth ruler + census +
 film. Also id 4 (BAL) 1.4 m across at 398-560: check its endzone rows the same way.
+
+**The KC left line, read on the endzone film (2026-09-25 ~01:20; $S/ez_jerseys.png, $S/ez_switch.png).** Endzone
+tracks by jersey: t139 = #76 Suamataia at sideline 424-472 (blurred engaged 484-490, off 496-504), #62 Thuney from 516
+(labelled 139 there, correctly); t33 = #62 Thuney 400-504 (labelled 204 to 486, then 166), #52 Humphrey by 516; t17 =
+#52 400-472; t37 = #76 at 400-412 and from 490 (a gap exactly while t139 covers him). The sideline side is itself
+switching (its t39, id 139, stands on the centre's spot at 436-452 and on the guard's from 476; t25, id 204, on the
+guard's 444-484; both on one spot at 476-484), so the #62/#52 part needs its own frame-by-frame pass. The unambiguous
+part -- #76 is sideline 37 throughout -- is being measured on the copy: endzone t139 clip 402-480 -> 37
+($S/untangle76_chain.sh; 08z + the same map on keypoints_2d_ft2 via $S/relabel_ft2_keypoints.py, then 05n/05f/05p).
+
+**id 4 (BAL) 1.4 m across at 398-560 is not identity:** his sideline track ends at 443 and resumes at 528 while the
+endzone (t45, then t136) boxes him rushing forward between #65 and #74; the timeline holds him near his last sideline
+spot through the hole. The hole-hold rules (endzone_only_rule.hold_holes and the stand-still) decide it -- a candidate
+for "follow the endzone's own track through a long hole when it is one id throughout", measured separately.
+
+**#76's endzone rows relabelled on the copy: film-true, NOT ported (2026-09-25 01:57).** endzone t139 clip 402-480 ->
+37 (08z; the same map on keypoints_2d_ft2), then 05n/05f/05p and the copy rulers. id 37 (#76) gains 57 two-view
+records at 417-495 (4 before); id 139 had NONE there before either (the triangulation's reprojection gate had refused
+the crossed pairing), so the crossing had not corrupted Thuney's fit, only denied #76 his second view. But census 0.169
+-> 0.272 with 24 fewer body-frames drawn: sideline id 139 has holes at 417-435 and 453-475 and was drawn there on the
+crossed endzone rows (on #76's spot); moved to 37, he vanishes. The "fold that exposes a hole" trap
+([[fold-on-a-copy-first]]). Jitter p99 0.183 -> 0.176, arms/legs within 0.4 pp, steps 2 / hops 0. The copy's tables are
+restored from live (md5 equal); its poses_refit_fused.json may carry the 08v remap (unused by the --refit 2v chains).
+Next: the whole left-line untangle -- who is 139 on the sideline in his holes (the stand-still/hole rules), the sideline
+t39/t25 switching between #52 and #62 -- one frame-by-frame pass with both films, then this relabel with it.
