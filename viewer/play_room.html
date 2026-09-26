@@ -190,20 +190,29 @@
 
   // ---- the stadium: turf apron, a wall, and sloped stands with the home crowd in red and white ----
   function crowdTexture() {
-    const W = 512, H = 256, cell = 4;
+    // seated spectators, as the hi-fi render's bowl (render.sky): 0.5 m seats, 1 m rows, a shirt and a head over each
+    // row's dark step, empty seats, rows staggered, an aisle every 18 seats. Canvas up = up the bank.
+    const W = 1024, H = 512, SEAT = 8, ROW = 16;
     const c = document.createElement("canvas"); c.width = W; c.height = H;
     const g = c.getContext("2d");
-    const pal = ["#7a0f1a", "#a3172a", "#c9c3b8", "#2c2a30", "#17171c", "#8e1522"];
-    const wts = [0.24, 0.16, 0.10, 0.22, 0.18, 0.10];
+    const shirts = ["#7a0f1a", "#a3172a", "#c9c3b8", "#3a3438", "#1d1c22", "#8a6a50"];
+    const wts = [0.30, 0.17, 0.10, 0.18, 0.15, 0.10];
+    const heads = ["#8c6a52", "#5e3e2c", "#34241c", "#9e1a24", "#d8d4cc"];
     let seed = 12345;
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
-    for (let y = 0; y < H; y += cell) {
-      for (let x = 0; x < W; x += cell) {
+    g.fillStyle = "#1a0709"; g.fillRect(0, 0, W, H);                       // the red seats behind everyone
+    for (let y = 0; y < H; y += ROW) {
+      const shift = Math.floor(rnd() * SEAT);
+      for (let x = -SEAT; x < W; x += SEAT) {
+        const sx = x + shift, col = Math.floor((sx + SEAT) / SEAT);
+        if (col % 18 === 0) { g.fillStyle = "#0b0a0e"; g.fillRect(sx, y, SEAT, ROW); continue; }   // an aisle
+        if (rnd() > 0.93) continue;                                          // an empty seat
         let u = rnd(), k = 0;
         while (k < wts.length - 1 && u > wts[k]) { u -= wts[k]; k++; }
-        g.fillStyle = pal[k]; g.fillRect(x, y, cell, cell);
+        g.fillStyle = shirts[k]; g.fillRect(sx + 1, y + 4, SEAT - 2, 7);   // the shirt
+        g.fillStyle = heads[Math.floor(rnd() * heads.length)]; g.fillRect(sx + 3, y + 1, 2, 3);   // the head
       }
-      if ((y / cell) % 9 === 8) { g.fillStyle = "#0d0d12"; g.fillRect(0, y, W, cell); }   // an aisle every few rows
+      g.fillStyle = "#0b0a0e"; g.fillRect(0, y + 12, W, ROW - 12);          // the row's step
     }
     const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding;
     t.anisotropy = 4;
@@ -214,13 +223,17 @@
                                new THREE.MeshLambertMaterial({ color: 0x1d3f22 }));
   apron.position.z = -0.02; scene.add(apron);
   const wallMat = new THREE.MeshLambertMaterial({ color: 0x0c0d14, side: THREE.DoubleSide });
-  const standMat = (rx, ry) => { const t = crowdTexture(); t.repeat.set(rx, ry);
+  // flip: the bank's plane runs DOWN the slope on the near sideline and behind the +x end zone, so the texture
+  // is turned half a turn there to keep the spectators upright
+  const standMat = (rx, ry, flip) => { const t = crowdTexture(); t.repeat.set(rx, ry);
+    if (flip) { t.center.set(0.5, 0.5); t.rotation = Math.PI; }
     return new THREE.MeshLambertMaterial({ map: t, side: THREE.DoubleSide }); };
   function standSide(len, inner, axis, sign) {
     // a wall at `inner` metres from the centre line, then a bank of seats rising outward to RISE m over DEPTH m
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(len, WALL_H), wallMat);
     const slope = Math.hypot(DEPTH, RISE);
-    const bank = new THREE.Mesh(new THREE.PlaneGeometry(len, slope), standMat(len / 64, slope / 32));   // ~0.5 m per seat cell
+    const flip = (axis === "y" && sign < 0) || (axis === "x" && sign > 0);
+    const bank = new THREE.Mesh(new THREE.PlaneGeometry(len, slope), standMat(len / 64, slope / 32, flip));   // 0.5 m seats, 1 m rows
     const tilt = Math.atan2(RISE, DEPTH);
     if (axis === "y") {        // along the sidelines
       wall.rotation.x = Math.PI / 2; wall.position.set(0, sign * inner, WALL_H / 2);
