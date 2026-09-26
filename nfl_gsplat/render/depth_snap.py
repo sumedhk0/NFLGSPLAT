@@ -64,6 +64,45 @@ def camera_ground_centre(track, f) -> np.ndarray:
     return (-R.T @ t)[:2]
 
 
+def apply_depth_reads(ground: dict, raw: dict, track, reads) -> dict:
+    """Film-read depths for men neither camera can place along the sideline's line of sight. Each read is
+    ``{"id": pid, "y": {frame: y}, "ramp": n}`` (sideline frame numbering): between its first and last frame the man
+    slides along his OWN sideline ray (camera ground centre -> his unsnapped sideline point in ``raw``) to the y read
+    off the film (interpolated between the read frames), blended in and out over ``ramp`` frames; x stays what the
+    sideline measures. ``ground`` is changed in place. Returns ``{pid: frames moved}``.
+
+    Play 1: Madubuike (id 4) at 552-596, feet hidden behind #65 in the sideline view and never boxed by the endzone
+    camera, was slid onto Ojabo's endzone point; his helmet read in the endzone film and triangulated with his sideline
+    box's top (ray gaps 0.10-0.32 m) puts him at y 1.8-1.9 between #65 and #74, where the film shows him."""
+    moved: dict = {}
+    for read in reads or []:
+        pid = int(read["id"])
+        ys = {int(k): float(v) for k, v in read["y"].items()}
+        ks = sorted(ys)
+        ramp = int(read.get("ramp", 0))
+        for f, bodies in ground.items():
+            fi = int(f)
+            if pid not in bodies or f not in raw or pid not in raw[f] or not (ks[0] - ramp <= fi <= ks[-1] + ramp):
+                continue
+            if fi >= len(track.conf) or track.conf[fi] <= 0:
+                continue
+            y = float(np.interp(min(max(fi, ks[0]), ks[-1]), ks, [ys[k] for k in ks]))
+            w = 1.0
+            if ramp and fi < ks[0]:
+                w = (fi - (ks[0] - ramp)) / ramp
+            elif ramp and fi > ks[-1]:
+                w = ((ks[-1] + ramp) - fi) / ramp
+            w = float(np.clip(w, 0.0, 1.0))
+            c = camera_ground_centre(track, fi)
+            d = np.asarray(raw[f][pid], float) - c
+            if w <= 0 or abs(d[1]) < 1e-6:
+                continue
+            p = c + d * ((y - c[1]) / d[1])
+            bodies[pid] = (1 - w) * np.asarray(bodies[pid], float) + w * p
+            moved[pid] = moved.get(pid, 0) + 1
+    return moved
+
+
 def snap_one(xy, centre, others, *, lateral_m: float = LATERAL_M, margin_m: float = MARGIN_M,
              max_move_m: float = MAX_MOVE_M):
     """``(new xy, id snapped to)`` or ``(xy, None)``. ``others``: ``{id: xy}`` from the other

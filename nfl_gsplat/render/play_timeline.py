@@ -17,7 +17,7 @@ from nfl_gsplat.calibration.cameras_io import load_camera_track
 from nfl_gsplat.render.edge_rule import edge_clipped_ids
 from nfl_gsplat.render.endzone_only_rule import beyond_sideline_span, endzone_only_ids
 from nfl_gsplat.render.blind_axis import hold_blind_axis
-from nfl_gsplat.render.depth_snap import snap_ground
+from nfl_gsplat.render.depth_snap import apply_depth_reads, snap_ground
 from nfl_gsplat.render.offfield_rule import behind_the_offence, sideline_dwellers, striped_ids
 from nfl_gsplat.render import pair_rule as _pair_rule
 from nfl_gsplat.render.pair_rule import mispaired_ids
@@ -698,7 +698,17 @@ def load_play_timeline(play_dir: Path, model, *, poses_refit=None, poses_sidelin
         if "endzone" in tracks and not no_depth_snap:
             end_ground = ground_positions(df[df["cam"] == "endzone"], tracks, ankles=ankles, frame_shift=shift)
             teams_of = _teams(P)
-            side_ground, n_snap = snap_ground(side_ground, end_ground, tracks["sideline"], teams=teams_of)
+            raw_side = side_ground
+            side_ground, n_snap = snap_ground(raw_side, end_ground, tracks["sideline"], teams=teams_of)
+            # depths read off the film for men neither camera places along this line of sight (film_reads.json,
+            # hand-read like the ball's events; depth_snap.apply_depth_reads)
+            reads_path = P / "film_reads.json"
+            if reads_path.exists():
+                import json as _json
+
+                moved = apply_depth_reads(side_ground, raw_side, tracks["sideline"],
+                                          _json.loads(reads_path.read_text()).get("depth", []))
+                print(f"film-read depths: {moved} (id: frames) from {reads_path.name}")
             print(f"depth from the endzone on {n_snap} body-frames (the sideline's own line of sight)")
         for f, d in side_ground.items():
             for pid, xy in d.items():

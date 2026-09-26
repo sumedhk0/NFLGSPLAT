@@ -156,3 +156,20 @@ def test_spare_missed_keeps_a_missed_mans_endzone_point_out_of_other_mens_positi
     frag = {f: {9: np.array([0.05, -9.0])} for f in range(6)}                    # an endzone-only fragment
     got, n = snap_ground(side, frag, tr, spare_missed=True, **kw)
     assert n == 6 and all(np.allclose(got[f][4], [0.05, -9.0], atol=0.06) for f in range(6))
+
+
+def test_apply_depth_reads_slides_a_man_along_his_own_ray_to_the_film_read_y():
+    """A film read moves only the named man, only inside its frames (+ ramp), along HIS sideline ray to the read y;
+    x follows the ray (the sideline measures it), the ramp blends in."""
+    from nfl_gsplat.render.depth_snap import apply_depth_reads
+
+    tr = _Track(n=20)                                              # camera ground centre (0, -80)
+    raw = {f: {4: np.array([2.0, 3.4]), 1: np.array([2.2, 2.8])} for f in range(20)}
+    ground = {f: {k: v.copy() for k, v in d.items()} for f, d in raw.items()}
+    moved = apply_depth_reads(ground, raw, tr, [{"id": 4, "y": {"8": 1.9, "12": 1.9}, "ramp": 2}])
+    assert moved == {4: 7}                                         # 7..13: the ramp ends (6, 14) have w = 0
+    c = np.array([0.0, -80.0]); d = raw[10][4] - c
+    want = c + d * ((1.9 - c[1]) / d[1])
+    assert np.allclose(ground[10][4], want) and abs(ground[10][4][1] - 1.9) < 1e-9
+    assert np.allclose(ground[7][4], 0.5 * raw[7][4] + 0.5 * want)   # half-way up the ramp
+    assert np.allclose(ground[3][4], raw[3][4]) and np.allclose(ground[10][1], raw[10][1])
