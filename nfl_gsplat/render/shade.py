@@ -28,9 +28,14 @@ DIFFUSE = 0.52
 BOUNCE = 0.06
 
 
-def lighting(normals, *, light=KEY_LIGHT, ambient: float = AMBIENT, diffuse: float = DIFFUSE,
-             bounce: float = BOUNCE) -> np.ndarray:
-    """``[N]`` brightness factor for unit outward ``normals`` ``[N, 3]`` under one directional ``light``."""
+def lighting(normals, *, light=None, ambient: float | None = None, diffuse: float | None = None,
+             bounce: float | None = None) -> np.ndarray:
+    """``[N]`` brightness factor for unit outward ``normals`` ``[N, 3]`` under one directional ``light``. Unset knobs read
+    the module's constants AT CALL TIME (a with_flag arm that sets them is a real arm)."""
+    light = KEY_LIGHT if light is None else light
+    ambient = AMBIENT if ambient is None else ambient
+    diffuse = DIFFUSE if diffuse is None else diffuse
+    bounce = BOUNCE if bounce is None else bounce
     n = np.asarray(normals, float)
     L = np.asarray(light, float)
     L = L / np.linalg.norm(L)

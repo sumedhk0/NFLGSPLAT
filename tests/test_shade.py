@@ -39,3 +39,16 @@ def test_lit_batch_lights_each_splat_through_its_own_normal():
     assert np.array_equal(lit.xyz, batch.xyz) and np.array_equal(lit.rot, batch.rot)
     flat = shade.lit_batch(batch, ambient=1.0, diffuse=0.0, bounce=0.0)
     assert np.allclose(flat.sh, batch.sh, atol=1e-5)                  # no light: the batch as it was
+
+
+def test_module_constants_are_read_at_call_time():
+    """with_flag sets shade.AMBIENT after import: the default must follow it, or the A/B arm measures nothing."""
+    verts, faces = _tetra()
+    before = shade.shade(verts, faces, (0.5, 0.5, 0.5))
+    old = shade.AMBIENT
+    try:
+        shade.AMBIENT = old + 0.2
+        after = shade.shade(verts, faces, (0.5, 0.5, 0.5))
+    finally:
+        shade.AMBIENT = old
+    assert np.allclose(after - before, 0.1)
