@@ -48,14 +48,16 @@ class Kit:
     shoes: tuple = SHOE_RGB
 
 
-# BAL @ KC 2024 week 1: KC in red over white (white collar and cuffs, a red stripe on the pants, red
-# cleats), BAL in white over black (purple collar, cuffs and stripe, black cleats).
+# BAL @ KC 2024 week 1, as the film shows them (2026-09-25, endzone film: Ojabo #90 at 581/590, a Chief at 500):
+# KC in red over white (white collar and cuffs, a red stripe on the pants, red socks, white cleats); BAL in white
+# over WHITE (white pants and socks, purple collar, cuffs and stripe, black cleats). The BAL pants and socks were
+# black until then -- the film has them white.
 KITS: dict[str, Kit] = {
     "KC": Kit(jersey=(0.89, 0.09, 0.22), pants=(0.94, 0.94, 0.94), socks=(0.89, 0.09, 0.22),
               helmet=(0.89, 0.09, 0.22), gloves=(0.94, 0.94, 0.94), number=(0.98, 0.98, 0.98),
               collar=(0.96, 0.96, 0.96), sleeve=(0.96, 0.96, 0.96), stripe=(0.89, 0.09, 0.22),
-              shoes=(0.70, 0.08, 0.16)),
-    "BAL": Kit(jersey=(0.95, 0.95, 0.95), pants=(0.09, 0.09, 0.11), socks=(0.09, 0.09, 0.11),
+              shoes=(0.90, 0.90, 0.90)),
+    "BAL": Kit(jersey=(0.95, 0.95, 0.95), pants=(0.94, 0.94, 0.94), socks=(0.94, 0.94, 0.94),
                helmet=(0.08, 0.08, 0.10), gloves=(0.09, 0.09, 0.11), number=(0.16, 0.10, 0.35),
                collar=(0.16, 0.10, 0.35), sleeve=(0.16, 0.10, 0.35), stripe=(0.16, 0.10, 0.35),
                shoes=(0.08, 0.08, 0.10)),
