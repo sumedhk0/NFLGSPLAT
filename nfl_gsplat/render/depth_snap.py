@@ -163,11 +163,14 @@ def snap_own(xy, centre, own, *, lateral_m: float = None, max_move_m: float = MA
     return centre + along * u
 
 
-SPARE_MISSED: bool = False  # the positional snap may not take an endzone point of a man the sideline tracks at
+SPARE_MISSED: bool = True   # the positional snap may not take an endzone point of a man the sideline tracks at
 #   other times but misses on this frame: the loader draws that point as HIM (a hole, a beyond-span stretch), and
 #   sliding another sideline body onto it draws one man twice. Play 1: Madubuike's sideline track behind #65 slid
 #   along its ray onto Ojabo's endzone point at 556-612 (Ojabo's sideline tracks end at 527; the endzone film shows
 #   Madubuike between #65 and #74 and Ojabo outside #74). The own-id snap and endzone-only fragments are untouched.
+#   ON since v122 (2026-09-26): off it put Madubuike 0.6 m too deep until his depth was read off the film
+#   (film_reads.json); with the read, on keeps Ojabo on #90 at 542-587 in the endzone film (off: a hold 0.5-0.9 m
+#   wide) and the KC RG drawn at 218-234 (clip frames 11 v 11: 384 -> 390 of 401; live census 0.00 either way).
 EXCLUSIVE: bool = False     # one endzone body snaps at most one sideline body per frame (the nearer ray keeps it;
                             # measured 2026-09-18: 116 of 4337 live snaps had two claimants)
 
