@@ -105,6 +105,9 @@ def main() -> None:
     ap.add_argument("--no-render", action="store_true",
                     help="build the bodies (poses, gait, throw, catch, carry, fall) but do not rasterise: for --export-joints")
     ap.add_argument("--fov", type=float, default=55.0, help="horizontal field of view, degrees")
+    ap.add_argument("--sky", action="store_true",
+                    help="a night-stadium backdrop above the field (render.sky: sky gradient to the camera's horizon, a "
+                         "band of stands) instead of the flat near-black background")
     ap.add_argument("--splat-sigma", type=float, default=1.0,
                     help="multiplier on every splat's in-plane extent (bodies and field)")
     ap.add_argument("--splat-opacity", type=float, default=None,
@@ -519,8 +522,13 @@ def main() -> None:
         if view_track is not None:
             K_v, R_v, t_v = broadcast_view(f)
         with torch.no_grad():
-            img = st.render(sp, K_v, R_v, t_v, crop=(0, 0, args.width, args.height),
-                            background=(0.06, 0.06, 0.08))
+            if args.sky:
+                from nfl_gsplat.render import sky as _sky
+
+                bg = torch.from_numpy(_sky.backdrop(np.asarray(K_v, float), np.asarray(R_v, float), np.asarray(t_v, float), args.width, args.height))
+            else:
+                bg = (0.06, 0.06, 0.08)
+            img = st.render(sp, K_v, R_v, t_v, crop=(0, 0, args.width, args.height), background=bg)
         frame = (255 * img.clamp(0, 1).cpu().numpy()).astype(np.uint8)
         if args.post_blur > 0:
             import cv2
