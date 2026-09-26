@@ -133,3 +133,26 @@ def test_snap_own_id_resolves_two_bodies_on_one_ray():
         assert np.allclose(on[5][80], side[5][80])                          # no endzone point of his own, no candidate
     finally:
         ds.camera_ground_centre = ds_centre
+
+
+def test_spare_missed_keeps_a_missed_mans_endzone_point_out_of_other_mens_positional_snaps():
+    """Play 1 at 556-612: Madubuike's sideline ray passes Ojabo's endzone point 1 m deeper; Ojabo's sideline tracks
+    end at 527, so the loader draws that point as Ojabo AND the snap slid Madubuike onto it -- one man drawn twice.
+    With spare, a man the sideline tracks at other times but misses on this frame keeps his endzone point; an
+    endzone-only fragment (never on the sideline) stays a candidate, and on frames the sideline has him the rule is
+    silent."""
+    tr = _Track(n=6)
+    side = {f: {4: np.array([0.0, -10.0])} for f in range(6)}
+    for f in (0, 1):
+        side[f][1] = np.array([3.0, -20.0])                              # id 1 on the sideline at 0-1 only
+    other = {f: {1: np.array([0.05, -9.0])} for f in range(6)}          # id 1's endzone point on 4's ray
+    kw = dict(veto_window=0, jump_m=False, own_id=False)
+    off, n_off = snap_ground(side, other, tr, spare_missed=False, **kw)
+    on, n_on = snap_ground(side, other, tr, spare_missed=True, **kw)
+    assert all(np.allclose(off[f][4], [0.05, -9.0], atol=0.06) for f in range(6))
+    assert all(np.allclose(on[f][4], [0.05, -9.0], atol=0.06) for f in (0, 1))   # he is on the sideline: silent
+    assert all(np.allclose(on[f][4], [0.0, -10.0]) for f in range(2, 6))         # missed there: spared
+    assert n_off == 6 and n_on == 2
+    frag = {f: {9: np.array([0.05, -9.0])} for f in range(6)}                    # an endzone-only fragment
+    got, n = snap_ground(side, frag, tr, spare_missed=True, **kw)
+    assert n == 6 and all(np.allclose(got[f][4], [0.05, -9.0], atol=0.06) for f in range(6))

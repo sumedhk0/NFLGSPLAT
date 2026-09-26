@@ -124,6 +124,11 @@ def snap_own(xy, centre, own, *, lateral_m: float = None, max_move_m: float = MA
     return centre + along * u
 
 
+SPARE_MISSED: bool = False  # the positional snap may not take an endzone point of a man the sideline tracks at
+#   other times but misses on this frame: the loader draws that point as HIM (a hole, a beyond-span stretch), and
+#   sliding another sideline body onto it draws one man twice. Play 1: Madubuike's sideline track behind #65 slid
+#   along its ray onto Ojabo's endzone point at 556-612 (Ojabo's sideline tracks end at 527; the endzone film shows
+#   Madubuike between #65 and #74 and Ojabo outside #74). The own-id snap and endzone-only fragments are untouched.
 EXCLUSIVE: bool = False     # one endzone body snaps at most one sideline body per frame (the nearer ray keeps it;
                             # measured 2026-09-18: 116 of 4337 live snaps had two claimants)
 
@@ -162,7 +167,8 @@ def veto_outlier_snaps(deltas: dict, *, window: int = VETO_WINDOW, veto_m: float
 def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, frame_shift: int = 0,
                 lateral_m: float = LATERAL_M, margin_m: float = MARGIN_M, max_move_m: float = MAX_MOVE_M,
                 veto_window: int = VETO_WINDOW, veto_m: float = VETO_M, exclusive: bool | None = None,
-                jump_m: float | None | bool = None, own_id: bool | None = None, own_lateral_m: float | None = None):
+                jump_m: float | None | bool = None, own_id: bool | None = None, own_lateral_m: float | None = None,
+                spare_missed: bool | None = None):
     """``(ground, n_snapped)``: ``ground_side`` (frame -> {pid: xy}) with each body sliding along
     its own ray to the nearest body of ``ground_other`` (keyed by that camera's own frames, i.e.
     ``frame + frame_shift``). ``teams`` ``{pid: team}`` gates the match; an id whose team is
@@ -171,6 +177,8 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
     out: dict = {}
     deltas: dict = {}
     own_on = SNAP_OWN_ID if own_id is None else bool(own_id)
+    spare = SPARE_MISSED if spare_missed is None else bool(spare_missed)
+    side_ids = {int(p) for d in ground_side.values() for p in d} if spare else set()
     for f, bodies in ground_side.items():
         others_all = ground_other.get(int(f) + int(frame_shift))
         if not others_all or int(f) >= len(track.conf) or track.conf[int(f)] <= 0:
@@ -179,10 +187,14 @@ def snap_ground(ground_side: dict, ground_other: dict, track, *, teams=None, fra
         centre = camera_ground_centre(track, int(f))
         new: dict = {}
         took_by: dict = {}
+        here = {int(p) for p in bodies}
+        # the positional candidates: with spare, not a sideline-tracked man the sideline misses on this frame
+        pos_all = ({q: e for q, e in others_all.items() if not (int(q) in side_ids and int(q) not in here)}
+                   if spare else others_all)
         for pid, xy in bodies.items():
             side = None if teams is None else teams.get(int(pid))
-            others = ({q: e for q, e in others_all.items() if teams.get(int(q)) == side}
-                      if (teams is not None and side is not None) else dict(others_all))
+            others = ({q: e for q, e in pos_all.items() if teams.get(int(q)) == side}
+                      if (teams is not None and side is not None) else dict(pos_all))
             moved = took = None
             if own_on:
                 own = others_all.get(pid, others_all.get(int(pid)))

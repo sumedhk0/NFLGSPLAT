@@ -108,6 +108,9 @@ def main() -> None:
     ap.add_argument("--sky", action="store_true",
                     help="a night-stadium backdrop above the field (render.sky: sky gradient to the camera's horizon, a "
                          "band of stands) instead of the flat near-black background")
+    ap.add_argument("--shade", action="store_true",
+                    help="light the bodies (render.shade: a stadium key light through each splat's own normal) "
+                         "instead of the flat kit colours")
     ap.add_argument("--splat-sigma", type=float, default=1.0,
                     help="multiplier on every splat's in-plane extent (bodies and field)")
     ap.add_argument("--splat-opacity", type=float, default=None,
@@ -158,6 +161,7 @@ def main() -> None:
     from nfl_gsplat.compositing.preview_cpu import intrinsics, look_at
     from nfl_gsplat.field.procedural_field import render_field_texture, texture_to_gaussians
     from nfl_gsplat.render import helmet as hm
+    from nfl_gsplat.render import shade as shd
     from nfl_gsplat.render import uniform as un
     from nfl_gsplat.render import timeline as tlm
     from nfl_gsplat.render.carry import ball_at_hand, ball_between_hands, carry_body_pose, catch_body_pose, throw_body_pose
@@ -437,9 +441,13 @@ def main() -> None:
             verts, colour = hm.wear_helmet(verts, colour, head, shell)
             verts, colour = hm.wear_facemask(verts, colour, head, face, hm.FACEMASK_RGB.get(team, hm.DEFAULT_FACEMASK_RGB))
         body = tune(mesh_to_gaussians(verts, faces, colour=colour))
+        if args.shade:                            # the stadium's key light through each splat's normal
+            body = shd.lit_batch(body)
         if args.uniforms and s.pid in decal_of:
             decal, num_rgb = decal_of[s.pid]
             dec = un.decal_gaussians(decal, verts, faces, num_rgb)
+            if args.shade:
+                dec = shd.lit_batch(dec)
             if dec is not None:
                 return merge([body, dec])
         return body

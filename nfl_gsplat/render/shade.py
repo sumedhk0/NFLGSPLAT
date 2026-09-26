@@ -11,8 +11,8 @@ of its rotation, which mesh_to_gaussians and uniform.decal_gaussians both lay al
 body and the numbers on it are lit alike.
 
 The key light sits high on the near-sideline (-y), behind-the-offense (+x) side: the sideline broadcast camera stands
-at y = -102 m and the follow and skycam views look down the field from +x, so the faces every shipped view sees are lit
-and the far sides fall off into shade.
+at y = -102 m, the hero follow camera 26 m toward it and the skycam behind the offense, so the faces every shipped view
+sees are lit and the far sides fall off into shade.
 """
 from __future__ import annotations
 
@@ -22,10 +22,13 @@ import numpy as np
 
 from nfl_gsplat.compositing.mesh_to_gaussians import _SH_C0, vertex_normals
 
-KEY_LIGHT = (0.35, -0.35, 0.87)      # toward the light: up, toward the near sideline and behind the offense (world z up)
-AMBIENT = 0.58
-DIFFUSE = 0.52
+KEY_LIGHT = (0.30, -0.55, 0.78)      # toward the light: up, toward the near sideline and behind the offense (world z up)
+AMBIENT = 0.66
+DIFFUSE = 0.48
 BOUNCE = 0.06
+# Chosen on the broadcast-camera stills 560-600 (2026-09-26): (0.35, -0.35, 0.87) with ambient 0.58 / diffuse 0.52
+# gave the bodies volume but took the camera-facing kit to ~0.76 of the film's colour (the reds read maroon); leaning
+# the light toward the near sideline with more ambient keeps it at ~0.92 and the far sides still fall to 0.66.
 
 
 def lighting(normals, *, light=None, ambient: float | None = None, diffuse: float | None = None,
