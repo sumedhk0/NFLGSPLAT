@@ -7530,3 +7530,44 @@ per 0.55 m ground cell (fixed on the ground, no flicker) in red/white, fading; s
   NOT Ojabo; merging deletes a man. v117b's labels stand; id 4 is drawn on Ojabo's spot because the positional depth
   snap slides Madubuike's sideline ray onto Ojabo's endzone point, and refusing that snap (patch_snap_notaken) drew 12
   Ravens at 575-586 -- one more duplicate somewhere in that pile. Needs a frame-by-frame endzone-jersey pass.
+
+### 2026-09-26 00:45 -- the late pile read on the film (v119 tables): #98 one id, Thuney on the ground, a ghost Raven gone
+
+**What the film shows (both cameras, 540-600; $S/boxes_region.py + kp_zoom.py crops in diag/pile_*.png, id84_*.png):**
+- Two Ravens at Taylor (#74, RT): **#90 Ojabo outside him** (endzone track 112, id 1 -- right) and **a second Raven
+  engaged with #65 (RG) between the two** -- sideline track 45 = id 4 (Madubuike, #92) is that man (right). His feet
+  are hidden behind #65 in the sideline view; the endzone has no box for him (he is inside #74's and #65's boxes).
+- **id 84 = #98 Travis Jones** (endzone film pre-snap: the Raven in a three-point stance over #62), the same man as
+  the named id 81 (#98) from 568. Sideline track 84 is him to 541; at 551-565 its boxes sit inside Thuney's own box
+  (track 39); at **566-580 it is Thuney ON THE GROUND** under #98 (his track 39 ends at 565); at 581-587 it is on #99.
+  So "a Raven drawn twice" at 556-587 was partly Thuney, lying on the turf, drawn as a white Raven -- and the real
+  Thuney vanished at 601 because his sideline presence ended at 565.
+
+**Fix (port_v119.sh, measured on play_copy4 first; the live tables are byte-identical to the copy):** 08za drops
+track 84's rows at 551-565 and 581-587; 08z relabels track 84 at 566-580 to 139 (Thuney) and folds 84's sideline
+track 13, endzone track 13 and track 84 (437-541) into 81. 07l: steps 20 / 0 and hops 0 unchanged; census live
+0.04 -> **0.08** (KC 10.97 -> **11.00**, BAL 11.01 -> 10.92). The census is worse for an honest reason: the ghost
+masked a real missing body -- at 570-586 Madubuike's body is drawn on Ojabo's endzone point (the positional depth
+snap) and Ojabo's own body is deduped under it, so one body stands for two men; the ghost made it read 11.
+
+**Measured and not shipped: depth_snap.SPARE_MISSED** (patch_snap_notaken as a knob, default OFF, tested): the
+positional snap may not take an endzone point of a man the sideline tracks at other times but misses on this frame.
+With it (v117n): KC 11.00, census 0.05, the 12-Raven frames at 610-613 gone and the pre-snap KC RG back at 218-234 --
+but Madubuike's sideline-only point lands 0.6 m BEYOND Ojabo (y 3.4 vs 2.8; the film has him between #65 at y 1.1 and
+#74 at 1.5): with his feet hidden behind #65, the box bottom is high in the image and the ground point is too deep.
+One wrong placement for another, plus Ojabo flickering out at 568-574 and 592. Needs a ground point for hidden feet
+(box height from the man's own unoccluded frames) before it can ship.
+
+**Lighting (render.shade, 05k --shade, 94e4796):** the bodies were flat kit colour with no light (cutouts; a pile of
+Chiefs one red mass). Each splat is re-lit through its own normal (the z axis of its rotation, which mesh_to_gaussians
+and uniform.decal_gaussians lay along the outward surface normal -- checked on the SMPL-X rest mesh: chest +z, crown
++y). Two lights on the broadcast-camera stills 556-604 (render_view_shade_ab / _ab2 vs render_view_v118): the first
+took the camera-facing kit to ~0.76 of the film's colour (maroon reds); the chosen one leans toward the near sideline,
+ambient 0.66 / diffuse 0.48, camera side ~0.92, far side 0.66. The light knobs were default ARGUMENTS in the first
+draft -- a with_flag arm would have measured nothing (the known trap); they are read at call time now (3847d39).
+
+**v119 = v117b tables + the pile fix + --shade + --sky** ($S/launch_v119.sh: hero follow 1080p, skycam behind the
+offense 1080p, the sideline broadcast camera's own pose 720p + its local blend). The 05q overlay on both films at
+572-612 (diag/overlay_v119_pile.png): Thuney drawn on the turf under #98, #98 one body, no white body on Thuney.
+Still wrong: at 570-586 Madubuike's body stands on Ojabo's spot and nobody between #65 and #74; at 606-615 (after the
+down) id 69 -- a late sideline fragment of the Raven behind #65 -- is drawn right of Ojabo in the endzone view.
