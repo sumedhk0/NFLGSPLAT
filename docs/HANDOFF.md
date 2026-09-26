@@ -7486,3 +7486,25 @@ film (jerseys) before folding; per-camera folds only.
 **Also measured and closed this session:** VPoser shift (rejected, every limb joint worse); the gait vs a lock on fitted
 legs (the gait stays: film shows the fitted sprinter crouched); a backpedal gate on the lock (21 of 38 stances dropped,
 QB unchanged, marginal: not adopted); Savitzky-Golay along the ray (worse: steps at run edges).
+
+### 2026-09-25 22:35 -- deadline push (user: a good product in ~9 h): v117b rendering; kits from the film; sky staged
+
+**v117a** (live v116 tables + 5ba0160's placement code) rendered and strip-checked (review_v117a): Madubuike's lunge as
+v116, the ball flight and catch right. Rulers = the measured combined arm.
+**v117b** = v117a + the quarterback fold (port_v117b.sh: sideline track 54 under 80 at 548-569 -> 204; tables and caches
+byte-identical to play_copy2 where it was measured: QB drift 1.2 m gone, sideline offset 6.0 -> 4.5 px, surges 15 -> 2,
+07l identical) + the film's kits (fd99517: BAL white pants/socks, KC white cleats). 07l: steps 20 / 0, hops 0, census
+live 0.04, planted 36 %; 09d jerk 2 (R arm), trunk 12 (Madubuike's real lunge). Viewer Version 32 (kits by region,
+3f5f43a). Hi-fi render running (setup is slower now: anchor_feet's SMPL-X pass over every state).
+
+**Measured and rejected tonight:** a per-man hole bias along the endzone ray ($S/patch_hole_bias.py: +-0.1 px, the
+centre slightly worse); the depth snap refusing endzone points of sideline-tracked men missed on that frame
+($S/patch_snap_notaken.py: census 0.04 -> 0.10 -- with Madubuike no longer snapped onto Ojabo's point, 12 Ravens at
+575-586, so sideline track 45 late in the play may BE Ojabo); span_gap 45/60 (identical arms: Thuney's 595 cut is not the
+beyond-span rule; his track ends by another rule, 0 frames of his 190 dropped there).
+The centre's 35 px endzone offset is mostly the ruler: his endzone box is merged with the Raven he blocks and then
+with Mahomes passing in front; on the film the drawn body is on #52.
+
+**Staged:** render/sky.py (+ tests) -- a night-stadium backdrop split at the camera's own horizon; 05k --sky
+($S/patch_repo_sky.py) to apply once no 05k process starts; then the v118 hi-fi = v117b + --sky.
+**Write-up:** Version 19 drafted ($S/patch_doc_v19.py applied to the scratch page), publishes after v117b's film check.
