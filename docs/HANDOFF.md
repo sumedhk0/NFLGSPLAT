@@ -7627,3 +7627,34 @@ sideline track 69 at 606-642 is a separate box left of Madubuike's track 45 -- u
 Renders: $S/launch_v122.sh (hero, skycam, the sideline broadcast pose; --shade, bowl stands) queued after the v121
 hero (kept as the fallback). Viewer Version 36 = v122 joints. Placeholder FILES blocking stopped chain steps:
 play_001/render_hifi_v120sc, render_view_v120, render_view_v119, render_hifi_v121sc, render_view_v121 -- delete.
+
+### 2026-09-26 03:30 -- deadline deliverables: v122 published (showcase V5, write-up V20, Film Room V37)
+
+**The product (all private claude.ai artifacts):** Showcase https://claude.ai/artifact/4ZvVyiVwGC99u35gs9P7j3 (Version 5:
+the v122 follow camera 1080p, the skycam behind the offense 1080p, the render from the sideline broadcast camera's own
+solved pose 720p -- render only, never footage); the Film Room viewer https://claude.ai/artifact/9mq5mktV21UEkAKd9Dq61m
+(Version 37: v122 joints + the render's seated crowd in its stands); the write-up https://claude.ai/artifact/8Dz8YFmWYkvvHidyfJL9KM (Version 20). Local videos:
+C:/Users/sumedh/diag/play_001_v122_hifi_1080.mp4, play_001_v122_skycam_1080.mp4, play_001_v122_sideline_view_720.mp4
+(+ the local-only blend against the footage, play_001_v122_sideline_blend.mp4).
+
+**Tonight, in order (all measured, the film the judge):** the late pile's identities (#98 one id, Thuney on the turf,
+a ghost Raven gone; v119); lit bodies (render.shade, --shade); stands that rise with a seated crowd (render.sky bowl);
+Madubuike's depth read off the film (film_reads.json + depth_snap.apply_depth_reads; v121); the spare-missed snap on
+(Ojabo on #90, the RG drawn pre-snap; v122). Rulers v117b -> v122: census live 0.04 -> 0.00 (every frame snap to whistle
+11 v 11), clip frames 11 v 11 373 -> 390 of 401, steps 20/0 and hops 0 unchanged, surges 4.8 % -> 4.3 %.
+Rejected tonight: the short-box hidden-feet rule (census 0.16), folding track 69 into Ojabo (606-609 lose a Raven).
+
+**Open, in order of what a viewer would notice:** after the whistle (602-615) the pile's depths are off again --
+Madubuike steps round #74 (the endzone film reads "92" beside Ojabo at 612) while the read window ends at 596, #74's own
+depth is off, and track 69 (Ojabo back in the sideline view, 606-642) draws a twelfth Raven at 610-615; the RG
+flickers out at 342-344 pre-snap; two KC-12 frames at 215-216; poses in piles. The independent review of tonight's
+code (render.shade, sky bowl, depth_snap, the loader hook) found no defects; its two notes are fixed in the docstring.
+
+**Artifact video lesson:** videos published as plain files next to the page (the files map) sat on a loading spinner in
+the viewer; the documented route is the artifact ASSET store -- declare capabilities {assets: {}}, upload with
+asset: true (file_paths), and reference the returned "/_blob/<id>" URLs verbatim (Showcase Version 4-5; the poster
+loads that way, the video's playback was not confirmed before the browser extension disconnected). The MP4s are also
+remuxed +faststart now (moov first). Showcase V1 (00:06) probably never played its video either.
+
+**Also tonight, outside this thread:** a separate agent built a one-play report from the tracks
+(https://claude.ai/artifact/U3ddAQTQgcZzHUUvZGENGo; scripts in $S/play_report/, not in the repo).
