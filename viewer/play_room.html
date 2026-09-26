@@ -66,6 +66,7 @@
   #pick { color: var(--accent); font-weight: 600; }
   .legend { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; }
   .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  [hidden] { display: none !important; }       /* the page's own rule: standalone pages have no shell to supply it */
   #status { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--display); font-size: 28px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--chalk-dim); pointer-events: none; }
   @media (max-width: 640px) {
     h1 small { display: none; }
@@ -127,17 +128,33 @@
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.outputEncoding = THREE.sRGBEncoding;
   stage.appendChild(renderer.domElement);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b0e18);      // a night game: dark sky over the bowl
   scene.fog = new THREE.Fog(0x0b0e18, 140, 320);
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 600);
   camera.up.set(0, 0, 1);            // the field frame: x along, y across, z up
 
-  // ---- light ----
-  scene.add(new THREE.HemisphereLight(0xdfe6ee, 0x1e3a22, 0.9));
-  const sun = new THREE.DirectionalLight(0xfff4e0, 0.9);
-  sun.position.set(-40, 60, 80);
-  scene.add(sun);
+  // ---- light: the render's stadium key light (render.shade KEY_LIGHT), high over the near sideline, with shadows ----
+  const KEY_DIR = new THREE.Vector3(0.30, -0.55, 0.78).normalize();
+  const key = new THREE.DirectionalLight(0xfff3dd, 1.2);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  Object.assign(key.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 10, far: 220 });
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.03;
+  scene.add(key); scene.add(key.target);
+  function aimKey(x, y) {                     // the shadow box follows the play
+    key.target.position.set(x, y, 0);
+    key.position.copy(key.target.position).addScaledVector(KEY_DIR, 110);
+    key.target.updateMatrixWorld();
+  }
+  aimKey(LOS_X, 0);
+  scene.add(new THREE.HemisphereLight(0xe6ecf5, 0x27432b, 0.62));
+  const fill = new THREE.DirectionalLight(0xc6d4ff, 0.28);
+  fill.position.set(-50, 70, 45);
+  scene.add(fill);
 
   // ---- the field ----
   function fieldTexture() {
@@ -186,6 +203,7 @@
   }
   const ft = fieldTexture();
   const field = new THREE.Mesh(new THREE.PlaneGeometry(ft.w, ft.h), new THREE.MeshLambertMaterial({ map: ft.t }));
+  field.receiveShadow = true;
   scene.add(field);
 
   // ---- the stadium: turf apron, a wall, and sloped stands with the home crowd in red and white ----
@@ -250,73 +268,149 @@
   standSide(sideLen, HALF_W + APRON, "y", 1); standSide(sideLen, HALF_W + APRON, "y", -1);
   standSide(endLen, GOAL + ENDZONE + APRON, "x", 1); standSide(endLen, GOAL + ENDZONE + APRON, "x", -1);
 
-  // ---- bodies as capsules on the SMPL-X body tree ----
-  const KC = new THREE.MeshLambertMaterial({ color: 0xe31837 });
-  const BAL = new THREE.MeshLambertMaterial({ color: 0xf5f3ee });
-  const UNK = new THREE.MeshLambertMaterial({ color: 0x8a8f96 });
-  const HELMET = { KC: new THREE.MeshLambertMaterial({ color: 0xc8102e }), BAL: new THREE.MeshLambertMaterial({ color: 0x1b1b1f }) };
-  const TRIM = { BAL: new THREE.MeshLambertMaterial({ color: 0x2a1a6e }) };
-  // the kits as the film shows them (BAL at KC, 2024 week 1): KC red over white with red socks and white cleats;
-  // BAL white over white with a purple stripe, white socks and black cleats
-  const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
-  const SKIN = lam(0x8c5f45);
-  const KIT = {
-    KC:  { jersey: KC,  pants: lam(0xf1f1ef), socks: lam(0xd8142f), shoes: lam(0xeeeeee), gloves: lam(0xf1f1ef), skin: SKIN },
-    BAL: { jersey: BAL, pants: lam(0xf2f1ed), socks: lam(0xf2f1ed), shoes: lam(0x151517), gloves: lam(0x241a4f), skin: SKIN },
+  // ---- players: styled mannequins on the SMPL-X body tree ----
+  // The exported joints drive low-poly players dressed the way the render dresses its SMPL-X bodies (render.uniform,
+  // render.helmet): tapered limbs, a jersey over shoulder pads with the number front and back, the film's pants,
+  // socks and cleats, a glossy helmet whose facemask turns where the player looks (the export's look, render.gaze).
+  // Only the joints ship -- no SMPL-X geometry -- so the page can go wherever the videos go.
+  const V3 = THREE.Vector3;
+  const lin = (r, g, b) => new THREE.Color().setRGB(r, g, b).convertSRGBToLinear();
+  const mat = (c, rough = 0.72, metal = 0.0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
+  const SKIN = mat(lin(0.55, 0.37, 0.27), 0.8);
+  const kit = (k) => ({ jersey: mat(k.jersey), pants: mat(k.pants), socks: mat(k.socks), shoes: mat(k.shoes, 0.5),
+                        gloves: mat(k.gloves, 0.6), helmet: mat(k.helmet, 0.26, 0.25), mask: mat(k.mask, 0.4, 0.55),
+                        skin: SKIN, number: k.number, edge: k.edge });
+  const KIT = {    // render.uniform KITS and render.helmet colours (sRGB), as the film shows them
+    KC:  kit({ jersey: lin(0.89, 0.09, 0.22), pants: lin(0.94, 0.94, 0.94), socks: lin(0.89, 0.09, 0.22), shoes: lin(0.90, 0.90, 0.90),
+               gloves: lin(0.94, 0.94, 0.94), helmet: lin(0.89, 0.09, 0.22), mask: lin(0.88, 0.88, 0.88), number: "#fafafa", edge: "#e8b923" }),
+    BAL: kit({ jersey: lin(0.95, 0.95, 0.95), pants: lin(0.94, 0.94, 0.94), socks: lin(0.94, 0.94, 0.94), shoes: lin(0.08, 0.08, 0.09),
+               gloves: lin(0.09, 0.09, 0.11), helmet: lin(0.08, 0.08, 0.10), mask: lin(0.12, 0.12, 0.14), number: "#2b1c5c", edge: "#111114" }),
+    "":  kit({ jersey: lin(0.55, 0.57, 0.60), pants: lin(0.80, 0.80, 0.80), socks: lin(0.55, 0.57, 0.60), shoes: lin(0.20, 0.20, 0.20),
+               gloves: lin(0.30, 0.30, 0.30), helmet: lin(0.70, 0.70, 0.72), mask: lin(0.35, 0.35, 0.35), number: "#222222", edge: "#888888" }),
   };
-  // a bone (parent -> child joint j) and a joint sphere by kit region on the SMPL-X body tree
-  const BONE_REGION = { 1: "pants", 2: "pants", 4: "pants", 5: "pants", 7: "socks", 8: "socks", 10: "shoes", 11: "shoes",
-                        20: "skin", 21: "skin" };
-  const JOINT_REGION = { 0: "pants", 1: "pants", 2: "pants", 4: "pants", 5: "pants", 7: "socks", 8: "socks",
-                         10: "shoes", 11: "shoes", 18: "skin", 19: "skin", 20: "gloves", 21: "gloves" };
-  const regionMat = (team, region, fallback) => (KIT[team] && region ? KIT[team][region] : fallback);
-  const RADIUS = { torso: 0.13, thigh: 0.085, shin: 0.065, arm: 0.055, fore: 0.045, foot: 0.05, neck: 0.06 };
-  const boneR = (child) => {
-    if ([3, 6, 9, 12, 13, 14].includes(child)) return RADIUS.torso;
-    if ([1, 2, 4, 5].includes(child)) return RADIUS.thigh;
-    if ([7, 8].includes(child)) return RADIUS.shin;
-    if ([10, 11].includes(child)) return RADIUS.foot;
-    if ([16, 17, 18, 19].includes(child)) return RADIUS.arm;
-    if ([20, 21].includes(child)) return RADIUS.fore;
-    return RADIUS.neck;
+  function limb(rParent, rChild) {            // unit length along +z, the child's end at +z (lookAt the child)
+    const g = new THREE.CylinderGeometry(rChild, rParent, 1, 14, 1, false);
+    g.rotateX(Math.PI / 2);
+    return g;
+  }
+  // child joint -> [geometry, kit region]; the spine, collars and hip bones sit inside the torso shapes
+  const LIMB = {
+    4: [limb(0.098, 0.068), "pants"], 5: [limb(0.098, 0.068), "pants"],       // thighs
+    7: [limb(0.066, 0.046), "socks"], 8: [limb(0.066, 0.046), "socks"],       // shins
+    10: [limb(0.048, 0.042), "shoes"], 11: [limb(0.048, 0.042), "shoes"],     // feet
+    18: [limb(0.064, 0.050), "jersey"], 19: [limb(0.064, 0.050), "jersey"],   // sleeves over the upper arms
+    20: [limb(0.047, 0.037), "skin"], 21: [limb(0.047, 0.037), "skin"],       // forearms
+    12: [limb(0.064, 0.060), "skin"], 15: [limb(0.060, 0.055), "skin"],       // the neck
   };
-  const cyl = new THREE.CylinderGeometry(1, 1, 1, 10, 1, false);
-  cyl.rotateX(Math.PI / 2);                  // along +z, so lookAt aligns it
-  const sph = new THREE.SphereGeometry(1, 14, 10);
-  const bodies = new Map();                  // pid -> {group, bones:[mesh], joints:[sphere], head, parents}
+  const KNOB = { 4: [0.071, "pants"], 5: [0.071, "pants"], 7: [0.048, "socks"], 8: [0.048, "socks"], 10: [0.05, "shoes"],
+                 11: [0.05, "shoes"], 18: [0.053, "jersey"], 19: [0.053, "jersey"], 20: [0.057, "gloves"], 21: [0.057, "gloves"] };
+  const ELL = new THREE.SphereGeometry(1, 24, 16);
+  const SPH = new THREE.SphereGeometry(1, 14, 10);
+  // numbers: canvas numerals on planes baked to face the torso's front (+y) and back (-y), up along +z
+  const NUM_W = 0.23, NUM_H = 0.21;
+  const numFront = new THREE.PlaneGeometry(NUM_W, NUM_H); numFront.rotateX(Math.PI / 2); numFront.rotateZ(Math.PI);
+  const numBack = new THREE.PlaneGeometry(NUM_W, NUM_H); numBack.rotateX(Math.PI / 2);
+  const numMats = new Map();
+  function numberMat(team, n) {
+    const key = `${team}:${n}`;
+    if (numMats.has(key)) return numMats.get(key);
+    const k = KIT[team] || KIT[""];
+    const c = document.createElement("canvas"); c.width = 128; c.height = 128;
+    const g = c.getContext("2d");
+    g.font = '700 108px "Barlow Condensed", Impact, "Arial Narrow", sans-serif';
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.lineJoin = "round"; g.lineWidth = 9; g.strokeStyle = k.edge; g.strokeText(n, 64, 70);
+    g.fillStyle = k.number; g.fillText(n, 64, 70);
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4;
+    const m = new THREE.MeshStandardMaterial({ map: t, transparent: true, alphaTest: 0.4, roughness: 0.7,
+                                               polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    numMats.set(key, m);
+    return m;
+  }
+  function numberOf(pid) {
+    const n = data && data.names && data.names[String(pid)];
+    const m = n && /^(\d{1,2})\b/.exec(n);
+    return m ? m[1] : null;
+  }
+  // a facemask: three bars wrapped around the front of the face and a centre post, in the helmet's own frame
+  const MASK_BARS = [-0.062, -0.028, 0.006].map(z => {
+    const g = new THREE.TorusGeometry(0.128, 0.0075, 6, 22, 2.1);
+    g.rotateZ(Math.PI / 2 - 1.05); g.translate(0, 0.045, z);
+    return g;
+  });
+  const MASK_POST = new THREE.CylinderGeometry(0.0075, 0.0075, 0.085, 6); MASK_POST.rotateX(Math.PI / 2); MASK_POST.translate(0, 0.172, -0.028);
+  const bodies = new Map();                   // pid -> the body's meshes
   let parents = null;
 
   function makeBody(pid, team) {
-    const mat = team === "KC" ? KC : team === "BAL" ? BAL : UNK;
+    const k = KIT[team] || KIT[""];
     const group = new THREE.Group();
-    const bones = [];
-    for (let j = 1; j < 22; j++) {
-      const base = j === 3 || j === 6 || j === 9 ? (TRIM[team] && j === 9 ? TRIM[team] : mat) : mat;
-      const m = new THREE.Mesh(cyl, regionMat(team, BONE_REGION[j], base));
-      m.userData.pid = pid; group.add(m); bones.push(m);
-    }
-    const joints = [];
-    for (let j = 0; j < 22; j++) {
-      const s = new THREE.Mesh(sph, regionMat(team, JOINT_REGION[j], mat)); s.userData.pid = pid; group.add(s); joints.push(s);
-    }
-    const head = new THREE.Mesh(sph, HELMET[team] || UNK); head.userData.pid = pid; group.add(head);
+    const add = (parent, geom, m, shadow = true) => {
+      const o = new THREE.Mesh(geom, m); o.castShadow = shadow; o.userData.pid = pid; parent.add(o); return o;
+    };
+    const limbs = {};
+    for (const [j, [geom, region]] of Object.entries(LIMB)) limbs[j] = add(group, geom, k[region]);
+    const knobs = {};
+    for (const [j, [r, region]] of Object.entries(KNOB)) { const o = add(group, SPH, k[region]); o.scale.setScalar(r); knobs[j] = o; }
+    const torso = new THREE.Group(); group.add(torso);
+    const chest = add(torso, ELL, k.jersey), pads = add(torso, ELL, k.jersey);
+    const belly = add(group, ELL, k.jersey), hips = add(group, ELL, k.pants);
+    const n = numberOf(pid);
+    const front = n ? add(torso, numFront, numberMat(team, n), false) : null;
+    const back = n ? add(torso, numBack, numberMat(team, n), false) : null;
+    const head = new THREE.Group(); group.add(head);
+    const shell = add(head, ELL, k.helmet); shell.scale.set(0.126, 0.142, 0.132);
+    for (const g of MASK_BARS) add(head, g, k.mask, false);
+    add(head, MASK_POST, k.mask, false);
     scene.add(group);
-    return { group, bones, joints, head, team };
+    return { group, team, limbs, knobs, torso, chest, pads, belly, hips, front, back, head };
   }
-  const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _m = new THREE.Vector3();
-  function poseBody(b, J) {
-    for (let j = 1; j < 22; j++) {
-      const p = parents[j];
-      _a.set(J[p][0], J[p][1], J[p][2]); _b.set(J[j][0], J[j][1], J[j][2]);
-      const m = b.bones[j - 1]; const len = _a.distanceTo(_b); const r = boneR(j);
-      _m.addVectors(_a, _b).multiplyScalar(0.5);
-      m.position.copy(_m); m.lookAt(_b); m.scale.set(r, r, Math.max(0.02, len + r * 0.6));
+
+  const tA = new V3(), tB = new V3(), tM = new V3(), tUp = new V3(), tRt = new V3(), tFw = new V3();
+  const tHU = new V3(), tHF = new V3(), tHR = new V3();
+  const P0 = new V3(), S1 = new V3(), S2 = new V3(), N12 = new V3(), H15 = new V3(), LSh = new V3(), RSh = new V3(), LHp = new V3(), RHp = new V3();
+  const tMat = new THREE.Matrix4(), tQ = new THREE.Quaternion(), tQH = new THREE.Quaternion();
+  const vj = (J, i, out) => out.set(J[i][0], J[i][1], J[i][2]);
+  function poseBody(b, J, look) {
+    for (const [j, m] of Object.entries(b.limbs)) {
+      const jj = +j;
+      vj(J, parents[jj], tA); vj(J, jj, tB);
+      const len = tA.distanceTo(tB);
+      m.position.addVectors(tA, tB).multiplyScalar(0.5); m.lookAt(tB); m.scale.set(1, 1, Math.max(0.02, len + 0.03));
     }
-    for (let j = 0; j < 22; j++) {
-      const s = b.joints[j]; s.position.set(J[j][0], J[j][1], J[j][2]);
-      const r = j === 15 ? 0.0 : boneR(j || 3) * 1.05; s.scale.set(r, r, r); s.visible = r > 0;
-    }
-    b.head.position.set(J[15][0], J[15][1], J[15][2] + 0.06); b.head.scale.set(0.13, 0.13, 0.14);
+    for (const [j, o] of Object.entries(b.knobs)) vj(J, +j, o.position);
+    vj(J, 0, P0); vj(J, 3, S1); vj(J, 6, S2); vj(J, 12, N12); vj(J, 15, H15);
+    vj(J, 16, LSh); vj(J, 17, RSh); vj(J, 1, LHp); vj(J, 2, RHp);
+    // the torso's frame, right-handed: x = the player's right, y = where his chest faces, z = up his spine
+    tUp.subVectors(N12, P0).normalize();
+    tRt.subVectors(RSh, LSh); tRt.addScaledVector(tUp, -tRt.dot(tUp));
+    if (tRt.lengthSq() < 1e-8) tRt.set(1, 0, 0);
+    tRt.normalize();
+    tFw.crossVectors(tUp, tRt).normalize();
+    tMat.makeBasis(tRt, tFw, tUp); tQ.setFromRotationMatrix(tMat);
+    const shW = LSh.distanceTo(RSh), hipW = LHp.distanceTo(RHp), chestH = Math.max(0.12, N12.distanceTo(S2));
+    b.torso.position.copy(S2).lerp(N12, 0.45).addScaledVector(tFw, 0.01);
+    b.torso.quaternion.copy(tQ);
+    b.chest.scale.set(shW / 2 + 0.07, 0.13, chestH * 0.72);
+    b.pads.position.set(0, -0.004, chestH * 0.33);
+    b.pads.scale.set(shW / 2 + 0.1, 0.142, 0.12);
+    if (b.front) { b.front.position.set(0, 0.139, chestH * 0.0); b.back.position.set(0, -0.139, chestH * 0.06); }
+    b.belly.position.copy(S1).lerp(S2, 0.5); b.belly.quaternion.copy(tQ);
+    b.belly.scale.set(hipW / 2 + 0.08, 0.12, Math.max(0.1, S1.distanceTo(S2) * 1.15));
+    b.hips.position.copy(P0).lerp(S1, 0.25).addScaledVector(tUp, -0.03); b.hips.quaternion.copy(tQ);
+    b.hips.scale.set(hipW / 2 + 0.09, 0.125, 0.15);
+    // the helmet rides up the neck and faces where he looks (else where his chest faces)
+    tHU.subVectors(H15, N12);
+    if (tHU.lengthSq() < 1e-8) tHU.copy(tUp);
+    tHU.normalize();
+    if (look) tHF.set(look[0], look[1], look[2]); else tHF.copy(tFw);
+    tHF.addScaledVector(tHU, -tHF.dot(tHU));
+    if (tHF.lengthSq() < 1e-6) tHF.copy(tFw).addScaledVector(tHU, -tFw.dot(tHU));
+    tHF.normalize();
+    tHR.crossVectors(tHF, tHU).normalize();
+    tMat.makeBasis(tHR, tHF, tHU); tQH.setFromRotationMatrix(tMat);
+    b.head.position.copy(H15).addScaledVector(tHU, 0.085);
+    b.head.quaternion.copy(tQH);
   }
 
   // ---- the ball ----
@@ -434,13 +528,10 @@
     out.copy(_bp).normalize();
   }
   // First person draws the man's own body -- his hands reaching for the ball, his arms in a block -- and hides what
-  // the camera sits inside or just above: the helmet, the neck bone and the upper chest (bones to joints 12-15, the
-  // spheres at 12-14; a 13 cm capsule 10 cm under the eye filled the bottom of the view).
-  const OWN_HIDDEN_BONES = [11, 12, 13, 14], OWN_HIDDEN_JOINTS = [12, 13, 14];
+  // the camera sits inside or just above: the helmet and facemask, the neck, the shoulder pads, the chest and its
+  // numbers (a chest 30 cm under the eye filled the bottom of the view).
   function setOwnHead(b, shown) {
-    b.head.visible = shown;
-    for (const i of OWN_HIDDEN_BONES) b.bones[i].visible = shown;
-    for (const j of OWN_HIDDEN_JOINTS) b.joints[j].visible = shown;
+    for (const o of [b.head, b.limbs[12], b.limbs[15], b.pads, b.chest, b.front, b.back]) if (o) o.visible = shown;
   }
   function enterFpv(pid) {
     if (fpv !== null && fpv !== pid) { const o = bodies.get(fpv); if (o) setOwnHead(o, true); }
@@ -515,7 +606,10 @@
     const rect = el.getBoundingClientRect();
     ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hits = ray.intersectObjects([...bodies.values()].filter(b => b.group.visible).flatMap(b => [b.head, ...b.bones]).filter(m => m.visible), false);
+    const shown = (o) => { for (let q = o; q; q = q.parent) if (!q.visible) return false; return true; };
+    const meshes = [];
+    for (const b of bodies.values()) if (b.group.visible) b.group.traverse(o => { if (o.isMesh && shown(o)) meshes.push(o); });
+    const hits = ray.intersectObjects(meshes, false);
     const out = document.getElementById("pick");
     if (hits.length) {
       const pid = hits[0].object.userData.pid;
@@ -536,11 +630,12 @@
     for (const [pid, team, J] of rows) {
       let b = bodies.get(pid);
       if (!b) { b = makeBody(pid, team); bodies.set(pid, b); }
-      b.group.visible = true; poseBody(b, J); seen.add(pid);
+      const lk = data.look && data.look[String(pid)] && data.look[String(pid)][String(f)];
+      b.group.visible = true; poseBody(b, J, lk); seen.add(pid);
     }
     for (const [pid, b] of bodies) if (!seen.has(pid)) b.group.visible = false;
     const bp = data.ball[String(f)];
-    if (bp) { ball.visible = true; ball.position.set(bp[0], bp[1], bp[2]); if (orbit.follow) { orbit.target.set(bp[0], bp[1], 1.0); applyOrbit(); } }
+    if (bp) { ball.visible = true; ball.position.set(bp[0], bp[1], bp[2]); ball.castShadow = true; aimKey(bp[0], bp[1]); if (orbit.follow) { orbit.target.set(bp[0], bp[1], 1.0); applyOrbit(); } }
     else ball.visible = false;
     if (realCam) applyRealCam(f);
     if (fpv !== null) { const b = bodies.get(fpv); if (b) setOwnHead(b, false); applyFpv(f); }
@@ -590,6 +685,22 @@
     status.hidden = true;
     setPreset("sideline");
     showFrame(frames.findIndex(x => x >= EVENTS.snap - 20));
+    // deep links (a site can link a moment): ?frame=562&cam=pocket, ?cam=real:endzone, ?cam=fpv&id=80
+    let qs = null;
+    try { qs = new URLSearchParams(location.search); } catch (e) { qs = null; }
+    if (qs) {
+      const fq = parseInt(qs.get("frame") || "", 10);
+      if (Number.isFinite(fq)) { const i = frames.findIndex(x => x >= fq); if (i >= 0) showFrame(i); }
+      const cq = qs.get("cam"), iq = parseInt(qs.get("id") || "", 10);
+      if (cq === "fpv" && Number.isFinite(iq)) { picked = iq; setPreset("fpv"); }
+      else if (cq && (PRESETS[cq] || cq === "real:sideline" || cq === "real:endzone")) setPreset(cq);
+      const rq = parseFloat(qs.get("r") || ""), tq = parseFloat(qs.get("theta") || "");
+      if (!realCam && fpv === null && (Number.isFinite(rq) || Number.isFinite(tq))) {
+        if (Number.isFinite(rq)) orbit.r = Math.min(160, Math.max(2, rq));
+        if (Number.isFinite(tq)) orbit.theta = tq;
+        applyOrbit();
+      }
+    }
   }).catch(err => { status.textContent = `Could not load the play: ${err.message}`; });
 })();
 </script>
