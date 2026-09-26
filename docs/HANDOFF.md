@@ -7612,3 +7612,18 @@ film-read man is not a duplicate of anyone (exempt his neighbours from the dedup
 --shade and the bowl stands. Viewer Version 35 (v121 joints). The v120 hero/skycam were stopped mid-render (superseded);
 placeholder FILES at play_001/render_hifi_v120sc, render_view_v120 and render_view_v119 blocked the stopped chains'
 next steps -- delete them.
+
+### 2026-09-26 01:55 -- v122 = v121 + depth_snap.SPARE_MISSED on (f2d58ee): Ojabo on #90, the KC RG drawn pre-snap
+
+SPARE_MISSED failed at 00:40 only because the man it freed (Madubuike) fell back to a sideline-only point 0.6 m too
+deep; with his depth read off the film (v121) that failure is gone. Measured on top of v121 (with_flag arm v121s):
+live census 0.00 either way, steps 20/0, hops 0, jitter p99 0.1628 -> 0.1666; clip frames exactly 11 v 11 384 -> 390
+of 401 (the KC RG 76 at 218-234: no more pop-in a third of a second into every video); on both films
+(diag/mark_v121s.png vs mark_v121.png) Ojabo stands on #90 at 552 and 572 (v121: a hold 0.5-0.9 m wide). Worse in one
+place: Madubuike at 512 (before the read window) sits ~0.3 m further from the Raven on the turf. Surges 4.3 %.
+Remaining off-count clip frames: 215-216 (KC 12), 342-344 (KC 10, the RG flicker), 610-615 (BAL 12 after the down:
+sideline track 69 at 606-642 is a separate box left of Madubuike's track 45 -- unread).
+
+Renders: $S/launch_v122.sh (hero, skycam, the sideline broadcast pose; --shade, bowl stands) queued after the v121
+hero (kept as the fallback). Viewer Version 36 = v122 joints. Placeholder FILES blocking stopped chain steps:
+play_001/render_hifi_v120sc, render_view_v120, render_view_v119, render_hifi_v121sc, render_view_v121 -- delete.
