@@ -7589,3 +7589,26 @@ stands drawn flat on the ground). Now four planar banks rise as in the viewer (2
 with a red ribbon board), seated spectators per 0.55 m seat and 0.9 m row, aisles, dimmer up the bank; "flat"
 reproduces v119 byte for byte. v119's chain was stopped at the hero's 30th frame and restarted as **v120** = v119
 tables + --shade + the bowl ($S/launch_v120.sh: hero 1080p, skycam 1080p, the sideline broadcast pose 720p).
+
+### 2026-09-26 01:35 -- v121: Madubuike's depth read off the film; 11 v 11 on every frame from snap to whistle
+
+**Read, not inferred.** Neither camera places Madubuike (id 4) along the sideline's line of sight at 552-596: feet
+hidden behind #65 in the sideline view, no endzone box. His helmet read in the endzone film ($S/grid_crop.py gridded
+crops; clip frame = f - 15) at 552/564/584/596 = (1130,537) (1092,528) (1052,560) (1040,615) px, triangulated with his
+sideline box's top-centre: y 1.93 / 1.92 / 1.88 / 1.77 m, ray gaps 0.13 / 0.32 / 0.21 / 0.10 m. **<play>/film_reads.json**
+carries the reads, the pixels and why; **depth_snap.apply_depth_reads** (065a23a) slides the man along his OWN sideline
+ray to the read y after the snap (x stays the sideline's), ramped over 6 frames. No file, no change.
+
+**Measured** (patch arm v119r, then the repo path v121 -- dumps identical): census live 0.08 -> **0.00** (KC 11.0,
+BAL 11.0; 213 of 213 live frames exactly 11 v 11; the clip's 17 off frames are 215-234 pre-snap, 342-344 and 610-615
+after the down), steps 20/0, hops 0, jitter unchanged; surges 4.4 % (v117b 4.8 %). **Film** ($S/mark_ids.py: each
+drawn body as a turf-to-1.8 m stick on full-resolution crops of both films, diag/mark_v119r.png vs mark_v119.png):
+Madubuike between #65 and #74 at 560/576/588 in the endzone film (v119: on #74 or on Ojabo's spot). **Cost:**
+Ojabo's endzone point is 0.75 m from the corrected Madubuike, inside the 0.9 m teammate dedupe, so it is dropped and a
+hold bridges him ~0.7 m wide of #90 (v119 drew him right at 560 and not at all at 570-586). Next if wanted: a
+film-read man is not a duplicate of anyone (exempt his neighbours from the dedupe).
+
+**v121 renders** ($S/launch_v121.sh): hero follow 1080p, skycam 1080p, the sideline broadcast pose 720p -- all with
+--shade and the bowl stands. Viewer Version 35 (v121 joints). The v120 hero/skycam were stopped mid-render (superseded);
+placeholder FILES at play_001/render_hifi_v120sc, render_view_v120 and render_view_v119 blocked the stopped chains'
+next steps -- delete them.
