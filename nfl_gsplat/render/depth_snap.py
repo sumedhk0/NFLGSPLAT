@@ -68,8 +68,10 @@ def apply_depth_reads(ground: dict, raw: dict, track, reads) -> dict:
     """Film-read depths for men neither camera can place along the sideline's line of sight. Each read is
     ``{"id": pid, "y": {frame: y}, "ramp": n}`` (sideline frame numbering): between its first and last frame the man
     slides along his OWN sideline ray (camera ground centre -> his unsnapped sideline point in ``raw``) to the y read
-    off the film (interpolated between the read frames), blended in and out over ``ramp`` frames; x stays what the
-    sideline measures. ``ground`` is changed in place. Returns ``{pid: frames moved}``.
+    off the film (interpolated between the read frames), blended in and out over ``ramp`` frames. The move is along
+    the ray, so x changes only as much as the ray leans (the sideline's own measurement is kept, not replaced).
+    ``ground`` is changed in place. One read window per id: two overlapping windows for the same man would blend the
+    second against the first's result. Returns ``{pid: frames moved}``.
 
     Play 1: Madubuike (id 4) at 552-596, feet hidden behind #65 in the sideline view and never boxed by the endzone
     camera, was slid onto Ojabo's endzone point; his helmet read in the endzone film and triangulated with his sideline
