@@ -79,7 +79,7 @@
 <div id="status">Loading the play…</div>
 
 <div id="top" class="bar">
-  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v116</small></h1>
+  <h1>Play 001 Film Room <small>BAL at KC · 2024 wk 1 · v117b</small></h1>
   <div class="presets" role="group" aria-label="Camera">
     <button data-cam="sideline" aria-pressed="true">Sideline</button>
     <button data-cam="endzone" aria-pressed="false">Endzone</button>
@@ -194,6 +194,20 @@
   const UNK = new THREE.MeshLambertMaterial({ color: 0x8a8f96 });
   const HELMET = { KC: new THREE.MeshLambertMaterial({ color: 0xc8102e }), BAL: new THREE.MeshLambertMaterial({ color: 0x1b1b1f }) };
   const TRIM = { BAL: new THREE.MeshLambertMaterial({ color: 0x2a1a6e }) };
+  // the kits as the film shows them (BAL at KC, 2024 week 1): KC red over white with red socks and white cleats;
+  // BAL white over white with a purple stripe, white socks and black cleats
+  const lam = (c) => new THREE.MeshLambertMaterial({ color: c });
+  const SKIN = lam(0x8c5f45);
+  const KIT = {
+    KC:  { jersey: KC,  pants: lam(0xf1f1ef), socks: lam(0xd8142f), shoes: lam(0xeeeeee), gloves: lam(0xf1f1ef), skin: SKIN },
+    BAL: { jersey: BAL, pants: lam(0xf2f1ed), socks: lam(0xf2f1ed), shoes: lam(0x151517), gloves: lam(0x241a4f), skin: SKIN },
+  };
+  // a bone (parent -> child joint j) and a joint sphere by kit region on the SMPL-X body tree
+  const BONE_REGION = { 1: "pants", 2: "pants", 4: "pants", 5: "pants", 7: "socks", 8: "socks", 10: "shoes", 11: "shoes",
+                        20: "skin", 21: "skin" };
+  const JOINT_REGION = { 0: "pants", 1: "pants", 2: "pants", 4: "pants", 5: "pants", 7: "socks", 8: "socks",
+                         10: "shoes", 11: "shoes", 18: "skin", 19: "skin", 20: "gloves", 21: "gloves" };
+  const regionMat = (team, region, fallback) => (KIT[team] && region ? KIT[team][region] : fallback);
   const RADIUS = { torso: 0.13, thigh: 0.085, shin: 0.065, arm: 0.055, fore: 0.045, foot: 0.05, neck: 0.06 };
   const boneR = (child) => {
     if ([3, 6, 9, 12, 13, 14].includes(child)) return RADIUS.torso;
@@ -215,12 +229,13 @@
     const group = new THREE.Group();
     const bones = [];
     for (let j = 1; j < 22; j++) {
-      const m = new THREE.Mesh(cyl, j === 3 || j === 6 || j === 9 ? (TRIM[team] && j === 9 ? TRIM[team] : mat) : mat);
+      const base = j === 3 || j === 6 || j === 9 ? (TRIM[team] && j === 9 ? TRIM[team] : mat) : mat;
+      const m = new THREE.Mesh(cyl, regionMat(team, BONE_REGION[j], base));
       m.userData.pid = pid; group.add(m); bones.push(m);
     }
     const joints = [];
     for (let j = 0; j < 22; j++) {
-      const s = new THREE.Mesh(sph, mat); s.userData.pid = pid; group.add(s); joints.push(s);
+      const s = new THREE.Mesh(sph, regionMat(team, JOINT_REGION[j], mat)); s.userData.pid = pid; group.add(s); joints.push(s);
     }
     const head = new THREE.Mesh(sph, HELMET[team] || UNK); head.userData.pid = pid; group.add(head);
     scene.add(group);
