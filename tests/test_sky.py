@@ -45,3 +45,32 @@ def test_the_crowd_is_fixed_on_the_ground_not_in_the_image():
     a = sky._crowd(xs, ys, seed=7); b = sky._crowd(xs, ys, seed=7)
     assert np.array_equal(a, b)
     assert np.array_equal(a[0], a[1])                              # one cell (0.55 m): one colour
+
+
+def test_bowl_stands_rise_from_a_wall_with_spectators_and_flat_is_v119():
+    """STANDS_MODE bowl: a level camera 10 m up at the near sideline sees the far bank of seats rise ABOVE its horizon (a
+    flat ground crowd never can), the wall and its ribbon board below it, and turf nearer; STANDS_MODE flat reproduces
+    the v119 image exactly."""
+    K, R, t, w, h = _camera(0.0, w=320, h=180)
+    old = sky.STANDS_MODE
+    try:
+        sky.STANDS_MODE = "flat"
+        flat = sky.backdrop(K, R, t, w, h)
+        sky.STANDS_MODE = "bowl"
+        bowl = sky.backdrop(K, R, t, w, h)
+    finally:
+        sky.STANDS_MODE = old
+    assert bowl.shape == flat.shape and np.isfinite(bowl).all() and 0 <= bowl.min() and bowl.max() <= 1
+    hz = int(round(sky.horizon_rows(K, R, w)[0]))
+    above = bowl[hz - 6, :, :]                                    # just above the horizon: the far bank, not sky
+    assert not np.allclose(above, flat[hz - 6]) and above.std() > 0.005
+    C = -R.T @ t
+    kind, a, d, z = sky.bowl_hits(C, np.array([[0.0, 1.0, 0.0], [0.0, 1.0, -0.15], [0.0, 0.2, -1.0], [0.0, 0.0, 1.0]]))
+    assert kind.tolist() == [3, 2, 1, 0]                          # level: the bank; a little down: the wall; steep: turf; up: sky
+    assert 0 <= z[1] <= sky.BOWL_WALL_H_M and 0 < d[0] < np.hypot(sky.BOWL_DEPTH_M, sky.BOWL_RISE_M)
+
+
+def test_spectators_are_fixed_on_the_bank():
+    a = np.array([3.0, 3.01, 30.0]); d = np.array([5.5, 5.51, 12.0])
+    x = sky._spectators(a, d, seed=7); y = sky._spectators(a, d, seed=7)
+    assert np.array_equal(x, y) and np.allclose(x[0], x[1], atol=1e-3)
