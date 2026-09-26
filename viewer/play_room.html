@@ -128,8 +128,8 @@
   renderer.outputEncoding = THREE.sRGBEncoding;
   stage.appendChild(renderer.domElement);
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x14161a);
-  scene.fog = new THREE.Fog(0x14161a, 120, 260);
+  scene.background = new THREE.Color(0x0b0e18);      // a night game: dark sky over the bowl
+  scene.fog = new THREE.Fog(0x0b0e18, 140, 320);
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 600);
   camera.up.set(0, 0, 1);            // the field frame: x along, y across, z up
 
@@ -187,6 +187,55 @@
   const ft = fieldTexture();
   const field = new THREE.Mesh(new THREE.PlaneGeometry(ft.w, ft.h), new THREE.MeshLambertMaterial({ map: ft.t }));
   scene.add(field);
+
+  // ---- the stadium: turf apron, a wall, and sloped stands with the home crowd in red and white ----
+  function crowdTexture() {
+    const W = 512, H = 256, cell = 4;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const g = c.getContext("2d");
+    const pal = ["#7a0f1a", "#a3172a", "#c9c3b8", "#2c2a30", "#17171c", "#8e1522"];
+    const wts = [0.24, 0.16, 0.10, 0.22, 0.18, 0.10];
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    for (let y = 0; y < H; y += cell) {
+      for (let x = 0; x < W; x += cell) {
+        let u = rnd(), k = 0;
+        while (k < wts.length - 1 && u > wts[k]) { u -= wts[k]; k++; }
+        g.fillStyle = pal[k]; g.fillRect(x, y, cell, cell);
+      }
+      if ((y / cell) % 9 === 8) { g.fillStyle = "#0d0d12"; g.fillRect(0, y, W, cell); }   // an aisle every few rows
+    }
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.encoding = THREE.sRGBEncoding;
+    t.anisotropy = 4;
+    return t;
+  }
+  const APRON = 8.0, WALL_H = 1.3, RISE = 26.0, DEPTH = 42.0;
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(2 * (GOAL + ENDZONE + APRON + 2), 2 * (HALF_W + APRON + 2)),
+                               new THREE.MeshLambertMaterial({ color: 0x1d3f22 }));
+  apron.position.z = -0.02; scene.add(apron);
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x0c0d14, side: THREE.DoubleSide });
+  const standMat = (rx, ry) => { const t = crowdTexture(); t.repeat.set(rx, ry);
+    return new THREE.MeshLambertMaterial({ map: t, side: THREE.DoubleSide }); };
+  function standSide(len, inner, axis, sign) {
+    // a wall at `inner` metres from the centre line, then a bank of seats rising outward to RISE m over DEPTH m
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(len, WALL_H), wallMat);
+    const slope = Math.hypot(DEPTH, RISE);
+    const bank = new THREE.Mesh(new THREE.PlaneGeometry(len, slope), standMat(len / 64, slope / 32));   // ~0.5 m per seat cell
+    const tilt = Math.atan2(RISE, DEPTH);
+    if (axis === "y") {        // along the sidelines
+      wall.rotation.x = Math.PI / 2; wall.position.set(0, sign * inner, WALL_H / 2);
+      bank.rotation.x = sign > 0 ? tilt : -tilt;
+      bank.position.set(0, sign * (inner + DEPTH / 2), WALL_H + RISE / 2);
+    } else {                   // behind the end zones
+      wall.rotation.y = Math.PI / 2; wall.rotation.z = Math.PI / 2; wall.position.set(sign * inner, 0, WALL_H / 2);
+      bank.rotation.set(0, sign > 0 ? -tilt : tilt, Math.PI / 2);
+      bank.position.set(sign * (inner + DEPTH / 2), 0, WALL_H + RISE / 2);
+    }
+    scene.add(wall); scene.add(bank);
+  }
+  const sideLen = 2 * (GOAL + ENDZONE + APRON), endLen = 2 * (HALF_W + APRON);
+  standSide(sideLen, HALF_W + APRON, "y", 1); standSide(sideLen, HALF_W + APRON, "y", -1);
+  standSide(endLen, GOAL + ENDZONE + APRON, "x", 1); standSide(endLen, GOAL + ENDZONE + APRON, "x", -1);
 
   // ---- bodies as capsules on the SMPL-X body tree ----
   const KC = new THREE.MeshLambertMaterial({ color: 0xe31837 });
