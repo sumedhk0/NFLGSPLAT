@@ -7571,3 +7571,21 @@ offense 1080p, the sideline broadcast camera's own pose 720p + its local blend).
 572-612 (diag/overlay_v119_pile.png): Thuney drawn on the turf under #98, #98 one body, no white body on Thuney.
 Still wrong: at 570-586 Madubuike's body stands on Ojabo's spot and nobody between #65 and #74; at 606-615 (after the
 down) id 69 -- a late sideline fragment of the Raven behind #65 -- is drawn right of Ojabo in the endzone view.
+
+### 2026-09-26 01:10 -- hidden feet: the short-box rule measured and rejected; v120 = v119 + stands that rise
+
+**Why Madubuike lands deep:** his sideline boxes at 572-590 are only his head and shoulders over #65 -- 33-46 px tall
+where #65 and #74 beside him are 112-118 px -- so the "foot" row is ~80 px too high and the ground point lands deep
+along the sideline ray. **The short-box rule** ($S/patch_short_box.py: a box shorter than 0.7 of the median height of
+the boxes around it, not lying down, takes its foot from its top plus that median) moved 293 sideline boxes play-wide.
+v119s: census 0.08 -> 0.16 -- #98 (id 81) drops out at 542-567 (his boxes merged with Thuney's are "short" and his
+point slid 1.8 m, then deduped), the KC RG drops pre-snap at 220-227, and Madubuike still stands at y 2.2 (film:
+between #65 at 1.1 and #74 at 1.6). With SPARE_MISSED too (v119sm): 0.19. Rejected; the rule reads every occluded or
+merged box as hidden feet, and the man it was built for is barely moved. The next attempt should take hidden feet
+from the man's OWN unoccluded box height near that frame, not the neighbours'.
+
+**The stands (render.sky STANDS_MODE "bowl", caf7638):** the v119 hero's top band was a red/grey pixel mosaic (the
+stands drawn flat on the ground). Now four planar banks rise as in the viewer (26 m over 42 m behind a 1.3 m wall
+with a red ribbon board), seated spectators per 0.55 m seat and 0.9 m row, aisles, dimmer up the bank; "flat"
+reproduces v119 byte for byte. v119's chain was stopped at the hero's 30th frame and restarted as **v120** = v119
+tables + --shade + the bowl ($S/launch_v120.sh: hero 1080p, skycam 1080p, the sideline broadcast pose 720p).
