@@ -7508,3 +7508,25 @@ with Mahomes passing in front; on the film the drawn body is on #52.
 **Staged:** render/sky.py (+ tests) -- a night-stadium backdrop split at the camera's own horizon; 05k --sky
 ($S/patch_repo_sky.py) to apply once no 05k process starts; then the v118 hi-fi = v117b + --sky.
 **Write-up:** Version 19 drafted ($S/patch_doc_v19.py applied to the scratch page), publishes after v117b's film check.
+
+### 2026-09-25 23:35 -- v117b = CURRENT BEST (film-checked); stadium backdrop in (05k --sky, viewer); v118 = v117b + sky rendering
+
+**v117b film check:** sideline blend 536-552 -- in v116 the quarterback's body trails ~1 m to the left of Mahomes on the
+footage, in v117b it sits on him. Kits on the run sheet match the film (Ravens all white). Write-up Version 19, viewer
+Version 33 (kits by region + a stadium bowl under a night sky; checked once in Chrome).
+
+**The stadium (render.sky, e8a1c82 / c66ea3c):** the black band over the far sideline was GROUND beyond the field
+texture (the follow camera looks down; its horizon is above the frame), so a sky gradient did nothing. backdrop(K, R, t)
+intersects each pixel's ray with the ground: turf within 7 m of the lines, a wall, then stands with a crowd hashed
+per 0.55 m ground cell (fixed on the ground, no flicker) in red/white, fading; sky only for rays that point up.
+
+**The late pile, measured again (not fixed):**
+- Thuney's vanish at 601: timeline.MAX_GAP_FRAMES (30) is also the window in which a body is "anchored" against the
+  duplicate rule; his sideline track ends at 565, so from 595 his endzone-placed body in the pile is deduped (a teammate
+  within 0.9 m) and the hold ends at 601. MAX_GAP_FRAMES 45 keeps him (601-613) and #65 (342-344) but draws Raven 1
+  beside Madubuike's body at 570-579 and drops him at 587-590: census 0.04 -> 0.08 (KC exactly 11.0, BAL 11.01 ->
+  11.04). 60 adds a pre-snap KC ghost (164 at 265-276). Not adopted.
+- Folding sideline track 45 (528-631, id 4) into id 1 (Ojabo) -- census 0.04 -> 0.43 (BAL 10.6): track 45 from 528 is
+  NOT Ojabo; merging deletes a man. v117b's labels stand; id 4 is drawn on Ojabo's spot because the positional depth
+  snap slides Madubuike's sideline ray onto Ojabo's endzone point, and refusing that snap (patch_snap_notaken) drew 12
+  Ravens at 575-586 -- one more duplicate somewhere in that pile. Needs a frame-by-frame endzone-jersey pass.
